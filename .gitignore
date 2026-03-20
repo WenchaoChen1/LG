@@ -1,0 +1,15 @@
+# 子 git 项目（独立仓库，不纳入父仓库）
+CIOaas-api/
+CIOaas-web/
+CIOaas-python/
+cio-bigdata/
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
