@@ -124,6 +124,8 @@
 | 数据库查询 `finance_manual_data` 的 `operating_expenses` 和 `gross_revenue` | `= calculateRate(operating_expenses, grossRevenue)` |
 
 > 此字段存的是 rate（OE/Revenue），不是 OE 原始金额。字段名容易混淆。
+>
+> ⚠️ **预测时不使用本列**。System Forecast 的 OE 值 = 6 个子项（S&M/R&D/G&A 的 Expenses 和 Payroll）分别用各自 rate 计算后求和，不独立使用 `operating_expenses` rate。本列仅用于数据分析参考。
 
 ### 3.12 `capitalized_rd_rate` — Cap R&D / Revenue
 
@@ -181,7 +183,15 @@
 
 ### 6.1 决定预测模式
 
-按公司与最近 24 月、close month 从本表取记录数：≥24 条用 AI 模型（type='2'）；6～23 条用公式混合模式（type='1'）；<6 条用公式纯同业模式（type='1'）。
+按公司在本表中最近 24 个月（截至 close month）的有效记录数决定预测模式：
+
+| calculateType | 条件（growth_rate 记录数） | 预测方式 | 写入 forecast_current.type |
+|---|---|---|---|
+| 3 | ≥ 24 条 | AI Model（Ensemble） | `"2"` (MODEL) |
+| 2 | 6–23 条 | Formula（自身+同业混合） | `"1"` (FORMULA) |
+| 1 | < 6 条 | Formula（纯同业） | `"1"` (FORMULA) |
+
+> 注意：`calculateType` 是代码内部变量（1/2/3），与 `financial_forecast_current.type` 数据库字段（"0"/"1"/"2"）不同。
 
 ### 6.2 各字段的使用方式
 

@@ -29,6 +29,10 @@
 
 **写入方法**（三个场景共用）：先删除该公司、该日期范围、该 type 的旧数据，再批量写入新数据；同时写入历史表 `financial_forecast_history`。
 
+**场景 A 的自动计算功能**：用户编辑 Committed Forecast 保存时，可触发与 Financial Entry 相同的自动计算：
+- **OE 子项自动拆分**：用 OE 总额按历史 rate 比例反向拆分 6 个子项（逻辑同 Financial Entry，详见 [finance_manual_data §4.1](./finance_manual_data.md#41-operating-expenses-子项自动拆分)），`actionType=2`
+- **Cash 级联自动计算**：修改某月 Cash 后向后逐月递推，遇到手动输入月份停止（逻辑同 Financial Entry，详见 [finance_manual_data §4.2](./finance_manual_data.md#42-cash-级联自动计算)）
+
 ---
 
 ## 3. 每个字段的存入逻辑
@@ -196,7 +200,7 @@
 | 参数 | 含义 | 公式 | 数据来源 |
 | --- | --- | --- | --- |
 | `Cash(0)` | 递推起点 | 直接读取 close month 实际 Cash | `finance_manual_data`.`cash`；<br>取当前公司 close month 对应日期的记录（数据元：同上表列） |
-| `NetIncome(t)` | 月份 t 的预测净利润 | `= Gross Revenue(t) − COGS(t) − OE(t) − Other Expenses(t)` | 本表同月各预测字段计算得出 |
+| `NetIncome(t)` | 月份 t 的预测净利润 | `= Gross Revenue(t) − COGS(t) − OE(t) − Other Expenses(t)`（⚠️ **不含** Capitalized R&D；扣除 Cap R&D 后的指标是 Monthly Net Burn Rate，不参与 Cash 递推） | 本表同月各预测字段计算得出 |
 | `ΔAR(t)` | 应收账款变动量 | `= AR(t) − AR(t−1)` | 本表当月和上月的 `accounts_receivable` |
 | `ΔOtherAssets(t)` | 其他资产变动量 | `= OtherAssets(t) − OtherAssets(t−1)` | 本表当月和上月的 `assets_other` |
 | `ΔAP(t)` | 应付账款变动量 | `= AP(t) − AP(t−1)` | 本表当月和上月的 `accounts_payable` |
@@ -214,7 +218,7 @@
 
 | 参数 | 含义 | 公式 | 数据来源 |
 | --- | --- | --- | --- |
-| `Fluctuation` | 最近两个月的变动率 | `(LTD_closeMonth − LTD_closeMonth−1) / LTD_closeMonth−1`；若 \|Fluctuation\| < 10% 则取 0（视为无显著变动） | `finance_manual_data`.`long_term_debt`；取 close month 和 close month − 1 月的记录 |
+| `Fluctuation` | 最近两个月的变动率 | `(LTD_closeMonth − LTD_closeMonth−1) / LTD_closeMonth−1`（精度：**2 位小数，四舍五入**）；若 close month 或 close month−1 的 LTD 为 **0** → Fluctuation = 0（视为无变动）；若 \|Fluctuation\| < 10% 则取 0（视为无显著变动） | `finance_manual_data`.`long_term_debt`；取 close month 和 close month − 1 月的记录 |
 | 首月预测值 | 第 1 个预测月的 LTD | `LTD_closeMonth × (1 + Fluctuation) ^ n`；n = close month 到首个预测月的月数差 | 同上 |
 | 后续预测值 | 第 2~24 个预测月的 LTD | `LTD(t) = LTD(t−1) × (1 + Fluctuation)` | 逐月递推 |
 
@@ -223,7 +227,7 @@
 | 存入场景 | 数据来源 | 业务公式 |
 |---------|---------|---------|
 | **场景 A** | 前端用户输入 | 直接存入 |
-| **场景 B/C** | 数据库查询 `finance_manual_data`（close month 和 close month−1 的 `liabilities_other`） | 波动率复利外推，逻辑同 `long_term_debt`（见 3.16），初始值取 `finance_manual_data`.`liabilities_other` |
+| **场景 B/C** | 数据库查询 `finance_manual_data`（close month 和 close month−1 的 `liabilities_other`） | 波动率复利外推，逻辑同 `long_term_debt`（见 3.16，含零值处理和精度规则），初始值取 `finance_manual_data`.`liabilities_other` |
 
 ### 3.18 `p05` / `p50` / `p95` — Revenue 置信区间
 
