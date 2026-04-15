@@ -8,7 +8,7 @@
 
 ## 1. 表概述
 
-| 属性 | 值 | 
+| 属性 | 值 |
 |------|-----|
 | 表名 | `finance_manual_data` |
 | 实体类 | `FinanceManualData` → `FinanceManualDataAbstract` → `AbstractCustomEntity` |
