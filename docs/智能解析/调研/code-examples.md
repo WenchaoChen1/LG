@@ -159,7 +159,7 @@ class ExtractionResult(BaseModel):
 class MappingItem(BaseModel):
     row_index: int
     label: str
-    category: str = Field(description="One of the 16 LG categories")
+    category: str = Field(description="One of the 19 LG categories")
     confidence: str = Field(description="HIGH / MEDIUM / LOW")
     reasoning: str = Field(description="Brief explanation")
 
@@ -215,7 +215,8 @@ class LGCategory(str, Enum):
     SM_PAYROLL = "S&M Payroll"
     RD_PAYROLL = "R&D Payroll"
     GA_PAYROLL = "G&A Payroll"
-    OOE = "Other Operating Expenses"
+    OTHER_INCOME = "Other Income"
+    OTHER_EXPENSE = "Other Expense"
     CASH = "Cash"
     AR = "Accounts Receivable"
     RD_CAPITALIZED = "R&D Capitalized"
@@ -266,10 +267,10 @@ RULES = [
         ["short term debt", "current portion", "short-term borrowing"],
         [], 2, []),
 
-    # Priority 3: 兜底
+    # Priority 3: G&A Payroll 仅在有 g&a/general/admin 上下文时匹配
     MappingRule(LGCategory.GA_PAYROLL,
         ["wages", "salary", "payroll", "compensation", "benefits", "payroll taxes"],
-        [], 3, []),
+        [], 3, ["g&a", "general", "admin", "office"]),
     MappingRule(LGCategory.COGS,
         ["cogs", "cost of goods", "cost of revenue", "materials",
          "inventory", "direct labor", "supplies used",
@@ -297,9 +298,12 @@ RULES = [
     MappingRule(LGCategory.CASH,
         ["cash", "bank", "checking", "savings", "cash equivalents",
          "money market", "treasury"], [], 5, []),
-    MappingRule(LGCategory.OOE,
-        ["other income", "other expense", "miscellaneous", "sundry"],
-        [], 5, []),
+    MappingRule(LGCategory.OTHER_INCOME,
+        ["other income", "interest income", "gain on sale", "miscellaneous income"],
+        ["expense"], 5, []),
+    MappingRule(LGCategory.OTHER_EXPENSE,
+        ["other expense", "interest expense", "loss on sale", "miscellaneous expense"],
+        ["income"], 5, []),
 ]
 
 def rule_engine_match(label: str, section_context: str = "") -> tuple[LGCategory | None, str]:
@@ -567,8 +571,9 @@ Map each financial line item to exactly ONE LG category.
 - G&A Expenses — rent, legal, accounting, insurance, admin (NOT payroll)
 - S&M Payroll — wages/benefits for sales & marketing staff
 - R&D Payroll — wages/benefits for engineering/R&D staff
-- G&A Payroll — wages/benefits for admin staff (DEFAULT for unspecified payroll)
-- Other Operating Expenses — classify as either 'other_income' or 'other_expense' separately; do NOT net them (netting happens downstream)
+- G&A Payroll — wages/benefits for admin staff (requires g&a/general/admin context)
+- Other Income — interest income, gain on sale, miscellaneous income (do NOT net with Other Expense; netting happens downstream)
+- Other Expense — interest expense, loss on sale, miscellaneous expense (do NOT net with Other Income; netting happens downstream)
 
 ### Balance Sheet
 - Cash — cash, bank accounts, money market
@@ -576,13 +581,15 @@ Map each financial line item to exactly ONE LG category.
 - R&D Capitalized — capitalized software/R&D AND their amortization
 - Other Assets — assets not in above 3
 - Accounts Payable — trade payables
+- Short Term Debt — short-term borrowings, current portion of debt, line of credit
 - Long Term Debt — loans, notes, credit facilities
-- Other Liabilities — liabilities not AP or LTD
+- Other Liabilities — liabilities not AP, Short Term Debt, or LTD
+- Equity — stockholders equity, retained earnings, common stock, APIC
 
 ## Rules
 1. Return EXACTLY one category from above
 2. Subtotal/header rows → "SKIP"
-3. Payroll without department context → "G&A Payroll"
+3. Payroll without department context → "UNMAPPED" with LOW confidence, requires user review
 4. hosting/cloud/server: SaaS company → COGS; otherwise → R&D
 5. Revenue contra (refunds) → still "Revenue", flag negative
 6. R&D Capitalized needs capitalization/amortization + R&D context

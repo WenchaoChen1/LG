@@ -132,7 +132,7 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 
 **核心需求:**
 
-自动将提取的行项映射到 LG 标准财务分类（16 类）:
+自动将提取的行项映射到 LG 标准财务分类（19 类）:
 
 | P&L 分类 | Balance Sheet 分类 |
 |----------|-------------------|
@@ -141,10 +141,11 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 | S&M Expenses | R&D Capitalized |
 | R&D Expenses | Other Assets |
 | G&A Expenses | Accounts Payable |
-| S&M Payroll | Long Term Debt |
-| R&D Payroll | Other Liabilities |
-| G&A Payroll | |
-| Other Operating Expenses | |
+| S&M Payroll | Short Term Debt |
+| R&D Payroll | Long Term Debt |
+| G&A Payroll | Other Liabilities |
+| Other Income | Equity |
+| Other Expense | |
 
 **映射规则（已由财务 SME Nico Carlson 确认）:**
 
@@ -158,8 +159,9 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 - **Payroll 三分类**:
   - S&M Payroll: Payroll 关键词 + `sales`/`marketing` 上下文
   - R&D Payroll: Payroll 关键词 + `r&d`/`engineering` 上下文
-  - G&A Payroll: **兜底** — 无法判断部门时默认此项，标记 LOW confidence
-- **OOE**: Other Income + Other Expense，同周期互抵（expense - income）
+  - G&A Payroll: 需 g&a/general/admin 上下文
+  - **无部门上下文时**: 标记为 UNMAPPED，confidence = LOW，需用户审核确认部门
+- **Other Income / Other Expense**: 映射阶段分别归类为 `other_income` 或 `other_expense` 独立字段，不互抵；互抵（OOE = expense - income）在下游 normalization engine 执行
 - **R&D Capitalized**: 需双重信号 — (资本化 + R&D 上下文) 或 (摊销信号)
   - 摊销关键词: `amortization`, `amortization of intangibles`, `amortization of software`
 - **Other Assets / Other Liabilities**: 被识别为资产/负债但不属于上述具体分类的兜底
@@ -322,7 +324,9 @@ Liang Chunru 和 Karen Arnoldi 讨论后的务实方案:
 > 3. **Other Income/Expense 均映射到 OOE**。同周期互抵 (expense - income)，负值表示 income 大于 expense。
 > 4. **双重信号正确**，但要加 amortization 作为信号。关键词: "amortization", "amortization of intangibles", "amortization of software", "amortized development costs", "intangible assets"。
 
-### 5.5 OOE 映射矛盾（未完全解决）
+> **编辑注**: Nico 第 1 点中"无法判断时默认 G&A"后经技术设计审查修正为：无部门上下文时标记 UNMAPPED (LOW confidence)，需用户审核。第 3 点中"均映射到 OOE"后明确为：映射阶段分别写入 `other_income` / `other_expense` 独立字段，OOE 互抵在下游 normalization engine 执行。
+
+### 5.5 OOE 映射矛盾（已解决）
 
 **Liang Chunru (2026-03-19)** 指出:
 > "The issue regarding 'Miscellaneous Operating Expenses, now is a computed live metric' is still unresolved. Since this metric also appears in the Supported LG Categories, including it would mean it's no longer computed, creating a conflict with our existing logic."
@@ -333,7 +337,7 @@ Liang Chunru 和 Karen Arnoldi 讨论后的务实方案:
 **Liang Chunru (2026-03-23)**:
 > "I will remove the Misc OPEX from the supported LG category for now."
 
-**状态: 暂时移除，但 Nico 尚未给出最终确认。这是一个 P0 风险点。**
+**解决方案**: 映射阶段分别归类为 `other_income` 或 `other_expense` 独立字段，OOE 作为计算指标（expense - income）留给下游 normalization engine 执行。不再将 OOE 作为映射目标分类。
 
 ### 5.6 AI 模型版本管理讨论
 
@@ -374,11 +378,9 @@ Liang Chunru 和 Karen Arnoldi 讨论后的务实方案:
 
 #### P0 阻塞
 
-**1. OOE 映射矛盾未解**
+**1. ~~OOE 映射矛盾~~ 已解决**
 - OOE 在 LG 中是计算指标（computed live metric），不能直接写入
-- 但 Other Income/Expense 的映射规则要求映射到 OOE
-- Liang 暂时移除了 Misc OPEX，但 Nico 未给最终确认
-- **风险**: 开发时不知道 Other Income/Expense 写入哪个字段
+- **解决方案**: 映射阶段分别写入 `other_income` / `other_expense` 独立字段，OOE 互抵计算留给下游 normalization engine
 
 **2. AI 关键词优先级缺失**
 - `hosting`, `cloud`, `server` 同时出现在 COGS 和 R&D 的关键词列表中
@@ -441,7 +443,7 @@ Liang Chunru 和 Karen Arnoldi 讨论后的务实方案:
 
 | # | 问题 | 提问对象 | 阻塞级别 |
 |---|------|----------|----------|
-| 1 | OOE 作为计算指标 vs 映射目标的矛盾 — Other Income/Expense 最终写入哪个字段？ | Nico Carlson | **P0** |
+| 1 | ~~OOE 作为计算指标 vs 映射目标的矛盾~~ **已解决**: 映射阶段分别写入 `other_income` / `other_expense`，OOE 互抵在 normalization engine 执行 | Nico Carlson | ~~P0~~ Done |
 | 2 | `hosting/cloud/server` 默认归 COGS 还是 R&D？公司 industry 从哪获取？ | Karen Arnoldi | P1 |
 | 3 | 多类型混合 PDF 是要求用户按报表分别上传，还是系统自动切分？ | Karen Arnoldi | P1 |
 | 4 | eSapiens OCR 是 SaaS 还是 self-hosted？数据驻留合规要求？ | 技术团队 | P1 |

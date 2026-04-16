@@ -194,53 +194,14 @@ Java (Producer)                              Python (Consumer)
 
 ## 5. Python 端 AI 处理设计
 
-### 5.1 文件类型路由
+Python 端负责 AI 提取和映射两大核心能力：
 
-```
-文件 MIME                               处理路径
-──────────────────────────────────────────────────────
-application/pdf                    → PDF 路径: pdf2image (200DPI) → AI Vision
-image/jpeg, image/png, image/tiff  → 图片路径: base64 编码 → AI Vision
-application/vnd.openxml...sheet    → Excel 路径: openpyxl 直接解析（不用 AI）
-text/csv                           → CSV 路径: pandas.read_csv（不用 AI）
-```
+- **文件类型路由**: PDF/图片走 AI Vision，Excel/CSV 直接解析（零 AI 成本）
+- **大文件处理**: PDF 逐页并发提取（`asyncio.Semaphore(5)`），每页独立失败/重试
+- **三层映射引擎**: 规则引擎（~60%）→ 公司记忆（~25%）→ LLM 推理（~15%），仅 15% 行项产生 AI 成本
+- **模型路由**: 提取用 Gemini Flash（低成本），映射用 Claude Sonnet（高质量）
 
-**关键决策**: Excel/CSV 不走 AI Vision — 直接解析，零 AI 成本，结果确定性更高。
-
-### 5.2 大文件处理策略
-
-| 文件类型 | 策略 |
-|----------|------|
-| **PDF (多页)** | 逐页处理：每页转为图片 → 单独 AI Vision 调用。`asyncio.Semaphore(5)` 控制并发。50 页 PDF ≈ 10 批 × 5 并发 ≈ 20 秒 |
-| **Excel (多 sheet)** | 逐 sheet 处理：每个 sheet 独立解析，不用 AI，毫秒级 |
-| **超大 PDF (100+ 页)** | 上传前预警："此文档有 100 页，处理预计需要 X 秒"。设 token 上限 200K/session |
-| **单页提取质量差** | 检查：提取行数 < 3 或数值识别率 < 50% → 标记 "Low Quality"，建议重传 |
-
-### 5.3 按页处理流程
-
-```
-PDF 文件 (50 页)
-     │
-     ▼ pdf2image (200 DPI)
-     │
-50 张 PNG 图片
-     │
-     ▼ asyncio.Semaphore(5)
-     │
-┌────┬────┬────┬────┬────┐
-│ P1 │ P2 │ P3 │ P4 │ P5 │  ← 批次 1（5 页并发）
-└────┴────┴────┴────┴────┘
-     │
-     ▼ 每页独立调用 Gemini Flash Vision
-     │
-     ▼ Instructor + Pydantic 强制输出 ExtractedTable
-     │
-     ▼ 合并所有页面的提取结果
-     │
-统一的 ExtractedTable[] 输出
-```
-
-**每页独立失败/重试**：第 7 页失败不影响其他 49 页。失败页标记为 `extraction_failed`，用户审核时可见。
+> **详细设计**: AI 提取引擎、三层映射架构、模型路由策略、映射规则等完整设计见 [technical-design.md](./technical-design.md) 第 5-6 章。
 
 ---
 
