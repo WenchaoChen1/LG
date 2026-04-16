@@ -3,7 +3,7 @@
 > **Asana EPIC**: [Manual Uploads with OCR](https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1210456521366357)
 > **状态**: 技术方案设计
 > **创建日期**: 2026-04-16
-> **技术栈**: React (CIOaas-web) + Python FastAPI (CIOaas-python) + Spring Cloud Gateway (CIOaas-api)
+> **代码示例**: [code-examples.md](./code-examples.md)
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### 1.1 一句话描述
 
-用户无需集成 QuickBooks 等系统，直接上传 PDF/Excel/图片等财务文件，系统通过 OCR + AI 自动提取、分类、映射财务数据，用户在线审核确认后写入 Looking Glass 数据库。
+用户无需集成 QuickBooks 等系统，直接上传 PDF/Excel/图片等财务文件，系统通过 AI Vision 自动提取、分类、映射财务数据，用户在线审核确认后写入 Looking Glass 数据库。
 
 ### 1.2 业务目标
 
@@ -21,1045 +21,949 @@
 | 降低入驻门槛 | 早期创业公司无需技术集成即可使用 |
 | 非技术用户参与 | 上传原始文件即可获取财务洞察 |
 
-### 1.3 6 步工作流
+### 1.3 核心工作流
 
 ```
-① 上传文件 → ② 数据提取(OCR/Excel) → ③ AI 账户映射 → ④ 并排审核编辑 → ⑤ 写入 LG → ⑥ 系统持续学习
+① 上传文件 → ② 数据提取(AI Vision/Excel) → ③ AI 账户映射 → ④ 并排审核编辑 → ⑤ 写入 LG → ⑥ 系统持续学习
 ```
 
 ### 1.4 子任务清单
 
 | # | 子任务 | 负责人 | 核心内容 |
 |---|--------|--------|----------|
-| 1 | Allow Users to upload a financial document | Jesús H Peralta | 支持 PDF/Excel/CSV/图片，拖拽+选择上传，单文件 ≤20MB，批量 ≤100MB |
-| 2 | Extraction of Financial Data - AI + OCR | Jesús H Peralta | 对扫描 PDF/图片执行 OCR（eSapiens），检测财务表格，识别文档类型 |
-| 3 | Extraction of Financial Data - Excel | Jesús H Peralta | 直接解析 Excel/CSV 表格数据，处理合并单元格、公式求值 |
-| 4 | Add AI-Assisted Account Mapping Suggestions | Liang Chunru | AI 自动映射到 LG 标准财务分类（16+ 类别） |
-| 5 | Side-by-Side Review & Inline Editing | Jesús H Peralta | 左侧原始文档 + 右侧提取数据，支持 Raw/Standardized 切换和内联编辑 |
-| 6 | Write data to LG Schema | Jesús H Peralta | 冲突检测 + Overwrite/Skip/Cancel + 审计日志 + 版本控制 |
-| 7 | Add Note Field to Importing During Data Validation | Jesús H Peralta | 冲突解决时可添加备注（≤2000 字），写入后只读 |
-| 8 | System Learning and Continuous Improvement | Liang Chunru | 保存并复用公司级映射历史，增量提高准确率 |
+| 1 | Allow Users to upload a financial document | Jesús H Peralta | PDF/Excel/CSV/图片上传，单文件 ≤20MB，批量 ≤100MB |
+| 2 | Extraction of Financial Data - AI + OCR | Jesús H Peralta | AI Vision 提取扫描 PDF/图片中的财务表格 |
+| 3 | Extraction of Financial Data - Excel | Jesús H Peralta | 直接解析 Excel/CSV 表格，处理合并单元格 |
+| 4 | Add AI-Assisted Account Mapping Suggestions | Liang Chunru | AI 自动映射到 LG 标准财务分类（16 类） |
+| 5 | Side-by-Side Review & Inline Editing | Jesús H Peralta | 并排审核 + 内联编辑 + Raw/Standardized 视图 |
+| 6 | Write data to LG Schema | Jesús H Peralta | 冲突检测 + Overwrite/Skip/Cancel + 审计日志 |
+| 7 | Add Note Field to Data Validation | Jesús H Peralta | 冲突解决时添加备注（≤2000 字） |
+| 8 | System Learning and Continuous Improvement | Liang Chunru | 保存并复用公司级映射记忆 |
 
 ---
 
-## 2. 系统架构
+## 2. 架构定位：Multi-Agent 体系中的 OCR Agent
 
-### 2.1 总体架构
+### 2.1 核心定位
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    CIOaas-web (React)                        │
-│  UploadPage → ExtractingPage → MappingPage → ReviewPage     │
-│       ↕              ↕              ↕            ↕          │
-│    FileAPI      StatusPolling   MappingAPI    CommitAPI      │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ REST API
-┌──────────────────────────┴──────────────────────────────────┐
-│                  CIOaas-api (Java Gateway)                   │
-│              路由转发 /api/v1/ocr/** → Python                 │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────┴──────────────────────────────────┐
-│                CIOaas-python (FastAPI)                        │
-│                                                              │
-│  ┌─────────┐  ┌───────────┐  ┌──────────┐  ┌────────────┐  │
-│  │ Upload  │→ │ Extractor │→ │ AI Mapper│→ │ LG Writer  │  │
-│  │ Service │  │ (OCR/XLSX)│  │ (LLM)    │  │ (DB)       │  │
-│  └─────────┘  └───────────┘  └──────────┘  └────────────┘  │
-│       ↕            ↕              ↕              ↕          │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │              PostgreSQL + S3 (File Storage)           │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 2.2 Pipeline 状态机
+OCR 文档解析是一个**独立的智能体（Agent）**，未来作为多智能体系统的一部分。
 
 ```
-UPLOAD → EXTRACT → MAP → REVIEW → VALIDATE → COMMIT
-  │         │        │       │         │         │
-  ↓         ↓        ↓       ↓         ↓         ↓
-FAILED   FAILED   FAILED  (user)   CONFLICT  FAILED
-                           edit    RESOLUTION
+                    ┌──────────────────────────┐
+                    │    Orchestrator Agent     │  ← 未来：统一调度层
+                    │   (LangGraph Supervisor)  │
+                    └───┬───┬───┬───┬───┬──────┘
+                        │   │   │   │   │
+              ┌─────────┘   │   │   │   └──────────┐
+              ▼             ▼   ▼   ▼              ▼
+       ┌──────────┐  ┌────────┐ ┌────────┐  ┌──────────┐
+       │OCR Agent │  │Chat    │ │RAG     │  │Analysis  │  ...更多
+       │ ★当前★   │  │Agent   │ │Agent   │  │Agent     │
+       │          │  │(对话)  │ │(搜索)  │  │(分析)    │
+       └──────────┘  └────────┘ └────────┘  └──────────┘
+            │
+   独立状态、独立记忆、
+   标准化 Tool 接口
 ```
 
-每一步均支持失败回退和中间状态持久化。用户关闭浏览器后重新打开可恢复到上次进度。
+### 2.2 Agent 自治边界
 
----
+| 维度 | OCR Agent 的边界 |
+|------|------------------|
+| **状态** | 独立管理 upload session 生命周期（LangGraph checkpoint） |
+| **记忆** | 独立管理公司映射记忆 + 全局向量记忆 |
+| **接口** | 通过 Tool 协议暴露能力，不暴露内部实现 |
+| **模型** | 独立决定用哪个 AI 模型（Gemini Flash 提取 / Claude 映射） |
+| **数据** | 只读写自己的表（`ocr_*`），写入 LG 通过标准 Writer 接口 |
 
-## 3. 数据模型
+### 2.3 Agent Tool 接口定义
 
-### 3.1 核心表结构
+OCR Agent 对外暴露 5 个 Tool，调用方可以是前端 REST API 或未来的 Orchestrator：
 
-```sql
--- 上传会话
-CREATE TABLE ocr_upload_session (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id        BIGINT NOT NULL REFERENCES company(id),
-    uploaded_by       BIGINT NOT NULL REFERENCES sys_user(id),
-    status            VARCHAR(20) NOT NULL DEFAULT 'UPLOADING',
-        -- UPLOADING / EXTRACTING / MAPPING / REVIEWING / COMMITTED / FAILED
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+```
+Tool 1: upload_and_extract
+  描述: 上传财务文件并触发 AI 提取
+  Input:  { files: File[], company_id: int }
+  Output: { session_id: str, status: str }
 
--- 上传文件
-CREATE TABLE ocr_uploaded_file (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID NOT NULL REFERENCES ocr_upload_session(id),
-    filename          VARCHAR(500) NOT NULL,
-    file_type         VARCHAR(10) NOT NULL,  -- PDF / XLSX / CSV / JPG / PNG / TIFF
-    file_size         BIGINT NOT NULL,
-    s3_key            VARCHAR(1000) NOT NULL,
-    status            VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-        -- PENDING / UPLOADED / EXTRACTING / EXTRACTED / FAILED
-    error_message     TEXT,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+Tool 2: get_session_status
+  描述: 查询提取/映射进度
+  Input:  { session_id: str }
+  Output: { status, progress_pct, tables: ExtractedTable[], mappings: MappingResult[] }
 
--- 提取的表格
-CREATE TABLE ocr_extracted_table (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    file_id           UUID NOT NULL REFERENCES ocr_uploaded_file(id),
-    table_index       INT NOT NULL DEFAULT 0,
-    document_type     VARCHAR(20) NOT NULL DEFAULT 'MISC',
-        -- PNL / BALANCE_SHEET / CASH_FLOW / PROFORMA / MISC
-    doc_type_confidence VARCHAR(10) NOT NULL DEFAULT 'LOW',
-        -- HIGH / MEDIUM / LOW
-    currency          VARCHAR(10) DEFAULT 'USD',
-    source_page       INT,            -- PDF 页码
-    source_sheet_name VARCHAR(200),   -- Excel sheet 名
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+Tool 3: update_review
+  描述: 提交用户审核编辑（行编辑、映射修改、删除噪音）
+  Input:  { session_id: str, edits: RowEdit[], mapping_overrides: MappingOverride[] }
+  Output: { success: bool, validation_errors: str[] }
 
--- 提取的行数据
-CREATE TABLE ocr_extracted_row (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    table_id          UUID NOT NULL REFERENCES ocr_extracted_table(id),
-    row_index         INT NOT NULL,
-    account_label     VARCHAR(500) NOT NULL,
-    section_header    VARCHAR(500),     -- 所属 section（如 "Operating Expenses"）
-    values            JSONB NOT NULL,   -- {"2024-01": 12345.67, "2024-02": 13000.00}
-    is_header         BOOLEAN DEFAULT false,
-    is_total          BOOLEAN DEFAULT false,
-    user_edited       BOOLEAN DEFAULT false,
-    deleted           BOOLEAN DEFAULT false  -- 用户删除的噪音行
-);
+Tool 4: commit_to_lg
+  描述: 验证并写入 LG 数据库
+  Input:  { session_id: str, conflict_resolutions: Resolution[], notes: Note[] }
+  Output: { success: bool, written_periods: str[], conflicts: Conflict[] }
 
--- AI 映射结果
-CREATE TABLE ocr_mapping_result (
-    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    row_id                UUID NOT NULL REFERENCES ocr_extracted_row(id),
-    lg_category           VARCHAR(50) NOT NULL,
-        -- REVENUE / COGS / SM_EXPENSE / RD_EXPENSE / GA_EXPENSE
-        -- SM_PAYROLL / RD_PAYROLL / GA_PAYROLL / OOE
-        -- CASH / AR / RD_CAPITALIZED / OTHER_ASSETS
-        -- AP / LONG_TERM_DEBT / OTHER_LIABILITIES
-    confidence            VARCHAR(10) NOT NULL,  -- HIGH / MEDIUM / LOW
-    source                VARCHAR(20) NOT NULL,  -- RULE_ENGINE / COMPANY_MEMORY / LLM
-    original_ai_suggestion VARCHAR(50),           -- AI 原始建议（用户覆盖后保留）
-    reasoning             TEXT,                   -- LLM 推理说明
-    user_note             VARCHAR(2000),          -- 用户备注
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 公司级映射记忆（AI 学习基础）
-CREATE TABLE ocr_company_mapping_memory (
-    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id            BIGINT NOT NULL REFERENCES company(id),
-    account_label_pattern VARCHAR(500) NOT NULL,
-    lg_category           VARCHAR(50) NOT NULL,
-    frequency             INT NOT NULL DEFAULT 1,  -- 被确认次数
-    last_used_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (company_id, account_label_pattern)
-);
-
--- 数据冲突记录
-CREATE TABLE ocr_conflict_record (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID NOT NULL REFERENCES ocr_upload_session(id),
-    company_id        BIGINT NOT NULL,
-    document_type     VARCHAR(20) NOT NULL,
-    reporting_month   INT NOT NULL,
-    reporting_year    INT NOT NULL,
-    data_classification VARCHAR(20) NOT NULL,  -- HISTORICAL / FORECAST
-    resolution        VARCHAR(20),  -- OVERWRITE / SKIP / CANCEL
-    user_note         VARCHAR(2000),
-    resolved_by       BIGINT REFERENCES sys_user(id),
-    resolved_at       TIMESTAMPTZ
-);
+Tool 5: query_mapping_memory
+  描述: 查询公司映射记忆（供其他 Agent 参考）
+  Input:  { company_id: int, labels: str[] }
+  Output: { matches: MappingMemory[] }
 ```
 
-### 3.2 索引设计
+### 2.4 设计原则
 
-```sql
--- 公司记忆模糊匹配（trigram）
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE INDEX idx_mapping_memory_label_trgm
-    ON ocr_company_mapping_memory
-    USING gin (account_label_pattern gin_trgm_ops);
+**"框架从具体 Agent 中长出来，而不是先造框架再填 Agent"**
 
-CREATE INDEX idx_mapping_memory_company
-    ON ocr_company_mapping_memory (company_id);
+```
+Phase 1 (当前): 先做 OCR Agent，按 Tool 接口标准
+                     │
+                     ▼  真实数据验证提取质量、映射准确率
+Phase 2: 第二个 Agent（Chat/RAG）上线
+                     │
+                     ▼  沉淀出真正的 Agent 通信需求
+Phase 3: Orchestrator 自然浮现
+```
 
--- 冲突检测
-CREATE INDEX idx_financial_data_conflict
-    ON financial_data (company_id, document_type, data_classification, reporting_month, reporting_year);
+LangGraph 的天然优势：OCR Agent 本身就是一个 `CompiledGraph`，未来直接作为 Supervisor 的一个 node，**零重构**：
 
--- Session 查询
-CREATE INDEX idx_upload_session_company
-    ON ocr_upload_session (company_id, created_at DESC);
-
--- 行数据查询
-CREATE INDEX idx_extracted_row_table
-    ON ocr_extracted_row (table_id, row_index);
+```
+现在:  ocr_graph = StateGraph(...).compile()     # 独立运行
+未来:  supervisor.add_node("ocr", ocr_graph)     # 当节点塞进去
 ```
 
 ---
 
-## 4. AI 映射引擎设计
+## 3. 技术选型
 
-### 4.1 三层架构
+### 3.1 整体技术栈
 
-```
-┌─────────────────────────────────────┐
-│  Layer 3: LLM 兜底 (Claude API)     │  ← 只处理 Layer 1+2 无法映射的（~15%）
-├─────────────────────────────────────┤
-│  Layer 2: 公司记忆匹配              │  ← 基于历史映射的精确/模糊匹配（~25%）
-├─────────────────────────────────────┤
-│  Layer 1: 规则引擎 (Keywords)        │  ← 确定性规则，零成本，最快（~60%）
-└─────────────────────────────────────┘
-```
-
-**为什么不全部用 LLM？**
-
-| 方案 | 优点 | 缺点 |
+| 层级 | 选型 | 理由 |
 |------|------|------|
-| 全 LLM | 最灵活 | 成本高（每次上传可能 100+ 行项），延迟大，不可预测 |
-| 全规则引擎 | 零成本，可预测 | 覆盖率不足，无法处理不规范标签 |
-| **三层混合（推荐）** | 成本可控，渐进增强 | 实现复杂度稍高 |
+| **前端** | React + Ant Design Pro + dva | 与现有 CIOaas-web 一致 |
+| **API 网关** | CIOaas-api (Spring Cloud Gateway) | 已有路由转发，加 `/api/v1/ocr/**` |
+| **业务后端** | CIOaas-python (FastAPI) | 已有 AI 集成能力，Python 生态最适合 |
+| **工作流编排** | LangGraph | 显式状态图，可持久化断点续跑，未来扩展 Agent/RAG |
+| **结构化输出** | Instructor + Pydantic | LLM 输出强制类型安全，自动重试验证 |
+| **模型路由** | OpenRouter | 多模型按需切换，避免供应商锁定 |
+| **文档预处理** | Unstructured.io | 开源，PDF/Excel/Image 全格式支持 |
+| **向量检索** | PostgreSQL + pgvector | 与现有 DB 统一，无额外组件 |
+| **文件存储** | AWS S3 (SSE 加密) | 已有基础设施 |
+| **RAG（未来）** | LlamaIndex | 文档问答、知识库检索 |
 
-### 4.2 LG 标准财务分类（16 类）
+### 3.2 AI 框架选型决策
 
-| 分类 | 枚举值 | 报表类型 |
-|------|--------|----------|
-| Revenue | `REVENUE` | P&L |
-| COGS | `COGS` | P&L |
-| S&M Expenses | `SM_EXPENSE` | P&L |
-| R&D Expenses | `RD_EXPENSE` | P&L |
-| G&A Expenses | `GA_EXPENSE` | P&L |
-| S&M Payroll | `SM_PAYROLL` | P&L |
-| R&D Payroll | `RD_PAYROLL` | P&L |
-| G&A Payroll | `GA_PAYROLL` | P&L |
-| Other Operating Expenses | `OOE` | P&L |
-| Cash | `CASH` | Balance Sheet |
-| Accounts Receivable | `AR` | Balance Sheet |
-| R&D Capitalized | `RD_CAPITALIZED` | Balance Sheet |
-| Other Assets | `OTHER_ASSETS` | Balance Sheet |
-| Accounts Payable | `AP` | Balance Sheet |
-| Long Term Debt | `LONG_TERM_DEBT` | Balance Sheet |
-| Other Liabilities | `OTHER_LIABILITIES` | Balance Sheet |
+#### 为什么选 LangGraph 而不是 LangChain
 
-### 4.3 Layer 1：规则引擎
+| 维度 | LangChain (legacy chains) | LangGraph |
+|------|--------------------------|-----------|
+| 编排模式 | 隐式链式调用 | **显式状态图（Graph）** |
+| 调试 | 抽象层深，难以定位 | **每个节点可独立测试** |
+| 状态管理 | 需外部存储 | **内置 PostgreSQL checkpoint** |
+| 可视化 | 无 | **自动生成流程图** |
+| 稳定性 | API 频繁 breaking change | 独立包，相对稳定 |
+| 适合场景 | 简单 prompt chain | **状态机、Agent、多步工作流** |
 
-#### 4.3.1 关键词优先级体系
+**当前场景**: OCR Pipeline 本身就是多步状态机（上传→提取→映射→审核→写入），LangGraph 的状态图是天然匹配。
 
-规则引擎按 **优先级从高到低** 匹配，解决关键词冲突：
+**未来扩展**: 对话式 AI、RAG 搜索、Agent 工具调用 — 都是 LangGraph 的核心场景，统一范式。
 
-```
-Priority 1（最精确）: R&D Capitalized, AP, AR, Long Term Debt
-Priority 2（上下文相关）: S&M Payroll, R&D Payroll（需 section 上下文）
-Priority 3（Payroll 兜底）: G&A Payroll; COGS（排除 R&D 关键词）
-Priority 4（费用大类）: Revenue, S&M Expense, R&D Expense, G&A Expense
-Priority 5（Balance Sheet）: Cash, Other Assets, Other Liabilities
-```
+#### 为什么用 Instructor 而不是 LangChain 的 Output Parser
 
-#### 4.3.2 完整映射规则
+| 维度 | LangChain Output Parser | Instructor + Pydantic |
+|------|------------------------|----------------------|
+| 类型安全 | 运行时解析，可能失败 | **编译期验证，Pydantic 强制** |
+| 自动重试 | 需手动实现 | **内置 max_retries** |
+| 模型兼容 | LangChain 生态内 | **兼容任何 OpenAI 兼容 API** |
+| 代码量 | 多 | **少 60%** |
+| 学习曲线 | 需理解 Chain 生态 | **只需会 Pydantic** |
 
-**Revenue**
-- 关键词: `sales`, `revenue`, `income`, `fees`, `subscriptions`, `gross receipts`
-- 排除词: `cost of`, `expense`, `other income`
-- 特殊: `refund`, `returns`, `contra` → 仍映射为 Revenue，但标记为负值
+#### 为什么用 OpenRouter 做模型路由
 
-**COGS**
-- 关键词: `cogs`, `cost of goods`, `cost of revenue`, `materials`, `inventory`, `supplies used`, `direct labor`
-- 排除词: `research`, `development`
-- 特殊: `hosting`, `cloud`, `server`, `bandwidth` — **需上下文判断**:
-  - SaaS 公司 → COGS
-  - 非 SaaS 公司 → R&D Expenses
-
-**S&M Expenses**（不含 Payroll）
-- Marketing: `marketing`, `advertising`, `ads`, `promotion`, `campaign`, `digital marketing`, `seo`, `sem`, `ppc`, `social media`, `brand`, `branding`, `public relations`, `pr`, `media`
-- Sales: `sales commission`, `business development`, `customer acquisition`, `lead generation`
-- Customer/Channel: `customer success`, `customer support`, `merchant fees`, `payment processing fees`, `referral fees`
-- Events: `trade show`, `conference`, `event`, `sponsorship`
-- 排除词: `payroll`, `salary`, `wages`
-
-**R&D Expenses**（不含 Payroll）
-- 关键词: `research`, `development`, `r&d`, `r and d`, `product development`, `engineering`, `software development`, `technical development`, `technical consulting`, `product design`, `ux research`, `development tools`, `software licenses`, `testing`, `qa`, `quality assurance`, `devops`, `infrastructure engineering`
-- 排除词: `payroll`, `salary`, `capitalized`
-
-**G&A Expenses**（不含 Payroll）
-- Overhead: `general and administrative`, `g&a`, `overhead`, `corporate expense`, `office expense`
-- Facilities: `rent`, `lease`, `utilities`, `office supplies`, `internet`, `phone`, `equipment`
-- Professional Services: `legal`, `legal fees`, `accounting`, `audit`, `consulting`, `professional services`
-- Admin: `hr`, `human resources`, `recruiting`, `insurance`, `licenses`, `permits`
-- 排除词: `payroll`, `salary`
-
-**Payroll 分类（三级）**
-- 通用关键词: `wages`, `salary`, `payroll`, `compensation`, `benefits`, `payroll taxes`
-- 判断部门上下文:
-  - 行标签或 section header 含 `sales`, `marketing`, `s&m` → **S&M Payroll**
-  - 行标签或 section header 含 `r&d`, `research`, `engineering`, `development` → **R&D Payroll**
-  - 无法判断或含 `g&a`, `general`, `admin` → **G&A Payroll**（兜底）
-- **Nico Carlson（财务 SME）确认**: 无法判断部门时一律默认 G&A Payroll，标记 LOW confidence 提醒用户审核
-
-**Other Operating Expenses (OOE)**
-- Other Income 和 Other Expense 均映射到此
-- 同一周期两者共存时：`net = expense - income`，负值表示 income 大于 expense
-- **注意**: OOE 在 LG 中是计算指标，写入时需特殊处理（见 Section 7.3）
-
-**Cash**
-- 关键词: `cash`, `bank`, `checking`, `savings`, `cash equivalents`, `money market`, `treasury`, `short-term investments`, `marketable securities`
-
-**Accounts Receivable**
-- 关键词: `accounts receivable`, `a/r`, `receivables`, `trade receivables`, `unbilled revenue`, `contract asset`
-
-**R&D Capitalized**
-- **需要双重信号**:
-  - 信号 A (Capitalization): `capitalized`, `capitalised`, `capitalized r&d`, `capitalized research`, `capitalized development`, `internal-use software`
-  - 信号 B (Amortization): `amortization`, `amortization of intangibles`, `amortization of software`, `amortized development costs`, `intangible assets`
-  - 必须满足: (信号 A + R&D 上下文) 或 (信号 B)
-- **Nico Carlson 确认**: amortization 本身就是强信号，因为它适用于无形资产（专利、软件）
-
-**Other Assets**
-- 条件: 被识别为 Asset 分类，但不属于 Cash / AR / R&D Capitalized
-
-**Accounts Payable**
-- 关键词: `accounts payable`, `a/p`, `payables`, `trade payables`
-
-**Long Term Debt**
-- 关键词: `long term debt`, `loan`, `note payable`, `term loan`, `debt`, `convertible note`, `venture debt`, `credit facility`, `line of credit`, `revolving`
-- 排除词: `short term`
-
-**Other Liabilities**
-- 条件: 被识别为 Liability 分类，但不属于 AP / Long Term Debt
-
-#### 4.3.3 规则引擎实现
-
-```python
-from dataclasses import dataclass
-from enum import Enum
-
-class LGCategory(str, Enum):
-    REVENUE = "Revenue"
-    COGS = "COGS"
-    SM_EXPENSE = "S&M Expenses"
-    RD_EXPENSE = "R&D Expenses"
-    GA_EXPENSE = "G&A Expenses"
-    SM_PAYROLL = "S&M Payroll"
-    RD_PAYROLL = "R&D Payroll"
-    GA_PAYROLL = "G&A Payroll"
-    OOE = "Other Operating Expenses"
-    CASH = "Cash"
-    AR = "Accounts Receivable"
-    RD_CAPITALIZED = "R&D Capitalized"
-    OTHER_ASSETS = "Other Assets"
-    AP = "Accounts Payable"
-    LONG_TERM_DEBT = "Long Term Debt"
-    OTHER_LIABILITIES = "Other Liabilities"
-
-@dataclass
-class MappingRule:
-    category: LGCategory
-    keywords: list[str]
-    negative_keywords: list[str]    # 排除词
-    priority: int                    # 数字越小优先级越高
-    requires_context: list[str]      # 需要同时出现的上下文关键词
-
-RULES = [
-    # === Priority 1: 最精确的匹配 ===
-    MappingRule(
-        category=LGCategory.RD_CAPITALIZED,
-        keywords=["capitalized r&d", "capitalized research",
-                  "capitalized development", "amortization of software",
-                  "amortization of intangibles", "internal-use software",
-                  "amortized development costs"],
-        negative_keywords=[],
-        priority=1,
-        requires_context=[]
-    ),
-    MappingRule(
-        category=LGCategory.AP,
-        keywords=["accounts payable", "a/p", "trade payables"],
-        negative_keywords=[],
-        priority=1,
-        requires_context=[]
-    ),
-    MappingRule(
-        category=LGCategory.AR,
-        keywords=["accounts receivable", "a/r", "trade receivables",
-                  "unbilled revenue", "contract asset"],
-        negative_keywords=[],
-        priority=1,
-        requires_context=[]
-    ),
-    MappingRule(
-        category=LGCategory.LONG_TERM_DEBT,
-        keywords=["long term debt", "term loan", "convertible note",
-                  "venture debt", "credit facility", "revolving",
-                  "note payable"],
-        negative_keywords=["short term"],
-        priority=1,
-        requires_context=[]
-    ),
-
-    # === Priority 2: Payroll（需部门上下文） ===
-    MappingRule(
-        category=LGCategory.SM_PAYROLL,
-        keywords=["wages", "salary", "payroll", "compensation", "benefits"],
-        negative_keywords=[],
-        priority=2,
-        requires_context=["sales", "marketing", "s&m"]
-    ),
-    MappingRule(
-        category=LGCategory.RD_PAYROLL,
-        keywords=["wages", "salary", "payroll", "compensation", "benefits"],
-        negative_keywords=[],
-        priority=2,
-        requires_context=["r&d", "research", "engineering", "development"]
-    ),
-
-    # === Priority 3: Payroll 兜底 + COGS ===
-    MappingRule(
-        category=LGCategory.GA_PAYROLL,
-        keywords=["wages", "salary", "payroll", "compensation",
-                  "benefits", "payroll taxes"],
-        negative_keywords=[],
-        priority=3,
-        requires_context=[]
-    ),
-    MappingRule(
-        category=LGCategory.COGS,
-        keywords=["cogs", "cost of goods", "cost of revenue",
-                  "materials", "inventory", "direct labor", "supplies used"],
-        negative_keywords=["research", "development"],
-        priority=3,
-        requires_context=[]
-    ),
-
-    # === Priority 4: 费用大类 ===
-    MappingRule(
-        category=LGCategory.REVENUE,
-        keywords=["revenue", "sales", "income", "fees",
-                  "subscriptions", "gross receipts"],
-        negative_keywords=["cost of", "expense", "other income"],
-        priority=4,
-        requires_context=[]
-    ),
-    MappingRule(
-        category=LGCategory.SM_EXPENSE,
-        keywords=["marketing", "advertising", "promotion", "campaign",
-                  "commission", "customer acquisition", "lead generation",
-                  "trade show", "sponsorship"],
-        negative_keywords=["payroll", "salary"],
-        priority=4,
-        requires_context=[]
-    ),
-    MappingRule(
-        category=LGCategory.RD_EXPENSE,
-        keywords=["research", "development", "r&d", "engineering",
-                  "product development", "software development",
-                  "technical consulting", "qa", "devops"],
-        negative_keywords=["payroll", "salary", "capitalized"],
-        priority=4,
-        requires_context=[]
-    ),
-    MappingRule(
-        category=LGCategory.GA_EXPENSE,
-        keywords=["general and administrative", "g&a", "overhead",
-                  "rent", "lease", "utilities", "legal", "audit",
-                  "accounting", "insurance", "hr", "recruiting"],
-        negative_keywords=["payroll", "salary"],
-        priority=4,
-        requires_context=[]
-    ),
-
-    # === Priority 5: Balance Sheet 项 ===
-    MappingRule(
-        category=LGCategory.CASH,
-        keywords=["cash", "bank", "checking", "savings",
-                  "cash equivalents", "money market", "treasury"],
-        negative_keywords=[],
-        priority=5,
-        requires_context=[]
-    ),
-]
-
-def rule_engine_match(
-    label: str,
-    section_context: str = ""
-) -> tuple[LGCategory | None, str]:
-    """
-    规则引擎匹配。
-    返回 (category, confidence)。
-    confidence: HIGH = priority <=2, MEDIUM = priority <=4, LOW = priority 5
-    """
-    label_lower = label.lower().strip()
-    context_lower = section_context.lower()
-
-    sorted_rules = sorted(RULES, key=lambda r: r.priority)
-
-    for rule in sorted_rules:
-        if any(neg in label_lower for neg in rule.negative_keywords):
-            continue
-        keyword_hit = any(kw in label_lower for kw in rule.keywords)
-        if not keyword_hit:
-            continue
-        if rule.requires_context:
-            context_hit = any(
-                ctx in label_lower or ctx in context_lower
-                for ctx in rule.requires_context
-            )
-            if not context_hit:
-                continue
-        confidence = (
-            "HIGH" if rule.priority <= 2
-            else "MEDIUM" if rule.priority <= 4
-            else "LOW"
-        )
-        return rule.category, confidence
-
-    return None, "UNMAPPED"
-```
-
-### 4.4 Layer 2：公司记忆匹配
-
-```python
-async def company_memory_match(
-    company_id: int,
-    label: str,
-    db: AsyncSession
-) -> tuple[LGCategory | None, str]:
-    """查找该公司历史上对类似标签的映射"""
-
-    # 精确匹配
-    exact = await db.execute(
-        select(CompanyMappingMemory)
-        .where(
-            CompanyMappingMemory.company_id == company_id,
-            func.lower(CompanyMappingMemory.account_label_pattern) == label.lower()
-        )
-        .order_by(CompanyMappingMemory.frequency.desc())
-    )
-    if result := exact.scalar_one_or_none():
-        return result.lg_category, "HIGH"
-
-    # 模糊匹配（trigram 相似度 > 0.6）
-    fuzzy = await db.execute(
-        select(CompanyMappingMemory)
-        .where(
-            CompanyMappingMemory.company_id == company_id,
-            func.similarity(
-                CompanyMappingMemory.account_label_pattern, label
-            ) > 0.6
-        )
-        .order_by(
-            func.similarity(CompanyMappingMemory.account_label_pattern, label).desc()
-        )
-        .limit(1)
-    )
-    if result := fuzzy.scalar_one_or_none():
-        return result.lg_category, "MEDIUM"
-
-    return None, "UNMAPPED"
-```
-
-### 4.5 Layer 3：LLM 提示词设计
-
-#### 4.5.1 System Prompt
-
-```
-You are a financial data classification engine for Looking Glass (LG),
-a SaaS platform that helps investors analyze portfolio company financials.
-
-Your job: map a financial line item to exactly ONE LG category.
-
-## LG Categories (ONLY use these, no others)
-
-### Income Statement (P&L)
-- Revenue — top-line sales, fees, subscriptions, service income
-- COGS — direct costs: materials, hosting, infrastructure, direct labor
-- S&M Expenses — marketing, advertising, commissions, events (NOT payroll)
-- R&D Expenses — engineering, product dev, technical consulting (NOT payroll)
-- G&A Expenses — rent, legal, accounting, insurance, admin overhead (NOT payroll)
-- S&M Payroll — wages/salary/benefits for sales & marketing staff
-- R&D Payroll — wages/salary/benefits for engineering/R&D staff
-- G&A Payroll — wages/salary/benefits for admin/G&A staff (DEFAULT for unspecified payroll)
-- Other Operating Expenses — other income/expense items; if both exist, net them
-
-### Balance Sheet
-- Cash — cash, bank accounts, money market, short-term investments
-- Accounts Receivable — trade receivables, unbilled revenue
-- R&D Capitalized — capitalized software/R&D costs AND their amortization
-- Other Assets — any asset not in the above 3 categories
-- Accounts Payable — trade payables
-- Long Term Debt — loans, notes payable, credit facilities, convertible notes
-- Other Liabilities — any liability not AP or Long Term Debt
-
-## Rules
-1. Return EXACTLY one category from the list above
-2. If the line item is clearly a subtotal/header row, return "SKIP"
-3. For payroll without department context, default to "G&A Payroll"
-4. For "hosting/cloud/server": if the company is SaaS → COGS; otherwise → R&D Expenses
-5. Revenue contra items (refunds, returns) → still "Revenue" but flag as negative
-6. "R&D Capitalized" requires BOTH a capitalization/amortization signal AND R&D context
-```
-
-#### 4.5.2 User Prompt Template
-
-```
-Map these financial line items to LG categories.
-
-Company context:
-- Industry: {industry}
-- Document type: {document_type}
-- Section header (if any): {section_header}
-
-Line items to classify:
-{line_items_json}
-
-Respond in JSON array format:
-[
-  {
-    "row_index": 0,
-    "label": "original label",
-    "category": "LG Category Name",
-    "confidence": "HIGH|MEDIUM|LOW",
-    "reasoning": "brief explanation"
-  }
-]
-
-IMPORTANT:
-- Only use categories from the system prompt
-- "confidence" = HIGH if keywords clearly match, MEDIUM if contextual inference, LOW if uncertain
-- Batch all items in one response
-```
-
-#### 4.5.3 提示词设计关键决策
-
-| 决策 | 原因 |
+| 优势 | 说明 |
 |------|------|
-| System prompt 列出全部 16 个分类 + 规则 | LLM 需要完整分类空间，防止幻觉出不存在的分类 |
-| 传入 `document_type` 上下文 | Balance Sheet 里的 "Revenue" 可能是 "Deferred Revenue"（负债） |
-| 传入 `section_header` | "R&D Department" section 下的 "Salary" → R&D Payroll |
-| 传入 `industry` | SaaS 公司的 "hosting" → COGS；制造业 → G&A |
-| 批量处理而非逐行 | 减少 API 调用次数，LLM 利用同文档上下文做更好的判断 |
-| 要求返回 `reasoning` | 审计可追溯，用户审核时可参考 AI 推理依据 |
+| 多模型切换 | 同一个 API 访问 Gemini/Claude/GPT — 按任务选最优模型 |
+| 成本优化 | 提取用便宜模型（Gemini Flash），映射用强模型（Claude） |
+| 无供应商锁定 | 某家 API 故障可秒级切换 |
+| OpenAI SDK 兼容 | Instructor/LangGraph 直接对接，零适配成本 |
+| 统一计费 | 一个 API key 管理所有模型消耗 |
 
-### 4.6 三层协调逻辑
+#### AI Vision 替代传统 OCR（eSapiens）的理由
 
-```python
-async def map_extracted_rows(
-    rows: list[ExtractedRow],
-    company_id: int,
-    document_type: str,
-    industry: str,
-    db: AsyncSession
-) -> list[MappingResult]:
-    results = []
-    llm_batch = []
+| 维度 | 传统 OCR (eSapiens) | AI Vision (Gemini/Claude) |
+|------|---------------------|--------------------------|
+| 表格识别 | 规则 + ML | **LLM 视觉理解** |
+| 无边框表格 | 差 | **好** |
+| 理解上下文 | 不能（纯文字提取） | **能**（知道 Revenue 是收入） |
+| 格式标准化 | 需大量后处理 | **Pydantic 直接输出结构化** |
+| 持续改进 | 需重训模型 | **Few-shot 即时生效** |
+| 供应商风险 | 依赖单一供应商 | OpenRouter 可切换模型 |
+| 成本（10 页 PDF） | ~$0.10-0.50 | **~$0.01（Gemini Flash）** |
 
-    for row in rows:
-        if row.is_header or row.is_total:
-            continue
+### 3.3 模型路由策略
 
-        # === Layer 1: 规则引擎 ===
-        category, confidence = rule_engine_match(
-            row.account_label,
-            section_context=row.section_header or ""
-        )
-        if category and confidence in ("HIGH", "MEDIUM"):
-            results.append(MappingResult(
-                row_id=row.id,
-                lg_category=category,
-                confidence=confidence,
-                source="RULE_ENGINE"
-            ))
-            continue
+按任务类型和复杂度选择模型，平衡成本与质量:
 
-        # === Layer 2: 公司记忆 ===
-        category, confidence = await company_memory_match(
-            company_id, row.account_label, db
-        )
-        if category:
-            results.append(MappingResult(
-                row_id=row.id,
-                lg_category=category,
-                confidence=confidence,
-                source="COMPANY_MEMORY"
-            ))
-            continue
+```
+任务类型          复杂度     模型                    成本 (1M tokens)
+─────────────────────────────────────────────────────────────────
+文档提取          低/中      Gemini 2.5 Flash        $0.15
+文档提取          高(复杂)   Claude Sonnet 4         $3.00
+文档类型识别      任意       Gemini 2.5 Flash        $0.15
+账户映射(LLM层)   中/高      Claude Sonnet 4         $3.00
+Embedding         任意       text-embedding-3-small  $0.02
+```
 
-        # === 收集到 LLM 批次 ===
-        llm_batch.append(row)
+**单次典型上传成本估算**（10 页 PDF，~80 行数据）:
 
-    # === Layer 3: LLM 批量处理 ===
-    if llm_batch:
-        llm_results = await call_llm_mapping(
-            llm_batch, company_id, document_type, industry
-        )
-        results.extend(llm_results)
+| 步骤 | 模型 | 预估成本 |
+|------|------|----------|
+| 提取 10 页 | Gemini Flash | ~$0.01 |
+| 文档分类 | Gemini Flash | ~$0.001 |
+| 映射（~12 行走 LLM） | Claude Sonnet | ~$0.01 |
+| Embedding 80 个标签 | text-embedding-3-small | ~$0.0001 |
+| **总计** | | **~$0.02** |
 
-    return results
+---
+
+## 4. 系统架构
+
+### 4.1 总体架构
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     CIOaas-web (React)                        │
+│   UploadPage → ExtractingPage → ReviewPage → ConfirmPage     │
+│        ↕              ↕              ↕            ↕          │
+│     Tool 1        Tool 2         Tool 3       Tool 4         │
+└───────────────────────────┬──────────────────────────────────┘
+                            │ REST API (= Agent Tool 协议)
+┌───────────────────────────┴──────────────────────────────────┐
+│                   CIOaas-api (Java Gateway)                   │
+│               路由转发 /api/v1/ocr/** → Python                │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ OCR Agent 边界 ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┐
+│                                                              │
+│  Tool 接口层 (5 个标准 Tool)                                  │
+│  ┌────────────┬───────────┬────────────┬──────────┬───────┐  │
+│  │upload_and_ │get_session│update_     │commit_to_│query_ │  │
+│  │extract     │_status    │review      │lg        │memory │  │
+│  └─────┬──────┴─────┬─────┴──────┬─────┴────┬─────┴───────┘  │
+│        ▼            ▼            ▼          ▼                │
+│  ┌─────────────────────────────────────────────────────┐     │
+│  │          LangGraph Pipeline (状态图)                 │     │
+│  │                                                     │     │
+│  │  [Preprocess] → [Extract] → [Map] → [Validate]     │     │
+│  │       │             │          │          │         │     │
+│  │  Unstructured   Instructor  三层映射   冲突检测      │     │
+│  │                 + OpenRouter  引擎                   │     │
+│  └─────────────────────────────────────────────────────┘     │
+│                                                              │
+│  Agent 记忆层                                                │
+│  ┌────────────────┐  ┌──────────────────┐                    │
+│  │ 公司记忆        │  │ 全局向量记忆      │                    │
+│  │ (pg_trgm)      │  │ (pgvector)       │                    │
+│  └────────────────┘  └──────────────────┘                    │
+│                                                              │
+└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
+
+共享基础设施（未来其他 Agent 也使用）
+┌──────────┐  ┌──────────────┐  ┌──────────┐  ┌─────────────┐
+│   S3     │  │  OpenRouter  │  │ pgvector │  │ PostgreSQL  │
+│ (文件)   │  │  (AI 模型)   │  │ (向量)   │  │(业务+ckpt)  │
+└──────────┘  └──────────────┘  └──────────┘  └─────────────┘
+```
+
+**架构分层说明**:
+- **Tool 接口层**: OCR Agent 对外暴露的 5 个标准 Tool，当前前端调用，未来 Orchestrator/其他 Agent 也通过同一接口调用
+- **Pipeline 层**: LangGraph 状态图，Agent 的核心逻辑
+- **记忆层**: Agent 独立管理的持久化记忆，不与其他 Agent 共享
+- **共享基础设施**: PostgreSQL/S3/OpenRouter 等，所有 Agent 复用但数据隔离（表前缀区分）
+
+### 4.2 Pipeline 状态机
+
+```
+UPLOAD ──→ PREPROCESS ──→ EXTRACT ──→ MAP ──→ VALIDATE ──→ REVIEW ──→ COMMIT
+  │            │              │         │         │           │          │
+  ↓            ↓              ↓         ↓         ↓           ↓          ↓
+FAILED      FAILED         FAILED   FAILED   ┌─CONFLICT   (用户      FAILED
+                                              │  RESOLVE    编辑)
+                                              ↓
+                                           用户选择
+                                        Overwrite/Skip/Cancel
+```
+
+**LangGraph 状态图的优势**:
+- 每个节点独立运行、独立测试
+- 状态自动持久化到 PostgreSQL — 用户关浏览器后可恢复
+- 任何节点失败都可从上一个 checkpoint 重试
+- `langgraph.visualize()` 自动生成可视化流程图
+
+### 4.3 LangGraph 节点职责
+
+| 节点 | 输入 | 输出 | 依赖组件 |
+|------|------|------|----------|
+| **Preprocess** | 上传的原始文件 | 标准化的图片/JSON | Unstructured.io, pdf2image |
+| **Extract** | 图片/JSON | `ExtractedTable[]` (Pydantic) | Instructor + OpenRouter (Gemini Flash) |
+| **Map** | `ExtractedTable[]` | `MappingResult[]` | 三层映射引擎 |
+| **Validate** | 提取数据 + 映射结果 | 错误列表 + 冲突列表 | PostgreSQL (已有数据对比) |
+
+**条件路由**:
+- Validate 通过 → END（进入前端审核）
+- 有阻塞错误 → 返回错误信息
+- 有数据冲突 → 进入冲突解决流程
+
+---
+
+## 5. AI 提取引擎
+
+### 5.1 提取流程
+
+```
+原始文件
+  │
+  ├── PDF/图片 ──→ Unstructured.io ──→ 每页转为 Base64 图片
+  │                                         │
+  │                                   Gemini Flash (Vision)
+  │                                   + Instructor (Pydantic)
+  │                                         │
+  │                                   ExtractedTable 结构化输出
+  │
+  └── Excel/CSV ──→ openpyxl/pandas 解析
+                          │
+                    处理合并单元格、公式求值
+                          │
+                    转换为同一 ExtractedTable 结构
+                          ↓
+                    ┌──────────────────────┐
+                    │  统一的 Pydantic 模型  │
+                    │  ExtractedTable       │
+                    │  ├── document_type    │
+                    │  ├── currency         │
+                    │  ├── reporting_periods│
+                    │  └── rows[]           │
+                    │       ├── label       │
+                    │       ├── values{}    │
+                    │       ├── is_header   │
+                    │       └── is_total    │
+                    └──────────────────────┘
+```
+
+**关键设计**: PDF/图片和 Excel 两条路径最终输出**完全相同的 Pydantic 结构**，下游映射和审核逻辑无需区分数据来源。
+
+### 5.2 Instructor + Pydantic 的价值
+
+```
+传统 OCR 流程:
+  OCR 引擎 → 原始文本 → 正则/规则解析 → 表格结构 → 验证修正 → JSON
+  (5 步，每步都可能出错，需要大量胶水代码)
+
+AI Vision + Instructor 流程:
+  Vision 模型 → Pydantic 结构化输出 → 自动验证（不符合自动重试）
+  (1 步，类型安全，自动重试)
+```
+
+Instructor 的 `max_retries=3` 机制: 如果模型输出不符合 Pydantic schema（字段缺失、类型错误），自动将验证错误反馈给模型重新生成，无需人工干预。
+
+### 5.3 文档类型识别
+
+三类信号加权评分，每种信号独立贡献分数:
+
+```
+信号类型            权重    示例
+────────────────────────────────────────────────────────
+Sheet Name 关键词    3      "P&L" / "Balance Sheet" / "Cash Flow"
+Row Label 模式       2/项   Revenue, COGS, EBITDA → P&L 指标
+结构线索             4-5    Assets = Liabilities + Equity → Balance Sheet
+
+评分阈值:
+  ≥ 8 分 → HIGH confidence
+  ≥ 4 分 → MEDIUM confidence
+  ≥ 2 分 → LOW confidence
+  < 2 分 → "MISC"（标记用户确认）
 ```
 
 ---
 
-## 5. 文档类型识别算法
+## 6. AI 映射引擎（三层架构）
 
-### 5.1 评分机制
+### 6.1 架构总览
 
-```python
-def classify_document_type(
-    sheet_name: str,
-    row_labels: list[str],
-    structure: dict
-) -> tuple[str, str]:
-    """
-    返回 (document_type, confidence)。
-    基于 sheet 名称、行标签模式、结构线索三类信号加权评分。
-    """
-    scores = {"PNL": 0, "BALANCE_SHEET": 0, "CASH_FLOW": 0, "PROFORMA": 0}
-
-    # Signal 1: Sheet name (weight: 3)
-    sheet_lower = (sheet_name or "").lower()
-    SHEET_SIGNALS = {
-        "PNL": ["p&l", "income", "profit", "loss", "pnl"],
-        "BALANCE_SHEET": ["balance", "assets", "liabilities", "bs"],
-        "CASH_FLOW": ["cash flow", "cashflow", "cf"],
-        "PROFORMA": ["forecast", "proforma", "projection", "budget"]
-    }
-    for doc_type, keywords in SHEET_SIGNALS.items():
-        if any(kw in sheet_lower for kw in keywords):
-            scores[doc_type] += 3
-
-    # Signal 2: Row label patterns (weight: 2 per match)
-    labels_text = " ".join(l.lower() for l in row_labels)
-    PNL_INDICATORS = ["revenue", "cogs", "gross margin", "ebitda",
-                      "net income", "operating income"]
-    BS_INDICATORS = ["total assets", "total liabilities", "equity",
-                     "current assets", "current liabilities"]
-    CF_INDICATORS = ["operating activities", "investing activities",
-                     "financing activities", "net cash"]
-    scores["PNL"] += sum(2 for ind in PNL_INDICATORS if ind in labels_text)
-    scores["BALANCE_SHEET"] += sum(2 for ind in BS_INDICATORS if ind in labels_text)
-    scores["CASH_FLOW"] += sum(2 for ind in CF_INDICATORS if ind in labels_text)
-
-    # Signal 3: Structural cues (weight: 4-5)
-    if structure.get("has_beginning_end_cash"):
-        scores["CASH_FLOW"] += 4
-    if structure.get("assets_eq_liabilities_plus_equity"):
-        scores["BALANCE_SHEET"] += 5
-
-    # 选最高分
-    best_type = max(scores, key=scores.get)
-    best_score = scores[best_type]
-
-    if best_score >= 8:
-        return best_type, "HIGH"
-    elif best_score >= 4:
-        return best_type, "MEDIUM"
-    elif best_score >= 2:
-        return best_type, "LOW"
-    else:
-        return "MISC", "LOW"
+```
+待映射行项
+    │
+    ▼
+┌───────────────────────────────────────┐
+│  Layer 1: 规则引擎 (Keywords)          │  覆盖 ~60%
+│  零成本，毫秒级，完全确定性            │  零 AI 调用
+│  按优先级排序解决关键词冲突            │
+├───────────────────────────────────────┤
+│         ↓ 未匹配的行项                 │
+├───────────────────────────────────────┤
+│  Layer 2: 公司记忆 (DB 匹配)          │  覆盖 ~25%
+│  精确匹配 + trigram 模糊匹配           │  零 AI 调用
+│  基于该公司历史上确认过的映射          │
+├───────────────────────────────────────┤
+│         ↓ 仍未匹配的行项               │
+├───────────────────────────────────────┤
+│  Layer 3: LLM 推理 (Claude Sonnet)    │  覆盖 ~15%
+│  Few-Shot 动态注入（公司+全局记忆）     │  唯一产生 AI 成本的层
+│  Instructor 强制结构化输出             │
+│  批量处理减少 API 调用                 │
+└───────────────────────────────────────┘
+    │
+    ▼
+MappingResult (category + confidence + source + reasoning)
 ```
 
-### 5.2 多类型混合文档处理
+**为什么三层而不是全用 LLM？**
 
-- 多页 PDF: 按页分组，每页独立识别 document_type
-- 多 sheet Excel: 每个 sheet 独立识别
-- 用户可在审核页面手动修改文档类型和合并/拆分表格
+| 方案 | 成本 | 延迟 | 可预测性 |
+|------|------|------|----------|
+| 全 LLM | 高（每行都调 API） | 高 | 低（LLM 可能不一致） |
+| 全规则引擎 | 零 | 零 | 高但覆盖率不足 |
+| **三层混合** | **低（仅 15% 走 LLM）** | **低** | **高（确定性优先）** |
+
+### 6.2 Layer 1: 规则引擎 — 优先级体系
+
+规则引擎的核心挑战是**关键词冲突**（如 `hosting` 同时出现在 COGS 和 R&D）。通过 5 级优先级解决:
+
+```
+Priority 1（最精确 — 专有名词匹配）
+  ├── R&D Capitalized: "capitalized r&d", "amortization of software"
+  ├── Accounts Payable: "accounts payable", "a/p"
+  ├── Accounts Receivable: "accounts receivable", "a/r"
+  └── Long Term Debt: "long term debt", "convertible note"
+
+Priority 2（需上下文 — Payroll 部门识别）
+  ├── S&M Payroll: payroll 关键词 + sales/marketing 上下文
+  └── R&D Payroll: payroll 关键词 + r&d/engineering 上下文
+
+Priority 3（兜底分类）
+  ├── G&A Payroll: payroll 关键词，无部门上下文 → 默认 G&A
+  └── COGS: "cost of goods", "materials"（排除 R&D 关键词）
+
+Priority 4（费用大类）
+  ├── Revenue: "revenue", "sales", "income"（排除 "cost of"）
+  ├── S&M Expenses: "marketing", "advertising", "commission"
+  ├── R&D Expenses: "research", "development", "engineering"
+  └── G&A Expenses: "g&a", "rent", "legal", "accounting"
+
+Priority 5（Balance Sheet 兜底）
+  └── Cash: "cash", "bank", "savings"
+```
+
+**匹配逻辑**:
+- 从 Priority 1 开始逐级匹配
+- 每条规则有 `negative_keywords`（排除词）防止误匹配
+- 需要 `requires_context` 的规则会检查行标签和 section header
+- 首个匹配即停止 → 高优先级总是胜出
+
+**置信度映射**:
+- Priority 1-2 → HIGH
+- Priority 3-4 → MEDIUM
+- Priority 5 → LOW
+
+### 6.3 Layer 2: 公司记忆 — 精确+模糊匹配
+
+```
+用户确认映射
+    │
+    ▼ 保存到 company_mapping_memory 表
+    │
+未来同公司上传
+    │
+    ├── 精确匹配: "AWS Infrastructure" = "AWS Infrastructure" → HIGH
+    │
+    └── 模糊匹配: "AWS Infra Costs" ≈ "AWS Infrastructure" (相似度 > 0.6) → MEDIUM
+        (PostgreSQL pg_trgm 扩展提供 trigram 相似度计算)
+```
+
+**记忆质量控制**:
+- `frequency` 字段: 被确认次数 — frequency < 3 的标记为 provisional
+- `last_used_at` 字段: 12 个月未使用的自动归档
+- 用户覆盖时以最新决策为准
+
+### 6.4 Layer 3: LLM 推理 — Few-Shot 动态注入
+
+```
+┌─────────────────────────────────────────────┐
+│               LLM Prompt 构成                │
+│                                             │
+│  System Prompt (固定)                        │
+│  ├── 16 个 LG 分类定义                      │
+│  ├── 映射规则（Payroll 兜底、OOE 互抵等）    │
+│  └── 输出格式要求（JSON + reasoning）        │
+│                                             │
+│  Few-Shot Examples (动态注入)                │
+│  ├── 公司记忆: 最相关的 ≤20 条历史映射       │  ← Layer 2 DB 查询
+│  └── 全局记忆: 跨公司相似标签 ≤10 条         │  ← pgvector 向量检索
+│                                             │
+│  User Prompt                                │
+│  ├── Company context (industry)             │
+│  ├── Document type                          │
+│  ├── Section header                         │
+│  └── 待映射行项列表 (JSON)                   │
+└─────────────────────────────────────────────┘
+```
+
+**Few-Shot 比 Fine-tuning 的优势**:
+
+| 维度 | Few-Shot 动态注入 | Fine-tuning |
+|------|-------------------|-------------|
+| 反馈生效时间 | **即时** | 需重新训练（小时/天） |
+| 成本 | prompt 多几百 token | GPU 训练 + 模型托管 |
+| 可审计 | **完全透明** — 知道用了哪些案例 | 黑盒 |
+| 回滚 | 删除错误记忆即可 | 需回退模型版本 |
+| 多公司隔离 | **天然隔离** | 需多个 adapter |
+
+**LLM Prompt 关键设计决策**:
+
+| 决策 | 理由 |
+|------|------|
+| System prompt 列出全部 16 个分类 | 防止 LLM 幻觉出不存在的分类 |
+| 传入 `document_type` | Balance Sheet 的 "Revenue" 可能是 "Deferred Revenue"（负债） |
+| 传入 `section_header` | "R&D" section 下的 "Salary" → R&D Payroll |
+| 传入 `industry` | SaaS 的 "hosting" → COGS；制造业 → G&A |
+| 批量处理 | 减少 API 调用，LLM 可利用同文档上下文 |
+| 要求 `reasoning` | 审计追溯 + 用户审核参考 |
+
+### 6.5 完整映射规则（财务 SME Nico Carlson 已确认）
+
+#### Income Statement (P&L) 分类
+
+| LG 分类 | 关键词 | 排除词 | 特殊规则 |
+|---------|--------|--------|----------|
+| **Revenue** | sales, revenue, income, fees, subscriptions, gross receipts | cost of, expense, other income | refund/returns/contra → 仍为 Revenue 但标负值 |
+| **COGS** | cogs, cost of goods, cost of revenue, materials, inventory, direct labor, supplies used | research, development | hosting/cloud/server → **SaaS 公司归 COGS，非 SaaS 归 R&D** |
+| **S&M Expenses** | marketing, advertising, promotion, campaign, commission, customer acquisition, lead generation, trade show, sponsorship, customer success, merchant fees | payroll, salary | |
+| **R&D Expenses** | research, development, r&d, engineering, product development, software development, technical consulting, qa, devops | payroll, salary, capitalized | |
+| **G&A Expenses** | general and administrative, g&a, overhead, rent, lease, utilities, legal, audit, accounting, insurance, hr, recruiting | payroll, salary | |
+| **S&M Payroll** | wages, salary, payroll, compensation, benefits | | 需 sales/marketing/s&m 上下文 |
+| **R&D Payroll** | wages, salary, payroll, compensation, benefits | | 需 r&d/research/engineering 上下文 |
+| **G&A Payroll** | wages, salary, payroll, compensation, benefits, payroll taxes | | **兜底**: 无部门上下文时默认此项 |
+| **OOE** | other income, other expense | | 同周期互抵: net = expense - income |
+
+#### Balance Sheet 分类
+
+| LG 分类 | 关键词 | 特殊规则 |
+|---------|--------|----------|
+| **Cash** | cash, bank, checking, savings, cash equivalents, money market, treasury | |
+| **Accounts Receivable** | accounts receivable, a/r, receivables, trade receivables, unbilled revenue | |
+| **R&D Capitalized** | capitalized r&d, capitalized research, capitalized development, internal-use software, amortization of software, amortization of intangibles | **需双重信号**: (资本化 + R&D 上下文) 或 (摊销关键词) |
+| **Other Assets** | | 被识别为 Asset 但不属于 Cash/AR/R&D Capitalized 的兜底 |
+| **Accounts Payable** | accounts payable, a/p, payables, trade payables | |
+| **Long Term Debt** | long term debt, loan, note payable, term loan, convertible note, venture debt, credit facility, revolving | 排除 "short term" |
+| **Other Liabilities** | | 被识别为 Liability 但不属于 AP/Long Term Debt 的兜底 |
 
 ---
 
-## 6. 前端设计（React）
+## 7. 持续学习系统
 
-### 6.1 页面路由
+### 7.1 三层学习架构
+
+```
+用户审核确认/修改映射
+         │
+         ▼
+┌────────────────────────────────────────────────┐
+│  写入层                                         │
+│                                                │
+│  ┌──────────────┐     ┌────────────────────┐   │
+│  │ PostgreSQL   │     │ pgvector           │   │
+│  │ 公司记忆表    │     │ 全局向量表          │   │
+│  │ (精确+模糊)  │     │ (语义相似度)        │   │
+│  └──────────────┘     └────────────────────┘   │
+└────────────────────────────────────────────────┘
+         │
+         ▼
+┌────────────────────────────────────────────────┐
+│  读取层（下次上传时自动应用）                     │
+│                                                │
+│  Layer 2: DB 查 → 精确匹配 / trigram 模糊匹配  │
+│  Layer 3: pgvector 查 → Few-Shot 示例注入       │
+└────────────────────────────────────────────────┘
+```
+
+### 6.2 学习闭环流程
+
+```
+第 1 次上传（某 SaaS 公司）
+  "AWS Infrastructure" → LLM 推理 → COGS (confidence: MEDIUM)
+  用户确认 ✓
+  → 保存到公司记忆 + 全局向量库
+
+第 2 次上传（同公司）
+  "AWS Infrastructure" → Layer 2 精确匹配 → COGS (confidence: HIGH)
+  零 LLM 调用，即时返回
+
+第 3 次上传（不同 SaaS 公司）
+  "Cloud Infrastructure Costs" → Layer 2 无匹配
+  → Layer 3 LLM，Few-Shot 注入: "AWS Infrastructure → COGS (SaaS)"
+  → LLM 参考后输出 COGS (confidence: HIGH)
+```
+
+### 6.3 向量检索方案
+
+**选型: pgvector（PostgreSQL 扩展）**
+
+| 对比 | pgvector | ChromaDB | Pinecone |
+|------|----------|----------|----------|
+| 额外组件 | **无（复用 PostgreSQL）** | 需部署独立服务 | 托管服务 |
+| 运维成本 | **零** | 中 | 低但有月费 |
+| 性能 | 几万条记录毫秒级 | 更快 | 最快 |
+| 事务一致性 | **与业务数据同一事务** | 需跨库协调 | 最终一致 |
+| 适合规模 | ≤ 100 万条 | ≤ 1000 万条 | 无限 |
+
+我们的数据量（几万条映射记录），pgvector 完全够用，且与业务数据在同一个 PostgreSQL 实例中，可以在同一个事务中写入业务数据和向量。
+
+**向量索引**: HNSW (Hierarchical Navigable Small World) — 近似最近邻搜索，查询毫秒级。
+
+### 6.4 AI 模型版本管理
+
+双轨版本控制，确保完整审计追溯:
+
+```
+┌─────────────────────────────────────────────┐
+│  每条 MappingResult 记录:                    │
+│                                             │
+│  ├── core_engine_version: "v1.3"            │ ← 通用规则版本
+│  │   (关键词表 + 优先级 + LLM prompt)        │    系统更新时全局生效
+│  │                                          │
+│  └── company_memory_version: "mem-abc123"   │ ← 公司记忆版本
+│      (该公司映射记忆的最新 hash)              │    每次用户确认时更新
+└─────────────────────────────────────────────┘
+```
+
+### 6.5 学习质量控制
+
+| 风险 | 防御措施 |
+|------|----------|
+| 错误记忆污染 | `frequency` < 3 的记忆标记 provisional，不参与 Few-Shot |
+| 记忆膨胀 | TTL 12 个月，未使用的自动归档 |
+| Few-Shot 过长 | 限制 ≤ 20 条公司记忆 + ≤ 10 条全局记忆，按相关性截断 |
+| Embedding 模型变更 | 记录 model_version，更换模型时全量重算向量 |
+| 公司间数据隔离 | DB 按 company_id 隔离；向量查询带 company_id 过滤 |
+
+---
+
+## 8. 前端设计
+
+### 7.1 页面流程
 
 ```
 /financial-upload
   ├── Step 1: UploadPage          — 文件上传 + 队列管理
-  ├── Step 2: ExtractingPage      — 提取进度（自动，无交互）
+  │     拖拽/选择 → 进度条 → 状态（Pending/Uploading/Completed/Error）
+  │
+  ├── Step 2: ExtractingPage      — AI 提取进度（自动，无交互）
+  │     "Processing document..." → "Running AI extraction..." → "Done"
+  │
   ├── Step 3: ReviewPage          — 并排审核 + 内联编辑（核心页面）
-  │     ├── SourcePanel (左)      — PDF 预览 / Excel 预览
-  │     ├── DataPanel (右)        — Raw View / Standardized View 切换
-  │     └── MappingPanel (右下)   — 分类映射 + 置信度标签
+  │     ┌─────────────────┬──────────────────────┐
+  │     │  原始文档（左）   │  提取数据（右）        │
+  │     │  PDF 翻页        │  [Raw] [Standardized] │
+  │     │  Excel 预览      │  内联编辑 + 映射修改   │
+  │     └─────────────────┴──────────────────────┘
+  │     ✓ HIGH  ⚠ MEDIUM  ✗ UNMAPPED
+  │
   ├── Step 4: ConflictPage        — 数据冲突解决 + Note 字段
+  │     已有数据检测 → Overwrite / Skip / Cancel + 可选备注
+  │
   └── Step 5: ConfirmPage         — 最终确认 + 写入 LG
+        Write-Ready Summary → Commit → Success
 ```
 
-### 6.2 前端状态管理（dva model）
+### 7.2 前端状态管理 (dva model)
 
-```typescript
-// models/ocrUpload.ts
-interface OCRUploadState {
-  currentStep: 0 | 1 | 2 | 3 | 4;
-  sessionId: string | null;
+核心状态结构（详见 [code-examples.md](./code-examples.md)）:
 
-  // Step 1: Upload
-  fileList: UploadFile[];
-  uploadProgress: Record<string, number>;  // fileId → progress %
+| 状态模块 | 关键字段 | 说明 |
+|----------|----------|------|
+| Upload | fileList, uploadProgress | 文件队列和上传进度 |
+| Extraction | extractionStatus, extractedTables | 提取状态和结果 |
+| Review | viewMode, editedRows, mappingOverrides | 审核模式和用户编辑 |
+| Conflict | conflicts, resolutions, notes | 冲突项和解决方案 |
+| Commit | commitStatus | 提交状态 |
 
-  // Step 2: Extraction
-  extractionStatus: 'idle' | 'processing' | 'done' | 'error';
-  extractedTables: ExtractedTable[];
+### 7.3 关键交互设计
 
-  // Step 3: Review
-  activeTableId: string | null;
-  viewMode: 'raw' | 'standardized';
-  editedRows: Record<string, Partial<ExtractedRow>>;  // rowId → edits
-  mappingOverrides: Record<string, string>;            // rowId → new category
+| 交互 | 实现 |
+|------|------|
+| 点击右侧行 → 左侧定位源位置 | PDF: 跳转到对应页码；Excel: 高亮对应单元格 |
+| 双击数值内联编辑 | antd `EditableCell` 组件 |
+| 修改分类 | Standardized View 中下拉选择 16 个 LG 分类 |
+| 大表格滚动 | `react-window` 虚拟滚动（支持 1000+ 行） |
+| 自动保存 | debounce 500ms，只发送变更 diff |
+| 切换 Raw/Standardized | 不丢失已有编辑 |
 
-  // Step 4: Conflict Resolution
-  conflicts: ConflictItem[];
-  resolutions: Record<string, 'OVERWRITE' | 'SKIP' | 'CANCEL'>;
-  notes: Record<string, string>;  // conflictId → user note
+### 7.4 硬验证规则（Step 3 → Step 4 前置条件）
 
-  // Step 5: Commit
-  commitStatus: 'idle' | 'committing' | 'done' | 'error';
-}
-```
-
-### 6.3 核心页面：并排审核
-
-```
-┌──────────────────────────┬──────────────────────────────────┐
-│                          │  [Raw View] [Standardized View]  │
-│   Original Document      │                                  │
-│                          │  ┌─ Table 1: Income Statement ─┐ │
-│   ┌──────────────────┐   │  │ Account    │ Jan  │ Feb │...│ │
-│   │  PDF Page 1      │   │  │────────────┼──────┼─────┤   │ │
-│   │                  │   │  │ Revenue ✓  │12,345│13,00│   │ │
-│   │  ← Page Nav →    │   │  │ COGS    ✓  │ 4,500│ 4,80│   │ │
-│   │                  │   │  │ Hosting ⚠  │ 1,200│ 1,30│   │ │
-│   └──────────────────┘   │  │ Salary  ⚠  │ 8,000│ 8,20│   │ │
-│                          │  └──────────────────────────────┘ │
-│                          │                                  │
-│                          │  ✓ HIGH  ⚠ MEDIUM  ✗ UNMAPPED   │
-└──────────────────────────┴──────────────────────────────────┘
-```
-
-关键交互:
-- 点击右侧行 → 左侧 PDF/Excel 定位到对应源位置
-- 双击数值可内联编辑
-- 在 Standardized View 中可通过下拉菜单修改分类
-- 所有编辑实时 autosave（debounce 500ms）
-- 大数据表使用 `react-window` 虚拟滚动
-
-### 6.4 硬验证规则（Step 3 → Step 4 的前置条件）
-
-三要素必须完整：
+三要素必须完整:
 1. **Account Name** — 不为空
 2. **Value** — 必须是数值
 3. **Month** — 不为空且不是 "Unidentified"
 
-不满足时阻止进入下一步，精确提示: 如 `"2024_PnL.pdf" → Table 1 → Row 5: Account Name is empty"`
+不满足时精确提示: `"2024_PnL.pdf" → Table 1 → Row 5: Account Name is empty`
+
+用户可通过 Remove Row / Remove Column 清除噪音数据后通过验证。
 
 ---
 
-## 7. API 设计
+## 9. API 设计
 
-### 7.1 接口列表
+### 8.1 接口列表
 
-```yaml
-# === Upload ===
-POST   /api/v1/ocr/sessions                       # 创建上传会话
-POST   /api/v1/ocr/sessions/{id}/files             # 上传文件 (multipart)
-DELETE /api/v1/ocr/sessions/{id}/files/{fileId}     # 删除队列中的文件
-POST   /api/v1/ocr/sessions/{id}/extract           # 触发提取
+```
+Upload 阶段:
+  POST   /api/v1/ocr/sessions                        创建上传会话
+  POST   /api/v1/ocr/sessions/{id}/files              上传文件 (multipart)
+  DELETE /api/v1/ocr/sessions/{id}/files/{fileId}      删除队列中文件
+  POST   /api/v1/ocr/sessions/{id}/extract             触发 AI 提取
 
-# === Extraction Status ===
-GET    /api/v1/ocr/sessions/{id}/status            # 获取会话状态（轮询）
-GET    /api/v1/ocr/sessions/{id}/tables            # 获取提取的表格列表
-GET    /api/v1/ocr/tables/{tableId}/rows           # 获取表格行数据
+状态查询:
+  GET    /api/v1/ocr/sessions/{id}/status              会话状态（轮询）
+  GET    /api/v1/ocr/sessions/{id}/tables              提取的表格列表
+  GET    /api/v1/ocr/tables/{tableId}/rows             表格行数据
 
-# === Review & Edit ===
-PATCH  /api/v1/ocr/tables/{tableId}/rows/{rowId}            # 编辑行数据
-PATCH  /api/v1/ocr/tables/{tableId}/rows/{rowId}/mapping    # 修改映射
-DELETE /api/v1/ocr/tables/{tableId}/rows/{rowId}            # 删除噪音行
-DELETE /api/v1/ocr/tables/{tableId}/columns/{colKey}        # 删除噪音列
+审核编辑:
+  PATCH  /api/v1/ocr/tables/{tableId}/rows/{rowId}            编辑行数据
+  PATCH  /api/v1/ocr/tables/{tableId}/rows/{rowId}/mapping    修改映射
+  DELETE /api/v1/ocr/tables/{tableId}/rows/{rowId}            删除噪音行
+  DELETE /api/v1/ocr/tables/{tableId}/columns/{colKey}        删除噪音列
 
-# === Conflict & Commit ===
-POST   /api/v1/ocr/sessions/{id}/validate          # 触发验证 + 冲突检测
-POST   /api/v1/ocr/sessions/{id}/resolve           # 提交冲突解决方案
-POST   /api/v1/ocr/sessions/{id}/commit            # 写入 LG
+提交:
+  POST   /api/v1/ocr/sessions/{id}/validate            验证 + 冲突检测
+  POST   /api/v1/ocr/sessions/{id}/resolve              提交冲突解决方案
+  POST   /api/v1/ocr/sessions/{id}/commit               写入 LG
 ```
 
-### 7.2 Gateway 路由配置
+### 8.2 Gateway 路由
 
-在 CIOaas-api 的 Gateway 配置中添加:
+在 CIOaas-api Gateway 添加路由:
 
-```yaml
-spring:
-  cloud:
-    gateway:
-      routes:
-        - id: ocr-service
-          uri: http://cioaas-python:8090
-          predicates:
-            - Path=/api/v1/ocr/**
-          filters:
-            - StripPrefix=0
 ```
-
-### 7.3 OOE 写入特殊处理
-
-OOE（Miscellaneous Operating Expenses）在 LG 中是计算字段，不能直接写入。写入逻辑:
-
-```python
-# 在 LG Writer 中
-if mapping.lg_category == LGCategory.OOE:
-    # 拆分为 other_income / other_expense 独立字段
-    if row_value >= 0:
-        write_to_field = "other_expense"
-    else:
-        write_to_field = "other_income"
-        row_value = abs(row_value)
+/api/v1/ocr/** → http://cioaas-python:8090 (StripPrefix=0)
 ```
 
 ---
 
-## 8. 边界情况处理
+## 10. 数据模型
 
-| 边界情况 | 处理方案 |
-|----------|----------|
-| **同一行匹配多个分类** | 优先级排序（priority 字段），最精确的匹配胜出 |
-| **"Cloud Hosting" — COGS 还是 R&D？** | 传入 company industry: SaaS → COGS，其他 → R&D |
-| **Payroll 无部门上下文** | 默认 G&A Payroll，置信度 LOW，提醒用户审核 |
-| **多页 PDF 含多种报表** | 按页分组独立识别 document_type，用户可手动合并/拆分 |
-| **Excel 有合并单元格** | openpyxl 读取时 unmerge，将合并值填充到每个子单元格 |
-| **数值格式混乱** | 正则预处理: 括号 `(1,234)` → `-1234`，逗号去除，`%` 保留标记 |
-| **用户审核到一半关浏览器** | Session 所有编辑实时 autosave，重新打开恢复 |
-| **OCR 识别质量极差** | 提取行数 < 3 或数值识别率 < 50% → 标记 "Low Quality"，建议重传 |
-| **同公司同月已有数据** | 写入前检测冲突，弹出 Overwrite/Skip/Cancel 选项 |
-| **Balance Sheet 不平衡** | Soft warning（不阻止提交，但提醒用户） |
-| **P&L 子项加总不等于汇总行** | Soft warning |
-| **同文件出现重复报告周期** | 检测并标记，用户确认后才允许继续 |
+### 9.1 核心表
 
----
+| 表 | 职责 | 关键字段 |
+|----|------|----------|
+| `ocr_upload_session` | 一次上传会话 | company_id, status, uploaded_by |
+| `ocr_uploaded_file` | 单个上传文件 | session_id, filename, file_type, s3_key, status |
+| `ocr_extracted_table` | 提取的一张表 | file_id, document_type, doc_type_confidence, currency |
+| `ocr_extracted_row` | 提取的一行 | table_id, account_label, values(JSONB), section_header |
+| `ocr_mapping_result` | AI 映射结果 | row_id, lg_category, confidence, source, reasoning |
+| `ocr_company_mapping_memory` | 公司映射记忆 | company_id, account_label_pattern, lg_category, frequency |
+| `ocr_mapping_embedding` | 全局向量记忆 | account_label, lg_category, embedding(vector), industry |
+| `ocr_conflict_record` | 冲突解决记录 | session_id, resolution, user_note |
 
-## 9. 安全设计
+完整 DDL 和索引设计见 [code-examples.md](./code-examples.md)。
 
-### 9.1 文件安全
+### 9.2 关键索引
 
-```python
-import magic
-
-ALLOWED_MIMES = {
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "text/csv",
-    "image/jpeg", "image/png", "image/tiff"
-}
-
-async def validate_file(file_content: bytes, filename: str) -> None:
-    # 真实 MIME 类型检查（不信任扩展名）
-    mime = magic.from_buffer(file_content[:2048], mime=True)
-    if mime not in ALLOWED_MIMES:
-        raise ValueError(f"File type {mime} not allowed")
-
-    # Excel 防御 XXE 攻击
-    if mime.startswith("application/vnd.openxmlformats"):
-        from defusedxml import ElementTree
-        # 使用 defusedxml 替代默认 XML parser
-```
-
-### 9.2 LLM Prompt Injection 防御
-
-用户文件名/行标签可能含恶意 prompt 注入:
-
-```python
-def sanitize_for_llm(text: str) -> str:
-    """清理传入 LLM 的用户数据"""
-    # 去除可能的 prompt injection 关键词
-    dangerous_patterns = [
-        "ignore previous", "system:", "assistant:", "user:",
-        "forget your instructions", "new instructions"
-    ]
-    result = text
-    for pattern in dangerous_patterns:
-        result = result.replace(pattern, "[FILTERED]")
-    return result[:500]  # 限制长度
-```
-
-### 9.3 S3 文件存储安全
-
-- Pre-signed URL（有效期 15 分钟）
-- SSE-S3 服务端加密
-- Bucket policy 禁止公开访问
-- 文件留存策略: 提交后保留 90 天，之后归档到 Glacier
-
-### 9.4 权限校验
-
-- Gateway 层: JWT 校验
-- Python 端: 二次校验 company_id 归属关系
-- Company Admin/User: 只能上传本公司文件
-- Portfolio Admin: 可上传所有有权限公司的文件
+| 索引 | 类型 | 用途 |
+|------|------|------|
+| `idx_mapping_memory_label_trgm` | GIN (pg_trgm) | 公司记忆模糊匹配 |
+| `idx_mapping_embedding_hnsw` | HNSW (pgvector) | 全局向量近似搜索 |
+| `idx_financial_data_conflict` | B-tree 复合索引 | 冲突检测快速查询 |
 
 ---
 
-## 10. 性能优化
+## 11. 安全设计
+
+| 层面 | 措施 |
+|------|------|
+| **文件安全** | `python-magic` 校验真实 MIME（不信任扩展名），Excel 用 `defusedxml` 防 XXE |
+| **LLM 注入防御** | 用户文件名/行标签传入 LLM 前 sanitize（过滤 "ignore previous" 等） |
+| **S3 存储** | Pre-signed URL (15 分钟有效)，SSE-S3 加密，bucket 禁止公开 |
+| **权限** | Gateway JWT 校验 + Python 端二次校验 company_id 归属 |
+| **数据驻留** | OpenRouter 数据政策: 不用于训练，但文件经过第三方需用户知情同意 |
+| **审计** | MappingResult 保留 original_ai_suggestion + source，全流程时间戳 |
+
+---
+
+## 12. 边界情况
+
+| 场景 | 处理方案 |
+|------|----------|
+| 同一行匹配多个分类 | 优先级排序，最精确的匹配胜出 |
+| "Cloud Hosting" COGS vs R&D | 传入 company industry: SaaS → COGS，其他 → R&D |
+| Payroll 无部门上下文 | 默认 G&A Payroll，confidence = LOW |
+| 多页 PDF 含多种报表 | 按页分组独立识别 document_type |
+| Excel 合并单元格 | openpyxl unmerge，填充值到子单元格 |
+| 数值格式混乱 | 正则: `(1,234)` → `-1234`，逗号去除 |
+| 用户中途关浏览器 | LangGraph checkpoint 自动恢复 |
+| OCR 质量极差 | 提取行数 < 3 或数值识别率 < 50% → 建议重传 |
+| 同公司同月已有数据 | 冲突检测 → Overwrite/Skip/Cancel |
+| Balance Sheet 不平衡 | Soft warning（不阻止提交） |
+| OOE 计算指标矛盾 | 写入时拆为 other_income / other_expense 独立字段 |
+
+---
+
+## 13. 性能优化
 
 | 项目 | 方案 |
 |------|------|
-| OCR 处理时间（20 页 PDF ~30-60s） | 异步处理 + 进度轮询（WebSocket 或 SSE） |
-| 大文件上传 | 分片上传（chunk upload）+ 断点续传 |
-| 公司记忆模糊匹配 | PostgreSQL pg_trgm 索引 |
-| 并排审核页面大表格 | react-window 虚拟滚动 |
-| Autosave | debounce 500ms，只发送 diff 数据 |
-| LLM 调用 | 三层架构控制只 ~15% 走 LLM；批量处理减少调用次数 |
+| AI 提取延迟 (10 页 ~10-15s) | LangGraph 异步节点 + 前端进度轮询 |
+| 大文件上传 | 分片上传 (chunk) + 断点续传 |
+| 映射 LLM 调用 | 三层架构仅 ~15% 走 LLM；批量处理 |
+| 公司记忆查询 | pg_trgm GIN 索引 |
+| 向量搜索 | pgvector HNSW 索引 |
+| 前端大表格 | react-window 虚拟滚动 |
+| 自动保存 | debounce 500ms，只发 diff |
+| 断点续跑 | LangGraph PostgreSQL checkpoint |
 
 ---
 
-## 11. 需求问题清单（待确认）
+## 14. 待确认问题
 
-以下问题需要产品/财务 SME 确认后才能开始开发:
-
-| # | 问题 | 影响范围 | 阻塞级别 |
-|---|------|----------|----------|
-| 1 | OOE 作为计算指标 vs 映射目标的矛盾 — Other Income/Expense 最终写入哪个字段？ | AI Mapper + LG Writer | **P0 阻塞** |
-| 2 | `hosting/cloud/server` 默认归 COGS 还是 R&D？公司 industry 从哪获取？ | 规则引擎 | P1 |
-| 3 | 多类型混合 PDF 是要求用户按报表分别上传，还是系统自动切分？ | OCR Extractor | P1 |
-| 4 | eSapiens OCR 是 SaaS 还是 self-hosted？数据驻留合规要求？ | 安全/合规 | P1 |
-| 5 | 已上传文件的删除权限 — 谁能删？Portfolio Admin 上传后 Company User 能看到吗？ | 权限模型 | P2 |
-| 6 | Mobile 审核编辑页面是否为 Desktop Only？ | 前端 | P2 |
+| # | 问题 | 阻塞级别 |
+|---|------|----------|
+| 1 | OOE 作为计算指标 vs 映射目标 — Other Income/Expense 写入哪个字段？ | **P0** |
+| 2 | hosting/cloud/server 默认归类？公司 industry 从哪获取？ | P1 |
+| 3 | 多类型混合 PDF 用户分别上传还是系统切分？ | P1 |
+| 4 | OpenRouter 数据安全政策是否满足合规？ | P1 |
+| 5 | 已上传文件的删除/覆盖权限？ | P2 |
+| 6 | Mobile 审核页面改为 Desktop Only？ | P2 |
 
 ---
 
-## 12. 开发分期建议
+## 15. 开发分期
 
 | 阶段 | 范围 | 估算 |
 |------|------|------|
-| **Phase 1 (MVP)** | Upload + Excel 提取 + 规则引擎映射 + 简单审核 + 写入 LG | 3 sprint |
-| **Phase 2** | OCR 提取 + 并排审核 + 内联编辑 + 冲突检测 | 2 sprint |
-| **Phase 3** | LLM 映射 + 公司记忆 + Note 字段 + Mobile 适配 | 2 sprint |
-| **Phase 4** | 持续学习 + 性能优化 + 安全加固 | 1 sprint |
+| **Phase 1 (MVP)** | Upload + Excel 提取 (Instructor) + 规则引擎映射 + 简单审核 + 写入 LG | 3 sprint |
+| **Phase 2** | AI Vision 提取 (Gemini Flash) + 并排审核 + 内联编辑 + 冲突检测 | 2 sprint |
+| **Phase 3** | LLM 映射 + 公司记忆 + pgvector + Note 字段 | 2 sprint |
+| **Phase 4** | 持续学习闭环 + 性能优化 + 安全加固 | 1 sprint |
 
-**为什么 Excel 先于 OCR？** Excel 提取是确定性的（直接读表格），OCR 有不确定性（识别率问题）。先做 Excel 可验证整个 Pipeline（映射→审核→写入），再接入 OCR 只是换一个 Extractor 实现。
+**为什么 Excel 先于 AI Vision？** Excel 提取是确定性的（直接读表格），AI Vision 有不确定性。先做 Excel 可验证整个 Pipeline（映射→审核→写入），再接入 Vision 只是换 Extract 节点的实现。
 
 ---
 
-## 13. AI 模型版本管理
+## 16. Multi-Agent 演进路线
 
-双轨版本控制:
+### 16.1 三阶段演进
 
-| 版本类型 | 说明 | 变更触发 |
-|----------|------|----------|
-| **Core Engine Version** | 通用规则（关键词表+优先级+LLM prompt） | 系统更新时全局生效 |
-| **Company Mapping History ID** | 公司级映射记忆（用户修正的历史） | 每次用户确认映射时更新 |
+```
+Phase 1 (当前)                 Phase 2                      Phase 3
+──────────────                ───────────                  ───────────
+OCR Agent 独立运行             + Chat Agent                 + Orchestrator
+                              + RAG Agent
+                                                           
+┌──────────┐                  ┌──────────┐                ┌──────────────────┐
+│OCR Agent │                  │OCR Agent │                │  Supervisor      │
+│          │                  ├──────────┤                │  Agent           │
+│ Tool 1-5 │                  │Chat Agent│                │                  │
+│ 前端直调  │                  │  调用     │                │  ┌────┐ ┌────┐  │
+│          │                  │  OCR Tool │                │  │OCR │ │Chat│  │
+└──────────┘                  ├──────────┤                │  └────┘ └────┘  │
+                              │RAG Agent │                │  ┌────┐ ┌────┐  │
+                              │ LlamaIdx │                │  │RAG │ │... │  │
+                              └──────────┘                │  └────┘ └────┘  │
+                                                          └──────────────────┘
 
-每条 MappingResult 记录两个版本 ID，确保完整审计追溯。
+前端 ──REST──→ OCR Agent     Chat: "解析这个文件"          用户意图 → 路由 → Agent
+                               → 调用 OCR Tool              统一入口，统一上下文
+```
+
+### 16.2 各阶段复用关系
+
+| 组件 | Phase 1 (OCR) | Phase 2 (+Chat/RAG) | Phase 3 (+Orchestrator) |
+|------|--------------|---------------------|------------------------|
+| **LangGraph** | OCR Pipeline 状态图 | Chat Agent 状态图 | Supervisor 状态图 |
+| **Instructor** | 提取/映射结构化输出 | 对话结构化输出 | 不变 |
+| **OpenRouter** | Gemini Flash + Claude | + 对话模型 | 不变 |
+| **pgvector** | 映射记忆向量 | + RAG 知识向量 | 不变 |
+| **PostgreSQL** | 业务数据 + checkpoint | + Chat 历史 | + 统一 session |
+| **LlamaIndex** | 不启用 | RAG 索引+检索 | 不变 |
+| **Tool 接口** | 前端 REST 调用 | Agent 间调用 | Orchestrator 调用 |
+
+**核心价值**: 每个 Phase 新增的 Agent 是**增量添加**，已有 Agent 和基础设施**零修改**。
+
+### 16.3 Agent 间通信模式
+
+```
+Phase 2 — 直接调用（Agent-to-Agent）:
+
+  Chat Agent 收到: "帮我解析上传的财务文件"
+       │
+       ▼ 识别意图 → 需要 OCR 能力
+       │
+       ▼ 调用 OCR Agent 的 upload_and_extract Tool
+       │
+       ▼ 轮询 get_session_status Tool
+       │
+       ▼ 返回提取结果给用户
+
+Phase 3 — Supervisor 路由:
+
+  用户输入: "解析这个 PDF 然后对比去年数据"
+       │
+       ▼ Supervisor 分解为两步
+       │
+       ├─ Step 1: OCR Agent.upload_and_extract
+       │
+       └─ Step 2: Analysis Agent.compare_periods
+              (输入来自 Step 1 的输出)
+```
+
+### 16.4 共享基础设施
+
+所有 Agent 共享但互不干扰的基础设施:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    共享基础设施层                          │
+│                                                         │
+│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │ PostgreSQL  │  │  OpenRouter  │  │    AWS S3     │  │
+│  │             │  │              │  │               │  │
+│  │ ocr_*  表   │  │ 模型路由     │  │ 文件存储      │  │
+│  │ chat_* 表   │  │ 统一 API key │  │ 统一 bucket   │  │
+│  │ rag_*  表   │  │              │  │               │  │
+│  │ pgvector    │  │              │  │               │  │
+│  │ checkpoint  │  │              │  │               │  │
+│  └─────────────┘  └──────────────┘  └───────────────┘  │
+└─────────────────────────────────────────────────────────┘
+
+每个 Agent 的数据通过表前缀隔离（ocr_* / chat_* / rag_*）
+LangGraph checkpoint 按 thread_id 隔离（每个 Agent session 独立）
+```
+
+---
+
+## 17. 依赖清单
+
+```
+# 编排层
+langgraph>=0.3.0
+langgraph-checkpoint-postgres>=2.0.0
+
+# 结构化输出
+instructor>=1.7.0
+pydantic>=2.9.0
+
+# 模型访问
+openai>=1.50.0              # OpenRouter 兼容 SDK
+
+# 文档处理
+unstructured[pdf,xlsx]>=0.16.0
+pdf2image>=1.17.0
+Pillow>=10.0.0
+openpyxl>=3.1.0
+
+# 向量搜索
+pgvector>=0.3.0
+
+# 安全
+python-magic>=0.4.27
+defusedxml>=0.7.1
+
+# RAG（Phase 4+ 启用）
+# llama-index-core>=0.12.0
+# llama-index-vector-stores-postgres>=0.4.0
+```
