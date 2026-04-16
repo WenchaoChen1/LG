@@ -4,8 +4,8 @@ CIOaas-web/
 CIOaas-python/
 cio-bigdata/
 
-# Claude Code local config
-.claude/
+# Claude Code（只忽略本地配置）
+.claude/settings.local.json
 
 # IDE
 .idea/
