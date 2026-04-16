@@ -20,13 +20,13 @@
    - 触发机制为实时触发，满足以上任何一条就直接触发邮件和横幅
 
 3. **横幅提示**
-   - Portfolio manager或其他有该公司权限的人首次登录，会在portfolio benchmarking tab页面和company benchmarks tab页面提示；
-   - Company Admin首次登录，会在company benchmarks tab页面提示。
+   - Portfolio manager首次登录，会在portfolio benchmarking tab页面和company benchmarking tab页面提示；
+   - Company Admin首次登录，会在company benchmarking tab页面提示。
    - 提示词例如：New benchmark data available. Benchmark comparisons now reflect the latest survey (KeyBanc SaaS Survey — 2026). Your relative positioning may change as a result. 括号内容是更新的 Benchmark Entry中的platform-Edition，若多个平台版本有更新的话，用逗号间隔开，显示在同一个横幅中。
    - 用户可关闭横幅。若不关闭，则一直显示。
 
 4. **邮件提示**
-   - 满足出发条件后Portfolio manager或其他有该公司权限的人和Company Admin都会收到提示邮件
+   - 满足出发条件后Portfolio manager和Company Admin都会收到提示邮件
    - 邮件内容例如：
    标题: New Benchmark Survey Update
    正文：“Hello Jacobo Vargas,
@@ -34,7 +34,7 @@
          As a result, you may notice changes in your company’s relative positioning due to the updated benchmark data.
          If you have any questions or would like help interpreting these changes, feel free to reach out.”
          - 括号内容是更新的Benchmark Entry中的platform-Edition. 人名为实际接收人
-    - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portal角色)/company benchmarks tab页面(Company Admin角色)
+    - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portal角色)/company benchmarking tab页面(Company Admin角色)
     - 超链接跳转的异常处理: 若portfolio portal人员不再有对应公司的访问权限，则页面横幅不显示
 
 #### 2.2 LG内部基准变化监测工作流
@@ -47,7 +47,7 @@
 
 2. **横幅提示**
    - Portfolio manager或其他有该公司权限的人首次登录，会在portfolio benchmarking tab页面提示；
-   - Company Admin首次登录，会在company benchmarks tab页面提示。
+   - Company Admin首次登录，会在company benchmarking tab页面提示。
    - 提示词例如：Benchmark positioning updated. Your company’s placement may have shifted due to changes in benchmark data, not your financial performance.
    - 用户可关闭横幅。若不关闭，则一直显示。
 
@@ -59,7 +59,7 @@
         You may notice a change in your company’s benchmark positioning.
         This shift is due to updates in the benchmark reference data, which can affect how companies are ranked relative to one another. It reflects movement within the cohort, not changes in your company’s financial performance.”
         - 人名为实际接收人，Portfolio manager或其他有该公司权限的人/Company Admin
-    - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portfolio角色)/company benchmarks tab页面(Company Admin角色)
+    - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portfolio角色)/company benchmarking tab页面(Company Admin角色)
     - 超链接跳转的异常处理: 若portfolio portal人员不再有对应公司的访问权限，则页面横幅不显示
 
 4. **监测频率**
@@ -71,7 +71,7 @@
 
 ### 特殊情况说明
 
-公司状态为Exited和Shut down的，不进行监测
+公司状态为Exited和Shut down的,未绑定portfolio的不进行监测
 
 ---
 
