@@ -57,7 +57,7 @@ Portfolio Intelligence Benchmark Comparison UI 为管理员用户提供 Portfoli
 
 **页面结构**（从上到下）
 
-1. **页面标题与说明区**（顶部）标题：Benchmark 说明：Benchmark values are normalized for comparability. Industry calculations may differ from Looking Glass metrics. Use for directional context only.
+1. **页面标题与说明区**（顶部）标题：Benchmarking 说明：Benchmark values are normalized for comparability. Industry calculations may differ from Looking Glass metrics. Use for directional context only.
 2. **筛选条件区域**（上方）
 3. **主内容区域**（中下方，根据视图不同展示不同内容）
    - Snapshot 视图：按公司分组的列表
