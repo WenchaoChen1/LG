@@ -71,7 +71,7 @@
 
 ### 特殊情况说明
 
-公司状态为Exited和Shut down的，不进行监测
+公司状态为Exited和Shut down的、未绑定Portfolio的，不进行监测
 
 ---
 
