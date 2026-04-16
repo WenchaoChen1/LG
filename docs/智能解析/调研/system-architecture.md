@@ -27,9 +27,14 @@
 
 用户确认提交 ────────→  ⑮ 写入 fi_* 财务表（最终数据）
                        ⑯ 触发下游 Normalization
+                       ⑰ 发送记忆学习消息 ────→  ocr-memory-learn-queue
+                                                                        ⑱ 消费消息
+                                                                        ⑲ 对比原始映射 vs 最终确认
+                                                                        ⑳ 只存差异到 mapping_memory
 ```
 
 **核心原则**: Java 管生命周期（上传、状态、确认），Python 管 AI 处理（提取、映射、记忆）。通过 SQS 解耦，互不直接调用。
+**记忆学习**: 在 Java 成功写入 fi_* 后触发（不是审核时），Python 对比 AI 原始建议 vs 用户最终确认，只有被用户修正过的映射才存入记忆。
 
 ---
 
@@ -112,17 +117,26 @@ POST   /api/v1/docparse/tasks/{id}/confirm   # 确认写入 fi_* 表
 ### 4.1 队列拓扑
 
 ```
-Java (Producer)                              Python (Consumer)
-──────────────                               ──────────────────
+Java (Producer)                                Python (Consumer)
+──────────────                                 ──────────────────
 
-  OcrSqsProducer ──→ ocr-extract-queue ──→ SQS Consumer (aioboto3)
-                                                    │
-  OcrResultProcessor ←── ocr-result-queue ←─────────┘
+  ① OcrSqsProducer ──→ ocr-extract-queue ──→ SQS Consumer (aioboto3)
+                                                      │ AI 提取+映射
+  ② OcrResultProcessor ←── ocr-result-queue ←─────────┘ 返回结果
   
-  共享: dlq-queue（两个队列都 redrive 到这里）
+  ③ MemoryLearnProducer ──→ ocr-memory-learn-queue ──→ Memory Consumer
+     (fi_* 写入成功后触发)                                │ 对比映射差异
+                                                         │ 存入 mapping_memory
+  
+  共享: dlq-queue（三个队列都 redrive 到这里）
 ```
 
-**一条消息对应一个文件**（不是一个 session）。原因：独立重试、天然并发、部分失败隔离。`sessionId` 字段用于前端聚合。
+**三条队列分工**:
+- `ocr-extract-queue`: 触发 AI 提取（上传后）
+- `ocr-result-queue`: 返回提取结果（处理完成后）
+- `ocr-memory-learn-queue`: 触发记忆学习（fi_* 写入成功后）
+
+**一条消息对应一个文件**（不是一个 session）。原因：独立重试、天然并发、部分失败隔离。
 
 ### 4.2 消息 Schema
 
@@ -171,6 +185,40 @@ Java (Producer)                              Python (Consumer)
 }
 ```
 
+**Java → Python (ocr-memory-learn-queue)** — fi_* 写入成功后触发
+
+```json
+{
+  "messageType": "OcrMemoryLearn",
+  "queueName": "ocr-memory-learn-queue",
+  "uuid": "msg-uuid",
+  "sendTime": "2026-04-16T10:05:00Z",
+  "taskId": "task-uuid",
+  "fileId": "file-uuid",
+  "companyId": "123",
+  "mappingComparisons": [
+    {
+      "accountLabel": "AWS Infrastructure",
+      "originalAiCategory": "R&D Expenses",
+      "confirmedCategory": "COGS",
+      "wasOverridden": true
+    },
+    {
+      "accountLabel": "Total Revenue",
+      "originalAiCategory": "Revenue",
+      "confirmedCategory": "Revenue",
+      "wasOverridden": false
+    }
+  ]
+}
+```
+
+**Python 记忆学习逻辑**:
+- 只处理 `wasOverridden: true` 的条目
+- `wasOverridden: false` 的忽略（AI 猜对了，不需要存记忆）
+- 对比 `originalAiCategory` vs `confirmedCategory`，将修正存入 `mapping_memory`
+- 如果已有同公司同标签的记忆，更新 `confirm_count` + `normalized_category`
+
 ### 4.3 队列配置
 
 | 参数 | 值 | 说明 |
@@ -188,7 +236,7 @@ Java (Producer)                              Python (Consumer)
 | AI 模型超时 | Python 捕获异常，发送 `status=failed` 结果消息 |
 | 瞬态故障（S3 读取、网络） | SQS 重试（最多 3 次，指数退避） |
 | 所有重试耗尽 | 进 DLQ，Java 通过 `QueueMessageLog.isDlq=true` 追踪 |
-| 结果消息发送失败 | Python 直接写 DB 状态；Java 轮询时 fallback 查 Python 表 |
+| 结果消息发送失败 | Python 通过 SQS 回调通知 Java 更新状态；Java 轮询时 fallback 查 Python 表 |
 
 ---
 
@@ -221,7 +269,7 @@ Python 端负责 AI 提取和映射两大核心能力：
 │  ├─────────────────────────────────────────┤ │
 │  │ Tier 2: 公司层 (company_id = 具体值)     │ │
 │  │ 每公司最多 5,000 条                       │ │
-│  │ 用户确认/修正时自动学习                    │ │
+│  │ Java 提交成功后通过 SQS 触发学习           │ │
 │  │ 例: "AWS Infra" → COGS (SaaS 公司 A)     │ │
 │  └─────────────────────────────────────────┘ │
 └──────────────────────────────────────────────┘
@@ -327,21 +375,23 @@ mapping_memory_audit 表:
 
 ## 7. 表归属
 
-### 7.1 Java 拥有的表
+### 7.1 Java 拥有的表（CIOaas-api `docparse` 包管理）
 
 | 表 | 用途 |
 |----|------|
-| `doc_parse_task` | Task 元数据：company_id, user_id, file_id, s3_key, status |
+| `doc_parse_task` | Task 生命周期：company_id, uploaded_by, session_id, status, total_files, completed_files |
+| `doc_parse_file` | 上传文件记录：task_id, filename, file_type, file_size, s3_bucket, s3_key, status |
 | `file_objects` (现有) | S3 文件记录，复用 storage 模块 |
 | `fi_*` (现有) | 最终确认的财务数据 |
 
-### 7.2 Python 拥有的表
+### 7.2 Python 拥有的表（CIOaas-python 管理）
 
 | 表 | 用途 |
 |----|------|
 | `ai_ocr_extracted_table` | 提取的表格结构 |
 | `ai_ocr_extracted_row` | 提取的行数据 |
 | `ai_ocr_mapping_result` | AI 映射结果 |
+| `ai_ocr_conflict_record` | 冲突检测结果 |
 | `mapping_memory` | 两层映射记忆（通用+公司） |
 | `mapping_memory_audit` | 记忆变更审计日志 |
 
@@ -350,7 +400,7 @@ mapping_memory_audit 表:
 | 角色 | 权限 |
 |------|------|
 | `java_app` | 完全访问 Java 拥有的表 + `SELECT` 权限访问 Python 表 |
-| `python_worker` | 完全访问 Python 拥有的表 + `SELECT` 权限访问 `doc_parse_task`（查状态） + 零权限访问 `fi_*` 表 |
+| `python_worker` | 完全访问 Python 拥有的表 + `SELECT` 权限访问 `doc_parse_task`、`doc_parse_file`（查状态） + 零权限访问 `fi_*` 表 |
 
 ---
 

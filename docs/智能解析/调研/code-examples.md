@@ -6,36 +6,49 @@
 
 ## 1. 数据模型 DDL
 
-### 1.1 核心表
+### 1.1 Java 端表（doc_parse_*）
+
+由 CIOaas-api `docparse` 包管理，Java JPA Entity 对应。
 
 ```sql
--- 上传会话
-CREATE TABLE ai_ocr_upload_session (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id        BIGINT NOT NULL REFERENCES company(id),
-    uploaded_by       BIGINT NOT NULL REFERENCES sys_user(id),
-    status            VARCHAR(20) NOT NULL DEFAULT 'UPLOADING',
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+-- Task 生命周期
+CREATE TABLE doc_parse_task (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id      BIGINT NOT NULL,
+    uploaded_by     BIGINT NOT NULL,
+    session_id      UUID,  -- groups multiple files
+    status          VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    total_files     INT NOT NULL DEFAULT 0,
+    completed_files INT NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 上传文件
-CREATE TABLE ai_ocr_uploaded_file (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID NOT NULL REFERENCES ai_ocr_upload_session(id),
-    filename          VARCHAR(500) NOT NULL,
-    file_type         VARCHAR(10) NOT NULL,
-    file_size         BIGINT NOT NULL,
-    s3_key            VARCHAR(1000) NOT NULL,
-    status            VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-    error_message     TEXT,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+-- 上传文件记录
+CREATE TABLE doc_parse_file (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id         UUID NOT NULL REFERENCES doc_parse_task(id),
+    filename        VARCHAR(500) NOT NULL,
+    file_type       VARCHAR(10) NOT NULL,
+    file_size       BIGINT NOT NULL,
+    s3_bucket       VARCHAR(200) NOT NULL,
+    s3_key          VARCHAR(1000) NOT NULL,
+    status          VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    error_message   TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+```
 
+### 1.2 Python 端表（ai_ocr_*）
+
+由 CIOaas-python 管理，SQLAlchemy Model 对应。
+
+```sql
 -- 提取的表格
 CREATE TABLE ai_ocr_extracted_table (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    file_id           UUID NOT NULL REFERENCES ai_ocr_uploaded_file(id),
+    file_id           UUID NOT NULL,  -- references doc_parse_file(id) in Java DB
     table_index       INT NOT NULL DEFAULT 0,
     document_type     VARCHAR(20) NOT NULL DEFAULT 'MISC',
     doc_type_confidence VARCHAR(10) NOT NULL DEFAULT 'LOW',
@@ -75,24 +88,10 @@ CREATE TABLE ai_ocr_mapping_result (
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 公司级映射记忆
-CREATE TABLE ai_ocr_company_mapping_memory (
-    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id            BIGINT NOT NULL REFERENCES company(id),
-    account_label_pattern VARCHAR(500) NOT NULL,
-    lg_category           VARCHAR(50) NOT NULL,
-    frequency             INT NOT NULL DEFAULT 1,
-    last_used_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (company_id, account_label_pattern)
-);
-
--- 向量表 rag_chunks 将在 RAG 阶段添加，OCR 阶段不使用向量数据库
-
 -- 冲突记录
 CREATE TABLE ai_ocr_conflict_record (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID NOT NULL REFERENCES ai_ocr_upload_session(id),
+    task_id           UUID NOT NULL,  -- references doc_parse_task(id) in Java DB
     company_id        BIGINT NOT NULL,
     document_type     VARCHAR(20) NOT NULL,
     reporting_month   INT NOT NULL,
@@ -100,33 +99,70 @@ CREATE TABLE ai_ocr_conflict_record (
     data_classification VARCHAR(20) NOT NULL,
     resolution        VARCHAR(20),
     user_note         VARCHAR(2000),
-    resolved_by       BIGINT REFERENCES sys_user(id),
+    resolved_by       BIGINT,
     resolved_at       TIMESTAMPTZ
 );
+
+-- 两层映射记忆（通用+公司）
+CREATE TABLE mapping_memory (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id          BIGINT,  -- NULL = 通用层，非 NULL = 公司层
+    source_term         VARCHAR(500) NOT NULL,
+    normalized_category VARCHAR(50) NOT NULL,
+    confidence          NUMERIC(3,2) NOT NULL DEFAULT 0.5,
+    source              VARCHAR(20) NOT NULL DEFAULT 'user',
+    is_trusted          BOOLEAN NOT NULL DEFAULT FALSE,
+    hit_count           INT NOT NULL DEFAULT 0,
+    confirm_count       INT NOT NULL DEFAULT 0,
+    reject_count        INT NOT NULL DEFAULT 0,
+    archived_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (company_id, source_term) WHERE archived_at IS NULL
+);
+
+-- 记忆变更审计日志
+CREATE TABLE mapping_memory_audit (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    mapping_id        UUID NOT NULL REFERENCES mapping_memory(id),
+    event_type        VARCHAR(20) NOT NULL,
+    old_category      VARCHAR(50),
+    new_category      VARCHAR(50),
+    actor             VARCHAR(100) NOT NULL,
+    reason            TEXT,
+    metadata          JSONB,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 向量表 rag_chunks 将在 RAG 阶段添加，OCR 阶段不使用向量数据库
 ```
 
-### 1.2 索引
+### 1.3 索引
 
 ```sql
 -- 扩展
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- 公司记忆模糊匹配
-CREATE INDEX idx_mapping_memory_label_trgm
-    ON ai_ocr_company_mapping_memory
-    USING gin (account_label_pattern gin_trgm_ops);
+-- Java 端索引
+CREATE INDEX idx_doc_parse_task_company
+    ON doc_parse_task (company_id, created_at DESC);
+
+CREATE INDEX idx_doc_parse_file_task
+    ON doc_parse_file (task_id, status);
+
+-- Python 端索引
+-- 映射记忆模糊匹配
+CREATE INDEX idx_mapping_memory_term_trgm
+    ON mapping_memory
+    USING gin (source_term gin_trgm_ops);
 
 CREATE INDEX idx_mapping_memory_company
-    ON ai_ocr_company_mapping_memory (company_id);
+    ON mapping_memory (company_id);
 
 -- 冲突检测
 CREATE INDEX idx_financial_data_conflict
     ON financial_data (company_id, document_type, data_classification, reporting_month, reporting_year);
-
--- Session 查询
-CREATE INDEX idx_upload_session_company
-    ON ai_ocr_upload_session (company_id, created_at DESC);
 
 -- 行数据查询
 CREATE INDEX idx_extracted_row_table
@@ -338,25 +374,29 @@ async def company_memory_match(
 ) -> tuple[LGCategory | None, str]:
     # 精确匹配
     exact = await db.execute(
-        select(CompanyMappingMemory).where(
-            CompanyMappingMemory.company_id == company_id,
-            func.lower(CompanyMappingMemory.account_label_pattern) == label.lower()
-        ).order_by(CompanyMappingMemory.frequency.desc())
+        select(MappingMemory).where(
+            MappingMemory.company_id == company_id,
+            func.lower(MappingMemory.source_term) == label.lower(),
+            MappingMemory.is_trusted == True,
+            MappingMemory.archived_at == None
+        ).order_by(MappingMemory.hit_count.desc())
     )
     if result := exact.scalar_one_or_none():
-        return result.lg_category, "HIGH"
+        return result.normalized_category, "HIGH"
 
     # 模糊匹配 (trigram > 0.6)
     fuzzy = await db.execute(
-        select(CompanyMappingMemory).where(
-            CompanyMappingMemory.company_id == company_id,
-            func.similarity(CompanyMappingMemory.account_label_pattern, label) > 0.6
+        select(MappingMemory).where(
+            MappingMemory.company_id == company_id,
+            func.similarity(MappingMemory.source_term, label) > 0.6,
+            MappingMemory.is_trusted == True,
+            MappingMemory.archived_at == None
         ).order_by(
-            func.similarity(CompanyMappingMemory.account_label_pattern, label).desc()
+            func.similarity(MappingMemory.source_term, label).desc()
         ).limit(1)
     )
     if result := fuzzy.scalar_one_or_none():
-        return result.lg_category, "MEDIUM"
+        return result.normalized_category, "MEDIUM"
 
     return None, "UNMAPPED"
 ```
@@ -371,13 +411,15 @@ async def get_industry_common_mappings(
 ) -> list[dict]:
     """查询同行业高频映射分类（不暴露原始标签，防止跨公司数据泄漏）"""
     results = await db.execute(text("""
-        SELECT m.lg_category, COUNT(DISTINCT m.company_id) as company_count,
-               SUM(m.frequency) as total_freq
-        FROM ai_ocr_company_mapping_memory m
+        SELECT m.normalized_category, COUNT(DISTINCT m.company_id) as company_count,
+               SUM(m.hit_count) as total_freq
+        FROM mapping_memory m
         JOIN company c ON m.company_id = c.id
         WHERE c.industry = :industry
-          AND m.frequency >= 3
-        GROUP BY m.lg_category
+          AND m.hit_count >= 3
+          AND m.is_trusted = TRUE
+          AND m.archived_at IS NULL
+        GROUP BY m.normalized_category
         ORDER BY total_freq DESC
         LIMIT :top_k
     """), {"industry": industry, "top_k": top_k})
@@ -415,7 +457,7 @@ async def map_extracted_rows(
 
         # Layer 3: 同行业高频映射
         industry_mappings = await get_industry_common_mappings(industry, db=db)
-        industry_map = {m["account_label_pattern"].lower(): m["lg_category"] for m in industry_mappings}
+        industry_map = {m["source_term"].lower(): m["normalized_category"] for m in industry_mappings}
         if row.account_label.lower() in industry_map:
             results.append({"row_id": row.id, "lg_category": industry_map[row.account_label.lower()],
                            "confidence": "MEDIUM", "source": "INDUSTRY_COMMON"})
@@ -740,21 +782,23 @@ async def save_mapping_memory(
 ):
     """每次用户确认映射后保存到公司记忆"""
     existing = await db.execute(
-        select(CompanyMappingMemory).where(
-            CompanyMappingMemory.company_id == company_id,
-            func.lower(CompanyMappingMemory.account_label_pattern) == account_label.lower()
+        select(MappingMemory).where(
+            MappingMemory.company_id == company_id,
+            func.lower(MappingMemory.source_term) == account_label.lower(),
+            MappingMemory.archived_at == None
         )
     )
     if record := existing.scalar_one_or_none():
-        record.frequency += 1
-        record.lg_category = lg_category
-        record.last_used_at = datetime.utcnow()
+        record.confirm_count += 1
+        record.hit_count += 1
+        record.normalized_category = lg_category
+        record.updated_at = datetime.utcnow()
     else:
-        db.add(CompanyMappingMemory(
+        db.add(MappingMemory(
             company_id=company_id,
-            account_label_pattern=account_label,
-            lg_category=lg_category,
-            frequency=1
+            source_term=account_label,
+            normalized_category=lg_category,
+            confirm_count=1
         ))
 ```
 

@@ -160,17 +160,24 @@ LangGraph 状态机中有一个显式的 `REVIEW` 状态。系统**不能**从 R
 把原始需求中的"incremental learning"和"new document recognition"**重新定义**为：
 
 ```
-写入路径（用户确认映射后）：
-  1. 写入 ai_ocr_company_mapping_memory → 精确标签到分类的关联（DB）
+触发时机（关键：提交后学习，不是审核时学习）：
+  用户审核确认 → Java 写入 fi_* 表 → Java 发 SQS (ocr-memory-learn-queue)
+  → Python 消费消息 → 对比 AI 原始映射 vs 用户最终确认 → 只存差异
+
+写入路径（Java 提交成功后触发）：
+  1. Python 收到 SQS 消息，含 mappingComparisons（原始 vs 确认）
+  2. 只处理 wasOverridden=true 的条目（AI 猜对的不存）
+  3. 写入 mapping_memory → 用户修正的标签到分类关联
 
 读取路径（下次上传时）：
   1. Layer 2 查 DB → 精确匹配 / trigram 模糊匹配（零 LLM 调用）
-  2. Layer 3 查同行业 SQL 频率统计 → 注入到 LLM prompt 的 Few-Shot 示例（非向量检索）
+  2. Layer 3 查同行业 SQL 频率统计 → 注入到 LLM prompt 的 Few-Shot 示例
 
 学习闭环：
-  第 1 次上传: "AWS Infrastructure" → LLM 推理 → COGS (MEDIUM) → 用户确认 → 存记忆
+  第 1 次上传: "AWS Infrastructure" → LLM 推理 → R&D (MEDIUM)
+  用户修正为 COGS → Java 写入 fi_* → SQS 触发 → Python 存记忆
   第 2 次上传: "AWS Infrastructure" → DB 精确匹配 → COGS (HIGH) → 零 LLM 调用
-  第 3 次上传(不同公司): "Cloud Infra" → 同行业 SQL 频率查询 → 注入 Few-Shot → LLM 推理更准
+  第 3 次上传(不同公司): "Cloud Infra" → 同行业 SQL → 注入 Few-Shot → LLM 更准
 ```
 
 **记忆质量控制：**
