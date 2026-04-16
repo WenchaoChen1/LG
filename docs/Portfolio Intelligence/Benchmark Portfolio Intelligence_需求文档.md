@@ -205,7 +205,7 @@ Portfolio Intelligence Benchmark Comparison UI 为管理员用户提供 Portfoli
 
 **表格列**：公司名 → Benchmark标识 → Overall Score → 指标列
 - 第一列：公司名称（包括Logo）
-- 第二列：Benchmark，根据勾选的benchmark展示，勾选几个显示几个，勾选外部基准时，要显示benchmark-edition。Tooltip内容：已选指标的已选数据类型的所有百分位及百分位对应的实际值。例如：已选All和Actuals、committed forecast和System generated forecast， tooltip中显示所有指标名称，及该指标的三种数据类型在该月的所有百分位及百分位对应的实际值，有几个显示几个。
+- 第二列：Benchmark，根据勾选的benchmark展示，勾选几个显示几个，勾选外部基准时，要显示benchmark-edition。Benchmark Tooltip内容：已选指标的已选数据类型的所有百分位及百分位对应的实际值。Internal peer显示五个百分位点；外部基准固定显示三列（P25， P50， P75），有值的就显示对应值，没有值的就显示NA。如果某指标没有可对标的external benchmark指标，那三列都显示NA。提示：external benchmark因为没有录入预测数据，所以没有预测数据的基准点位信息，只会显示一行黑色数据，没有紫色数据
 - 第三列：Overall benchmark score:显示为例如：35%ile，数据值为该行中4-N列所有列的百分位的算术平均值，百分位是N/A时不参与计算
 - 后续列4-N列（指标列）：按 Filter 选项展示指标，每一列包含两小列，分别是该指标的百分位和实际值排序，
 指标列按照以下顺序展示：
