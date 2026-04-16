@@ -46,7 +46,7 @@
    - 指标：ARR Growth Rate、 Gross Margin、 Monthly Net Burn Rate、 Monthly Runway、 Rule of 40、 Sales Efficiency Ratio
 
 2. **横幅提示**
-   - Portfolio manager或其他有该公司权限的人首次登录，会在portfolio benchmarks tab页面提示；
+   - Portfolio manager或其他有该公司权限的人首次登录，会在portfolio benchmarking tab页面提示；
    - Company Admin首次登录，会在company benchmarks tab页面提示。
    - 提示词例如：Benchmark positioning updated. Your company’s placement may have shifted due to changes in benchmark data, not your financial performance.
    - 用户可关闭横幅。若不关闭，则一直显示。
