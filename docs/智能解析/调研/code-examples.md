@@ -10,7 +10,7 @@
 
 ```sql
 -- 上传会话
-CREATE TABLE ocr_upload_session (
+CREATE TABLE ai_ocr_upload_session (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id        BIGINT NOT NULL REFERENCES company(id),
     uploaded_by       BIGINT NOT NULL REFERENCES sys_user(id),
@@ -20,9 +20,9 @@ CREATE TABLE ocr_upload_session (
 );
 
 -- 上传文件
-CREATE TABLE ocr_uploaded_file (
+CREATE TABLE ai_ocr_uploaded_file (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID NOT NULL REFERENCES ocr_upload_session(id),
+    session_id        UUID NOT NULL REFERENCES ai_ocr_upload_session(id),
     filename          VARCHAR(500) NOT NULL,
     file_type         VARCHAR(10) NOT NULL,
     file_size         BIGINT NOT NULL,
@@ -33,9 +33,9 @@ CREATE TABLE ocr_uploaded_file (
 );
 
 -- 提取的表格
-CREATE TABLE ocr_extracted_table (
+CREATE TABLE ai_ocr_extracted_table (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    file_id           UUID NOT NULL REFERENCES ocr_uploaded_file(id),
+    file_id           UUID NOT NULL REFERENCES ai_ocr_uploaded_file(id),
     table_index       INT NOT NULL DEFAULT 0,
     document_type     VARCHAR(20) NOT NULL DEFAULT 'MISC',
     doc_type_confidence VARCHAR(10) NOT NULL DEFAULT 'LOW',
@@ -46,9 +46,9 @@ CREATE TABLE ocr_extracted_table (
 );
 
 -- 提取的行数据
-CREATE TABLE ocr_extracted_row (
+CREATE TABLE ai_ocr_extracted_row (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    table_id          UUID NOT NULL REFERENCES ocr_extracted_table(id),
+    table_id          UUID NOT NULL REFERENCES ai_ocr_extracted_table(id),
     row_index         INT NOT NULL,
     account_label     VARCHAR(500) NOT NULL,
     section_header    VARCHAR(500),
@@ -60,9 +60,9 @@ CREATE TABLE ocr_extracted_row (
 );
 
 -- AI 映射结果
-CREATE TABLE ocr_mapping_result (
+CREATE TABLE ai_ocr_mapping_result (
     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    row_id                UUID NOT NULL REFERENCES ocr_extracted_row(id),
+    row_id                UUID NOT NULL REFERENCES ai_ocr_extracted_row(id),
     lg_category           VARCHAR(50) NOT NULL,
     confidence            VARCHAR(10) NOT NULL,
     source                VARCHAR(20) NOT NULL,
@@ -76,7 +76,7 @@ CREATE TABLE ocr_mapping_result (
 );
 
 -- 公司级映射记忆
-CREATE TABLE ocr_company_mapping_memory (
+CREATE TABLE ai_ocr_company_mapping_memory (
     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id            BIGINT NOT NULL REFERENCES company(id),
     account_label_pattern VARCHAR(500) NOT NULL,
@@ -90,9 +90,9 @@ CREATE TABLE ocr_company_mapping_memory (
 -- 向量表 rag_chunks 将在 RAG 阶段添加，OCR 阶段不使用向量数据库
 
 -- 冲突记录
-CREATE TABLE ocr_conflict_record (
+CREATE TABLE ai_ocr_conflict_record (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id        UUID NOT NULL REFERENCES ocr_upload_session(id),
+    session_id        UUID NOT NULL REFERENCES ai_ocr_upload_session(id),
     company_id        BIGINT NOT NULL,
     document_type     VARCHAR(20) NOT NULL,
     reporting_month   INT NOT NULL,
@@ -114,11 +114,11 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 -- 公司记忆模糊匹配
 CREATE INDEX idx_mapping_memory_label_trgm
-    ON ocr_company_mapping_memory
+    ON ai_ocr_company_mapping_memory
     USING gin (account_label_pattern gin_trgm_ops);
 
 CREATE INDEX idx_mapping_memory_company
-    ON ocr_company_mapping_memory (company_id);
+    ON ai_ocr_company_mapping_memory (company_id);
 
 -- 冲突检测
 CREATE INDEX idx_financial_data_conflict
@@ -126,11 +126,11 @@ CREATE INDEX idx_financial_data_conflict
 
 -- Session 查询
 CREATE INDEX idx_upload_session_company
-    ON ocr_upload_session (company_id, created_at DESC);
+    ON ai_ocr_upload_session (company_id, created_at DESC);
 
 -- 行数据查询
 CREATE INDEX idx_extracted_row_table
-    ON ocr_extracted_row (table_id, row_index);
+    ON ai_ocr_extracted_row (table_id, row_index);
 ```
 
 ---
@@ -369,7 +369,7 @@ async def get_industry_common_mappings(
     results = await db.execute(text("""
         SELECT m.lg_category, COUNT(DISTINCT m.company_id) as company_count,
                SUM(m.frequency) as total_freq
-        FROM ocr_company_mapping_memory m
+        FROM ai_ocr_company_mapping_memory m
         JOIN company c ON m.company_id = c.id
         WHERE c.industry = :industry
           AND m.frequency >= 3
