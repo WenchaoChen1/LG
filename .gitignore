@@ -4,6 +4,9 @@ CIOaas-web/
 CIOaas-python/
 cio-bigdata/
 
+# Claude Code local config
+.claude/
+
 # IDE
 .idea/
 .vscode/
