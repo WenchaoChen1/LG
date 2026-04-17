@@ -228,6 +228,21 @@ ConfirmPage
         点击后: Loading 状态 → 成功跳转到 Success 页 / 失败显示错误
 ```
 
+**Note 字段**
+
+来自 Asana Story #7：冲突解决步骤可选添加 Note（≤2000 字符），记录修改原因。
+
+```
+ConflictItem
+  ├── 字段对比（已有值 vs 新值）
+  ├── 解决方案选择 (Overwrite / Skip / Cancel)
+  └── NoteField (可选)
+        ├── Textarea (placeholder: "解释为何这样处理冲突，可选")
+        └── CharCount (0/2000)
+```
+
+**Note 查看入口**：写入 fi_* 后，Note 关联到该 upload event，在 Financial Statements 模块的 Financial Entry 页面新增 **"导入备注"折叠面板**，展示历史所有冲突解决的备注（按时间倒序）。
+
 ## 3. dva Model 设计
 
 #### State 接口定义
@@ -755,6 +770,34 @@ ProcessingPage mounted
         用户重新访问同一 URL → 恢复到最近状态
 ```
 
+### 5.5 LangGraph Checkpoint 恢复 UX
+
+**场景**：用户上传后浏览器崩溃/关闭，重新打开页面时如何恢复。
+
+**实现策略**：
+
+```
+用户重新进入 /financial/upload
+  → 调用 GET /docparse/tasks?status=in_progress
+  → 返回该用户最近的进行中 task list
+
+  if (有进行中 task) {
+    显示恢复对话框:
+      "您有未完成的上传任务：
+       - {filename} (状态: {status})
+       是否继续？"
+    选择"继续" → 跳转到对应阶段：
+      - status=PROCESSING → /financial/upload/:sessionId (ProcessingPage)
+      - status=REVIEWING → /financial/review/:sessionId (ReviewPage)
+      - status=CONFLICT  → /financial/confirm/:sessionId (ConfirmPage)
+    选择"忽略" → 留在 UploadPage，task 保持原状态
+  } else {
+    正常显示 UploadPage
+  }
+```
+
+**LangGraph 端的能力**：因为 Python workflow 用 PostgreSQL 作 checkpoint，重新进入 ReviewPage 时获取的数据完全是上次保存的状态（包括用户已编辑的内容），无需用户重做。
+
 ## 6. 大表格性能
 
 目标: 流畅支持 1000+ 行表格，无卡顿。
@@ -914,3 +957,123 @@ const ReviewPage: React.FC = () => {
 不满足时精确提示: `"2024_PnL.pdf" -> Table 1 -> Row 5: Account Name is empty`
 
 用户可通过 Remove Row / Remove Column 清除噪音数据后通过验证。
+
+## 10. 未映射账户处理 UX
+
+### 10.1 场景
+
+AI 映射 Layer 1 (规则) + Layer 2 (公司记忆) + Layer 3 (LLM) 后，仍可能有行项无法映射，标记为 UNMAPPED：
+- Payroll 无部门上下文 → S&M/R&D/G&A 都无法判断
+- 全新的财务术语，规则和记忆都没匹配，LLM 也无法判断
+- 用户主动删除了一个映射
+
+### 10.2 集中展示设计
+
+ReviewPage 在 Standardized View 下方新增 **UnmappedSection 组件**：
+
+```
+┌─────────────────────────────────────────────────┐
+│  ⚠ 未映射账户 (3)                                │
+│                                                 │
+│  这些账户暂未映射到 LG 分类，请手动选择：        │
+│                                                 │
+│  ┌─────────────────────────────────────────┐    │
+│  │ Total Compensation Q1     $250,000      │    │
+│  │ 来源：表 1 第 12 行                      │    │
+│  │ 映射到: [选择 LG 分类 ▼]                 │    │
+│  ├─────────────────────────────────────────┤    │
+│  │ Misc Operating Item       $5,400        │    │
+│  │ 来源：表 2 第 8 行                       │    │
+│  │ 映射到: [选择 LG 分类 ▼]                 │    │
+│  └─────────────────────────────────────────┘    │
+│                                                 │
+│  [全部跳过] [应用建议]                          │
+└─────────────────────────────────────────────────┘
+```
+
+### 10.3 组件结构
+
+```
+ReviewPage
+  └── DataPanel (右)
+        ├── ViewToggle ([Raw] [Standardized])
+        ├── EditableTable (已映射部分)
+        ├── UnmappedSection (新增)
+        │     ├── UnmappedHeader (含数量徽章 + 说明)
+        │     ├── UnmappedItem[]
+        │     │     ├── AccountInfo (label + 金额 + 来源)
+        │     │     └── CategoryDropdown (19 LG 分类)
+        │     └── UnmappedActions (全部跳过/应用建议)
+        └── ValidationBar
+```
+
+### 10.4 交互细节
+
+- 用户从 Dropdown 选择分类 → 该行项实时移出 UnmappedSection，加入对应 LG 分类组
+- "全部跳过" → 这些行项不参与提交（标记 `skipped=true`），不阻塞流程
+- "应用建议" → 自动应用 AI 在 LLM 阶段给出的最高分但低于阈值的建议（confidence < threshold 的）
+- 硬验证规则：UnmappedSection 不为空时，**不阻止提交**（与"账户名/数值/月份"三要素不同），但在 ConfirmPage 显示警告："3 个账户未映射，将不会写入 LG"
+
+### 10.5 dva model 调整
+
+新增 state 字段：
+```typescript
+unmappedRows: Array<{
+  rowId: string
+  tableId: string
+  accountLabel: string
+  values: Record<string, number>
+  sourceRef: { tableIndex: number; rowIndex: number }
+  skipped: boolean
+}>;
+```
+
+新增 reducer：`mapUnmappedRow(rowId, lgCategory)`、`skipUnmappedRow(rowId)`、`applyAllSuggestions()`
+
+## 11. 货币不一致提示
+
+### 11.1 业务规则
+
+来自 Asana Story #5：
+> All mapped results from the uploaded file must use a single currency. If multiple currencies are detected, the system shall default to USD but with an alert icon.
+
+### 11.2 触发条件
+
+Python 提取阶段 (`ExtractedTable.currency_warning=true`) 表示该表检测到多种货币符号。
+
+### 11.3 UI 展示
+
+在 ReviewPage 顶部加 **CurrencyWarningBanner 组件**（仅当 `currency_warning=true` 时渲染）：
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  ⚠ 检测到多种货币 ($USD, €EUR, £GBP)                     │
+│  系统已默认按 USD 处理。如需更改请选择: [USD ▼]          │
+│  ⚙ 注意：所有数值将按选定货币写入 LG，不会自动汇率换算    │
+└─────────────────────────────────────────────────────────┘
+```
+
+每个 EditableCell 旁边加货币 icon（仅在 currency_warning=true 时）：
+- 鼠标悬停显示该单元格在源文件中的原始货币符号
+
+### 11.4 组件结构
+
+```
+ReviewPage
+  ├── CurrencyWarningBanner (条件渲染)
+  │     ├── DetectedCurrenciesList
+  │     ├── CurrencySelector (默认 USD，可改)
+  │     └── HelpTooltip
+  └── ... (其他组件)
+```
+
+### 11.5 dva model 调整
+
+新增 state 字段：
+```typescript
+currencyWarning: {
+  visible: boolean
+  detectedCurrencies: string[]
+  selectedCurrency: string  // 用户最终选择，默认 USD
+}
+```

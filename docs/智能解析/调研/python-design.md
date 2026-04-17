@@ -5,6 +5,117 @@
 
 ---
 
+## 0. 文件夹结构规范
+
+OCR Agent 在 `CIOaas-python/source/ocr_agent/` 下，作为独立子模块（与现有 `financial/`、`forecast/`、`lg/` 平级）。
+
+> **现有 `source/lg/` 目录是历史 OCR 占位实现（in-memory task store，无 DB，无 SQS），将由本 `ocr_agent/` 模块完整替代。迁移完成后 `lg/` 删除。**
+
+### 0.1 完整目录结构
+
+```
+source/ocr_agent/
+├── __init__.py                  # 导出 router 和 agent 入口
+├── routes.py                    # FastAPI 路由（/ocr/* 状态查询，主要给前端轮询）
+├── config.py                    # OCR 子系统配置（env 加载、模型路由表、阈值）
+│
+├── schemas/                     # Pydantic 数据模型（结构化输出 / I/O 契约）
+│   ├── __init__.py                # 命名为 schemas/ 而非 models/，避免与 ORM 实体冲突
+│   ├── extraction.py              # ExtractedTable, ExtractedRow, ExtractionResult
+│   ├── mapping.py                 # MappingResult, LGCategory, MappingItem
+│   └── messages.py                # SQS 消息 schema（ExtractMessage, ResultMessage, MemoryLearnMessage）
+│
+├── workflow/                    # LangGraph 编排
+│   ├── __init__.py
+│   ├── graph.py                   # StateGraph 装配 + 编译为 ocr_app
+│   ├── state.py                   # OCRPipelineState TypedDict 定义
+│   └── nodes/                     # 每个节点独立文件，便于单测
+│       ├── __init__.py
+│       ├── preprocess.py            # PDF→图片 / Excel→JSON 预处理
+│       ├── extract.py               # AI Vision 调用 / 直接解析（dispatch by file_type）
+│       ├── classify.py              # 文档类型识别（评分算法）
+│       ├── map.py                   # 三层映射调度器
+│       └── validate.py              # 三要素硬验证 + 软警告 + 冲突检测
+│
+├── engines/                     # 核心引擎（纯算法，无 LangGraph 依赖，可独立单测）
+│   ├── __init__.py
+│   ├── rule_engine.py             # Layer 1: 关键词+优先级规则引擎（19 类）
+│   ├── memory_matcher.py          # Layer 2: 公司记忆 + trigram 模糊匹配
+│   ├── llm_mapper.py              # Layer 3: Instructor + OpenRouter + Few-Shot
+│   ├── document_classifier.py     # 文档类型评分（sheet name + row label + structural cues）
+│   └── period_inferrer.py         # 报告周期推断（4 个信号 fallback）
+│
+├── prompts/                     # LLM 提示词模板（独立文件便于版本管理）
+│   ├── extraction_system.md       # AI Vision 提取的 system prompt
+│   ├── mapping_system.md          # 映射的 system prompt（含 19 类定义）
+│   └── mapping_user_template.md   # 映射的 user prompt 模板（Few-Shot 注入位）
+│
+├── memory/                      # 记忆系统
+│   ├── __init__.py
+│   ├── repository.py              # mapping_memory CRUD（query, save, archive）
+│   ├── learner.py                 # post-commit 学习逻辑（对比原始 vs 确认，存差异）
+│   └── seed_data.py               # 通用层种子数据（~120 条预置映射）
+│
+├── consumers/                   # SQS 消费者（aioboto3）
+│   ├── __init__.py
+│   ├── extract_consumer.py        # 消费 ocr-extract-queue → 调用 workflow
+│   └── memory_learn_consumer.py   # 消费 ocr-memory-learn-queue → 调用 learner
+│
+├── producers/                   # SQS 生产者
+│   ├── __init__.py
+│   └── result_producer.py         # 发送 ocr-result-queue（处理完成回调 Java）
+│
+├── persistence/                 # 数据库层（项目首次引入 DB）
+│   ├── __init__.py
+│   ├── client.py                  # asyncpg/SQLAlchemy 连接池
+│   ├── entities.py                # ORM 实体（ai_ocr_* 表 + mapping_memory），命名 entities 区分 schemas/
+│   └── migrations/                # Alembic 迁移文件
+│       └── versions/
+│
+└── safety/                      # 安全工具
+    ├── __init__.py
+    ├── file_validator.py          # python-magic + magic bytes 校验
+    └── prompt_guard.py            # 用户输入的结构化分隔（XML tags 防 prompt injection）
+```
+
+### 0.2 设计原则
+
+| 原则 | 说明 |
+|------|------|
+| **engines/ 与 workflow/nodes/ 分离** | engines 是纯算法（输入→输出，无副作用），nodes 是 LangGraph 包装层（含状态读写）。这样 engines 可以单独单测，nodes 可以单独 mock |
+| **prompts/ 独立成 .md 文件** | 不把 prompt 字符串嵌在 .py 代码里 — 方便审查、版本管理、A/B 测试、领域专家审阅 |
+| **memory/ 是独立模块** | 触发时机在 post-commit（由 SQS consumer 调用），不在主 workflow 内部 — 因为记忆学习的输入是"用户确认后的最终映射"，需要等 Java 写完 fi_* 才知道 |
+| **persistence/ 集中管理** | 所有 DB 访问通过 persistence/client.py 的连接池，避免每个模块各自连库 |
+| **consumers/ 与 producers/ 分离** | consumers 是被动触发（监听 SQS），producers 是主动发送 — 职责单向 |
+| **safety/ 单独提取** | 安全工具不和业务逻辑混在一起，便于后续加固 |
+
+### 0.3 与现有模块的关系
+
+| 现有模块 | 与 ocr_agent/ 的关系 |
+|----------|---------------------|
+| `source/financial/langchain_service.py` | OCR Agent 包装它作为底层 LLM client（OpenRouter 兼容 OpenAI SDK，可复用 retry/JSON 修复） |
+| `source/financial/field_mapper.py` | 迁移到 `ocr_agent/engines/rule_engine.py` 并扩展为 5 级优先级 + 19 类 |
+| `source/financial/excel_loader.py` | 迁移到 `ocr_agent/workflow/nodes/preprocess.py` 的 Excel 分支 |
+| `source/financial/metrics_extractor.py` | 概念被 `ocr_agent/workflow/` 替代（LangGraph 化） |
+| `source/lg/` | **完整替代后删除**（in-memory task store 改为 DB-backed） |
+| `source/cioaas_mcp/` | 暂不集成，未来可注册 `ocr_extract` 作为 MCP tool |
+
+### 0.4 启动方式
+
+`source/main.py` 中注册：
+```python
+from ocr_agent import router as ocr_router
+from ocr_agent.consumers import start_consumers
+
+app.include_router(ocr_router, prefix="/ocr")
+
+@app.on_event("startup")
+async def startup():
+    await start_consumers()  # 启动 SQS 消费者后台任务
+```
+
+---
+
 ## 1. SQS 消费与处理入口
 
 Python 端通过 SQS 与 Java 端解耦通信，共涉及三条队列。
@@ -195,6 +306,14 @@ class ExtractedRow(BaseModel):
 class ExtractedTable(BaseModel):
     document_type: str = Field(description="PNL / BALANCE_SHEET / CASH_FLOW / PROFORMA / MISC")
     currency: str = Field(default="USD")
+    currency_warning: bool = Field(
+        default=False,
+        description="True if multiple currencies detected in source; defaulted to USD"
+    )
+    detected_currencies: list[str] = Field(
+        default_factory=list,
+        description="All currencies detected (for user warning display)"
+    )
     rows: list[ExtractedRow]
     reporting_periods: list[str] = Field(description="Column headers as YYYY-MM")
 
@@ -916,6 +1035,23 @@ FAILED      FAILED         FAILED   FAILED   ┌─CONFLICT   (用户      FAILE
 
 > **完整代码示例**: 见 [code-examples.md 第 8 节](./code-examples.md#8-langgraph-pipeline)
 
+### 5.3 报告周期识别 (Period Inference)
+
+在 Extract 节点之后、Map 节点之前，`engines/period_inferrer.py` 按优先级尝试以下 4 个信号推断报告周期：
+
+| 优先级 | 信号来源 | 示例 |
+|--------|----------|------|
+| 1 | 列头（column headers） | `"Jan 2024"`, `"2024-01"`, `"Q1 2024"` |
+| 2 | Sheet 名 | `"PnL 2024"`, `"BS_Dec2024"` |
+| 3 | 表格标题 | `"Income Statement - FY2024"` |
+| 4 | 文件名 | `"2024_Q4_Financials.pdf"` |
+
+> **Fallback 失败处理**: 当 4 个信号（列头 → sheet 名 → 表格标题 → 文件名）全部无法识别报告周期时：
+> - 提取的 `reporting_periods` 字段设为空数组 `[]`
+> - 行数据的 `values` 字典 key 设为占位符 `"UNKNOWN_PERIOD_<row_index>"`
+> - 在 `extraction_notes` 中添加 "Reporting period could not be inferred — user input required"
+> - 进入 ReviewPage 时，前端展示醒目提示，要求用户为整张表手动指定报告周期，否则无法通过硬验证
+
 ---
 
 ## 6. 数据表设计
@@ -1083,6 +1219,7 @@ Rules:
 - Percentages: preserve as-is with a "%" suffix in the label
 - Empty cells: use 0.0
 - Currency symbols: strip from values, record in currency field
+- If the document contains multiple currency symbols (e.g., $ + €), set `currency_warning=true`, list all detected currencies in `detected_currencies`, and default `currency` to USD.
 - If no financial table is found, return empty tables list with a note
 ```
 

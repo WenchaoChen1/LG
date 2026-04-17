@@ -1,6 +1,7 @@
 # OCR 技术方案 — 代码示例
 
-> 本文件为 [technical-design.md](./technical-design.md) 的补充，包含关键模块的实现参考代码。
+> 本文件为 OCR Agent 设计文档的代码参考。
+> **关联文档**: [系统架构](./system-architecture.md) · [Java 端设计](./java-design.md) · [Python 端设计](./python-design.md) · [前端设计](./frontend-design.md) · [需求分析](./requirement-analysis.md) · [设计理念](./design-philosophy.md)
 
 ---
 
@@ -28,9 +29,12 @@ CREATE TABLE doc_parse_task (
 CREATE TABLE doc_parse_file (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     task_id         UUID NOT NULL REFERENCES doc_parse_task(id),
+    company_id      BIGINT NOT NULL,
     filename        VARCHAR(500) NOT NULL,
     file_type       VARCHAR(10) NOT NULL,
     file_size       BIGINT NOT NULL,
+    file_hash       VARCHAR(64) NOT NULL,  -- SHA-256 hash，用于重名校验
+    deleted         BOOLEAN DEFAULT FALSE,  -- 软删除标记
     s3_bucket       VARCHAR(200) NOT NULL,
     s3_key          VARCHAR(1000) NOT NULL,
     status          VARCHAR(20) NOT NULL DEFAULT 'PENDING',
@@ -53,6 +57,8 @@ CREATE TABLE ai_ocr_extracted_table (
     document_type     VARCHAR(20) NOT NULL DEFAULT 'MISC',
     doc_type_confidence VARCHAR(10) NOT NULL DEFAULT 'LOW',
     currency          VARCHAR(10) DEFAULT 'USD',
+    currency_warning  BOOLEAN DEFAULT FALSE,  -- 检测到多种货币时为 true
+    detected_currencies JSONB,                 -- ["USD", "EUR"] 等
     source_page       INT,
     source_sheet_name VARCHAR(200),
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -151,6 +157,12 @@ CREATE INDEX idx_doc_parse_task_company
 CREATE INDEX idx_doc_parse_file_task
     ON doc_parse_file (task_id, status);
 
+-- 重名校验只对"活跃"文件生效；归档/删除/失败的允许重新上传同名文件
+CREATE UNIQUE INDEX idx_doc_parse_file_company_hash_active
+    ON doc_parse_file (company_id, file_hash)
+    WHERE deleted = false
+      AND status IN ('PENDING', 'PROCESSING', 'COMPLETED');
+
 -- Python 端索引
 -- 映射记忆模糊匹配
 CREATE INDEX idx_mapping_memory_term_trgm
@@ -185,6 +197,8 @@ class ExtractedRow(BaseModel):
 class ExtractedTable(BaseModel):
     document_type: str = Field(description="PNL / BALANCE_SHEET / CASH_FLOW / PROFORMA / MISC")
     currency: str = Field(default="USD")
+    currency_warning: bool = Field(default=False)
+    detected_currencies: list[str] = Field(default_factory=list)
     rows: list[ExtractedRow]
     reporting_periods: list[str] = Field(description="Column headers as YYYY-MM")
 

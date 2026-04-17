@@ -2,7 +2,7 @@
 
 > **定位**: 这不是一份技术实现文档，而是一份**设计宣言** — 解释每一个决策背后的"为什么"。
 > **读者**: 工程团队、产品负责人、以及未来加入第二个 Agent 时想知道"为什么这样做"的人。
-> **关联文档**: [技术设计](./technical-design.md) · [需求分析](./requirement-analysis.md) · [代码示例](./code-examples.md)
+> **关联文档**: [系统架构](./system-architecture.md) · [Java 端设计](./java-design.md) · [Python 端设计](./python-design.md) · [前端设计](./frontend-design.md) · [需求分析](./requirement-analysis.md) · [代码示例](./code-examples.md)
 
 ---
 

@@ -7,6 +7,8 @@
 > **LG Tag**: AI Integration
 > **创建日期**: 2026-04-16（本文档）
 
+> 本文档已与 Asana EPIC 于 **2026-04-17** 同步。
+
 ---
 
 ## 1. EPIC 概述
@@ -83,10 +85,25 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 
 - 支持格式: PDF（扫描或数字）、Excel (.xlsx/.xls)、CSV、图片（JPG/JPEG/PNG/TIFF）
 - 上传方式: 拖拽（桌面）+ 文件选择器（桌面+移动端）
-- 文件限制: 单文件 ≤ 20MB，批量 ≤ 100MB
+- 文件限制: 单文件最大 20MB（max file size limit of 20MB per file），批量最大 100MB（max batch file size limit of 100MB per batch）
 - 状态追踪: Pending → Uploading（进度%） → Completed → Error
 - 权限: Company Admin/User 上传本公司；Portfolio Admin 上传所有有权限公司
 - 队列管理: 可移除、可重试、可追加
+
+**File Size / Type / Validation — 5 种错误提示（Acceptance Criteria item 5）:**
+
+系统在上传校验失败时，必须展示以下精确错误消息（`{File name}` 替换为实际文件名）：
+
+1. `Failed to Upload {File name}. File exceeds the 20MB limit`
+2. `Failed to Upload {File name}. File type is not supported`
+3. `Failed to Upload {File name}. File is corrupted`
+4. `Failed to Upload {File name}. The combined size of your files exceeds the 100MB limit.`
+5. `Failed to Upload {File name}. A file with this name already exists.`（**NEW** — 重名文件校验）
+
+**Lovable Prototype:**
+
+- Lovable Dev: https://lovable.dev/projects/6dfa3c14-7c77-4565-9c1f-73999c9dcbc7
+- Figma: https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56961&t=J0dmokNmqXCGtFih-1
 
 **上传后自动进入提取 Pipeline（Step 2）。**
 
@@ -107,8 +124,13 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
   - Sheet name 关键词（P&L/Income/Profit → P&L，Balance/Assets → BS，Cash Flow → CF）
   - Row label 模式（Revenue/COGS/EBITDA → P&L 指标；Assets/Liabilities/Equity → BS 指标）
   - 结构线索（Assets = Liabilities + Equity → BS；有期初/期末现金 → CF）
-  - **兜底**: 无法分类 → "Financial Summary / Misc"，标记用户确认
+  - **Fallback behavior Edge Case**: If a document type cannot be clearly categorized based on the defined rules, then it means no financial accounts is extracted to map to LG supported metrics. Classify as "Financial Summary / Misc". Flag for user confirmation.
 - 报告周期推断: 列头 → Sheet 名 → 表格标题 → 文件名（依次降级）
+
+**Lovable Prototype:**
+
+- Lovable Dev: https://lovable.dev/projects/6dfa3c14-7c77-4565-9c1f-73999c9dcbc7
+- Figma: https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56977&t=J0dmokNmqXCGtFih-1
 
 ### 4.3 Story #3: Extraction of Financial Data - Excel
 
@@ -121,8 +143,24 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 - 适用文件: Excel (.xlsx)、CSV
 - 直接解析（不走 OCR）
 - 支持: 合并单元格、多 section、空行分隔、公式单元格（取计算值）
-- 输出格式与 OCR 提取完全一致（统一下游处理）
 - 文档类型和报告周期的识别逻辑同 Story #2
+
+**Edge Case:**
+
+If a document type cannot be clearly categorized based on the defined rules, then it means no financial accounts is extracted to map to LG supported metrics.
+
+**Structured Output:**
+
+- 输出格式与 OCR 提取完全一致（统一下游处理）
+
+**UX Design Considerations:**
+
+- Extraction is behind the scene. No design required.
+
+**Lovable Prototype:**
+
+- Lovable Dev: https://lovable.dev/projects/6dfa3c14-7c77-4565-9c1f-73999c9dcbc7
+- Figma: https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56977&t=J0dmokNmqXCGtFih-1
 
 ### 4.4 Story #4: Add AI-Assisted Account Mapping Suggestions
 
@@ -181,8 +219,19 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 - **左侧面板**: 原始文档（PDF 带翻页 / Excel sheet 预览）
 - **右侧面板**: 提取数据，两种视图可切换:
   - **Raw View**: 原始提取行项
-  - **Standardized View**: 映射到 LG 分类后的视图（可展开查看原始行项）
-- 内联编辑: 数值、行标签、分类（Standardized View 中）
+  - **Standardized View**: 映射到 LG 分类后的视图，展示以下内容:
+    - **Unmapped accounts**（NEW）
+      - All unmapped accounts are centrally displayed
+      - User can intervene to map them
+    - **LG category**
+    - **Underlying source line items**（expandable）
+      - User can map the source line item to a different LG metric（NEW）
+- **内联编辑 (Inline Editing):**
+  - 数值
+  - 行标签
+  - 分类（Standardized View 中）
+  - **Currency**
+    - **All mapped results from the uploaded file must use a single currency. If multiple currencies are detected, the system shall default to USD but with an alert icon.**（NEW — 货币一致性规则）
 - 选中右侧行 → 左侧高亮对应源位置
 - 切换视图模式不丢失用户编辑
 - 系统追踪: 原始提取值 + 用户编辑值
@@ -496,8 +545,20 @@ Liang Chunru 和 Karen Arnoldi 讨论后的务实方案:
 
 ## 10. 相关文档
 
-| 文档 | 路径 |
+**调研阶段文档（docs/智能解析/调研/）:**
+
+- [系统架构](./system-architecture.md) — 系统层面：数据流、SQS、API、安全
+- [Java 端设计](./java-design.md) — Java 后端模块、表设计、SQS 集成
+- [Python 端设计](./python-design.md) — AI 引擎、映射、记忆、提示词
+- [前端设计](./frontend-design.md) — 路由、组件、dva、交互
+- [代码示例](./code-examples.md) — DDL 和参考代码
+- [设计理念](./design-philosophy.md) — 设计原则
+
+**外部参考:**
+
+| 资源 | 链接 |
 |------|------|
-| 技术设计方案 | [docs/智能解析/technical-design.md](./technical-design.md) |
-| Lovable 原型 | [Lovable Preview](https://preview--visual-link.lovable.app/) (需 token) |
+| Lovable 原型预览 | [Lovable Preview](https://preview--visual-link.lovable.app/) (需 token) |
 | Lovable 编辑器 | [Lovable Dev](https://lovable.dev/projects/6dfa3c14-7c77-4565-9c1f-73999c9dcbc7) |
+| Figma — Story #1 | [Portfolio Portal #46-56961](https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56961&t=J0dmokNmqXCGtFih-1) |
+| Figma — Story #2 / #3 | [Portfolio Portal #46-56977](https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56977&t=J0dmokNmqXCGtFih-1) |
