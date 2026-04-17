@@ -26,7 +26,7 @@
    - 用户可关闭横幅。若不关闭，则一直显示。
 
 4. **邮件提示**
-   - 满足出发条件后Portfolio manager和Company Admin都会收到提示邮件
+   - 满足触发条件后Portfolio manager和Company Admin都会收到提示邮件
    - 邮件内容例如：
    标题: New Benchmark Survey Update
    正文：“Hello Jacobo Vargas,
@@ -64,7 +64,7 @@
     - 超链接跳转的异常处理: 若portfolio portal人员不再有对应公司的访问权限，则页面横幅不显示
 
 4. **监测频率**
-   - 每天定时检测
+   - 每天定时监测
 
 5. **监测数据类型**
    - Actuals数据
