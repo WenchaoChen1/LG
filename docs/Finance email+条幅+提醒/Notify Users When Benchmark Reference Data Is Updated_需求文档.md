@@ -59,7 +59,7 @@
         You may notice a change in your company’s benchmark positioning.
         This shift is due to updates in the benchmark reference data, which can affect how companies are ranked relative to one another. It reflects movement within the cohort, not changes in your company’s financial performance.”
         - 人名为实际接收人，Portfolio manager或其他有该公司权限的人/Company Admin
-    - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portfolio角色)/company benchmarking tab页面(Company Admin角色)
+    - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portal角色)/company benchmarking tab页面(Company Admin角色)
     - 超链接跳转的异常处理: 若portfolio portal人员不再有对应公司的访问权限，则页面横幅不显示
 
 4. **监测频率**
