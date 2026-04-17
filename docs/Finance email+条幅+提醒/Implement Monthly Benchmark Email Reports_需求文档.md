@@ -80,12 +80,14 @@
 - 数据展示：### 4.指标内容板块详解
 [指标名称]：ARR Growth Rate、 Gross Margin、 Monthly Net Burn Rate、 Monthly Runway、 Rule of 40、 Sales Efficiency Ratio（指标展示顺序按照该排序）
 
+```
 [数据类型]：Actual、Committed Forecast/System Generated Forecast
  Actual:[该指标真实值]例如：64%
  Internal Peers: [该指标百分位↑/↓/无标记] (moved up/down from [上个closed month百分位])/无  百分位上升举例：P63 ↑ (moved up from P58)
  KeyBanc 2026:[该指标百分位↑/↓/无标记] (moved up/down from [上个closed month百分位])/无  百分位不变举例： P55 
  High Alpha 2026: [该指标百分位↑/↓/无标记] (moved up/down from [上个closed month百分位])/无  百分位下降举例：P55 ↓ (moved down from P70)
  Benchmarkit.ai 2026: P55
+```
 
 所有指标依次排列展示，每个指标包含不同数据类型，依次排列展示，Actual数据一定展示，预测数据优先Committed Forecast数据，若无Committed Forecast数据，则展示System Generated Forecast数据，如两种预测都没有，则不显示预测。
 
@@ -125,12 +127,14 @@ Below is a summary of companies with meaningful changes in benchmark positioning
 - 内容范围：详见2.2
 [指标名称]：ARR Growth Rate、 Gross Margin、 Monthly Net Burn Rate、 Monthly Runway、 Rule of 40、 Sales Efficiency Ratio（指标展示顺序按照该排序）
 
+```
 [数据类型]：Actual、Committed Forecast/System Generated Forecast
  Actual:[该指标真实值]例如：64%
  Internal Peers: [该指标百分位↑/↓/无标记] (moved up/down from [上个closed month百分位])/无  百分位上升举例：P63 ↑ (moved up from P58)
  KeyBanc 2026:[该指标百分位↑/↓/无标记] (moved up/down from [上个closed month百分位])/无  百分位不变举例： P55 
  High Alpha 2026: [该指标百分位↑/↓/无标记] (moved up/down from [上个closed month百分位])/无  百分位下降举例：P55 ↓ (moved down from P70)
  Benchmarkit.ai 2026: P55
+```
 
 所有指标依次排列展示，每个指标包含不同数据类型，依次排列展示，Actual数据一定展示，预测数据优先Committed Forecast数据，若无Committed Forecast数据，则展示System Generated Forecast数据，如两种预测都没有，则不显示预测。
 
