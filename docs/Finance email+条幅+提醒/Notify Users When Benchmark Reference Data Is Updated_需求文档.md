@@ -44,6 +44,7 @@
    - closed month月份的任意指标值未改变但该指标actual对internal peer百分位变化大于等于10（如由P10变为P20)，该变化是由于内部基准变化导致（同行公司财务数据变化、同行公司变化）
    - closed month月份任意指标值变化且其同行公司/同行公司数据也变化导致的指标actual对internal peer百分位变化大于等于10
    - 指标：ARR Growth Rate、 Gross Margin、 Monthly Net Burn Rate、 Monthly Runway、 Rule of 40、 Sales Efficiency Ratio
+   - 背景补充：closed month (Financial Statements Settings中为Manual的公司，clsoed month是Financia Entry表中最后一个有Actuals数据的月份；Financial Statements Settings中为Automatic的公司，clsoed month以15号为界限，如果系统服务器时间过了15号，就是上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）；如果系统服务器时间没过15号，就是上上个月（前提是前提是Financial Entry表中上上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）。
 
 2. **横幅提示**
    - Portfolio manager或其他有该公司权限的人首次登录，会在portfolio benchmarking tab页面提示；
