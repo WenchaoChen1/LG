@@ -41,8 +41,8 @@
 
 1. **触发条件**
    - closed month月份的任意指标的百分位计算由平台基准变为同行基准或由同行基准变为平台基准
-   - closed month月份的任意指标值未改变但该指标actual对internal peer百分位变化超过10（如由P10变为P20)，该变化是由于内部基准变化导致（同行公司财务数据变化、同行公司变化）
-   - closed month月份任意指标值变化且其同行公司/同行公司数据也变化导致的指标actual对internal peer百分位变化超过10
+   - closed month月份的任意指标值未改变但该指标actual对internal peer百分位变化大于等于10（如由P10变为P20)，该变化是由于内部基准变化导致（同行公司财务数据变化、同行公司变化）
+   - closed month月份任意指标值变化且其同行公司/同行公司数据也变化导致的指标actual对internal peer百分位变化大于等于10
    - 指标：ARR Growth Rate、 Gross Margin、 Monthly Net Burn Rate、 Monthly Runway、 Rule of 40、 Sales Efficiency Ratio
 
 2. **横幅提示**
