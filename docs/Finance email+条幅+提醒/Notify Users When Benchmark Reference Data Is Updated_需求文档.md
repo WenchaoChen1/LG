@@ -20,7 +20,7 @@
    - 触发机制为实时触发，满足以上任何一条就直接触发邮件和横幅
 
 3. **横幅提示**
-   - Portfolio manager或其他有该公司权限的人首次登录，会在portfolio benchmarking tab页面提示；
+   - Admin portal用户首次登录，会在portfolio benchmarking tab页面提示；
    - Company portal的所有用户首次登录，会在company benchmarking tab页面提示。
    - 提示词例如：New benchmark data available. Benchmark comparisons now reflect the latest survey (KeyBanc SaaS Survey — 2026). Your relative positioning may change as a result. 括号内容是更新的 Benchmark Entry中的platform-Edition，若多个平台版本有更新的话，用逗号间隔开，显示在同一个横幅中。
    - 用户可关闭横幅。若不关闭，则一直显示。
@@ -47,7 +47,7 @@
    - 背景补充：closed month (Financial Statements Settings中为Manual的公司，clsoed month是Financia Entry表中最后一个有Actuals数据的月份；Financial Statements Settings中为Automatic的公司，clsoed month以15号为界限，如果系统服务器时间过了15号，就是上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）；如果系统服务器时间没过15号，就是上上个月（前提是前提是Financial Entry表中上上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）。
 
 2. **横幅提示**
-   - Portfolio manager或其他有该公司权限的人首次登录，会在portfolio benchmarking tab页面和company benchmarking tab页面提示；
+   - Admin portal用户首次登录，会在portfolio benchmarking tab页面和company benchmarking tab页面提示；关闭一个页面的横幅，并不影响另一个页面，都是单独显示的。
    - Company Admin首次登录，会在company benchmarking tab页面提示。
    - 提示词例如：Benchmark positioning updated. Your company’s placement may have shifted due to changes in benchmark data, not your financial performance.
    - 用户可关闭横幅。若不关闭，则一直显示。
