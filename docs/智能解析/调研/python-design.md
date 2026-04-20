@@ -97,7 +97,7 @@ source/ocr_agent/
 | `source/financial/field_mapper.py` | 迁移到 `ocr_agent/engines/rule_engine.py` 并扩展为 5 级优先级 + 19 类 |
 | `source/financial/excel_loader.py` | 迁移到 `ocr_agent/workflow/nodes/preprocess.py` 的 Excel 分支 |
 | `source/financial/metrics_extractor.py` | 概念被 `ocr_agent/workflow/` 替代（LangGraph 化） |
-| `source/lg/` | **完整替代后删除**（in-memory task store 改为 DB-backed） |
+| `source/lg/` | **完整替代后删除**（in-memory task store 改为 DB-backed）<br>**迁移时序**: 1) `ocr_agent/` 上线，`lg/` 保留 → 2) 前端切换路由到 `/ocr`，`lg/` 进入只读模式 → 3) 观察 2 周无回归 → 4) 删除 `lg/` 模块代码 |
 | `source/cioaas_mcp/` | 暂不集成，未来可注册 `ocr_extract` 作为 MCP tool |
 
 ### 0.4 启动方式
@@ -315,7 +315,16 @@ class ExtractedTable(BaseModel):
         description="All currencies detected (for user warning display)"
     )
     rows: list[ExtractedRow]
-    reporting_periods: list[str] = Field(description="Column headers as YYYY-MM")
+    reporting_periods: list[str] = Field(
+        description="Column headers as YYYY-MM. 无法识别的周期用占位符 'UNKNOWN_<col_index>'"
+    )
+    unresolved_period_count: int = Field(
+        default=0,
+        description=(
+            "无法识别的周期数。前端根据此计数在指标表最右端追加空白月份列，"
+            "让用户手动分配日期。[Asana 2026-04-19 Story #5 Calendar Month]"
+        )
+    )
 
 class ExtractionResult(BaseModel):
     tables: list[ExtractedTable]
@@ -954,17 +963,73 @@ long-term debt       → Long-Term Debt           1.0
 | 软删除 | `archived_at = now()`，查询自动排除 |
 | TTL | 无自动删除。18 个月未命中的标记待审核（月度 cron） |
 
-### 4.8 记忆学习触发
+### 4.8 记忆学习触发（双层架构，Asana 2026-04-17 Story #8）
 
-**触发时机**: Java 端成功写入 `fi_*` 后（post-commit），通过 SQS `ocr-memory-learn-queue` 发送消息。
+系统在两个级别提升映射准确率，**独立运行、互不干扰**：
 
-**学习逻辑**:
-1. Python 消费消息，获取 `mappingComparisons` 列表
-2. 只处理 `wasOverridden: true` 的条目
+#### Layer A: Company-level Learning（公司级学习，实时）
+
+**触发**: 每次用户在 Side-by-Side Review 中保存映射修正（由 Java commit 后通过 SQS `ocr-memory-learn-queue` 触发）
+
+**存储**: `mapping_memory` 表，`WHERE company_id = :this_company`
+
+**生效**: 立即。该公司下次上传时，Layer 2 匹配直接命中用户修正
+
+**范围**: 仅对该 company 生效，不影响其他公司
+
+```
+Company A 用户把 "AWS Infrastructure" 从 R&D 改为 COGS
+  → company_memory_version (Company A) 更新
+  → Company A 下次上传命中该修正
+  → Company B 不受影响
+```
+
+#### Layer B: Core Engine Updates（核心引擎更新，全局）
+
+**触发**: 系统管理员更新通用映射规则或关键词集（`engines/rule_engine.py` 常量）
+
+**存储**: 代码 + `core_engine_version` 版本号
+
+**生效**: 下次 Layer 1 匹配自动应用，对**所有公司**生效
+
+**范围**: 全局，作为所有公司的基础规则
+
+```
+管理员新增 "fintech revenue" 关键词到 Revenue 类
+  → core_engine_version: v1.3 → v1.4
+  → 所有公司下次上传都应用新规则
+```
+
+#### 双版本流审计日志
+
+每条 `MappingResult` 记录两个独立的版本 ID：
+
+| 版本类型 | 字段名 | 变化触发 | 回答的问题 |
+|---------|--------|---------|----------|
+| Core Engine Version | `core_engine_version` | 通用规则/关键词集更新 | "当时用的是哪套规则" |
+| Company Mapping History ID | `company_memory_version` | 该公司用户保存修正 | "当时公司已积累多少修正" |
+
+```sql
+-- 已在 DDL 中定义
+ai_ocr_mapping_result:
+  core_engine_version   VARCHAR(20),   -- 如 "v1.3"，系统发布时更新
+  company_memory_version VARCHAR(64)   -- SHA256(company_memory_sorted_by_id)，每次 learner.save 时更新
+```
+
+#### 学习逻辑（Python 侧）
+
+1. Python 消费 `ocr-memory-learn-queue` 消息，获取 `mappingComparisons` 列表
+2. **只处理 `wasOverridden: true` 的条目**（AI 猜对的不存，避免记忆膨胀）
 3. 对比 `originalAiCategory` vs `confirmedCategory`
-4. 只有被用户修正过的映射才存入记忆（AI 猜对的不存）
+4. 只有被用户修正过的映射才存入 `mapping_memory`（company_id 隔离）
+5. 更新 `company_memory_version`（该 company 的最新 hash）
 
 **学习闭环**: 第 1 次上传走 LLM → 用户确认 → 保存记忆 → 第 2 次上传同标签直接命中，零 LLM 调用
+
+**职责划分（重要）**:
+- Python 负责：记忆学习（本节）
+- Java 负责：触发记忆学习 SQS + 新闭月邮件通知 + fi_* 写入
+- **Python 不负责邮件通知**（避免重复实现）
 
 ```python
 async def save_mapping_memory(
@@ -1046,11 +1111,26 @@ FAILED      FAILED         FAILED   FAILED   ┌─CONFLICT   (用户      FAILE
 | 3 | 表格标题 | `"Income Statement - FY2024"` |
 | 4 | 文件名 | `"2024_Q4_Financials.pdf"` |
 
-> **Fallback 失败处理**: 当 4 个信号（列头 → sheet 名 → 表格标题 → 文件名）全部无法识别报告周期时：
-> - 提取的 `reporting_periods` 字段设为空数组 `[]`
-> - 行数据的 `values` 字典 key 设为占位符 `"UNKNOWN_PERIOD_<row_index>"`
-> - 在 `extraction_notes` 中添加 "Reporting period could not be inferred — user input required"
-> - 进入 ReviewPage 时，前端展示醒目提示，要求用户为整张表手动指定报告周期，否则无法通过硬验证
+**Fallback 按列处理（Asana 2026-04-19 Story #5 Calendar Month 更新）**:
+
+旧方案"全部失败就整张表 UNKNOWN_PERIOD"改为**按列单独处理**，单列失败不影响其他列。
+
+对每个列头单独执行 4 信号推断:
+1. 列头文本 → 解析为 YYYY-MM
+2. Sheet 名模式
+3. 表格标题或附近文本
+4. 文件名 fallback
+
+**如果某列 4 信号全失败**:
+- 该列在 `reporting_periods` 中用占位符 `"UNKNOWN_<col_index>"`（如 `"UNKNOWN_2"`）
+- `unresolved_period_count += 1`
+- 在 `extraction_notes` 追加: `"Column <col_index> period unresolved - user input required"`
+
+**前端显示行为（由 ExtractedTable.unresolved_period_count 驱动）**:
+- 已识别的列正常显示
+- 未识别的列在表格最右端显示为**空白月份列**（BlankMonthColumn）
+- 用户可为该列或单个账户分配月份（DatePicker）
+- **硬验证**: 写入 LG 时，所有 `UNKNOWN_<idx>` 列必须被分配实际日期，否则该列数据不写入（只写入已分配的列）
 
 ---
 

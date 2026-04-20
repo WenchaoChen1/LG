@@ -117,36 +117,90 @@ ProcessingPage
         └── BackButton (返回上传页重新上传)
 ```
 
-#### ReviewPage（核心页面）
+#### ReviewPage（核心页面 — 2026-04-19 按 Asana 更新大幅重构）
 
 ```
 ReviewPage
-  ├── TableSelector
-  │     antd Tabs 组件
-  │     Tab 1: "Income Statement (2024_PnL.pdf)" / Tab 2: "Balance Sheet (BS.xlsx)" / ...
-  │     每个 Tab 显示: 表名 + 来源文件名 + 置信度汇总 (✓ 12 / ⚠ 5 / ✗ 2)
-  │
-  ├── SplitView (antd Row + Col, 可拖拽分割线, 默认 50/50)
+  ├── SplitView (可调比例, 默认 50/50, 左面板可隐藏)
   │     │
-  │     ├── SourcePanel（左侧 — 原始文档）
-  │     │     ├── PDFViewer
-  │     │     │     react-pdf 渲染
-  │     │     │     页码导航: 上一页 / 下一页 / 页码输入跳转
-  │     │     │     缩放控制: 放大 / 缩小 / 适应宽度
-  │     │     │     当前高亮区域标记 (对应右侧选中行的源位置)
+  │     ├── SourcePanel（左面板 — Source Document Viewer, Asana 2026-04-19 扩展）
+  │     │     ├── FileSelector（顶部 — 新增）
+  │     │     │     antd Select 下拉菜单，列出当前 session 所有已上传文件
+  │     │     │     选择后加载对应文件到 DocumentViewer
+  │     │     │     与右面板 DocumentTypeFilter 联动（见下方）
   │     │     │
-  │     │     └── ExcelPreview
-  │     │           antd Table 只读渲染
-  │     │           Sheet 切换标签页 (多 sheet 时)
-  │     │           高亮行 (对应右侧选中行的源单元格)
-  │     │           合并单元格正确渲染 (colSpan/rowSpan)
+  │     │     ├── NavigationControls（新增 — 文件类型动态）
+  │     │     │     如果选中文件是 Excel (多 sheet):
+  │     │     │       → 显示 SheetTabs（antd Tabs，tab-based navigation）
+  │     │     │     如果选中文件是 PDF:
+  │     │     │       → 显示 PageNavigator（上一页 / 下一页 / 页码输入）
+  │     │     │
+  │     │     ├── FileActions（新增）
+  │     │     │     - "添加新文件" 按钮
+  │     │     │     - "替换文件" 按钮（触发 UploadZone 弹窗）
+  │     │     │
+  │     │     ├── DocumentViewer
+  │     │     │     PDF → react-pdf 渲染当前页
+  │     │     │     Excel → antd Table 只读渲染当前 sheet
+  │     │     │     图片 → <img> 渲染
+  │     │     │     支持源位置高亮（见 Source Tracing UX）
+  │     │     │
+  │     │     └── ZoomControlBar（底部 — 新增）
+  │     │           + / - 按钮 + 百分比显示 + "适应宽度" 按钮
   │     │
-  │     └── DataPanel（右侧 — 提取数据）
-  │           ├── ViewToggle
-  │           │     antd Radio.Group: [Raw] [Standardized]
-  │           │     Raw: 显示 AI 提取的原始行标签和值
-  │           │     Standardized: 显示映射后的 LG 分类、标准化数值
+  │     └── DataPanel（右面板 — Data Mapping, Asana 2026-04-19 扩展）
+  │           ├── FilterBar（顶部 — 新增）
+  │           │     ├── DocumentTypeFilter
+  │           │     │     antd Segmented 或 Select: [All Types (默认)] [P&L] [Balance Sheet] [Proforma]
+  │           │     │     与左面板 FileSelector 联动
+  │           │     └── CurrencySelector
+  │           │           antd Select 货币下拉，与类型过滤器并列
+  │           │           默认用 ExtractedTable.currency；多币种时显示 alert 图标
   │           │
+  │           ├── MetricsList（支持水平+垂直滚动，Financial Entry 格式）
+  │           │     ├── UnmappedSection（未映射账户，集中在顶部）
+  │           │     │     标题: "未映射账户 (N)"
+  │           │     │     每个 UnmappedItem:
+  │           │     │       - 账户标签 + 金额 + 源位置
+  │           │     │       - CategoryDropdown: 映射后自动移入对应 LG 分类
+  │           │     │
+  │           │     ├── LGCategoryGroup[] (按 LG 19 类分组)
+  │           │     │     每组显示: 分类名 + MetricRow[]
+  │           │     │       ├── EditableCell (数值)
+  │           │     │       │     用户删除数值 → 默认显示 0（onBlur 处理）
+  │           │     │       ├── AlertIcon (当 label 被删除为空时显示)
+  │           │     │       └── ExpandableSourceItems (展开查看每个源行项)
+  │           │     │             每个源行项可 CategoryDropdown 重新映射到其他 LG 指标
+  │           │     │
+  │           │     ├── BlankMonthColumn（新增 2026-04-19）
+  │           │     │     ExtractedTable.unresolved_period_count > 0 时
+  │           │     │     在指标表最右端追加空白月份列
+  │           │     │     每列顶部有 DatePicker 让用户分配月份
+  │           │     │
+  │           │     └── EmptyMappingMessage
+  │           │           当没有财务账户可映射到 LG 指标时显示
+  │           │
+  │           ├── SourceTracingHint（新增 — 悬停时显示）
+  │           │     悬停右面板指标 → tooltip 显示 "来源: PnL.xlsx, Sheet1, B12"
+  │           │     左面板高亮仅在 "当前 page/sheet == 指标源" 时显示
+  │           │
+  │           └── ViewToggle（保留，位置调整）
+  │                 [Raw] [Standardized] — Raw 视图下无 LGCategoryGroup 分组，纯列表
+  │
+  │   （旧的 TableSelector 已移除：Asana 2026-04-19 新设计使用文件过滤+类型过滤代替 Tab 切换）
+
+  ├── LeftRightPanelLinkage（联动逻辑，非组件，在 dva effects 中实现）
+  │     左→右: 选文件 → DocumentTypeFilter 自动更新为该文件的文档类型
+  │     右→左: 选文档类型 → FileSelector 下拉过滤为只显示该类型文件
+  │     示例: 选 Balance Sheet
+  │           → 左面板只显示 BS 文件
+  │           → 右面板只显示 BS 指标
+  │     右面板指标列表始终反映当前 (file, documentType) 组合
+
+  ├── (保留原 EditableTable / EditableCell / CategoryDropdown / ConfidenceBadge 的交互细节，
+  │    但渲染结构已按上述 MetricsList 重新组织)
+  │
+  │ （历史结构归档 — 供对照）
   │           ├── EditableTable
   │           │     基于 react-window FixedSizeList 虚拟滚动
   │           │     列定义:
@@ -198,50 +252,75 @@ ReviewPage
 #### ConfirmPage
 
 ```
-ConfirmPage
-  ├── WriteSummary
-  │     信息卡片列表:
-  │     ├── 待写入表数量 (e.g. "2 tables")
-  │     ├── 时间范围 (e.g. "Jan 2024 - Dec 2024")
-  │     ├── 数据类型 (Historical / Forecast / Mixed)
-  │     ├── 总行数统计
-  │     └── 修改摘要 (用户编辑 N 行, 映射覆盖 M 条)
+ConfirmPage（Asana 2026-04-19 重构为两阶段流程）
   │
-  ├── ConflictList (仅冲突检测到时显示)
-  │     ├── 冲突摘要: "发现 N 条与已有数据的冲突"
-  │     └── ConflictItem (每条冲突)
-  │           ├── 冲突位置: Table / Account / Period
-  │           ├── 对比展示:
-  │           │     已有值: $1,234,567 (source: QuickBooks, date: 2024-01-15)
-  │           │     新值:   $1,234,890 (source: 当前上传)
-  │           ├── 解决方案: antd Radio.Group
-  │           │     ○ Overwrite (用新值覆盖)
-  │           │     ○ Skip (保留已有值)
-  │           │     ○ Cancel (从本次提交中移除此行)
-  │           └── Note 字段: antd TextArea (≤ 2000 字, 可选)
-  │                 placeholder: "说明覆盖原因..."
+  ├── Stage 1: VerifyDataSummary（新增阶段，冲突检测前的摘要）
+  │     ├── SummaryStats
+  │     │     ├── 源文件总数
+  │     │     ├── 映射类型数
+  │     │     └── 映射账户数
+  │     ├── StartVerificationButton (antd Button primary)
+  │     │     点击 → 调 POST /docparse/tasks/{id}/verify
+  │     └── VerificationProgress (实时进度指示器)
+  │           轮询 GET /docparse/tasks/{id}/verify/status
   │
-  └── CommitButton
-        antd Button type="primary" size="large"
-        无冲突时: "Confirm & Write to LG"
-        有冲突时: 所有冲突项必须选择解决方案后才可点击
-        点击后: Loading 状态 → 成功跳转到 Success 页 / 失败显示错误
+  ├── Stage 2: ConflictResolutionView（verify 完成后显示）
+  │     ├── FinancialEntryFormatGrid
+  │     │     以 Financial Entry 格式渲染 (列=报告周期，行=LG 指标)
+  │     │     每个 ConflictCell 高亮（黄色背景 + warning 图标）
+  │     │
+  │     └── ConflictPopup (点击冲突单元格打开)
+  │           ├── CurrentLGValue (当前 LG 中的值)
+  │           ├── MappingResultSum (映射结果的总和)
+  │           ├── ActionButtons (仅两个选项，Cancel 已移除)
+  │           │     ├── "用映射值覆盖" (Select action → Overwrite)
+  │           │     └── "保留 LG 值" (Keep LG Value → Skip)
+  │           └── NoteField (Asana Story #7 2026-04-19)
+  │                 ├── Textarea (placeholder: "解释为何这样处理冲突，可选")
+  │                 │     2000 字限制 + CharCount (0/2000)
+  │                 ├── AutoDefaultNote
+  │                 │     用户不填时系统自动生成:
+  │                 │     "{时间} - {用户} 接受上传值覆盖 LG（原 {旧值} → 新 {新值}）"
+  │                 ├── NoteThread (历史 notes 倒序时间线)
+  │                 │     每条 NoteItem: 作者 + 时间 + 内容 + AutoGenerated 徽章
+  │                 └── AddReplyInput
+  │                       用户可追加新 note 到 thread (类似 Slack 评论回复)
+  │
+  └── Stage 3: CommitButton (所有冲突解决后才能点击)
+        antd Button type="primary" size="large", disabled until 所有冲突都已选择
+        Text: "确认并写入 LG"
+        点击 → POST /docparse/tasks/{id}/commit
+        成功 → 跳转 SuccessPage + 触发新闭月邮件（后端异步）
+        失败 → 整体 rollback（不允许部分写入），显示错误
 ```
 
-**Note 字段**
+**Note 字段可见性（2026-04-19 扩展）**
 
-来自 Asana Story #7：冲突解决步骤可选添加 Note（≤2000 字符），记录修改原因。
+- **执行上传的用户**：在 ConfirmPage 和 Financial Statements 模块都可查看
+- **portfolio managers 及有公司访问权限的其他用户**：可在 Financial Statements 模块查看，了解变化和原因
+- **查看入口**：Financial Entry 页面新增"导入备注"折叠面板（NoteThreadPanel 组件），展示该 period 的所有 notes（倒序时间线）
+- **上传最终完成后 notes 只读**
+
+**NoteThread 组件**
 
 ```
-ConflictItem
-  ├── 字段对比（已有值 vs 新值）
-  ├── 解决方案选择 (Overwrite / Skip / Cancel)
-  └── NoteField (可选)
-        ├── Textarea (placeholder: "解释为何这样处理冲突，可选")
-        └── CharCount (0/2000)
+NoteThread
+├── NoteItem[] (倒序时间线)
+│   ├── AuthorAvatar + UserName
+│   ├── Timestamp
+│   ├── NoteText (Markdown 渲染)
+│   └── AutoGenerated Badge (系统自动 note 标记)
+└── AddReplyInput
+    ├── Textarea (≤ 2000 字)
+    ├── "追加" 按钮
+    └── CharCount
 ```
 
-**Note 查看入口**：写入 fi_* 后，Note 关联到该 upload event，在 Financial Statements 模块的 Financial Entry 页面新增 **"导入备注"折叠面板**，展示历史所有冲突解决的备注（按时间倒序）。
+**冲突解决约束（重要）**
+
+- **用户必须解决每个检测到的冲突才能点击 Commit**
+- **映射数据写入作为整体**：任何一个 metric 写入失败 → 全部 rollback
+- **Cancel 选项已移除**（如要放弃，直接退出页面，task 状态保持 REVIEWING）
 
 ## 3. dva Model 设计
 

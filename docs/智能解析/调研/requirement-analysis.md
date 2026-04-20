@@ -7,7 +7,7 @@
 > **LG Tag**: AI Integration
 > **创建日期**: 2026-04-16（本文档）
 
-> 本文档已与 Asana EPIC 于 **2026-04-17** 同步。
+> 本文档已与 Asana EPIC 于 **2026-04-20** 同步（Story #5/#6/#7/#8 重大更新）。
 
 ---
 
@@ -214,29 +214,55 @@ If a document type cannot be clearly categorized based on the defined rules, the
 - **负责人**: Jesús H Peralta
 - **状态**: Ready for Design
 
-**核心需求:**
+**核心需求 (2026-04-19 重大更新):**
 
-- **左侧面板**: 原始文档（PDF 带翻页 / Excel sheet 预览）
-- **右侧面板**: 提取数据，两种视图可切换:
-  - **Raw View**: 原始提取行项
-  - **Standardized View**: 映射到 LG 分类后的视图，展示以下内容:
-    - **Unmapped accounts**（NEW）
-      - All unmapped accounts are centrally displayed
-      - User can intervene to map them
+**Side-by-Side Layout:**
+
+- **左面板 — Source Document Viewer**
+  - 顶部：**文件选择下拉菜单**，用户在已上传文件之间切换
+    - Excel 多 sheet → 下拉菜单下方显示 **sheet 标签**（tab-based navigation）
+    - PDF → 显示**页码导航控件**
+  - **添加新文件 / 替换文件** 选项
+  - 底部：**缩放控制条**（zoom in/out）
+- **右面板 — Data Mapping**
+  - 顶部：**文档类型过滤器**（All Types 默认 / P&L / Balance Sheet / Proforma）
+  - **货币选择下拉**（与类型过滤器并列）
+  - 过滤器下方：LG 财务指标列表，与 **Financial Entry 格式一致**，支持水平+垂直滚动
+  - Sections:
+    - **Unmapped accounts**（集中展示，用户可 intervene 映射到任何 LG 支持的指标，映射后自动移入对应 LG 分类）
     - **LG category**
-    - **Underlying source line items**（expandable）
-      - User can map the source line item to a different LG metric（NEW）
-- **内联编辑 (Inline Editing):**
-  - 数值
-  - 行标签
-  - 分类（Standardized View 中）
-  - **Currency**
-    - **All mapped results from the uploaded file must use a single currency. If multiple currencies are detected, the system shall default to USD but with an alert icon.**（NEW — 货币一致性规则）
-- 选中右侧行 → 左侧高亮对应源位置
-- 切换视图模式不丢失用户编辑
-- 系统追踪: 原始提取值 + 用户编辑值
-- 用户可确认（进入写入）或拒绝（重新上传）
-- Mobile Responsive（可折叠面板）
+    - **Underlying source line items**（可展开，用户可将源行项重新映射到不同 LG 指标）
+  - 如果没有财务账户可映射到 LG 支持的指标，显示提示消息
+- **Left-Right Panel Linkage（左右面板联动）**
+  - 左面板选文件 → 右面板类型过滤器自动更新为该文件的文档类型；选 "All Types" 恢复所有文件
+  - 右面板选类型 → 左面板文件下拉菜单过滤为只显示该类型的文件
+  - 示例：选 Balance Sheet → 左面板只显 BS 文件，右面板只显 BS 指标
+  - 左右面板比例可调；可用图标隐藏左面板
+
+**内联编辑 (Inline Editing):**
+
+- **数值** — 用户删除数值时，字段默认显示 **0** 而不是保持空
+- **行标签** — 如果 label 被删除，字段为空，**但显示 alert 图标**
+- **Calendar Month**（新增 2026-04-19）— 如果提取的 period（月+年）无法识别或匹配到日期，**在指标表最右端追加空白月份列**。用户可为该列或提取账户分配/修正日期
+- 分类（Standardized View 中）
+- **Currency** — 所有映射结果必须使用单一货币；如果检测到多种货币，系统默认 USD **并显示 alert 图标**
+
+**Source Tracing（新增 2026-04-19）:**
+
+- 源追踪在页面/sheet 级别支持
+- 当用户悬停右面板指标时，系统指示该值提取自哪里
+- 但左面板的视觉高亮**仅在左面板当前显示与指标来源相同的页面/sheet 时才显示**
+- 如果左面板在其他页面/sheet，不显示高亮（避免误导）
+
+**系统追踪**: 原始提取值 + 用户编辑值
+
+**Completion（新增未映射确认）:**
+
+- 用户可确认（进入写入）或拒绝（重新上传/上传新文件）
+- **如果存在未映射账户，用户尝试继续时，系统显示确认弹窗告知用户 Unmapped Accounts 组的数据不会写入 LG。用户必须明确确认才能进入下一步**
+- 确认后数据进入 LG schema 写入阶段
+
+**Mobile Responsive**（可折叠面板）
 
 ### 4.6 Story #6: Write data to LG Schema
 
@@ -244,20 +270,55 @@ If a document type cannot be clearly categorized based on the defined rules, the
 - **负责人**: Jesús H Peralta
 - **状态**: Ready for Design
 
-**核心需求:**
+**核心需求 (2026-04-19 重大更新):**
 
-- **写入前提**: 所有行项已审核、已映射、元数据完整
-- **冲突检测**: 写入前检查是否已有同 company + document_type + data_classification + reporting_period 的数据
-- **冲突处理选项**:
-  - **Overwrite**: 新数据替换旧版本，旧版本保留为历史记录
-  - **Skip**: 跳过冲突项，处理其他非冲突数据
-  - **Cancel**: 不写入任何数据，返回审核
-- **写入后行为**:
-  - 数据立即反映到: Financial Statement 页面 + Committed Forecast 页面 + 下游 normalization/benchmarking
-  - 原始文件归档到 Company Documents 页面
-  - 显示成功确认，展示 Benchmark Info Page
-- **审计日志**: 每次写入记录时间戳、用户、源文档、周期、类型、操作（written/overwritten/skipped/cancelled）
-- **版本控制**: 被覆盖的数据保留历史版本
+**写入前提:**
+- 所有行项已审核、已映射、元数据完整
+- 若仍有未映射、未审核或缺失元数据的行项，系统阻止写入并显示错误
+
+**Verify Data Summary（新增 2026-04-19）:**
+
+冲突检测之前，系统显示摘要屏幕：
+- 本次提交包含的源文件总数
+- 映射类型总数
+- 映射账户总数
+
+用户必须点击 **Start Verification** 触发系统检查，**实时进度指示器**显示验证过程。
+
+**Existing Data Detection & User Decision（2026-04-19 重写）:**
+
+- 检查条件：同 company + 同指标（metric）+ 同报告周期（月+年）
+- 冲突以 **Financial Entry 格式显示**（列=报告周期，行=LG 指标），每个冲突单元格**高亮**
+- 每个冲突弹窗显示：
+  - 当前 LG 中存储的值
+  - 映射结果的总和
+  - **Select action**：选择用映射值覆盖 LG 现有值
+  - **Keep LG Value**：保留 LG 数据
+- 用户必须解决**每个**检测到的冲突才能确认提交；未解决的冲突**阻止提交**
+
+**Overwrite/Skip 行为（Cancel 选项已移除）:**
+
+- **Overwrite**: 新值替换活跃版本，旧值保留为历史记录
+- **Skip**: 保留 LG 现有数据，跳过该指标；其他满足前提的 metrics/documents 继续写入
+- **注意**：原来的 Cancel 选项已从 Asana 需求中移除
+
+**Schema Integrity & Error Handling:**
+
+- 所有数据必须通过 LG schema 验证后才写入
+- 验证失败：中止写入、显示清晰错误、引导用户回到审核步骤
+- **映射数据写入作为整体成功或失败，不允许部分写入**
+
+**审计与版本控制:**
+
+- 每次写入记录：时间戳、用户、源文档、周期、类型、操作（written/overwritten/skipped）
+- 被覆盖的数据保留历史版本
+
+**Post-Write Behavior（2026-04-19 更新）:**
+
+- 数据立即反映到：Financial Entry 页面 + Committed Forecast 页面 + 下游 normalization/benchmarking
+- **上传的源文档出现在 Company Documents 页面，无论是否从中提取到财务账户**
+- **新闭月的邮件通知应正确运行**（若存在新的 reporting period）
+- 显示成功确认消息，呈现 Benchmark Info 页面
 
 ### 4.7 Story #7: Add Note Field to Importing During Data Validation
 
@@ -265,14 +326,42 @@ If a document type cannot be clearly categorized based on the defined rules, the
 - **负责人**: Jesús H Peralta
 - **状态**: Ready for Design
 
-**核心需求:**
+**核心需求 (2026-04-19 更新):**
 
-- 在冲突解决步骤中为每个冲突值提供**可选 Note 字段**
-- 用途: 记录历史数据变更原因（如修订的财务报表、外部更正）
-- 限制: 最多 2000 字符，非必填
-- 存储: 关联到上传事件和冲突解决记录
-- 可见性: Financial Statements 模块可查看（需设计 UI 展示位置）
-- 提交后只读
+**Conflict Resolution Note Field:**
+
+- 在冲突解决步骤中为每个冲突值提供**可选手动输入的 Note 字段**
+- 允许用户自由输入文本解释所选解决方案的原因（keep existing / use uploaded / manually override），最多 **2000 字符**
+- 该字段**不论用户选择哪种解决方案都可用**
+
+**自动默认 Note（新增 2026-04-19）:**
+
+- 如果用户选择不手动输入 note，当值发生变化时（接受上传或手动覆盖），**系统自动创建一条默认 note** 标记"数据差异和值更新已发生"
+- 目的：让所有用户都能知晓变化
+
+**可选输入行为:**
+
+- 输入 note 不是解决冲突的必要条件
+- 用户可以不添加 note 直接继续
+
+**Note 可见性（2026-04-19 扩展）:**
+
+- Notes 作为 upload event 的一部分存储在 financial statement 模块
+- 需要在 Financial Entry 页面设计 UI 展示位置
+- 执行上传的用户可在该模块查看
+- **对有公司访问权限的其他用户（如 portfolio managers）可见**，让他们了解发生了什么变化及可能的原因
+
+**Note Thread（新增 2026-04-19）:**
+
+- **用户应能在 note 上追加（add to）**，形成可查看的 **note thread**
+- 支持类似评论回复的多轮追加，保留历史
+
+**Workflow 集成:**
+- Note 功能集成到 resolve data conflicts 步骤，不影响工作流其他部分
+
+**审计:**
+- Notes 持续关联到 upload event 和已解决的差异
+- **上传最终完成后 Notes 只读**
 
 **来源**: Dougal 在审核 Lovable 原型时提出的新需求
 
@@ -282,20 +371,42 @@ If a document type cannot be clearly categorized based on the defined rules, the
 - **负责人**: Liang Chunru
 - **状态**: Storytelling
 
-**核心需求:**
+**核心需求 (2026-04-17 更新，两层学习架构明确化):**
 
-- 捕获用户在审核中的所有操作（approve/override/manual mapping）作为 AI 训练信号
-- 增量学习: 定期用用户反馈更新 AI 模型
-- 新文档识别: 识别之前未见过的文档布局和账户模式
-- 向后兼容: 模型更新不影响已处理文档
-- 审计: 所有模型更新记录版本、时间戳、数据集
+**Feedback Capture:**
+- 所有用户在手动审核中的决定（approve / override / manual mapping）都被记录并存储为 AI 训练信号
 
-**实际讨论结论（评论中确认）:**
+**Incremental Learning（双层学习架构）:**
 
-Liang Chunru 和 Karen Arnoldi 讨论后的务实方案:
-- 保存用户修正过的映射作为"公司记忆"
-- 未来上传时优先使用公司历史映射
-- 双轨版本: Core Engine Version（通用规则） + Company Mapping History ID（公司记忆）
+系统在两个级别提升映射准确率，这两个级别独立运行、互不干扰：
+
+- **公司层学习（Company-level, 实时更新）**
+  - 每次用户保存映射修正时，该公司的 Company Mapping History 立即更新
+  - 立即影响该公司未来的映射行为和建议
+  - 范围：仅对该 company 生效
+- **核心引擎更新（Core Engine, 全局）**
+  - 由通用映射规则和关键词集的变更触发
+  - 全局应用，对所有客户生效
+
+**New Document Recognition:**
+- 系统能识别之前未见过的文档布局和账户模式，基于先前学习建议映射
+
+**Backward Compatibility:**
+- AI 模型更新不会使已处理文档的映射失效或引入错误
+
+**Audit Logging（双版本流）:**
+
+系统用两个独立的版本流追踪 AI 模型状态：
+
+| 版本类型 | 说明 |
+|---------|------|
+| **Core Engine Version** | 追踪通用映射规则和关键词的变更，所有客户共享。系统基础逻辑更新时全局变化 |
+| **Company Mapping History ID** | 追踪每个公司特定的用户确认映射修正。每次用户保存映射修正时该 ID 更新 |
+
+**每条映射结果都记录 Core Engine Version 和 Company Mapping History ID**，确保完整可审计性。
+
+**UX 设计:**
+- **非侵入式反馈**：用户无需显式提供反馈，学习从现有交互中自动发生
 
 ---
 

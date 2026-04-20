@@ -240,8 +240,18 @@ Embedding(RAG阶段) 任意       text-embedding-3-small  $0.02
                        
 用户审核编辑 ────────→  ⑭ 保存编辑内容
 
-用户确认提交 ────────→  ⑮ 写入 fi_* 财务表（最终数据）
+用户点击 Verify ─────→  ⑭a 计算 Verify Data Summary（源文件数/映射类型数/映射账户数）
+                       ⑭b 与 fi_* 对比检测冲突
+                       ⑭c 返回冲突列表给前端
+
+用户逐个解决冲突 ────→  ⑭d 选择 Overwrite 或 Skip（Cancel 已移除）
+                       ⑭e 可选填写 note，否则系统自动生成默认 note
+                       ⑭f 保存到 doc_parse_conflict_note（支持 thread）
+
+用户确认提交 ────────→  ⑮ 写入 fi_* 财务表（整体事务，部分失败全部 rollback）
                        ⑯ 触发下游 Normalization
+                       ⑯a 新闭月邮件通知（若有新 period）
+                       ⑯b 源文件记录到 Company Documents（无论是否提取到账户）
                        ⑰ 发送记忆学习消息 ────→  ocr-memory-learn-queue
                                                                         ⑱ 消费消息
                                                                         ⑲ 对比原始映射 vs 最终确认
