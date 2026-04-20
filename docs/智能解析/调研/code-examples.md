@@ -7,181 +7,18 @@
 
 ## 1. 数据模型 DDL
 
-### 1.1 Java 端表（doc_parse_*）
-
-由 CIOaas-api `docparse` 包管理，Java JPA Entity 对应。
-
-```sql
--- Task 生命周期
-CREATE TABLE doc_parse_task (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id      BIGINT NOT NULL,
-    uploaded_by     BIGINT NOT NULL,
-    session_id      UUID,  -- groups multiple files
-    status          VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-    total_files     INT NOT NULL DEFAULT 0,
-    completed_files INT NOT NULL DEFAULT 0,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 上传文件记录
-CREATE TABLE doc_parse_file (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id         UUID NOT NULL REFERENCES doc_parse_task(id),
-    company_id      BIGINT NOT NULL,
-    filename        VARCHAR(500) NOT NULL,
-    file_type       VARCHAR(10) NOT NULL,
-    file_size       BIGINT NOT NULL,
-    file_hash       VARCHAR(64) NOT NULL,  -- SHA-256 hash，用于重名校验
-    deleted         BOOLEAN DEFAULT FALSE,  -- 软删除标记
-    s3_bucket       VARCHAR(200) NOT NULL,
-    s3_key          VARCHAR(1000) NOT NULL,
-    status          VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-    error_message   TEXT,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-### 1.2 Python 端表（ai_ocr_*）
-
-由 CIOaas-python 管理，SQLAlchemy Model 对应。
-
-```sql
--- 提取的表格
-CREATE TABLE ai_ocr_extracted_table (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    file_id           UUID NOT NULL,  -- references doc_parse_file(id) in Java DB
-    table_index       INT NOT NULL DEFAULT 0,
-    document_type     VARCHAR(20) NOT NULL DEFAULT 'MISC',
-    doc_type_confidence VARCHAR(10) NOT NULL DEFAULT 'LOW',
-    currency          VARCHAR(10) DEFAULT 'USD',
-    currency_warning  BOOLEAN DEFAULT FALSE,  -- 检测到多种货币时为 true
-    detected_currencies JSONB,                 -- ["USD", "EUR"] 等
-    source_page       INT,
-    source_sheet_name VARCHAR(200),
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 提取的行数据
-CREATE TABLE ai_ocr_extracted_row (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    table_id          UUID NOT NULL REFERENCES ai_ocr_extracted_table(id),
-    row_index         INT NOT NULL,
-    account_label     VARCHAR(500) NOT NULL,
-    section_header    VARCHAR(500),
-    cell_values       JSONB NOT NULL, -- renamed from 'values' to avoid PostgreSQL reserved word
-    is_header         BOOLEAN DEFAULT false,
-    is_total          BOOLEAN DEFAULT false,
-    user_edited       BOOLEAN DEFAULT false,
-    deleted           BOOLEAN DEFAULT false
-);
-
--- AI 映射结果
-CREATE TABLE ai_ocr_mapping_result (
-    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    row_id                UUID NOT NULL REFERENCES ai_ocr_extracted_row(id),
-    lg_category           VARCHAR(50) NOT NULL,
-    confidence            VARCHAR(10) NOT NULL,
-    source                VARCHAR(20) NOT NULL,
-    original_ai_suggestion VARCHAR(50),
-    reasoning             TEXT,
-    user_note             VARCHAR(2000),
-    core_engine_version   VARCHAR(20),
-    company_memory_version VARCHAR(64),
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 冲突记录
-CREATE TABLE ai_ocr_conflict_record (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id           UUID NOT NULL,  -- references doc_parse_task(id) in Java DB
-    company_id        BIGINT NOT NULL,
-    document_type     VARCHAR(20) NOT NULL,
-    reporting_month   INT NOT NULL,
-    reporting_year    INT NOT NULL,
-    data_classification VARCHAR(20) NOT NULL,
-    resolution        VARCHAR(20),
-    user_note         VARCHAR(2000),
-    resolved_by       BIGINT,
-    resolved_at       TIMESTAMPTZ
-);
-
--- 两层映射记忆（通用+公司）
-CREATE TABLE mapping_memory (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id          BIGINT,  -- NULL = 通用层，非 NULL = 公司层
-    source_term         VARCHAR(500) NOT NULL,
-    normalized_category VARCHAR(50) NOT NULL,
-    confidence          NUMERIC(3,2) NOT NULL DEFAULT 0.5,
-    source              VARCHAR(20) NOT NULL DEFAULT 'user',
-    is_trusted          BOOLEAN NOT NULL DEFAULT FALSE,
-    hit_count           INT NOT NULL DEFAULT 0,
-    confirm_count       INT NOT NULL DEFAULT 0,
-    reject_count        INT NOT NULL DEFAULT 0,
-    archived_at         TIMESTAMPTZ,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (company_id, source_term) WHERE archived_at IS NULL
-);
-
--- 记忆变更审计日志
-CREATE TABLE mapping_memory_audit (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    mapping_id        UUID NOT NULL REFERENCES mapping_memory(id),
-    event_type        VARCHAR(20) NOT NULL,
-    old_category      VARCHAR(50),
-    new_category      VARCHAR(50),
-    actor             VARCHAR(100) NOT NULL,
-    reason            TEXT,
-    metadata          JSONB,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 向量表 rag_chunks 将在 RAG 阶段添加，OCR 阶段不使用向量数据库
-```
-
-### 1.3 索引
-
-```sql
--- 扩展
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE EXTENSION IF NOT EXISTS vector;
-
--- Java 端索引
-CREATE INDEX idx_doc_parse_task_company
-    ON doc_parse_task (company_id, created_at DESC);
-
-CREATE INDEX idx_doc_parse_file_task
-    ON doc_parse_file (task_id, status);
-
--- 重名校验只对"活跃"文件生效；归档/删除/失败的允许重新上传同名文件
-CREATE UNIQUE INDEX idx_doc_parse_file_company_hash_active
-    ON doc_parse_file (company_id, file_hash)
-    WHERE deleted = false
-      AND status IN ('PENDING', 'PROCESSING', 'COMPLETED');
-
--- Python 端索引
--- 映射记忆模糊匹配
-CREATE INDEX idx_mapping_memory_term_trgm
-    ON mapping_memory
-    USING gin (source_term gin_trgm_ops);
-
-CREATE INDEX idx_mapping_memory_company
-    ON mapping_memory (company_id);
-
--- 冲突检测
-CREATE INDEX idx_financial_data_conflict
-    ON financial_data (company_id, document_type, data_classification, reporting_month, reporting_year);
-
--- 行数据查询
-CREATE INDEX idx_extracted_row_table
-    ON ai_ocr_extracted_row (table_id, row_index);
-```
+> **DDL 已全部迁移到 [database-schema.md](./database-schema.md)**（唯一权威定义）。本文件不再重复 DDL，避免双份维护导致漂移。
+>
+> 查找指引:
+> - **Java 拥有的表**（doc_parse_*）: [database-schema.md §2](./database-schema.md#2-java-拥有的表-doc_parse_)
+> - **Python 拥有的表**（ai_ocr_* / mapping_memory*）: [database-schema.md §3](./database-schema.md#3-python-拥有的表-ai_ocr_--mapping_memory)
+> - **索引**: 在各表 DDL 下方，或 [database-schema.md §4](./database-schema.md#4-数据库角色与权限) 看权限相关
+> - **GRANT 权限**: [database-schema.md §4](./database-schema.md#4-数据库角色与权限)
+> - **枚举值清单**（Task/File/ProcessingStage/LGCategory 等）: [database-schema.md §1.2](./database-schema.md#12-枚举值清单与代码-enum-严格对应)
+> - **数据生命周期**（保留策略 / 清理 / GDPR）: [database-schema.md §5](./database-schema.md#5-数据生命周期)
 
 ---
+
 
 ## 2. Pydantic 输出模型
 
@@ -758,31 +595,36 @@ def wrap_user_data_for_llm(text: str, max_length: int = 500) -> str:
 
 ```typescript
 // models/ocrUpload.ts
-interface OCRUploadState {
-  currentStep: 0 | 1 | 2 | 3 | 4;
-  sessionId: string | null;
+// 完整定义见 frontend-design.md §3，下方为精简参考
+interface FinancialUploadModelState {
+  // Upload
+  fileList: UploadFileItem[];
+  sessionId: string | null;  // 实际存 taskId
 
-  // Step 1: Upload
-  fileList: UploadFile[];
-  uploadProgress: Record<string, number>;
+  // Processing (精确到 12 个 processing_stage 子态)
+  sessionStatus: TaskStatusResp | null;
 
-  // Step 2: Extraction
-  extractionStatus: 'idle' | 'processing' | 'done' | 'error';
+  // Review
   extractedTables: ExtractedTable[];
-
-  // Step 3: Review
+  mappingResults: Record<string, MappingResult>;
   activeTableId: string | null;
   viewMode: 'raw' | 'standardized';
-  editedRows: Record<string, Partial<ExtractedRow>>;
-  mappingOverrides: Record<string, string>;
+  editedRows: RowEdit[];
+  mappingOverrides: MappingOverride[];
 
-  // Step 4: Conflict
+  // Confirm
   conflicts: ConflictItem[];
-  resolutions: Record<string, 'OVERWRITE' | 'SKIP' | 'CANCEL'>;
-  notes: Record<string, string>;
+  // resolution 字段：'OVERWRITE' | 'SKIP'（全大写对齐 Java enum，CANCEL 已移除）
+  commitStatus: 'idle' | 'committing' | 'success' | 'error';
 
-  // Step 5: Commit
-  commitStatus: 'idle' | 'committing' | 'done' | 'error';
+  // 2026-04-20 新增：Task 修订、通知、记忆学习
+  revision: TaskRevision | null;
+  memoryLearnProgress: MemoryLearnProgress | null;
+  notifications: NotificationSummary[];
+
+  // Auto-save
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error';
+  hasUnsavedChanges: boolean;
 }
 ```
 
@@ -790,11 +632,17 @@ interface OCRUploadState {
 
 ## 13. 记忆保存（持续学习）
 
+> 完整幂等实现见 [python-design.md §4.8 学习逻辑](./python-design.md#48-记忆学习触发双层架构asana-2026-04-17-story-8)，以下为精简示例（未含幂等 upsert）。
+
 ```python
 async def save_mapping_memory(
-    company_id: int, account_label: str, lg_category: str, db: AsyncSession
-):
-    """每次用户确认映射后保存到公司记忆"""
+    company_id: int, account_label: str, lg_category: str,
+    idempotency_key: str, db: AsyncSession
+) -> Literal["new", "updated", "duplicate"]:
+    """每次用户确认映射后保存到公司记忆。
+    idempotency_key = f"{task_id}:{row_id}"，防 SQS at-least-once 重复。
+    权威实现见 python-design.md §4.8。
+    """
     existing = await db.execute(
         select(MappingMemory).where(
             MappingMemory.company_id == company_id,
@@ -860,4 +708,235 @@ async def hybrid_recall(
     """), {"query_vec": str(query_embedding), "query_text": query,
            "company_id": company_id, "top_k": top_k})
     return [dict(r) for r in results]
+```
+
+---
+
+## 15. S3 Presigned URL 实操（2026-04-20 新增）
+
+### 15.1 S3 Bucket CORS 配置（Terraform）
+
+```hcl
+resource "aws_s3_bucket_cors_configuration" "ocr_uploads" {
+  bucket = aws_s3_bucket.ocr_uploads.id
+
+  cors_rule {
+    allowed_origins = ["https://portal.lookingglass.com"]  # 严禁使用 * 或 localhost
+    allowed_methods = ["PUT", "GET"]
+    allowed_headers = ["Content-Type", "x-amz-*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+```
+
+开发环境使用独立 Bucket，`allowed_origins = ["http://localhost:8000"]`，通过 Terraform workspace 区分环境。
+
+### 15.2 Java 生成 Presigned PUT URL（含 content-length-range 限制）
+
+```java
+@Service
+public class S3PresignedUrlClient {
+    private final S3Presigner presigner;
+
+    public PresignedUploadUrl generateUploadUrl(
+            String s3Key, long fileSize, String contentType) {
+        if (fileSize > 20 * 1024 * 1024) {
+            throw new BusinessException("FILE_TOO_LARGE");
+        }
+
+        PresignedPutObjectRequest req = presigner.presignPutObject(b -> b
+            .signatureDuration(Duration.ofMinutes(15))
+            .putObjectRequest(PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(s3Key)
+                .contentLength(fileSize)  // ⚠️ 服务端校验，防前端伪造大小
+                .contentType(contentType)
+                .build()));
+
+        Instant expiresAt = Instant.now().plus(Duration.ofMinutes(15));
+        return new PresignedUploadUrl(req.url().toString(), expiresAt);
+    }
+
+    public PresignedDownloadUrl generateDownloadUrl(String s3Key) {
+        PresignedGetObjectRequest req = presigner.presignGetObject(b -> b
+            .signatureDuration(Duration.ofMinutes(5))  // GET 生存期更短
+            .getObjectRequest(GetObjectRequest.builder()
+                .bucket(bucket).key(s3Key).build()));
+
+        Instant expiresAt = Instant.now().plus(Duration.ofMinutes(5));
+        return new PresignedDownloadUrl(req.url().toString(), expiresAt);
+    }
+}
+```
+
+### 15.3 Java `/upload/complete` 端点（不信任前端 s3Key）
+
+```java
+@PostMapping("/upload/complete")
+public CompleteUploadResponse complete(
+        @Valid @RequestBody CompleteUploadRequest req,
+        @AuthenticationPrincipal JwtUser user) {
+
+    // 严禁：从前端拿 s3Key
+    // 正确：从 DB 查
+    DocParseFile file = fileRepo.findByIdAndCompanyId(req.getFileId(), user.getCompanyId())
+        .orElseThrow(() -> new NotFoundException("File not found or no permission"));
+
+    if (file.getStatus() != DocParseFileStatus.UPLOADING) {
+        throw new BusinessException("INVALID_FILE_STATUS");
+    }
+
+    // 1. HeadObject 校验
+    HeadObjectResponse head = s3Client.headObject(b -> b
+        .bucket(file.getS3Bucket())
+        .key(file.getS3Key()));
+
+    if (head.contentLength() != file.getFileSize()) {
+        s3Client.deleteObject(b -> b.bucket(file.getS3Bucket()).key(file.getS3Key()));
+        file.setStatus(DocParseFileStatus.FILE_FAILED);
+        file.setErrorMessage("Size mismatch");
+        return CompleteUploadResponse.failed("SIZE_MISMATCH");
+    }
+
+    // 2. 读前 2KB 做 magic bytes 校验
+    byte[] firstBytes = s3Client.getObject(b -> b
+        .bucket(file.getS3Bucket()).key(file.getS3Key())
+        .range("bytes=0-2047")).readAllBytes();
+    String detectedMime = Tika.detect(firstBytes);
+    if (!isMimeAllowed(detectedMime, file.getFileType())) {
+        s3Client.deleteObject(b -> b.bucket(file.getS3Bucket()).key(file.getS3Key()));
+        file.setStatus(DocParseFileStatus.FILE_FAILED);
+        file.setErrorMessage("MIME mismatch: expected=" + file.getFileType() + ", detected=" + detectedMime);
+        return CompleteUploadResponse.failed("CORRUPTED");
+    }
+
+    // 3. 通过 → 发 SQS
+    file.setStatus(DocParseFileStatus.UPLOADED);
+    extractProducer.send(new OcrExtractMessage(file));
+
+    // 4. 推进 task 状态（如果所有文件都已 UPLOADED/FILE_FAILED）
+    statusService.checkAndAdvanceToProcessing(file.getTaskId());
+
+    return CompleteUploadResponse.success();
+}
+```
+
+### 15.4 前端分块 SHA-256（hash-wasm 示例）
+
+```typescript
+import { createSHA256 } from 'hash-wasm';
+
+/**
+ * 计算文件 SHA-256，< 5MB 用 Web Crypto API，≥ 5MB 用 hash-wasm 分块增量
+ */
+export async function computeSha256(file: File): Promise<string> {
+  if (file.size < 5 * 1024 * 1024) {
+    const buffer = await file.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+    return Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // 大文件：流式分块计算
+  const hasher = await createSHA256();
+  hasher.init();
+  const CHUNK_SIZE = 4 * 1024 * 1024;  // 4MB per chunk
+  let offset = 0;
+  while (offset < file.size) {
+    const chunk = file.slice(offset, offset + CHUNK_SIZE);
+    const chunkBuffer = await chunk.arrayBuffer();
+    hasher.update(new Uint8Array(chunkBuffer));
+    offset += CHUNK_SIZE;
+  }
+  return hasher.digest();
+}
+```
+
+### 15.5 前端 XHR 直传 S3（含 progress）
+
+```typescript
+export function uploadToS3(
+  file: File,
+  presignedUrl: string,
+  onProgress: (pct: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', presignedUrl, true);
+    // 不能用 fetch（没有可靠的 upload progress 事件）
+    xhr.setRequestHeader('Content-Type', file.type);
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    });
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`S3 PUT failed with status ${xhr.status}: ${xhr.statusText}`));
+      }
+    });
+    xhr.addEventListener('error', () => reject(new Error('S3 upload network error')));
+    xhr.addEventListener('abort', () => reject(new Error('S3 upload aborted')));
+    xhr.send(file);
+  });
+}
+```
+
+### 15.6 前端 Presigned GET URL 自动续签
+
+```typescript
+interface CachedUrl { url: string; expiresAt: Date; }
+const urlCache = new Map<string, CachedUrl>();  // fileId → url
+
+export async function getFileUrl(fileId: string): Promise<string> {
+  const cached = urlCache.get(fileId);
+  const now = new Date();
+
+  // 剩余生存期 < 1 分钟 → 续签
+  if (!cached || cached.expiresAt.getTime() - now.getTime() < 60_000) {
+    const resp = await fetch(`/api/v1/docparse/files/${fileId}/download-url`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const { url, expiresAt } = await resp.json();
+    urlCache.set(fileId, { url, expiresAt: new Date(expiresAt) });
+    return url;
+  }
+  return cached.url;
+}
+```
+
+### 15.7 Pydantic 消息 camelCase alias
+
+```python
+# source/ocr_agent/schemas/messages.py
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
+
+class SqsMessageBase(BaseModel):
+    """所有 SQS 消息的基类，强制 camelCase 序列化"""
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+class OcrProgressMessage(SqsMessageBase):
+    message_type: Literal["OcrProgress"] = "OcrProgress"
+    uuid: str
+    send_time: datetime
+    task_id: UUID
+    file_id: UUID
+    company_id: int
+    processing_stage: str
+    progress_pct: int
+    stage_detail: dict | None = None
+
+# 发送时：
+msg = OcrProgressMessage(task_id=..., processing_stage="MAPPING_LLM", ...)
+json_body = msg.model_dump_json(by_alias=True)  # ⚠️ by_alias=True 必加
+# 结果: {"messageType":"OcrProgress","taskId":"...","processingStage":"MAPPING_LLM",...}
 ```

@@ -6,8 +6,9 @@
 > **截止日期**: 2026-05-29
 > **LG Tag**: AI Integration
 > **创建日期**: 2026-04-16（本文档）
+> **关联文档**: [数据库 Schema](./database-schema.md) · [设计理念](./design-philosophy.md) · [系统架构](./system-architecture.md) · [Java 端设计](./java-design.md) · [Python 端设计](./python-design.md) · [前端设计](./frontend-design.md) · [代码示例](./code-examples.md)
 
-> 本文档已与 Asana EPIC 于 **2026-04-20** 同步（Story #5/#6/#7/#8 重大更新）。
+> 本文档已与 Asana EPIC 于 **2026-04-20** 同步（Story #5/#6/#7/#8 重大更新 + 新增 §11 项目内部补丁）。
 
 ---
 
@@ -188,7 +189,7 @@ If a document type cannot be clearly categorized based on the defined rules, the
 **映射规则（已由财务 SME Nico Carlson 确认）:**
 
 - **Revenue**: `sales`, `revenue`, `income`, `fees`, `subscriptions`, `gross receipts`
-  - 特殊: `refund`/`returns`/`contra` → Revenue Contra（负值）
+  - 特殊: `refund`/`returns`/`contra` 仍归 Revenue（用负值表达 contra，不单独分类为 "Revenue Contra"——该类别在 2026-04-20 已废弃）
 - **COGS**: `cogs`, `cost of goods`, `materials`, `inventory`, `direct labor`, `hosting`*, `cloud`*, `server`*
   - *注: `hosting`/`cloud`/`server` 在 SaaS 公司为 COGS，非 SaaS 为 R&D
 - **S&M Expenses**: `marketing`, `advertising`, `commission`, `customer acquisition`, `trade show` 等
@@ -673,3 +674,77 @@ If a document type cannot be clearly categorized based on the defined rules, the
 | Lovable 编辑器 | [Lovable Dev](https://lovable.dev/projects/6dfa3c14-7c77-4565-9c1f-73999c9dcbc7) |
 | Figma — Story #1 | [Portfolio Portal #46-56961](https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56961&t=J0dmokNmqXCGtFih-1) |
 | Figma — Story #2 / #3 | [Portfolio Portal #46-56977](https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56977&t=J0dmokNmqXCGtFih-1) |
+
+---
+
+## 11. 2026-04-20 项目内部补丁（Asana EPIC 外新增）
+
+> 以下 4 项需求**未在 Asana EPIC 原始 Story 中**，由用户于 2026-04-20 直接口头补充。技术方案已落地到 7 份设计文档，但需在需求评审时明示 PM，以避免被质疑"需求依据在哪"。后续建议同步添加到 Asana 作为 EPIC 子任务。
+
+### 11.1 Task 修订（Revision）
+
+**业务诉求**: 用户发现历史 task 映射错误、需要补充文件、或季度末追加期间数据时，能"基于上个任务进行修改"，系统记录"基于哪个 task 修改"。
+
+**技术实现**:
+- 新增 4 个字段：`parent_task_id` / `revision_number` / `revision_reason`（必填 ≥10 字符）/ `superseded_by`
+- 新增端点 `POST /tasks/{parentTaskId}/revise`（详见 [java-design.md §2.3](./java-design.md)）
+- 原任务在修订版 Commit 成功后自动置为 `SUPERSEDED`
+- UI：Financial Entry 列表页"基于此任务修订"按钮、UploadPage 继承文件展示、SuccessPage 版本链（详见 [frontend-design.md §12](./frontend-design.md)）
+- 并发防护：`UNIQUE(parent_task_id, revision_number)` 约束 + `FOR UPDATE` 锁
+
+**使用场景**:
+- 客户更正了 Q1 原始数据 → 修订版覆盖
+- 季度末追加 March 数据 → 修订版新增期间
+- 发现映射错误 → 修订版纠正（Commit 后记忆学习自动学习纠正）
+
+### 11.2 REVIEWING 前的事件持久化（Q16 简化：不主动推送）
+
+**业务诉求**: 解析完成后需要记录"任务状态变化"的事件，用户登录时自行发现。**不主动发邮件/push 通知任何人**。
+
+**技术实现**:
+- Task 状态机新增 `SIMILARITY_CHECKING` / `SIMILARITY_CHECKED` 2 个瞬态（几乎无停留）+ `SIMILARITY_CHECK_FAILED` 作为预留值（未来接入邮件服务时启用）
+- 新增 `doc_parse_notification` 表仅作为**事件日志**（event_type + payload + created_at），不含 recipient / channel / retry 字段
+- 事件类型：`PARSE_COMPLETE` / `COMMIT_COMPLETE` / `COMMIT_FAILED` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED` / `NEW_CLOSED_MONTH`
+- 用户发现途径：
+  1. LG Dashboard "待处理任务" 模块（读 `doc_parse_task.status`）
+  2. App 头部 NotificationIndicator 🔔 徽章（读 `doc_parse_notification` 事件列表）
+
+**为什么简化**: 邮件/push 集成复杂度高，且 LG 用户频繁登录（属于日常工作系统），登录时自行查看待处理列表已经足够。未来如需推送可基于 `doc_parse_notification` 表的事件日志回溯实现。
+
+### 11.3 文件记忆处理 3 子状态 + 任务级记忆学习状态
+
+**业务诉求**: 文件记忆处理前/中/后状态都要存数据库；任务级记忆学习的进行中/完成状态也要存数据库。
+
+**技术实现**:
+- 文件级 `processing_stage` 拆出 3 个记忆子状态：`MAPPING_MEMORY_LOOKUP`（查询中）/ `MAPPING_MEMORY_APPLY`（应用中）/ `MAPPING_MEMORY_COMPLETE`（完成）
+- 任务级 `status` 新增 4 个记忆学习态：`MEMORY_LEARN_PENDING` / `MEMORY_LEARN_IN_PROGRESS` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`
+- 每个状态切换都通过 `OcrProgress` / `OcrMemoryLearnProgress` SQS 消息 → Java 写入 DB，Python 崩溃重启也能恢复
+- 新增 `doc_parse_memory_learn_log` 审计表（Python INSERT 权限）记录每次学习的新增/更新数量
+- UI：ProcessingPage 文件级进度条展示细粒度阶段、SuccessPage 悬浮条展示记忆学习任务级进度
+
+### 11.4 S3 Presigned URL 上传/查看
+
+**业务诉求**: 文件上传改为"后端生成链接，前端直传 S3"；文件查看改为"后端生成链接，前端直查 S3"。
+
+**技术实现**:
+- 上传 3 步流程：`POST /upload/request-urls` → 前端 XHR PUT 直传 S3 → `POST /upload/complete`（Java 验证 S3 对象 + MIME magic bytes）
+- 文件查看：`POST /files/{fileId}/download-url` 返回 5 分钟有效的 Presigned GET URL
+- Bucket CORS 配置限制生产域名，严禁 `*` 或 localhost
+- PUT URL 必须配 `content-length-range` 条件防超限
+- 前端 SHA-256 分块计算（hash-wasm）防低端机卡顿
+- 前端 URL 自动续签（剩余 < 1 分钟时重新申请）
+
+**为什么改造**: 旧 multipart 经 Java 中转方案造成 Java 服务器承担 N 倍文件大小的网络流量。Presigned URL 方案前端直传 S3，Java 仅颁发短期令牌，解决带宽瓶颈。
+
+---
+
+## 12. Proforma 文档类型处理规则（2026-04-20 补充）
+
+Asana Story 未明确 "Proforma"（预测/预算表）如何处理。根据业务讨论确定：
+
+- Proforma 文档**不写入 fi_***（因为是预测数据，与历史实际数据不同源）
+- Python 提取阶段识别到 `document_type=PROFORMA` 后：
+  - ExtractedTable 正常入库（用户可在 ReviewPage 查看）
+  - 但 commit 阶段 Java 会跳过所有 `document_type=PROFORMA` 的数据，不触发 fi_* 冲突检测
+  - UI 在 SuccessPage 提示 "检测到 N 份 Proforma 文件，已归档到 Company Documents 但未写入财务数据"
+- 未来如需 Proforma 参与预测模块，可单独开发 `fi_forecast_*` 表

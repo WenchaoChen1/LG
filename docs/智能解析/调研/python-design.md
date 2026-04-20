@@ -1,7 +1,7 @@
 # OCR Agent Python 端设计 (CIOaas-python)
 
 > **技术栈**: Python 3.12 + FastAPI + LangGraph + Instructor + OpenRouter
-> **关联文档**: [系统架构](./system-architecture.md) · [Java 端设计](./java-design.md) · [前端设计](./frontend-design.md) · [代码示例](./code-examples.md)
+> **关联文档**: [设计理念](./design-philosophy.md) · [需求分析](./requirement-analysis.md) · [系统架构](./system-architecture.md) · [Java 端设计](./java-design.md) · [前端设计](./frontend-design.md) · [代码示例](./code-examples.md)
 
 ---
 
@@ -23,7 +23,9 @@ source/ocr_agent/
 │   ├── __init__.py                # 命名为 schemas/ 而非 models/，避免与 ORM 实体冲突
 │   ├── extraction.py              # ExtractedTable, ExtractedRow, ExtractionResult
 │   ├── mapping.py                 # MappingResult, LGCategory, MappingItem
-│   └── messages.py                # SQS 消息 schema（ExtractMessage, ResultMessage, MemoryLearnMessage）
+│   └── messages.py                # SQS 消息 schema（所有模型配 alias_generator=to_camel）
+│                                     # ExtractMessage, ResultMessage, ProgressMessage,
+│                                     # MemoryLearnProgressMessage, MemoryLearnMessage
 │
 ├── workflow/                    # LangGraph 编排
 │   ├── __init__.py
@@ -43,7 +45,9 @@ source/ocr_agent/
 │   ├── memory_matcher.py          # Layer 2: 公司记忆 + trigram 模糊匹配
 │   ├── llm_mapper.py              # Layer 3: Instructor + OpenRouter + Few-Shot
 │   ├── document_classifier.py     # 文档类型评分（sheet name + row label + structural cues）
-│   └── period_inferrer.py         # 报告周期推断（4 个信号 fallback）
+│   ├── period_inferrer.py         # 报告周期推断（4 个信号 fallback）
+│   ├── embedding_service.py       # ★ 新增: 调 OpenAI text-embedding-3-small 生成 1536 维向量
+│   └── similarity_checker.py      # ★ 新增: Phase 2.5 相似度检测（pgvector HNSW + cosine > 0.9）
 │
 ├── prompts/                     # LLM 提示词模板（独立文件便于版本管理）
 │   ├── extraction_system.md       # AI Vision 提取的 system prompt
@@ -58,8 +62,9 @@ source/ocr_agent/
 │
 ├── consumers/                   # SQS 消费者（aioboto3）
 │   ├── __init__.py
-│   ├── extract_consumer.py        # 消费 ocr-extract-queue → 调用 workflow
-│   └── memory_learn_consumer.py   # 消费 ocr-memory-learn-queue → 调用 learner
+│   ├── extract_consumer.py          # 消费 ocr-extract-queue → 调用 workflow
+│   ├── similarity_check_consumer.py # ★ 新增: 消费 ocr-similarity-check-queue → 调用 similarity_checker
+│   └── memory_learn_consumer.py     # 消费 ocr-memory-learn-queue → 调用 learner
 │
 ├── producers/                   # SQS 生产者
 │   ├── __init__.py
@@ -192,11 +197,11 @@ Java 端成功写入 `fi_*` 财务表后（不是审核时），向 `ocr-memory-
 
 ### 1.3 发送 ocr-result-queue（结果回调）
 
-Python 端向 `ocr-result-queue` 发送**两类**消息：进度上报（OcrProgress，轻量，频繁）和最终结果（OcrResult，每个文件一次）。Java 端消费后更新 `doc_parse_file` 和 `doc_parse_task` 状态。
+Python 端向 `ocr-result-queue` 发送**三类**消息：文件级进度上报（OcrProgress，轻量，频繁）、最终结果（OcrResult，每个文件一次）、以及任务级记忆学习进度（OcrMemoryLearnProgress，post-commit 阶段）。Java 端消费后更新 `doc_parse_file` 的 `processing_stage` 字段和 `doc_parse_task` 的 `status` 字段，均持久化到 DB（不是内存状态）。
 
-#### 1.3.1 OcrProgress 消息（进度上报）
+#### 1.3.1 OcrProgress 消息（文件级进度上报）
 
-每当 LangGraph 切换节点时发送，供前端展示精确进度（"提取中" / "规则映射中" / "LLM 推理中" / ...）。
+每当 LangGraph 切换节点时发送，供前端展示精确进度。Java 端收到后**立即更新 `doc_parse_file.processing_stage` 字段到 DB**，前端轮询 `GET /docparse/tasks/{taskId}` 可拿到实时进度。
 
 **消息 Schema（Python → Java）**:
 
@@ -209,29 +214,84 @@ Python 端向 `ocr-result-queue` 发送**两类**消息：进度上报（OcrProg
   "taskId": "task-uuid",
   "fileId": "file-uuid",
   "companyId": "123",
-  "processingStage": "MAPPING_LLM",
-  "progressPct": 65
+  "processingStage": "MAPPING_MEMORY_APPLY",
+  "progressPct": 55,
+  "stageDetail": {
+    "appliedMemoryCount": 8,
+    "totalRowCount": 47
+  }
 }
 ```
 
-**processingStage 值**（对应 workflow/nodes/ 中的阶段）:
-- `EXTRACTING` — preprocess + AI Vision 提取（0-30%）
-- `MAPPING_RULE` — Layer 1 规则引擎（30-50%）
-- `MAPPING_MEMORY` — Layer 2 公司记忆（50-70%）
-- `MAPPING_LLM` — Layer 3 LLM 推理（70-85%）
-- `VALIDATING` — 三要素硬验证 + 软警告（85-95%）
-- `PERSISTING` — 写入 ai_ocr_* 表（95-100%）
+**processingStage 全量枚举值**（12 个子状态，与 `doc_parse_file.processing_stage` 一致）:
 
-**发送时机**（由 `producers/progress_producer.py` 在 LangGraph 节点转换时调用）:
+| 阶段枚举 | 中文显示 | 进度区间 | 对应 workflow 节点 | 持久化时机 |
+|----------|---------|---------|-------------------|-----------|
+| `PREPROCESS_PENDING` | 预处理等待中 | 0-5% | consumer 收到消息后入口 | 消息入队即持久化 |
+| `PREPROCESSING` | 预处理中（PDF→图/Excel→JSON） | 5-15% | `nodes/preprocess.py` | 节点 on_enter |
+| `EXTRACTING` | AI 提取中 | 15-30% | `nodes/extract.py` | 节点 on_enter |
+| `CLASSIFYING` | 文档类型识别中 | 30-35% | `nodes/classify.py` | 节点 on_enter |
+| `MAPPING_RULE` | 规则映射中（Layer 1） | 35-45% | `nodes/map.py` step 1 | step 切换时 |
+| `MAPPING_MEMORY_LOOKUP` | 记忆查询中 | 45-55% | `nodes/map.py` step 2a | step 切换时 |
+| `MAPPING_MEMORY_APPLY` | 记忆应用中 | 55-65% | `nodes/map.py` step 2b | step 切换时 |
+| `MAPPING_MEMORY_COMPLETE` | 记忆匹配完成 | 65-70% | `nodes/map.py` step 2 结束 | step 结束时 |
+| `MAPPING_LLM` | LLM 推理中（Layer 3） | 70-85% | `nodes/map.py` step 3 | step 切换时 |
+| `VALIDATING` | 验证中（硬/软规则） | 85-95% | `nodes/validate.py` | 节点 on_enter |
+| `PERSISTING` | 持久化中（写入 ai_ocr_*） | 95-100% | `persistence/repository.py` | 节点 on_enter |
+| `REVIEW_READY` | 可供审核 | 100% | workflow 出口 | 最终状态 |
+
+**为什么需要把 MAPPING_MEMORY 拆成 3 个子状态**:
+1. **LOOKUP**: 从 `mapping_memory` 表按 company_id + trigram 模糊查询（DB IO 密集）
+2. **APPLY**: 把查到的记忆与当前行对齐、应用置信度过滤（CPU 密集）
+3. **COMPLETE**: 统计应用情况、准备传给 LLM 的剩余未映射行（计算阶段）
+
+这 3 个阶段耗时差异大（LOOKUP 可能 500ms，APPLY 可能 2s，COMPLETE 可能 200ms），拆分后前端能展示"正在查询 3 条记忆" / "正在应用 8 条记忆" 的细粒度反馈。同时，每个子状态都要**存入 DB**，这样即使 Python 崩溃重启，也能从 `doc_parse_file.processing_stage` 恢复到精确位置。
+
+**stageDetail 字段（可选，按阶段附带额外数据）**:
+- `EXTRACTING`: `{ "pageIndex": 3, "totalPages": 8 }` — 当前处理第几页
+- `MAPPING_MEMORY_LOOKUP`: `{ "matchedMemoryCount": 12 }` — 查到的候选记忆数
+- `MAPPING_MEMORY_APPLY`: `{ "appliedMemoryCount": 8, "totalRowCount": 47 }` — 已应用 / 待映射总数
+- `MAPPING_LLM`: `{ "processedRowCount": 15, "remainingRowCount": 24 }` — LLM 推理进度
+- `PERSISTING`: `{ "insertedRowCount": 47 }` — 已写入的行数
+
+**发送时机**（由 `producers/progress_producer.py` 在 LangGraph 节点/步骤转换时调用）:
+
 ```python
-# workflow/graph.py 编译时装配 "on_enter" 回调:
-graph.add_node("map", map_node)
-graph.nodes["map"].on_enter = lambda: send_progress(stage="MAPPING_RULE", pct=30)
+# workflow/graph.py 编译时装配 pre/post hook:
+from producers.progress_producer import send_progress
+
+async def map_node(state: OCRPipelineState) -> OCRPipelineState:
+    # step 1: 规则引擎
+    await send_progress(state, stage="MAPPING_RULE", pct=35)
+    rule_results = await rule_engine.match(state.extracted_table.rows)
+
+    # step 2a: 记忆查询
+    await send_progress(state, stage="MAPPING_MEMORY_LOOKUP", pct=45)
+    candidates = await memory_matcher.lookup(state.company_id, state.unresolved_rows)
+
+    # step 2b: 记忆应用
+    await send_progress(state, stage="MAPPING_MEMORY_APPLY", pct=55,
+                       detail={"appliedMemoryCount": 0, "totalRowCount": len(candidates)})
+    applied = await memory_matcher.apply(candidates, state.unresolved_rows)
+
+    # step 2 完成
+    await send_progress(state, stage="MAPPING_MEMORY_COMPLETE", pct=65,
+                       detail={"appliedMemoryCount": len(applied)})
+
+    # step 3: LLM
+    await send_progress(state, stage="MAPPING_LLM", pct=70)
+    llm_results = await llm_mapper.map(state.unresolved_rows)
+    return {...}
 ```
 
-#### 1.3.2 OcrResult 消息（最终结果）
+**关键约束**:
+- `send_progress` 是**同步阻塞**调用（等待 SQS 确认），否则可能出现"Python 已进入 LLM 阶段但 DB 还停留在 MEMORY_LOOKUP"
+- 失败时**不抛异常**（进度消息丢失不影响主流程），记录到 `ocr_agent/progress_dropped.log`
+- 幂等性：Java 端通过 `processingStage` 的 ordinal（EXTRACTING=2 < VALIDATING=9）判断是否是回退消息，乱序消息直接丢弃
 
-Python 完成一个文件的**全部处理**（提取+映射+验证+持久化）后发送。
+#### 1.3.2 OcrResult 消息（文件级最终结果）
+
+Python 完成一个文件的**全部处理**（提取+映射+验证+持久化）后发送。Java 收到后把 `doc_parse_file.processing_stage` 置为 `REVIEW_READY`，并检查当前任务下所有文件是否都已到达此状态，若是则把 `doc_parse_task.status` 置为 `SIMILARITY_CHECKING`（进入 Phase 2.5 的通知流程）。
 
 **消息 Schema（Python → Java）**:
 
@@ -251,6 +311,9 @@ Python 完成一个文件的**全部处理**（提取+映射+验证+持久化）
   "processingTimeMs": 12340,
   "unresolvedPeriodCount": 0,
   "currencyWarning": false,
+  "detectedCurrencies": ["USD"],
+  "memoryHitCount": 8,
+  "llmMapCount": 15,
   "error": null
 }
 ```
@@ -262,6 +325,114 @@ Python 完成一个文件的**全部处理**（提取+映射+验证+持久化）
 **字段说明**:
 - `unresolvedPeriodCount`: 无法识别的周期数（前端用于渲染空白月份列）
 - `currencyWarning`: 是否检测到多种货币（前端显示 alert 图标）
+- `detectedCurrencies`: 检测到的所有货币列表（前端 CurrencySelector 用）
+- `memoryHitCount` / `llmMapCount`: 统计信息，供 Review Dashboard 展示
+
+#### 1.3.3 OcrMemoryLearnProgress 消息（任务级记忆学习进度）
+
+Phase 6 的记忆学习是**异步后台任务**，由 Java 在用户确认（Phase 5）并成功写入 `fi_*` 表（Phase 5.5）后，向 `ocr-memory-learn-queue` 发送消息触发。Python consumer 处理过程中需要向 `ocr-result-queue` 回传进度，让 Java 更新 `doc_parse_task.status` 和 UI 展示。
+
+**消息 Schema（Python → Java）**:
+
+```json
+{
+  "messageType": "OcrMemoryLearnProgress",
+  "queueName": "ocr-result-queue",
+  "uuid": "msg-uuid",
+  "sendTime": "2026-04-16T10:10:00Z",
+  "taskId": "task-uuid",
+  "companyId": "123",
+  "learnStage": "MEMORY_LEARN_IN_PROGRESS",
+  "stageDetail": {
+    "processedFileCount": 2,
+    "totalFileCount": 3,
+    "newMemoryCount": 5,
+    "updatedMemoryCount": 3
+  }
+}
+```
+
+**learnStage 枚举值**（对应 `doc_parse_task.status` 中的 3 个记忆学习态）:
+
+| 状态 | 说明 | 前端展示 |
+|------|------|---------|
+| `MEMORY_LEARN_PENDING` | Java 发送消息，Python 还未消费 | 悬浮条 "记忆学习排队中" |
+| `MEMORY_LEARN_IN_PROGRESS` | Python 正在比对+写入记忆 | 悬浮条 "记忆学习中 (2/3 文件)" |
+| `MEMORY_LEARN_COMPLETE` | 记忆学习完成，任务进入 COMMITTED | 悬浮条消失，展示 "已学习 5 条新规则" Toast |
+| `MEMORY_LEARN_FAILED` | 学习失败（DB 冲突/LLM 超时等） | 悬浮条 "记忆学习失败，可重试"（不影响任务已提交状态） |
+
+**设计要点**:
+- 记忆学习**失败不回滚**财务数据 —— 即使 Phase 6 失败，Phase 5.5 写入 `fi_*` 的数据依然有效，用户下次上传时只是少了这次积累的记忆
+- Python 可以**重试**（最多 3 次），重试间隔从 `doc_parse_memory_learn_log` 表读取
+- Java 收到 `MEMORY_LEARN_COMPLETE` 后才把 `doc_parse_task.status` 最终置为 `COMMITTED`（完全终态）
+
+### 1.3.4 Pydantic 消息 Schema 必须配 camelCase alias（⚠️ 关键）
+
+Java Jackson 默认 camelCase，Python Pydantic 默认 snake_case。如果不显式配置 alias，`processing_stage`（Python 字段）序列化到 JSON 会变成 `processing_stage` 而不是 `processingStage`，导致 Java 反序列化时所有字段为 null。**所有跨端 SQS 消息 Schema 必须统一配置**：
+
+```python
+# schemas/messages.py
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
+
+class SqsMessageBase(BaseModel):
+    """所有跨端 SQS 消息的基类"""
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,    # 既支持 snake_case 读取（Python 内部）也支持 camelCase 序列化
+        str_strip_whitespace=True,
+    )
+
+class OcrProgressMessage(SqsMessageBase):
+    message_type: Literal["OcrProgress"]
+    uuid: str
+    send_time: datetime
+    task_id: UUID
+    file_id: UUID
+    company_id: int
+    processing_stage: ProcessingStage          # LGCategory enum 同理必须用 enum
+    progress_pct: int = Field(ge=0, le=100)
+    stage_detail: dict | None = None            # 可选字段，透传给前端
+
+class OcrResultMessage(SqsMessageBase):
+    message_type: Literal["OcrResult"]
+    uuid: str
+    send_time: datetime
+    batch_id: UUID
+    task_id: UUID
+    file_id: UUID
+    company_id: int
+    status: Literal["completed", "failed"]
+    extracted_table_count: int
+    total_rows: int
+    processing_time_ms: int
+    unresolved_period_count: int = 0
+    currency_warning: bool = False
+    detected_currencies: list[str] = Field(default_factory=list)
+    memory_hit_count: int = 0
+    llm_map_count: int = 0
+    error: str | None = None
+
+class OcrMemoryLearnProgressMessage(SqsMessageBase):
+    message_type: Literal["OcrMemoryLearnProgress"]
+    uuid: str
+    send_time: datetime
+    task_id: UUID
+    company_id: int
+    learn_stage: Literal["MEMORY_LEARN_PENDING", "MEMORY_LEARN_IN_PROGRESS",
+                          "MEMORY_LEARN_COMPLETE", "MEMORY_LEARN_FAILED"]
+    stage_detail: dict | None = None
+```
+
+**验证**: 单元测试必须校验序列化 JSON 含 camelCase 字段：
+```python
+def test_ocr_progress_serialization():
+    msg = OcrProgressMessage(task_id=..., processing_stage="MAPPING_LLM", ...)
+    json_str = msg.model_dump_json(by_alias=True)  # ⚠️ by_alias=True 必加
+    assert '"taskId"' in json_str
+    assert '"processingStage"' in json_str
+    assert '"task_id"' not in json_str
+```
 
 ### 1.4 队列配置
 
@@ -271,6 +442,44 @@ Python 完成一个文件的**全部处理**（提取+映射+验证+持久化）
 | `maxReceiveCount` | 3 | 3 次重试后进 DLQ |
 | `messageRetentionPeriod` | 345600s (4 天) | 与现有队列一致 |
 | DLQ | 共享 `dlq-queue` | 通过 `messageType` 区分来源 |
+
+### 1.4.1 消费入口并发互斥（FOR UPDATE SKIP LOCKED）
+
+SQS at-least-once 语义 + 两个 Python 实例 + `visibilityTimeout=300s` 边界场景，可能导致同一条消息被两个 worker 并发消费。下游共享资源（`ai_ocr_*` 表）会出现数据翻倍。通过数据库行级锁保证同一 `fileId` 同一时刻只有一个 worker 处理：
+
+```python
+# consumers/extract_consumer.py
+async def handle_extract_message(message: OcrExtractMessage, db: AsyncSession):
+    file_id = message.file_id
+
+    # 步骤 1：尝试获取 file 的行级锁。拿不到（另一 worker 已在处理）直接退出
+    file_row = await db.execute(
+        text("""
+            SELECT id, status FROM doc_parse_file
+            WHERE id = :file_id AND status IN ('QUEUED', 'UPLOADED', 'PROCESSING')
+            FOR UPDATE SKIP LOCKED
+        """),
+        {"file_id": file_id}
+    )
+    row = file_row.one_or_none()
+    if not row:
+        logger.info(f"File {file_id} locked by another worker or not in processable state, skip")
+        return  # DeleteMessage 由外层 consumer 处理
+
+    # 步骤 2：幂等清理 —— 如果是重试，先清掉之前插入的 ai_ocr_* 数据
+    await db.execute(
+        text("DELETE FROM ai_ocr_extracted_table WHERE file_id = :file_id"),
+        {"file_id": file_id}
+    )
+
+    # 步骤 3：进入正式 pipeline
+    await run_ocr_pipeline(file_id, message, db)
+    await db.commit()
+```
+
+**锁的释放时机**: 事务提交时自动释放（`await db.commit()`）。如果 Python 崩溃，锁在连接断开时释放，SQS visibility timeout 结束后消息重发，另一 worker 可以接管。
+
+**注意**: `FOR UPDATE SKIP LOCKED` 要求 Java 端的 `doc_parse_file` 操作也必须使用事务 + `@Lock(LockModeType.PESSIMISTIC_WRITE)` 才能配合（否则 Java 侧的 status 更新不会看到 Python 的锁）。Java 侧只在发 SQS 前做一次状态推进，不会竞争锁，无需修改。
 
 ### 1.5 错误处理
 
@@ -383,9 +592,11 @@ class ExtractionResult(BaseModel):
 class MappingItem(BaseModel):
     row_index: int
     label: str
-    category: str = Field(description="One of the 19 LG categories")
-    confidence: str = Field(description="HIGH / MEDIUM / LOW")
-    reasoning: str = Field(description="Brief explanation")
+    # 关键：必须用 LGCategory enum 而非 str，否则 LLM 返回伪造分类（如 "DROP TABLE"）时 Pydantic 不会拒绝
+    # 使用 enum 时 Instructor max_retries=3 会在 LLM 返回非枚举值时自动触发重试
+    category: LGCategory = Field(description="必须是 19 个 LG 分类 enum 之一")
+    confidence: Literal["HIGH", "MEDIUM", "LOW"] = Field(description="HIGH / MEDIUM / LOW")
+    reasoning: str = Field(max_length=500, description="Brief explanation")
 
 class MappingBatchResult(BaseModel):
     mappings: list[MappingItem]
@@ -504,6 +715,201 @@ def classify_document_type(
 - 横向扩展: 加 Python 实例即可，SQS 自动分配消息
 
 ---
+
+### 2.5 相似度检测引擎（Phase 2.5）
+
+**目标**: 所有文件处理完成后，检测本次 task 内 `ai_ocr_extracted_row.account_label` 之间的高相似度对（cosine > 0.9），标记给用户审核时关注。
+
+**触发**: Java 检测到所有非 FAILED 文件 = `REVIEW_READY` 时，向 `ocr-similarity-check-queue` 发送 `OcrSimilarityCheck` 消息。
+
+#### 2.5.1 embedding_service.py
+
+```python
+# engines/embedding_service.py
+from openai import AsyncOpenAI
+from typing import Sequence
+
+class EmbeddingService:
+    """封装 OpenAI text-embedding-3-small 调用，支持批量请求降低成本"""
+
+    def __init__(self, api_key: str):
+        self.client = AsyncOpenAI(api_key=api_key)
+        self.model = "text-embedding-3-small"
+        self.dimensions = 1536
+        self.batch_size = 100  # OpenAI 单请求最多 2048 inputs，我们保守用 100
+
+    async def embed_batch(self, texts: Sequence[str]) -> list[list[float]]:
+        """批量生成 embedding。空字符串替换为单空格避免 API 拒绝"""
+        cleaned = [t.strip() or " " for t in texts]
+        all_embeddings: list[list[float]] = []
+        for i in range(0, len(cleaned), self.batch_size):
+            chunk = cleaned[i:i + self.batch_size]
+            resp = await self.client.embeddings.create(
+                model=self.model,
+                input=chunk,
+                dimensions=self.dimensions,
+            )
+            all_embeddings.extend([d.embedding for d in resp.data])
+        return all_embeddings
+```
+
+**成本估算**: `text-embedding-3-small` = $0.02 / 1M tokens。一个 task 约 100-500 个 account_label，每个平均 20 token，总 ~10K token = **$0.0002/task**（可忽略）。
+
+**本地模型替代方案**: 如需降低 API 依赖，可换 `sentence-transformers/all-MiniLM-L6-v2`（384 维，本地推理），但 `VECTOR` 列维度要同步调整。当前方案选 OpenAI 是为和未来 RAG Agent 共用 embedding 源。
+
+#### 2.5.2 similarity_checker.py
+
+```python
+# engines/similarity_checker.py
+from uuid import UUID
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+THRESHOLD = 0.9
+
+class SimilarityChecker:
+    def __init__(self, db: AsyncSession, embedding_service: EmbeddingService):
+        self.db = db
+        self.embedding_service = embedding_service
+
+    async def check_task(self, task_id: UUID) -> int:
+        """
+        对 task 内所有 account_label 做相似度检测，返回发现的 hint 数量。
+        步骤：
+          1. 查询所有 row（含已算 embedding 的 + 未算的）
+          2. 为未算的批量调 OpenAI 生成 embedding，写回 ai_ocr_extracted_row
+          3. 用 pgvector HNSW 索引对每个 row 查 top-5 相似 row
+          4. 过滤 cosine > 0.9 的对，强制 row_id_a < row_id_b
+          5. 批量 INSERT doc_parse_similarity_hint（ON CONFLICT DO NOTHING 幂等）
+        """
+        # Step 1: 查询所有 row
+        rows = await self.db.execute(text("""
+            SELECT r.id, r.account_label, r.label_embedding, t.file_id
+            FROM ai_ocr_extracted_row r
+            JOIN ai_ocr_extracted_table t ON t.id = r.table_id
+            JOIN doc_parse_file f ON f.id = t.file_id
+            WHERE f.task_id = :task_id
+              AND r.deleted = false
+              AND r.is_header = false
+              AND r.is_total = false
+        """), {"task_id": str(task_id)})
+        row_list = rows.all()
+
+        # Step 2: 对未算 embedding 的 row 批量生成
+        need_embedding = [r for r in row_list if r.label_embedding is None]
+        if need_embedding:
+            labels = [r.account_label for r in need_embedding]
+            embeddings = await self.embedding_service.embed_batch(labels)
+            # 批量 UPDATE
+            for r, emb in zip(need_embedding, embeddings):
+                await self.db.execute(text("""
+                    UPDATE ai_ocr_extracted_row
+                    SET label_embedding = :emb
+                    WHERE id = :id
+                """), {"id": r.id, "emb": str(emb)})
+            await self.db.commit()
+
+        # Step 3: 对每个 row 用 pgvector KNN 查相似
+        hints_to_insert = []
+        seen_pairs: set[tuple[str, str]] = set()
+
+        for r in row_list:
+            neighbors = await self.db.execute(text("""
+                SELECT r2.id, r2.account_label, t2.file_id,
+                       1 - (r1.label_embedding <=> r2.label_embedding) AS similarity
+                FROM ai_ocr_extracted_row r1
+                JOIN ai_ocr_extracted_row r2 ON r2.id != r1.id
+                JOIN ai_ocr_extracted_table t2 ON t2.id = r2.table_id
+                JOIN doc_parse_file f2 ON f2.id = t2.file_id
+                WHERE r1.id = :row_id
+                  AND f2.task_id = :task_id
+                  AND r2.label_embedding IS NOT NULL
+                  AND r2.deleted = false
+                ORDER BY r1.label_embedding <=> r2.label_embedding
+                LIMIT 5
+            """), {"row_id": r.id, "task_id": str(task_id)})
+
+            for n in neighbors.all():
+                if n.similarity < THRESHOLD:
+                    break  # 已按相似度排序，后续肯定都 < THRESHOLD
+                # 强制 row_id_a < row_id_b 去重
+                a, b = sorted([str(r.id), str(n.id)])
+                if (a, b) in seen_pairs:
+                    continue
+                seen_pairs.add((a, b))
+
+                file_a, file_b = (str(r.file_id), str(n.file_id)) if a == str(r.id) \
+                                 else (str(n.file_id), str(r.file_id))
+                label_a, label_b = (r.account_label, n.account_label) if a == str(r.id) \
+                                   else (n.account_label, r.account_label)
+
+                hints_to_insert.append({
+                    "task_id": str(task_id),
+                    "row_id_a": a,
+                    "row_id_b": b,
+                    "label_a": label_a[:200],
+                    "label_b": label_b[:200],
+                    "file_id_a": file_a,
+                    "file_id_b": file_b,
+                    "similarity_score": round(float(n.similarity), 3),
+                })
+
+        # Step 4: 批量 INSERT doc_parse_similarity_hint（跨域写入例外）
+        if hints_to_insert:
+            await self.db.execute(text("""
+                INSERT INTO doc_parse_similarity_hint
+                    (task_id, row_id_a, row_id_b, label_a, label_b,
+                     file_id_a, file_id_b, similarity_score)
+                VALUES
+                    (:task_id, :row_id_a, :row_id_b, :label_a, :label_b,
+                     :file_id_a, :file_id_b, :similarity_score)
+                ON CONFLICT (task_id, row_id_a, row_id_b) DO NOTHING
+            """), hints_to_insert)
+            await self.db.commit()
+
+        return len(hints_to_insert)
+```
+
+#### 2.5.3 similarity_check_consumer.py
+
+```python
+# consumers/similarity_check_consumer.py
+async def handle_similarity_check(message: OcrSimilarityCheckMessage, db: AsyncSession):
+    task_id = message.task_id
+    started_at = time.monotonic()
+
+    try:
+        checker = SimilarityChecker(db, embedding_service)
+        hint_count = await checker.check_task(task_id)
+
+        # 发送完成消息
+        await result_producer.send_similarity_result(
+            task_id=task_id,
+            company_id=message.company_id,
+            status="completed",
+            hint_count=hint_count,
+            embeddings_computed=...,
+            processing_time_ms=int((time.monotonic() - started_at) * 1000),
+        )
+    except Exception as e:
+        logger.error(f"Similarity check failed for task {task_id}", exc_info=True)
+        await result_producer.send_similarity_result(
+            task_id=task_id,
+            company_id=message.company_id,
+            status="failed",
+            error=str(e)[:500],
+        )
+        raise  # 让 SQS 自然重试（最多 3 次，之后 Java Sweeper 兜底）
+```
+
+**性能**:
+- 一个 task 约 100-500 rows → embedding 批量调用 ~1-5s
+- HNSW KNN 查询每次 <10ms，500 rows × 5 邻居 = 2500 次查询 ≈ 25s（可并发到 5s）
+- 总耗时预期 5-15s，SQS `visibilityTimeout=300s` 充裕
+
+**失败降级**:
+- embedding API 故障（OpenAI 503）→ 跳过 embedding 更新，只用已有 embedding 检测（部分覆盖）
+- pgvector 查询失败 → consumer 抛异常，SQS 重试 3 次后进 DLQ，Java Sweeper 10 min 兜底推进 `REVIEWING`
 
 ## 3. AI 映射引擎（三层架构）
 
@@ -918,7 +1324,7 @@ async def map_extracted_rows(
 │  │ Tier 1: 通用层 (company_id = NULL)       │ │
 │  │ ~500 条种子数据 + 管理员维护              │ │
 │  │ 所有公司共享                              │ │
-│  │ 例: "revenue" → Gross Revenue             │ │
+│  │ 例: "revenue" → Revenue                    │ │
 │  ├─────────────────────────────────────────┤ │
 │  │ Tier 2: 公司层 (company_id = 具体值)     │ │
 │  │ 每公司最多 5,000 条                       │ │
@@ -979,28 +1385,37 @@ ORDER BY source_term,
 
 ### 4.6 种子数据
 
-预装 ~120 条通用记忆，覆盖现有 `FieldMapper` 关键词表：
+预装 ~120 条通用记忆，**严格使用 19 个 LG 分类正式名**（不得使用 "Gross Revenue"/"Operating Expenses"/"Payroll Expense"/"Long-Term Debt"/"Revenue Contra" 等废弃别名）：
 
 ```
-source_term          → normalized_category      confidence
-────────────────────────────────────────────────────────────
-revenue              → Gross Revenue            1.0
-sales                → Gross Revenue            1.0
-subscriptions        → Gross Revenue            0.95
-refund               → Revenue Contra           1.0
+source_term          → normalized_category      confidence    备注
+────────────────────────────────────────────────────────────────────
+revenue              → Revenue                  1.0
+sales                → Revenue                  1.0
+subscriptions        → Revenue                  0.95
+refund               → Revenue                  1.0           负值表达 contra，不单独分类
 cogs                 → COGS                     1.0
 cost of goods        → COGS                     1.0
 materials            → COGS                     0.9
-rent                 → Operating Expenses       1.0
-marketing            → Operating Expenses       1.0
-wages                → Payroll Expense          1.0
-salary               → Payroll Expense          1.0
+rent                 → G&A Expenses             1.0
+marketing            → S&M Expenses             1.0
+advertising          → S&M Expenses             1.0
+wages                → UNMAPPED                 LOW           Payroll 必须有部门上下文，默认 UNMAPPED
+salary               → UNMAPPED                 LOW           同上，禁止默认到 G&A Payroll
 cash                 → Cash                     1.0
 accounts receivable  → Accounts Receivable      1.0
 accounts payable     → Accounts Payable         1.0
-long-term debt       → Long-Term Debt           1.0
+long term debt       → Long Term Debt           1.0           不含连字符
+short term debt      → Short Term Debt          1.0
+equity               → Equity                   1.0
+retained earnings    → Equity                   1.0
 ... (~120 条)
 ```
+
+**关键约束（由 Layer 2 运行时校验）**:
+1. 种子数据的 `normalized_category` 必须是 19 个 LG 分类之一或字面量 `UNMAPPED`
+2. Payroll 相关词条（wages/salary/payroll/compensation/benefits）种子数据**必须**写 `UNMAPPED`，通过规则引擎 Priority 2 + 上下文推断正确类别
+3. 启动时 `memory_matcher.validate_seed_data()` 会扫描 `mapping_memory` 中 `company_id IS NULL` 的条目，发现非 19 分类的值直接拒绝启动
 
 ### 4.7 记忆生命周期
 
@@ -1069,43 +1484,155 @@ ai_ocr_mapping_result:
 #### 学习逻辑（Python 侧）
 
 1. Python 消费 `ocr-memory-learn-queue` 消息，获取 `mappingComparisons` 列表
-2. **只处理 `wasOverridden: true` 的条目**（AI 猜对的不存，避免记忆膨胀）
-3. 对比 `originalAiCategory` vs `confirmedCategory`
-4. 只有被用户修正过的映射才存入 `mapping_memory`（company_id 隔离）
-5. 更新 `company_memory_version`（该 company 的最新 hash）
+2. **先向 `ocr-result-queue` 发送 `OcrMemoryLearnProgress(learnStage=MEMORY_LEARN_IN_PROGRESS)`**，Java 收到后把 `doc_parse_task.status` 更新到 `MEMORY_LEARN_IN_PROGRESS` 并持久化
+3. **只处理 `wasOverridden: true` 的条目**（AI 猜对的不存，避免记忆膨胀）
+4. 对比 `originalAiCategory` vs `confirmedCategory`
+5. 只有被用户修正过的映射才存入 `mapping_memory`（company_id 隔离）
+6. 更新 `company_memory_version`（该 company 的最新 hash）
+7. 向 `doc_parse_memory_learn_log` 表写一条 `result=success` 记录（Python 直连 Java 库的 SELECT/INSERT 权限表）
+8. 向 `ocr-result-queue` 发送 `OcrMemoryLearnProgress(learnStage=MEMORY_LEARN_COMPLETE)`，Java 把 `doc_parse_task.status` 置为 `COMMITTED`（完全终态）
+
+**状态持久化（关键）**: Python 处理期间每一步状态切换都**持久化到 Java 端的 `doc_parse_task.status` 和 `doc_parse_memory_learn_log`**，不是只在内存中。即使 Python worker 崩溃重启，Java 端仍能从 DB 知道当前学习到哪一步，并决定是否需要重试。
 
 **学习闭环**: 第 1 次上传走 LLM → 用户确认 → 保存记忆 → 第 2 次上传同标签直接命中，零 LLM 调用
 
 **职责划分（重要）**:
-- Python 负责：记忆学习（本节）
-- Java 负责：触发记忆学习 SQS + 新闭月邮件通知 + fi_* 写入
+- Python 负责：记忆学习（本节）+ 向 Java 回传学习进度（3 状态）
+- Java 负责：触发记忆学习 SQS + 新闭月邮件通知 + fi_* 写入 + 持久化 `doc_parse_task.status` 中的记忆学习 3 状态
 - **Python 不负责邮件通知**（避免重复实现）
 
 ```python
+# consumers/memory_learn_consumer.py
+async def handle_memory_learn(message: OcrMemoryLearnMessage, db: AsyncSession):
+    task_id = message["taskId"]
+    company_id = message["companyId"]
+
+    # Step 1: 上报进度 — MEMORY_LEARN_IN_PROGRESS
+    await progress_producer.send_learn_progress(
+        task_id=task_id,
+        company_id=company_id,
+        learn_stage="MEMORY_LEARN_IN_PROGRESS",
+        stage_detail={"processedFileCount": 0, "totalFileCount": len(message["mappingComparisons"])}
+    )
+
+    # Step 2: 逐条处理修正
+    overridden = [c for c in message["mappingComparisons"] if c["wasOverridden"]]
+    new_count, updated_count = 0, 0
+    for comp in overridden:
+        result = await save_mapping_memory(
+            company_id=company_id,
+            account_label=comp["accountLabel"],
+            lg_category=comp["confirmedCategory"],
+            db=db
+        )
+        if result == "new":
+            new_count += 1
+        else:
+            updated_count += 1
+
+    await db.commit()
+
+    # Step 3: 写入审计表（Python 连 Java 库的 SELECT/INSERT 权限）
+    await log_learn_result(
+        task_id=task_id,
+        result="success",
+        new_memory_count=new_count,
+        updated_memory_count=updated_count,
+        db=db
+    )
+
+    # Step 4: 上报完成 — MEMORY_LEARN_COMPLETE
+    await progress_producer.send_learn_progress(
+        task_id=task_id,
+        company_id=company_id,
+        learn_stage="MEMORY_LEARN_COMPLETE",
+        stage_detail={"newMemoryCount": new_count, "updatedMemoryCount": updated_count}
+    )
+
 async def save_mapping_memory(
-    company_id: int, account_label: str, lg_category: str, db: AsyncSession
-):
-    """每次用户确认映射后保存到公司记忆"""
-    existing = await db.execute(
-        select(MappingMemory).where(
-            MappingMemory.company_id == company_id,
-            func.lower(MappingMemory.source_term) == account_label.lower(),
-            MappingMemory.archived_at == None
+    company_id: int, account_label: str, lg_category: str,
+    idempotency_key: str, db: AsyncSession
+) -> Literal["new", "updated", "duplicate"]:
+    """
+    每次用户确认映射后保存到公司记忆，返回 'new' / 'updated' / 'duplicate'
+
+    幂等性：SQS at-least-once 可能导致同一条 comparison 被处理多次。
+    通过 mapping_memory_audit 表的 (task_id, row_id) 唯一约束去重。
+
+    Args:
+        idempotency_key: 通常为 f"{task_id}:{row_id}"，唯一标识本次修正
+    """
+    # 步骤 1：先检查审计表，同一幂等 key 已处理过则跳过
+    audit_check = await db.execute(
+        select(MappingMemoryAudit.id).where(
+            MappingMemoryAudit.idempotency_key == idempotency_key
         )
     )
-    if record := existing.scalar_one_or_none():
-        record.confirm_count += 1
-        record.hit_count += 1
-        record.normalized_category = lg_category
-        record.updated_at = datetime.utcnow()
-    else:
-        db.add(MappingMemory(
-            company_id=company_id,
-            source_term=account_label,
-            normalized_category=lg_category,
-            confirm_count=1
-        ))
+    if audit_check.scalar_one_or_none():
+        return "duplicate"
+
+    # 步骤 2：Upsert mapping_memory（原子操作，无 race condition）
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    stmt = pg_insert(MappingMemory).values(
+        company_id=company_id,
+        source_term=account_label.lower().strip(),
+        normalized_category=lg_category,
+        confidence=0.5,
+        source='user',
+        confirm_count=1,
+        hit_count=1,
+    ).on_conflict_do_update(
+        index_elements=[MappingMemory.company_id, MappingMemory.source_term],
+        index_where=(MappingMemory.archived_at.is_(None)),
+        set_={
+            'confirm_count': MappingMemory.confirm_count + 1,
+            'hit_count': MappingMemory.hit_count + 1,
+            'normalized_category': lg_category,
+            'updated_at': func.now(),
+        }
+    ).returning(MappingMemory.id, MappingMemory.created_at == MappingMemory.updated_at)
+    result = await db.execute(stmt)
+    mapping_id, is_new = result.one()
+
+    # 步骤 3：写审计（幂等 key 唯一约束）
+    db.add(MappingMemoryAudit(
+        mapping_id=mapping_id,
+        idempotency_key=idempotency_key,
+        event_type="CONFIRM",
+        new_category=lg_category,
+        actor=f"user:{company_id}",
+    ))
+
+    return "new" if is_new else "updated"
 ```
+
+**关键变更**:
+1. `idempotency_key`（由 `task_id + row_id` 构成）让同一修正只生效一次，SQS 重试不会让 `confirm_count` 多加
+2. 使用 PostgreSQL `INSERT ... ON CONFLICT DO UPDATE`（原子 upsert）替代"先 SELECT 再 INSERT/UPDATE"，消除竞态
+3. 返回 `duplicate` 时调用方知道"已处理"，可以直接 ack SQS 消息
+
+#### 失败与重试
+
+如果记忆学习处理失败（DB 冲突、LLM 超时、网络故障），由 Python consumer 捕获异常：
+
+```python
+try:
+    await handle_memory_learn(message, db)
+except Exception as e:
+    await log_learn_result(task_id=task_id, result="failed", error=str(e), db=db)
+    await progress_producer.send_learn_progress(
+        task_id=task_id,
+        learn_stage="MEMORY_LEARN_FAILED",
+        stage_detail={"error": str(e), "retryCount": get_retry_count(task_id)}
+    )
+    raise  # 让 SQS 自然重试（最多 3 次，指数退避）
+```
+
+Java 收到 `MEMORY_LEARN_FAILED` 消息后：
+- `doc_parse_task.status` 从 `MEMORY_LEARN_IN_PROGRESS` 改回 `MEMORY_LEARN_PENDING`（允许前端重试按钮触发）
+- `doc_parse_memory_learn_log` 新增一条 `result=failed` + `error_message`
+
+**重点**: 失败不回滚 `fi_*` 表的财务数据（Phase 5.5 已提交），用户依然看到任务处于 `SIMILARITY_CHECKED`（表示财务数据已可见），只是记忆学习需要重试。
 
 ### 4.9 审计
 
@@ -1184,148 +1711,58 @@ FAILED      FAILED         FAILED   FAILED   ┌─CONFLICT   (用户      FAILE
 
 ---
 
-## 6. 数据表设计
+## 6. 数据表设计（业务语义）
 
-Python 端拥有 6 张表，由 CIOaas-python 的 SQLAlchemy Model 管理。
+> **DDL 权威定义**：所有表结构、索引、约束、权限 GRANT 语句的**唯一权威定义**在 [database-schema.md](./database-schema.md)。本节仅说明 Python 端表的**业务语义**和字段的设计意图。
 
-### 6.1 ai_ocr_extracted_table
+### 6.1 Python 拥有的 6 张表 + 2 张跨域 INSERT 权限
 
-```sql
-CREATE TABLE ai_ocr_extracted_table (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    file_id           UUID NOT NULL,  -- references doc_parse_file(id) in Java DB
-    table_index       INT NOT NULL DEFAULT 0,
-    document_type     VARCHAR(20) NOT NULL DEFAULT 'MISC',
-    doc_type_confidence VARCHAR(10) NOT NULL DEFAULT 'LOW',
-    currency          VARCHAR(10) DEFAULT 'USD',
-    source_page       INT,
-    source_sheet_name VARCHAR(200),
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
+| 表 | 所有者 | 用途 | DDL 引用 |
+|----|-------|------|---------|
+| `ai_ocr_extracted_table` | Python | AI 提取出的表格元数据（document_type / currency 等） | [§3.1](./database-schema.md#31-ai_ocr_extracted_table) |
+| `ai_ocr_extracted_row` | Python | 提取的行数据 + `label_embedding VECTOR(1536)` 列（相似度检测用） | [§3.2](./database-schema.md#32-ai_ocr_extracted_row新增-label_embedding-列) |
+| `ai_ocr_mapping_result` | Python | AI 映射结果（三层架构产出 + user_override） | [§3.3](./database-schema.md#33-ai_ocr_mapping_result) |
+| `ai_ocr_conflict_record` | Python | 冲突检测结果（与 fi_* 对比） | [§3.4](./database-schema.md#34-ai_ocr_conflict_record) |
+| `mapping_memory` | Python | 两层记忆（通用 + 公司） | [§3.5](./database-schema.md#35-mapping_memory两层架构通用--公司) |
+| `mapping_memory_audit` | Python | 记忆变更审计（含 idempotency_key 防 SQS 重复） | [§3.6](./database-schema.md#36-mapping_memory_audit) |
+| `doc_parse_memory_learn_log` | Java（Python 有 INSERT 权限） | 记忆学习执行审计 | [§2.5](./database-schema.md#25-doc_parse_memory_learn_log) |
+| `doc_parse_similarity_hint` | Java（Python 有 INSERT/UPDATE 权限） | 相似度检测结果 | [§2.8](./database-schema.md#28-doc_parse_similarity_hint新增相似度检测结果) |
 
-### 6.2 ai_ocr_extracted_row
+### 6.2 关键设计决策解释
 
-```sql
-CREATE TABLE ai_ocr_extracted_row (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    table_id          UUID NOT NULL REFERENCES ai_ocr_extracted_table(id),
-    row_index         INT NOT NULL,
-    account_label     VARCHAR(500) NOT NULL,
-    section_header    VARCHAR(500),
-    cell_values       JSONB NOT NULL, -- renamed from 'values' to avoid PostgreSQL reserved word
-    is_header         BOOLEAN DEFAULT false,
-    is_total          BOOLEAN DEFAULT false,
-    user_edited       BOOLEAN DEFAULT false,
-    deleted           BOOLEAN DEFAULT false
-);
-```
+#### SQS at-least-once 幂等约束
+所有 Python 拥有的表都加 UNIQUE 约束，防止 SQS 消息重复消费导致数据翻倍：
+- `ai_ocr_extracted_table`: `UNIQUE (file_id, table_index)`
+- `ai_ocr_extracted_row`: `UNIQUE (table_id, row_index)`
+- `ai_ocr_mapping_result`: `UNIQUE (row_id)`
+- `mapping_memory_audit`: `UNIQUE (idempotency_key)` where `idempotency_key = f"{task_id}:{row_id}"`
 
-### 6.3 ai_ocr_mapping_result
+**重试时的行为**: Python consumer 入口先 `DELETE FROM ai_ocr_extracted_table WHERE file_id = ?`（级联删除下游 row 和 mapping），再重新 INSERT。消息重复消费不会产生数据重复。
 
-```sql
-CREATE TABLE ai_ocr_mapping_result (
-    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    row_id                UUID NOT NULL REFERENCES ai_ocr_extracted_row(id),
-    lg_category           VARCHAR(50) NOT NULL,
-    confidence            VARCHAR(10) NOT NULL,
-    source                VARCHAR(20) NOT NULL,
-    original_ai_suggestion VARCHAR(50),
-    reasoning             TEXT,
-    user_note             VARCHAR(2000),
-    core_engine_version   VARCHAR(20),
-    company_memory_version VARCHAR(64),
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
+#### label_embedding VECTOR(1536)（2026-04-20 新增）
+`ai_ocr_extracted_row` 新增 `label_embedding VECTOR(1536)` 列，存储 `account_label` 的 OpenAI embedding。用于 Phase 2.5 相似度检测（见 §2.5）。HNSW 索引 `idx_ai_ocr_row_embedding_hnsw` 加速 KNN 查询（每次 <10ms）。
 
-### 6.4 ai_ocr_conflict_record
+#### mapping_memory 两层架构
+一张表两种语义：
+- `company_id IS NULL`: 通用层（~500 条种子 + 管理员维护，所有公司共享）
+- `company_id IS NOT NULL`: 公司层（每公司最多 5000 条，Java commit 后通过 SQS 触发学习）
 
-```sql
-CREATE TABLE ai_ocr_conflict_record (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id           UUID NOT NULL,  -- references doc_parse_task(id) in Java DB
-    company_id        BIGINT NOT NULL,
-    document_type     VARCHAR(20) NOT NULL,
-    reporting_month   INT NOT NULL,
-    reporting_year    INT NOT NULL,
-    data_classification VARCHAR(20) NOT NULL,
-    resolution        VARCHAR(20),
-    user_note         VARCHAR(2000),
-    resolved_by       BIGINT,
-    resolved_at       TIMESTAMPTZ
-);
-```
+单次查询用 `COALESCE` + `NULLS LAST` 让公司记忆优先于通用记忆（详见 §4.2）。
 
-### 6.5 mapping_memory
+#### LG Category CHECK 约束
+`ai_ocr_mapping_result.lg_category` 有 CHECK 约束，只允许 19 个 LG 分类 + `UNMAPPED`。防止 LLM 输出伪造分类名绕过业务逻辑（如 `"DROP TABLE"`）。种子数据也严格遵守此约束（启动时 `memory_matcher.validate_seed_data()` 校验）。
 
-```sql
-CREATE TABLE mapping_memory (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id          BIGINT,  -- NULL = 通用层，非 NULL = 公司层
-    source_term         VARCHAR(500) NOT NULL,
-    normalized_category VARCHAR(50) NOT NULL,
-    confidence          NUMERIC(3,2) NOT NULL DEFAULT 0.5,
-    source              VARCHAR(20) NOT NULL DEFAULT 'user',
-    is_trusted          BOOLEAN NOT NULL DEFAULT FALSE,
-    hit_count           INT NOT NULL DEFAULT 0,
-    confirm_count       INT NOT NULL DEFAULT 0,
-    reject_count        INT NOT NULL DEFAULT 0,
-    archived_at         TIMESTAMPTZ,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (company_id, source_term) WHERE archived_at IS NULL
-);
-```
+#### 跨域 INSERT 例外
+Python 对 Java 拥有的 `doc_parse_memory_learn_log` 和 `doc_parse_similarity_hint` 有 INSERT 权限（前者还有条件化 UPDATE）。这违反"各自拥有表"原则，但比 SQS 回传简单可靠。GRANT 细节见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。
 
-### 6.6 mapping_memory_audit
+### 6.3 数据库权限隔离
 
-```sql
-CREATE TABLE mapping_memory_audit (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    mapping_id        UUID NOT NULL REFERENCES mapping_memory(id),
-    event_type        VARCHAR(20) NOT NULL,
-    old_category      VARCHAR(50),
-    new_category      VARCHAR(50),
-    actor             VARCHAR(100) NOT NULL,
-    reason            TEXT,
-    metadata          JSONB,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-### 6.7 索引
-
-```sql
--- 扩展
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-
--- 映射记忆模糊匹配
-CREATE INDEX idx_mapping_memory_term_trgm
-    ON mapping_memory
-    USING gin (source_term gin_trgm_ops);
-
-CREATE INDEX idx_mapping_memory_company
-    ON mapping_memory (company_id);
-
--- 冲突检测
-CREATE INDEX idx_financial_data_conflict
-    ON financial_data (company_id, document_type, data_classification, reporting_month, reporting_year);
-
--- 行数据查询
-CREATE INDEX idx_extracted_row_table
-    ON ai_ocr_extracted_row (table_id, row_index);
-```
-
-### 6.8 数据库权限隔离
-
-| 角色 | 权限 |
-|------|------|
-| `java_app` | 完全访问 Java 拥有的表 + `SELECT` 权限访问 Python 表 |
-| `python_worker` | 完全访问 Python 拥有的表 + `SELECT` 权限访问 `doc_parse_task`、`doc_parse_file`（查状态） + 零权限访问 `fi_*` 表 |
+详见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。简要：
+- `java_app`: 完全访问 `doc_parse_*` + `fi_*`；`SELECT` 访问 `ai_ocr_*`；**无权**访问 `mapping_memory*`（跨公司商业机密）
+- `python_worker`: 完全访问 `ai_ocr_*` + `mapping_memory*`；`SELECT` 大部分 `doc_parse_*`；**INSERT** 例外：`doc_parse_memory_learn_log` + `doc_parse_similarity_hint`；**无权**访问 `fi_*`
 
 ---
+
 
 ## 7. LLM 提示词设计
 
