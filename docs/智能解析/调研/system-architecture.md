@@ -220,69 +220,323 @@ Embedding(RAG阶段) 任意       text-embedding-3-small  $0.02
 
 ## 4. 整体数据流与职责边界
 
-### 4.1 数据流图
+### 4.1 数据流图（完整版，三泳道 × 六阶段）
+
+**设计原则**:
+1. **两级状态**：Task（批次）级 + File（单文件）级，状态独立演进
+2. **批次完成 = 所有文件都完成**：任一文件未完成，整个 batch 不算 done
+3. **后置动作（邮件、学习）仅在 batch COMPLETED 后触发**
+4. **Python 不直写 Java 表**：所有状态变更通过 SQS 消息驱动，Java 是 doc_parse_* 唯一 writer
+5. **前端始终轮询 task 级状态**，UI 根据状态精确映射到不同页面/组件
+
+---
+
+#### 4.1.1 状态机定义
+
+**Task 级状态**（`doc_parse_task.status`，Java 管理）:
 
 ```
-用户                    Java (CIOaas-api)              SQS                Python (CIOaas-python)
-────                   ─────────────────              ───                ──────────────────────
-
-上传文件 ───────────→  ① 校验文件 (MIME+大小)
-                       ② 存入 S3
-                       ③ 写入 doc_parse_task 表
-                       ④ 发送 SQS 消息 ──────────→  ocr-extract-queue
-                       ⑤ 返回 202 {taskId}                              ⑥ 消费消息
-                                                                        ⑦ 从 S3 下载文件
-                                                                        ⑧ AI 提取 + 映射
-                                                                        ⑨ 结果写入 ai_ocr_* 表
-前端轮询状态 ────────→  ⑩ 查询 task 状态         ←── ocr-result-queue ←─ ⑪ 发送完成消息
-                       ⑫ 更新 task 状态
-                       ⑬ 返回提取结果
-                       
-用户审核编辑 ────────→  ⑭ 保存编辑内容
-
-用户点击 Verify ─────→  ⑭a 计算 Verify Data Summary（源文件数/映射类型数/映射账户数）
-                       ⑭b 与 fi_* 对比检测冲突
-                       ⑭c 返回冲突列表给前端
-
-用户逐个解决冲突 ────→  ⑭d 选择 Overwrite 或 Skip（Cancel 已移除）
-                       ⑭e 可选填写 note，否则系统自动生成默认 note
-                       ⑭f 保存到 doc_parse_conflict_note（支持 thread）
-
-用户确认提交 ────────→  ⑮ 写入 fi_* 财务表（整体事务，部分失败全部 rollback）
-                       ⑯ 触发下游 Normalization
-                       ⑯a 新闭月邮件通知（若有新 period）
-                       ⑯b 源文件记录到 Company Documents（无论是否提取到账户）
-                       ⑰ 发送记忆学习消息 ────→  ocr-memory-learn-queue
-                                                                        ⑱ 消费消息
-                                                                        ⑲ 对比原始映射 vs 最终确认
-                                                                        ⑳ 只存差异到 mapping_memory
+        UPLOADING          用户正在批量上传
+            ↓
+    UPLOAD_COMPLETE        所有文件已入 S3，等待 Python 处理
+            ↓
+        PROCESSING         至少一个文件处理中（Python）
+            ↓
+        REVIEWING          所有文件处理完成，等待用户审核
+            ↓
+        VERIFYING          用户已点 Verify，计算 Summary + 冲突中
+            ↓
+  CONFLICT_RESOLUTION      冲突列表已生成，用户正在解决
+            ↓
+        COMMITTING         用户点 Commit，写入 fi_* 中
+            ↓
+        COMPLETED          全部写入成功，后置动作已触发
+        
+  任何环节异常终止 → FAILED
+  用户长时间不操作 → 保持原状态（不超时）
 ```
 
-**核心原则**: Java 管生命周期（上传、状态、确认），Python 管 AI 处理（提取、映射、记忆）。通过 SQS 解耦，互不直接调用。
-**记忆学习**: 在 Java 成功写入 fi_* 后触发（不是审核时），Python 对比 AI 原始建议 vs 用户最终确认，只有被用户修正过的映射才存入记忆。
+**File 级状态**（`doc_parse_file.status`，Java 管理）:
 
-> **关于 OOE 净值计算的归属**：
-> OCR Agent 不计算 OOE = expense - income 的净值。Python 端只把行项分别映射为 `other_income` 或 `other_expense` 原始字段，写入 `ai_ocr_mapping_result`。Java 端 `commit_to_lg` 写入 `fi_*` 表时也按原始字段写入。OOE 净值计算由下游标准化（Normalization）引擎在读取时计算（live computed metric），不在 OCR Agent 范围内。
+```
+   PENDING      在前端队列，尚未开始上传
+      ↓
+   UPLOADING    正在上传到 S3（客户端→服务端→S3）
+      ↓
+   UPLOADED     S3 写入成功，已发 SQS
+      ↓
+   QUEUED       SQS 消息已发，等待 Python 消费
+      ↓
+   PROCESSING   Python 消费中（细分阶段见下方 processing_stage）
+      ↓
+   REVIEW_READY Python 处理完成，前端可展示数据
+      ↓
+   FILE_COMMITTED  该文件已写入 fi_*（batch commit 成功）
+   
+   任何环节失败 → FILE_FAILED
+```
+
+**File 级 processing_stage**（仅当 status=PROCESSING 有效，Python 通过 SQS 进度消息更新）:
+
+```
+  EXTRACTING        → AI Vision / 直接解析，提取结构化数据
+  MAPPING_RULE      → Layer 1 规则引擎映射（覆盖 ~60%）
+  MAPPING_MEMORY    → Layer 2 公司记忆匹配（覆盖 ~25%）
+  MAPPING_LLM       → Layer 3 LLM 推理 + Few-Shot（覆盖 ~15%）
+  VALIDATING        → 三要素硬验证 + 软警告
+  PERSISTING        → 写入 ai_ocr_* 表
+```
+
+---
+
+#### 4.1.2 完整数据流
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Phase 1：上传阶段
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Frontend                     Java (CIOaas-api)               S3/SQS          Python
+────────                     ─────────────────              ──────          ──────
+
+① 用户选择 N 个文件
+   [client: PENDING]
+
+② POST /docparse/upload ───→ ③ 创建 doc_parse_task
+   (multipart 分片上传)          [task.status=UPLOADING]
+                                ④ 为每个文件建 doc_parse_file
+                                   [file.status=PENDING]
+                                ⑤ 逐个校验:
+                                   ├─ MIME + magic bytes
+                                   ├─ 单文件 ≤20MB / 批次 ≤100MB
+                                   ├─ 文件完整性（非损坏）
+                                   └─ file_hash 重名校验
+                                   
+                                   校验失败 ─→ file.status=FILE_FAILED
+                                              返回 5 种错误文案之一
+
+                                ⑥ 校验通过的文件:
+   显示上传进度 ←───────────────── [file.status=UPLOADING]
+   [UPLOADING]                    流式写入 S3
+                                   
+                                ⑦ S3 写入成功
+                                   [file.status=UPLOADED]
+
+                                ⑧ 发送 SQS ocr-extract-queue ──→ ocr-extract-queue
+                                   [file.status=QUEUED]
+                                   （一条消息对应一个文件）
+
+   显示"已上传" ←───────────────── ⑨ 返回 202 {taskId, files[...]}
+   [UPLOAD_SUCCESS]               ⑩ 当所有文件都 ≥ UPLOADED:
+                                   [task.status=UPLOAD_COMPLETE]
+                                   立即 → PROCESSING（因为已发 SQS）
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Phase 2：解析阶段（Python 异步，每个文件独立推进）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                                                              ⑪ 消费 SQS 消息
+                                                                 发 OcrProgress 消息 ──→ ⑫ Java 收到进度:
+                                                                                          file.status=PROCESSING
+                                                                                          processing_stage=EXTRACTING
+   [WAITING_PARSE]                                            
+   轮询 GET /tasks/{id}/status                                ⑬ Pre-process:
+   每 2 秒                                                       - PDF → images (per page)
+                                                                 - Excel → JSON
+                                                                 - Image → base64
+                                                                 
+                                                              ⑭ AI Vision 提取 + 结构化输出
+                                                                 Instructor + Pydantic
+                                                                 文档类型识别 + 报告周期推断
+                                                              
+                                                              ⑮ 三层映射调度:
+                                                                 发进度: stage=MAPPING_RULE → MEMORY → LLM
+                                                                                ↓              ↓         ↓
+                                                                 Layer 1 规则引擎 (~60% 覆盖)
+                                                                 Layer 2 公司记忆匹配 (~25%)
+                                                                 Layer 3 LLM + Few-Shot (~15%)
+                                                              
+                                                              ⑯ 验证 + 冲突预探测
+                                                                 stage=VALIDATING
+                                                                 
+                                                              ⑰ 写入 ai_ocr_* 表
+                                                                 stage=PERSISTING
+                                                                 
+                                                              ⑱ 发 OcrResult 消息 ──→ ⑲ Java 更新文件状态
+                                                                                        [file.status=REVIEW_READY]
+                                                                                        
+                                                                                      ⑳ 检查所有文件:
+                                                                                         if (all files = REVIEW_READY)
+                                                                                            task.status = REVIEWING
+                                                                                         else
+                                                                                            task.status = PROCESSING
+                                                                                            (继续等其他文件)
+
+   轮询发现 REVIEWING
+   ↓ history.push('/review')
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Phase 3：审核阶段
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   [REVIEWING]
+   显示 Side-by-Side Review
+   用户编辑行/映射/货币
+   
+   PATCH /review  ─────────→  ㉑ 保存用户编辑到 ai_ocr_extracted_row
+   (debounced 500ms)             file.user_edited=true
+                                 （task.status 保持 REVIEWING）
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Phase 4：Verify 阶段（Asana 2026-04-19 新增）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   用户点 "Next"
+   POST /verify   ────────→   ㉒ 异步启动 verify job
+                                 [task.status=VERIFYING]
+                                 ├─ 统计 Summary (源文件数/类型数/账户数)
+                                 ├─ 与 fi_* 对比检测冲突
+                                 └─ 生成 ConflictItem[]
+
+   [VERIFYING]
+   显示摘要 + 进度条
+   GET /verify/status  ──→ (轮询)
+
+   GET /conflicts  ──────→    ㉓ 返回冲突列表
+                                 [task.status=CONFLICT_RESOLUTION]
+
+   [RESOLVING_CONFLICTS]
+   用户逐个解决
+   POST /resolve  ──────→     ㉔ 保存 resolution + notes
+                                 保存到 doc_parse_conflict_note
+                                 （支持 note thread / auto-generated）
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Phase 5：提交阶段（整体事务）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   用户点 "Commit"
+   POST /commit   ────────→   ㉕ [task.status=COMMITTING]
+                                 @Transactional 开启
+                                   for each file with resolved conflicts:
+                                     ├─ 按 resolution 写入 fi_* 表
+                                     └─ [file.status=FILE_COMMITTED]
+                                   任一失败 → 全部 rollback
+                                                task.status=FAILED
+                                 事务提交后:
+                                   ↓ 检查 task 所有文件:
+                                     if (all files = FILE_COMMITTED)
+                                        [task.status=COMPLETED]  ← 批次完成标志
+                                     else
+                                        [task.status=FAILED]
+                                        
+                                 返回 200 {success: true/false}
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Phase 6：后置动作（仅 task.status=COMPLETED 才触发 — 所有文件都完成）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                              ㉖ Java 后置步骤（顺序执行）:
+                                 ㉖a 源文件 → Company Documents 页面
+                                     （无论是否提取到账户，都记录）
+                                 ㉖b 触发下游 Normalization
+                                     （读取 fi_* → 生成 normalized 数据）
+                                 ㉖c 检测新闭月:
+                                     if (存在新 reporting period)
+                                        触发邮件通知
+                                     else
+                                        跳过
+                                 ㉖d 构建 mappingComparisons:
+                                     对比 AI 原始建议 vs 用户最终确认
+                                 ㉖e 发送 ocr-memory-learn-queue ──→ ocr-memory-learn-queue
+                                                                        
+                                                              ㉗ Python 消费消息
+                                                              ㉘ 只处理 wasOverridden=true:
+                                                                 - 写入 mapping_memory
+                                                                 - 更新 company_memory_version
+                                                                 - AI 猜对的不存，避免膨胀
+
+   轮询发现 COMPLETED
+   ↓ history.push('/success')
+   [COMPLETED]
+   显示成功页 + Benchmark Info
+```
+
+---
+
+#### 4.1.3 关键设计决策
+
+**1. 批次完成 = 所有文件完成**
+
+`task.status` 的推进依赖 **所有文件** 状态：
+- 有一个文件未处理完 → task 保持 PROCESSING
+- 有一个文件 commit 失败 → 整个 task rollback 到 FAILED
+- 这保证"后置动作"（邮件、记忆学习）只在全部成功后触发一次，不会出现部分触发
+
+**2. Python 不直写 Java 表**
+
+Python 通过 SQS 发两类消息给 Java：
+- `OcrProgress`（轻量）：进度更新，包含 processing_stage
+- `OcrResult`（完整）：最终结果，触发 REVIEW_READY
+
+Java 是 `doc_parse_*` 表的唯一 writer，避免跨服务写入冲突。
+
+**3. processing_stage 细粒度**
+
+在 PROCESSING 主状态下，Python 汇报 6 个细分阶段（EXTRACTING → MAPPING_RULE → MAPPING_MEMORY → MAPPING_LLM → VALIDATING → PERSISTING），前端 ProgressBar 精确显示"正在做什么"。
+
+**4. 记忆学习在 post-commit 触发**
+
+记忆学习发生在 task COMPLETED 后（不是审核时），对比 AI 原始建议 vs 用户最终确认，只存被修正的条目。这保证：
+- 只学习"用户真正修正过"的映射
+- 避免部分提交场景下学到错误的中间状态
+- 只有整批成功才学习，保证记忆质量
+
+**5. OOE 不在 OCR Agent 计算**
+
+Python 只把行项分别映射为 `other_income` 或 `other_expense` 原始字段。OOE = expense - income 的净值计算由**下游 Normalization 引擎**在读取时实时计算（live computed metric），不在 OCR Agent 范围内。
+
+**6. 错误状态处理**
+
+| 错误场景 | 处理 |
+|---------|------|
+| 单文件校验失败 | file.status=FILE_FAILED；task 继续（其他文件不受影响）；前端显示错误文案 |
+| Python 消费失败 | SQS 自动重试（maxReceiveCount=3），耗尽进 DLQ，file.status=FILE_FAILED |
+| Verify 失败 | task.status 回到 REVIEWING，允许用户重试 |
+| Commit 部分失败 | 整个事务 rollback，task.status=FAILED，所有 file.status 回到 REVIEW_READY |
+| 用户放弃提交 | 直接退出页面；task 保持原状态不变；下次登录可通过 checkpoint 恢复 |
 
 ### 4.2 职责边界表
 
-| 职责 | Java (CIOaas-api) | Python (CIOaas-python) |
-|------|-------------------|----------------------|
-| 文件上传 + S3 存储 | **Owner** | — |
-| 文件校验 (MIME/大小/恶意文件) | **Owner**（上传时，S3 写入前） | — |
-| Task 生命周期管理 | **Owner**（创建、状态跟踪） | 通过 SQS 回调更新状态 |
-| SQS 消息生产 (extract) | **Owner** | — |
-| SQS 消息消费 (extract) | — | **Owner** (aioboto3) |
-| S3 文件下载用于处理 | — | **Owner**（按 s3Key 只读） |
-| AI 提取 + 映射 | — | **Owner** |
-| 提取结果存储 (ai_ocr_* 表) | 只读 | **Owner** |
-| SQS 结果回调 (result) | **消费**（更新 task 状态） | **生产** |
-| 用户审核数据服务 | **Owner**（读取 + 返回前端） | — |
-| 最终确认写入 fi_* 表 | **Owner** | — |
-| 认证 + 授权 | **Owner** | —（信任 SQS 消息来源） |
-| 映射记忆管理 | — | **Owner** |
+| 职责 | Java (CIOaas-api) | Python (CIOaas-python) | Frontend (CIOaas-web) |
+|------|-------------------|----------------------|---------------------|
+| **Task 级状态（doc_parse_task.status）** | **Owner** 唯一 writer | 通过 SQS 消息触发状态转换 | 读取（轮询 GET /status） |
+| **File 级状态（doc_parse_file.status）** | **Owner** 唯一 writer | 通过 SQS 消息触发状态转换 | 读取 |
+| **File processing_stage**（细分阶段）| **Owner** 写入 | 通过 OcrProgress 消息上报 | 读取（显示进度条） |
+| 文件上传 + S3 存储 | **Owner** | — | 选择文件 + 分片上传 |
+| 文件校验（MIME/大小/重名/恶意）| **Owner**（S3 写入前）| — | 客户端预校验（大小/类型） |
+| SQS 消息生产（extract）| **Owner** | — | — |
+| SQS 消息消费（extract）| — | **Owner** (aioboto3) | — |
+| SQS 结果消息：OcrProgress（进度）| **消费**（更新 stage）| **生产**（阶段切换时）| — |
+| SQS 结果消息：OcrResult（完成）| **消费**（更新 status）| **生产**（全部完成时）| — |
+| S3 文件下载用于处理 | — | **Owner**（按 s3Key 只读）| — |
+| AI 提取 + 映射 | — | **Owner** | — |
+| 提取结果存储（ai_ocr_* 表）| 只读 | **Owner** | 通过 Java API 间接读 |
+| 用户审核数据服务 | **Owner**（读取 + 返回前端）| — | **Owner**（审核 UI） |
+| Verify Data Summary 计算 | **Owner** | — | — |
+| 冲突检测（与 fi_* 对比）| **Owner** | — | — |
+| Conflict Resolution + Note | **Owner**（保存 doc_parse_conflict_note）| — | **Owner**（UI） |
+| 最终确认写入 fi_* 表 | **Owner**（@Transactional）| — | — |
+| 新闭月邮件通知触发 | **Owner** | — | — |
+| Company Documents 记录源文件 | **Owner** | — | — |
+| 映射记忆管理（mapping_memory）| — | **Owner** | — |
+| 认证 + 授权 | **Owner**（JWT + 归属校验）| —（信任 SQS 消息来源）| 登录 + token 管理 |
 
-> Java 端模块详细设计见 [java-design.md](./java-design.md)。Python 端 AI 处理详细设计见 [python-design.md](./python-design.md)。
+> Java 端模块详细设计见 [java-design.md](./java-design.md)。Python 端 AI 处理详细设计见 [python-design.md](./python-design.md)。前端路由/组件/dva 详细设计见 [frontend-design.md](./frontend-design.md)。
 
 ### 4.3 总体架构图
 

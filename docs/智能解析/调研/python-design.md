@@ -63,7 +63,8 @@ source/ocr_agent/
 │
 ├── producers/                   # SQS 生产者
 │   ├── __init__.py
-│   └── result_producer.py         # 发送 ocr-result-queue（处理完成回调 Java）
+│   ├── progress_producer.py       # 发送 OcrProgress（阶段切换时，轻量频繁）
+│   └── result_producer.py         # 发送 OcrResult（文件处理完成时，每文件一次）
 │
 ├── persistence/                 # 数据库层（项目首次引入 DB）
 │   ├── __init__.py
@@ -191,7 +192,46 @@ Java 端成功写入 `fi_*` 财务表后（不是审核时），向 `ocr-memory-
 
 ### 1.3 发送 ocr-result-queue（结果回调）
 
-Python 端处理完成后，向 `ocr-result-queue` 发送结果消息，Java 端消费后更新 `doc_parse_task` 状态。
+Python 端向 `ocr-result-queue` 发送**两类**消息：进度上报（OcrProgress，轻量，频繁）和最终结果（OcrResult，每个文件一次）。Java 端消费后更新 `doc_parse_file` 和 `doc_parse_task` 状态。
+
+#### 1.3.1 OcrProgress 消息（进度上报）
+
+每当 LangGraph 切换节点时发送，供前端展示精确进度（"提取中" / "规则映射中" / "LLM 推理中" / ...）。
+
+**消息 Schema（Python → Java）**:
+
+```json
+{
+  "messageType": "OcrProgress",
+  "queueName": "ocr-result-queue",
+  "uuid": "msg-uuid",
+  "sendTime": "2026-04-16T10:00:05Z",
+  "taskId": "task-uuid",
+  "fileId": "file-uuid",
+  "companyId": "123",
+  "processingStage": "MAPPING_LLM",
+  "progressPct": 65
+}
+```
+
+**processingStage 值**（对应 workflow/nodes/ 中的阶段）:
+- `EXTRACTING` — preprocess + AI Vision 提取（0-30%）
+- `MAPPING_RULE` — Layer 1 规则引擎（30-50%）
+- `MAPPING_MEMORY` — Layer 2 公司记忆（50-70%）
+- `MAPPING_LLM` — Layer 3 LLM 推理（70-85%）
+- `VALIDATING` — 三要素硬验证 + 软警告（85-95%）
+- `PERSISTING` — 写入 ai_ocr_* 表（95-100%）
+
+**发送时机**（由 `producers/progress_producer.py` 在 LangGraph 节点转换时调用）:
+```python
+# workflow/graph.py 编译时装配 "on_enter" 回调:
+graph.add_node("map", map_node)
+graph.nodes["map"].on_enter = lambda: send_progress(stage="MAPPING_RULE", pct=30)
+```
+
+#### 1.3.2 OcrResult 消息（最终结果）
+
+Python 完成一个文件的**全部处理**（提取+映射+验证+持久化）后发送。
 
 **消息 Schema（Python → Java）**:
 
@@ -202,16 +242,26 @@ Python 端处理完成后，向 `ocr-result-queue` 发送结果消息，Java 端
   "batchId": "uuid",
   "sendTime": "2026-04-16T10:00:15Z",
   "uuid": "msg-uuid",
-  "sessionId": "session-uuid",
+  "taskId": "task-uuid",
   "fileId": "file-uuid",
   "companyId": "123",
   "status": "completed",
   "extractedTableCount": 2,
   "totalRows": 47,
   "processingTimeMs": 12340,
+  "unresolvedPeriodCount": 0,
+  "currencyWarning": false,
   "error": null
 }
 ```
+
+**status 取值**:
+- `completed` — 成功，file 进入 REVIEW_READY
+- `failed` — 失败，file 进入 FILE_FAILED，`error` 字段填充
+
+**字段说明**:
+- `unresolvedPeriodCount`: 无法识别的周期数（前端用于渲染空白月份列）
+- `currencyWarning`: 是否检测到多种货币（前端显示 alert 图标）
 
 ### 1.4 队列配置
 

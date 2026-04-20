@@ -804,50 +804,118 @@ ReviewPage 加载
 
 **噪音数据清除**: 用户可通过右键菜单或行尾操作按钮执行 Remove Row / Remove Column，清除 AI 误提取的噪音数据后重新通过硬验证。
 
-## 5. 轮询状态管理
+## 5. 轮询状态管理（2026-04-20 重写：对齐两级状态模型）
+
+### 5.1 状态 → 页面映射
+
+前端根据 `GET /docparse/tasks/{id}/status` 返回的 **task.status**（批次级）精确映射到不同页面：
+
+| task.status | 前端页面 | 显示内容 |
+|------------|---------|---------|
+| `UPLOADING` | UploadPage | 文件上传进度条 |
+| `UPLOAD_COMPLETE` | ProcessingPage | "所有文件已上传，等待解析..." |
+| `PROCESSING` | ProcessingPage | 文件级进度列表（见 §5.2）|
+| `REVIEWING` | ReviewPage（自动跳转）| 并排审核页 |
+| `VERIFYING` | ConfirmPage（Stage 1） | Verify Data Summary + 进度条 |
+| `CONFLICT_RESOLUTION` | ConfirmPage（Stage 2）| 冲突解决界面 |
+| `COMMITTING` | ConfirmPage（Stage 3）| "正在写入 LG..." Loading |
+| `COMPLETED` | SuccessPage（自动跳转）| 成功 + Benchmark Info |
+| `FAILED` | ErrorPage | 失败原因 + 重试/返回 |
+
+### 5.2 文件级进度展示（task.status=PROCESSING 时）
+
+status API 响应示例:
+```json
+{
+  "taskId": "xxx",
+  "status": "PROCESSING",
+  "totalFiles": 3,
+  "completedFiles": 1,
+  "failedFiles": 0,
+  "files": [
+    { "fileId": "a", "filename": "2024_PnL.pdf",  "status": "REVIEW_READY",   "stage": null,           "progressPct": 100 },
+    { "fileId": "b", "filename": "BS.xlsx",       "status": "PROCESSING",    "stage": "MAPPING_LLM",  "progressPct": 72 },
+    { "fileId": "c", "filename": "CashFlow.pdf",  "status": "QUEUED",        "stage": null,           "progressPct": 0  }
+  ]
+}
+```
+
+**ProcessingPage 布局**:
+```
+┌─────────────────────────────────────────────────────┐
+│  正在解析文件 (1/3 完成)                              │
+│  ───────────────────────────────────────────────    │
+│  ✓ 2024_PnL.pdf          已完成              100%    │
+│  ⟳ BS.xlsx               LLM 推理中...       72%     │  ← 实时显示当前阶段
+│  ⋯ CashFlow.pdf          排队中              0%      │
+└─────────────────────────────────────────────────────┘
+```
+
+**processing_stage → 中文显示**:
+| stage | 显示文案 |
+|-------|---------|
+| `EXTRACTING` | 正在提取文档内容... |
+| `MAPPING_RULE` | 规则引擎映射中... |
+| `MAPPING_MEMORY` | 公司记忆匹配中... |
+| `MAPPING_LLM` | LLM 推理中... |
+| `VALIDATING` | 数据验证中... |
+| `PERSISTING` | 正在保存... |
+
+### 5.3 轮询生命周期
 
 ```
 ProcessingPage mounted
   │
   ▼
-开始轮询: GET /api/v1/ocr/sessions/{id}/status (每 2s)
+开始轮询: GET /docparse/tasks/{id}/status (每 2s)
   │
-  ├── status = PENDING
-  │     UI: 显示 "排队等待处理..."
-  │     进度条: 不确定模式 (antd Progress status="active" 无百分比)
+  ├── task.status = UPLOADING / UPLOAD_COMPLETE
+  │     UI: 显示 "等待解析..." + 所有文件显示 QUEUED
   │     继续轮询
   │
-  ├── status = PROCESSING
-  │     UI: 显示 "正在进行 AI 提取..."
-  │     进度条: 显示 progress% (服务端返回的实际进度)
-  │     文件级状态: 每个文件显示独立进度
+  ├── task.status = PROCESSING
+  │     UI: 文件级进度列表（见 §5.2）
+  │     每个文件显示当前 stage + progressPct
   │     继续轮询
   │
-  ├── status = COMPLETED
-  │     UI: 显示 "提取完成，正在跳转..."
-  │     进度条: 100%, 绿色
-  │     ★ 停止轮询 (clearInterval)
-  │     ★ 加载提取结果 (fetchResult effect)
-  │     ★ history.replace → /financial/review/:sessionId
+  ├── task.status = REVIEWING
+  │     UI: "解析完成，正在跳转..."
+  │     ★ 停止轮询
+  │     ★ history.replace → /financial/review/:taskId
   │
-  └── status = FAILED
-        UI: 显示错误信息 (errorMessage 来自服务端)
-        进度条: 红色
-        ★ 停止轮询 (clearInterval)
-        ★ 显示操作按钮:
-            [重试] → POST /api/v1/ocr/sessions/{id}/extract → 重新开始轮询
-            [返回] → history.push('/financial/upload')
+  ├── task.status = FAILED
+  │     UI: 显示 failedFiles 列表 + 错误信息
+  │     ★ 停止轮询
+  │     ★ 显示 [重试失败文件] / [返回] 按钮
+  │
+  └── 其他状态（VERIFYING/COMMITTING/COMPLETED）
+        这些状态通常不在 ProcessingPage 看到（用户已跳到 ConfirmPage）
+        如果看到（用户直接访问了 /processing URL）→ 自动跳转到对应页面
 
 超时保护:
   最大轮询次数 = 150 (2s × 150 = 5 分钟)
-  超时 → 视同 FAILED，显示 "处理超时，请重试"
+  超时 → 显示 "处理时间较长，是否继续等待？" 让用户选择继续轮询或离开
 
 清理机制:
   ├── 组件 unmount → useEffect cleanup → clearInterval
   ├── 路由离开 → dva subscription → dispatch stopPolling
   └── 浏览器关闭 → 服务端 LangGraph checkpoint 保存状态
-        用户重新访问同一 URL → 恢复到最近状态
+        用户重新访问 → 恢复到最近状态（见 §5.5）
 ```
+
+### 5.4 批次完成判定（重要）
+
+**task.status=REVIEWING 的条件**：所有**非 FAILED** 文件 status=REVIEW_READY
+
+**task.status=COMPLETED 的条件**：所有**非 FAILED** 文件 status=FILE_COMMITTED（批次结束）
+
+前端**不需要**自己计算这些，Java 端状态机会自动推进，前端只需根据 task.status 做页面跳转。
+
+**失败文件的处理**：
+- 部分文件失败不阻塞批次（继续其他文件）
+- ProcessingPage 显示失败文件的错误信息
+- ReviewPage 只显示 REVIEW_READY 的文件（失败的单独在顶部提示 "3 个文件中有 1 个解析失败"）
+- ConfirmPage 只提交成功的文件
 
 ### 5.5 LangGraph Checkpoint 恢复 UX
 
