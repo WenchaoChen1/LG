@@ -20,13 +20,13 @@
    - 触发机制为实时触发，满足以上任何一条就直接触发邮件和横幅
 
 3. **横幅提示**
-   - Portfolio manager首次登录，会在portfolio benchmarking tab页面和company benchmarking tab页面提示；
-   - Company Admin首次登录，会在company benchmarking tab页面提示。
+   - Admin portal用户首次登录，会在portfolio benchmarking tab页面提示；
+   - Company portal的所有用户首次登录，会在company benchmarking tab页面提示。
    - 提示词例如：New benchmark data available. Benchmark comparisons now reflect the latest survey (KeyBanc SaaS Survey — 2026). Your relative positioning may change as a result. 括号内容是更新的 Benchmark Entry中的platform-Edition，若多个平台版本有更新的话，用逗号间隔开，显示在同一个横幅中。
    - 用户可关闭横幅。若不关闭，则一直显示。
 
 4. **邮件提示**
-   - 满足出发条件后Portfolio manager和Company Admin都会收到提示邮件
+   - 满足触发条件后Portfolio manager和Company Admin都会收到提示邮件
    - 邮件内容例如：
    标题: New Benchmark Survey Update
    正文：“Hello Jacobo Vargas,
@@ -41,12 +41,13 @@
 
 1. **触发条件**
    - closed month月份的任意指标的百分位计算由平台基准变为同行基准或由同行基准变为平台基准
-   - closed month月份的任意指标值未改变但该指标actual对internal peer百分位变化超过10（如由P10变为P20)，该变化是由于内部基准变化导致（同行公司财务数据变化、同行公司变化）
-   - closed month月份任意指标值变化且其同行公司/同行公司数据也变化导致的指标actual对internal peer百分位变化超过10
+   - closed month月份的任意指标值未改变但该指标actual对internal peer百分位变化大于等于10（如由P10变为P20)，该变化是由于内部基准变化导致（同行公司财务数据变化、同行公司变化）
+   - closed month月份任意指标值变化且其同行公司/同行公司数据也变化导致的指标actual对internal peer百分位变化大于等于10
    - 指标：ARR Growth Rate、 Gross Margin、 Monthly Net Burn Rate、 Monthly Runway、 Rule of 40、 Sales Efficiency Ratio
+   - 背景补充：closed month (Financial Statements Settings中为Manual的公司，clsoed month是Financia Entry表中最后一个有Actuals数据的月份；Financial Statements Settings中为Automatic的公司，clsoed month以15号为界限，如果系统服务器时间过了15号，就是上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）；如果系统服务器时间没过15号，就是上上个月（前提是前提是Financial Entry表中上上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）。
 
 2. **横幅提示**
-   - Portfolio manager或其他有该公司权限的人首次登录，会在portfolio benchmarking tab页面提示；
+   - Admin portal用户首次登录，会在portfolio benchmarking tab页面和company benchmarking tab页面提示；关闭一个页面的横幅，并不影响另一个页面，都是单独显示的。
    - Company Admin首次登录，会在company benchmarking tab页面提示。
    - 提示词例如：Benchmark positioning updated. Your company’s placement may have shifted due to changes in benchmark data, not your financial performance.
    - 用户可关闭横幅。若不关闭，则一直显示。
@@ -59,11 +60,11 @@
         You may notice a change in your company’s benchmark positioning.
         This shift is due to updates in the benchmark reference data, which can affect how companies are ranked relative to one another. It reflects movement within the cohort, not changes in your company’s financial performance.”
         - 人名为实际接收人，Portfolio manager或其他有该公司权限的人/Company Admin
-    - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portfolio角色)/company benchmarking tab页面(Company Admin角色)
+    - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portal角色)/company benchmarking tab页面(Company Admin角色)
     - 超链接跳转的异常处理: 若portfolio portal人员不再有对应公司的访问权限，则页面横幅不显示
 
 4. **监测频率**
-   - 每天定时检测
+   - 每天定时监测
 
 5. **监测数据类型**
    - Actuals数据

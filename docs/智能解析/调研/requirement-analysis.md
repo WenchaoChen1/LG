@@ -6,6 +6,9 @@
 > **截止日期**: 2026-05-29
 > **LG Tag**: AI Integration
 > **创建日期**: 2026-04-16（本文档）
+> **关联文档**: [数据库 Schema](./database-schema.md) · [设计理念](./design-philosophy.md) · [系统架构](./system-architecture.md) · [Java 端设计](./java-design.md) · [Python 端设计](./python-design.md) · [前端设计](./frontend-design.md) · [代码示例](./code-examples.md)
+
+> 本文档已与 Asana EPIC 于 **2026-04-20** 同步（Story #5/#6/#7/#8 重大更新 + 新增 §11 项目内部补丁）。
 
 ---
 
@@ -83,10 +86,25 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 
 - 支持格式: PDF（扫描或数字）、Excel (.xlsx/.xls)、CSV、图片（JPG/JPEG/PNG/TIFF）
 - 上传方式: 拖拽（桌面）+ 文件选择器（桌面+移动端）
-- 文件限制: 单文件 ≤ 20MB，批量 ≤ 100MB
+- 文件限制: 单文件最大 20MB（max file size limit of 20MB per file），批量最大 100MB（max batch file size limit of 100MB per batch）
 - 状态追踪: Pending → Uploading（进度%） → Completed → Error
 - 权限: Company Admin/User 上传本公司；Portfolio Admin 上传所有有权限公司
 - 队列管理: 可移除、可重试、可追加
+
+**File Size / Type / Validation — 5 种错误提示（Acceptance Criteria item 5）:**
+
+系统在上传校验失败时，必须展示以下精确错误消息（`{File name}` 替换为实际文件名）：
+
+1. `Failed to Upload {File name}. File exceeds the 20MB limit`
+2. `Failed to Upload {File name}. File type is not supported`
+3. `Failed to Upload {File name}. File is corrupted`
+4. `Failed to Upload {File name}. The combined size of your files exceeds the 100MB limit.`
+5. `Failed to Upload {File name}. A file with this name already exists.`（**NEW** — 重名文件校验）
+
+**Lovable Prototype:**
+
+- Lovable Dev: https://lovable.dev/projects/6dfa3c14-7c77-4565-9c1f-73999c9dcbc7
+- Figma: https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56961&t=J0dmokNmqXCGtFih-1
 
 **上传后自动进入提取 Pipeline（Step 2）。**
 
@@ -107,8 +125,13 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
   - Sheet name 关键词（P&L/Income/Profit → P&L，Balance/Assets → BS，Cash Flow → CF）
   - Row label 模式（Revenue/COGS/EBITDA → P&L 指标；Assets/Liabilities/Equity → BS 指标）
   - 结构线索（Assets = Liabilities + Equity → BS；有期初/期末现金 → CF）
-  - **兜底**: 无法分类 → "Financial Summary / Misc"，标记用户确认
+  - **Fallback behavior Edge Case**: If a document type cannot be clearly categorized based on the defined rules, then it means no financial accounts is extracted to map to LG supported metrics. Classify as "Financial Summary / Misc". Flag for user confirmation.
 - 报告周期推断: 列头 → Sheet 名 → 表格标题 → 文件名（依次降级）
+
+**Lovable Prototype:**
+
+- Lovable Dev: https://lovable.dev/projects/6dfa3c14-7c77-4565-9c1f-73999c9dcbc7
+- Figma: https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56977&t=J0dmokNmqXCGtFih-1
 
 ### 4.3 Story #3: Extraction of Financial Data - Excel
 
@@ -121,8 +144,24 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 - 适用文件: Excel (.xlsx)、CSV
 - 直接解析（不走 OCR）
 - 支持: 合并单元格、多 section、空行分隔、公式单元格（取计算值）
-- 输出格式与 OCR 提取完全一致（统一下游处理）
 - 文档类型和报告周期的识别逻辑同 Story #2
+
+**Edge Case:**
+
+If a document type cannot be clearly categorized based on the defined rules, then it means no financial accounts is extracted to map to LG supported metrics.
+
+**Structured Output:**
+
+- 输出格式与 OCR 提取完全一致（统一下游处理）
+
+**UX Design Considerations:**
+
+- Extraction is behind the scene. No design required.
+
+**Lovable Prototype:**
+
+- Lovable Dev: https://lovable.dev/projects/6dfa3c14-7c77-4565-9c1f-73999c9dcbc7
+- Figma: https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56977&t=J0dmokNmqXCGtFih-1
 
 ### 4.4 Story #4: Add AI-Assisted Account Mapping Suggestions
 
@@ -150,7 +189,7 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 **映射规则（已由财务 SME Nico Carlson 确认）:**
 
 - **Revenue**: `sales`, `revenue`, `income`, `fees`, `subscriptions`, `gross receipts`
-  - 特殊: `refund`/`returns`/`contra` → Revenue Contra（负值）
+  - 特殊: `refund`/`returns`/`contra` 仍归 Revenue（用负值表达 contra，不单独分类为 "Revenue Contra"——该类别在 2026-04-20 已废弃）
 - **COGS**: `cogs`, `cost of goods`, `materials`, `inventory`, `direct labor`, `hosting`*, `cloud`*, `server`*
   - *注: `hosting`/`cloud`/`server` 在 SaaS 公司为 COGS，非 SaaS 为 R&D
 - **S&M Expenses**: `marketing`, `advertising`, `commission`, `customer acquisition`, `trade show` 等
@@ -176,18 +215,55 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 - **负责人**: Jesús H Peralta
 - **状态**: Ready for Design
 
-**核心需求:**
+**核心需求 (2026-04-19 重大更新):**
 
-- **左侧面板**: 原始文档（PDF 带翻页 / Excel sheet 预览）
-- **右侧面板**: 提取数据，两种视图可切换:
-  - **Raw View**: 原始提取行项
-  - **Standardized View**: 映射到 LG 分类后的视图（可展开查看原始行项）
-- 内联编辑: 数值、行标签、分类（Standardized View 中）
-- 选中右侧行 → 左侧高亮对应源位置
-- 切换视图模式不丢失用户编辑
-- 系统追踪: 原始提取值 + 用户编辑值
-- 用户可确认（进入写入）或拒绝（重新上传）
-- Mobile Responsive（可折叠面板）
+**Side-by-Side Layout:**
+
+- **左面板 — Source Document Viewer**
+  - 顶部：**文件选择下拉菜单**，用户在已上传文件之间切换
+    - Excel 多 sheet → 下拉菜单下方显示 **sheet 标签**（tab-based navigation）
+    - PDF → 显示**页码导航控件**
+  - **添加新文件 / 替换文件** 选项
+  - 底部：**缩放控制条**（zoom in/out）
+- **右面板 — Data Mapping**
+  - 顶部：**文档类型过滤器**（All Types 默认 / P&L / Balance Sheet / Proforma）
+  - **货币选择下拉**（与类型过滤器并列）
+  - 过滤器下方：LG 财务指标列表，与 **Financial Entry 格式一致**，支持水平+垂直滚动
+  - Sections:
+    - **Unmapped accounts**（集中展示，用户可 intervene 映射到任何 LG 支持的指标，映射后自动移入对应 LG 分类）
+    - **LG category**
+    - **Underlying source line items**（可展开，用户可将源行项重新映射到不同 LG 指标）
+  - 如果没有财务账户可映射到 LG 支持的指标，显示提示消息
+- **Left-Right Panel Linkage（左右面板联动）**
+  - 左面板选文件 → 右面板类型过滤器自动更新为该文件的文档类型；选 "All Types" 恢复所有文件
+  - 右面板选类型 → 左面板文件下拉菜单过滤为只显示该类型的文件
+  - 示例：选 Balance Sheet → 左面板只显 BS 文件，右面板只显 BS 指标
+  - 左右面板比例可调；可用图标隐藏左面板
+
+**内联编辑 (Inline Editing):**
+
+- **数值** — 用户删除数值时，字段默认显示 **0** 而不是保持空
+- **行标签** — 如果 label 被删除，字段为空，**但显示 alert 图标**
+- **Calendar Month**（新增 2026-04-19）— 如果提取的 period（月+年）无法识别或匹配到日期，**在指标表最右端追加空白月份列**。用户可为该列或提取账户分配/修正日期
+- 分类（Standardized View 中）
+- **Currency** — 所有映射结果必须使用单一货币；如果检测到多种货币，系统默认 USD **并显示 alert 图标**
+
+**Source Tracing（新增 2026-04-19）:**
+
+- 源追踪在页面/sheet 级别支持
+- 当用户悬停右面板指标时，系统指示该值提取自哪里
+- 但左面板的视觉高亮**仅在左面板当前显示与指标来源相同的页面/sheet 时才显示**
+- 如果左面板在其他页面/sheet，不显示高亮（避免误导）
+
+**系统追踪**: 原始提取值 + 用户编辑值
+
+**Completion（新增未映射确认）:**
+
+- 用户可确认（进入写入）或拒绝（重新上传/上传新文件）
+- **如果存在未映射账户，用户尝试继续时，系统显示确认弹窗告知用户 Unmapped Accounts 组的数据不会写入 LG。用户必须明确确认才能进入下一步**
+- 确认后数据进入 LG schema 写入阶段
+
+**Mobile Responsive**（可折叠面板）
 
 ### 4.6 Story #6: Write data to LG Schema
 
@@ -195,20 +271,55 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 - **负责人**: Jesús H Peralta
 - **状态**: Ready for Design
 
-**核心需求:**
+**核心需求 (2026-04-19 重大更新):**
 
-- **写入前提**: 所有行项已审核、已映射、元数据完整
-- **冲突检测**: 写入前检查是否已有同 company + document_type + data_classification + reporting_period 的数据
-- **冲突处理选项**:
-  - **Overwrite**: 新数据替换旧版本，旧版本保留为历史记录
-  - **Skip**: 跳过冲突项，处理其他非冲突数据
-  - **Cancel**: 不写入任何数据，返回审核
-- **写入后行为**:
-  - 数据立即反映到: Financial Statement 页面 + Committed Forecast 页面 + 下游 normalization/benchmarking
-  - 原始文件归档到 Company Documents 页面
-  - 显示成功确认，展示 Benchmark Info Page
-- **审计日志**: 每次写入记录时间戳、用户、源文档、周期、类型、操作（written/overwritten/skipped/cancelled）
-- **版本控制**: 被覆盖的数据保留历史版本
+**写入前提:**
+- 所有行项已审核、已映射、元数据完整
+- 若仍有未映射、未审核或缺失元数据的行项，系统阻止写入并显示错误
+
+**Verify Data Summary（新增 2026-04-19）:**
+
+冲突检测之前，系统显示摘要屏幕：
+- 本次提交包含的源文件总数
+- 映射类型总数
+- 映射账户总数
+
+用户必须点击 **Start Verification** 触发系统检查，**实时进度指示器**显示验证过程。
+
+**Existing Data Detection & User Decision（2026-04-19 重写）:**
+
+- 检查条件：同 company + 同指标（metric）+ 同报告周期（月+年）
+- 冲突以 **Financial Entry 格式显示**（列=报告周期，行=LG 指标），每个冲突单元格**高亮**
+- 每个冲突弹窗显示：
+  - 当前 LG 中存储的值
+  - 映射结果的总和
+  - **Select action**：选择用映射值覆盖 LG 现有值
+  - **Keep LG Value**：保留 LG 数据
+- 用户必须解决**每个**检测到的冲突才能确认提交；未解决的冲突**阻止提交**
+
+**Overwrite/Skip 行为（Cancel 选项已移除）:**
+
+- **Overwrite**: 新值替换活跃版本，旧值保留为历史记录
+- **Skip**: 保留 LG 现有数据，跳过该指标；其他满足前提的 metrics/documents 继续写入
+- **注意**：原来的 Cancel 选项已从 Asana 需求中移除
+
+**Schema Integrity & Error Handling:**
+
+- 所有数据必须通过 LG schema 验证后才写入
+- 验证失败：中止写入、显示清晰错误、引导用户回到审核步骤
+- **映射数据写入作为整体成功或失败，不允许部分写入**
+
+**审计与版本控制:**
+
+- 每次写入记录：时间戳、用户、源文档、周期、类型、操作（written/overwritten/skipped）
+- 被覆盖的数据保留历史版本
+
+**Post-Write Behavior（2026-04-19 更新）:**
+
+- 数据立即反映到：Financial Entry 页面 + Committed Forecast 页面 + 下游 normalization/benchmarking
+- **上传的源文档出现在 Company Documents 页面，无论是否从中提取到财务账户**
+- **新闭月的邮件通知应正确运行**（若存在新的 reporting period）
+- 显示成功确认消息，呈现 Benchmark Info 页面
 
 ### 4.7 Story #7: Add Note Field to Importing During Data Validation
 
@@ -216,14 +327,42 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 - **负责人**: Jesús H Peralta
 - **状态**: Ready for Design
 
-**核心需求:**
+**核心需求 (2026-04-19 更新):**
 
-- 在冲突解决步骤中为每个冲突值提供**可选 Note 字段**
-- 用途: 记录历史数据变更原因（如修订的财务报表、外部更正）
-- 限制: 最多 2000 字符，非必填
-- 存储: 关联到上传事件和冲突解决记录
-- 可见性: Financial Statements 模块可查看（需设计 UI 展示位置）
-- 提交后只读
+**Conflict Resolution Note Field:**
+
+- 在冲突解决步骤中为每个冲突值提供**可选手动输入的 Note 字段**
+- 允许用户自由输入文本解释所选解决方案的原因（keep existing / use uploaded / manually override），最多 **2000 字符**
+- 该字段**不论用户选择哪种解决方案都可用**
+
+**自动默认 Note（新增 2026-04-19）:**
+
+- 如果用户选择不手动输入 note，当值发生变化时（接受上传或手动覆盖），**系统自动创建一条默认 note** 标记"数据差异和值更新已发生"
+- 目的：让所有用户都能知晓变化
+
+**可选输入行为:**
+
+- 输入 note 不是解决冲突的必要条件
+- 用户可以不添加 note 直接继续
+
+**Note 可见性（2026-04-19 扩展）:**
+
+- Notes 作为 upload event 的一部分存储在 financial statement 模块
+- 需要在 Financial Entry 页面设计 UI 展示位置
+- 执行上传的用户可在该模块查看
+- **对有公司访问权限的其他用户（如 portfolio managers）可见**，让他们了解发生了什么变化及可能的原因
+
+**Note Thread（新增 2026-04-19）:**
+
+- **用户应能在 note 上追加（add to）**，形成可查看的 **note thread**
+- 支持类似评论回复的多轮追加，保留历史
+
+**Workflow 集成:**
+- Note 功能集成到 resolve data conflicts 步骤，不影响工作流其他部分
+
+**审计:**
+- Notes 持续关联到 upload event 和已解决的差异
+- **上传最终完成后 Notes 只读**
 
 **来源**: Dougal 在审核 Lovable 原型时提出的新需求
 
@@ -233,20 +372,42 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 - **负责人**: Liang Chunru
 - **状态**: Storytelling
 
-**核心需求:**
+**核心需求 (2026-04-17 更新，两层学习架构明确化):**
 
-- 捕获用户在审核中的所有操作（approve/override/manual mapping）作为 AI 训练信号
-- 增量学习: 定期用用户反馈更新 AI 模型
-- 新文档识别: 识别之前未见过的文档布局和账户模式
-- 向后兼容: 模型更新不影响已处理文档
-- 审计: 所有模型更新记录版本、时间戳、数据集
+**Feedback Capture:**
+- 所有用户在手动审核中的决定（approve / override / manual mapping）都被记录并存储为 AI 训练信号
 
-**实际讨论结论（评论中确认）:**
+**Incremental Learning（双层学习架构）:**
 
-Liang Chunru 和 Karen Arnoldi 讨论后的务实方案:
-- 保存用户修正过的映射作为"公司记忆"
-- 未来上传时优先使用公司历史映射
-- 双轨版本: Core Engine Version（通用规则） + Company Mapping History ID（公司记忆）
+系统在两个级别提升映射准确率，这两个级别独立运行、互不干扰：
+
+- **公司层学习（Company-level, 实时更新）**
+  - 每次用户保存映射修正时，该公司的 Company Mapping History 立即更新
+  - 立即影响该公司未来的映射行为和建议
+  - 范围：仅对该 company 生效
+- **核心引擎更新（Core Engine, 全局）**
+  - 由通用映射规则和关键词集的变更触发
+  - 全局应用，对所有客户生效
+
+**New Document Recognition:**
+- 系统能识别之前未见过的文档布局和账户模式，基于先前学习建议映射
+
+**Backward Compatibility:**
+- AI 模型更新不会使已处理文档的映射失效或引入错误
+
+**Audit Logging（双版本流）:**
+
+系统用两个独立的版本流追踪 AI 模型状态：
+
+| 版本类型 | 说明 |
+|---------|------|
+| **Core Engine Version** | 追踪通用映射规则和关键词的变更，所有客户共享。系统基础逻辑更新时全局变化 |
+| **Company Mapping History ID** | 追踪每个公司特定的用户确认映射修正。每次用户保存映射修正时该 ID 更新 |
+
+**每条映射结果都记录 Core Engine Version 和 Company Mapping History ID**，确保完整可审计性。
+
+**UX 设计:**
+- **非侵入式反馈**：用户无需显式提供反馈，学习从现有交互中自动发生
 
 ---
 
@@ -496,8 +657,94 @@ Liang Chunru 和 Karen Arnoldi 讨论后的务实方案:
 
 ## 10. 相关文档
 
-| 文档 | 路径 |
+**调研阶段文档（docs/智能解析/调研/）:**
+
+- [系统架构](./system-architecture.md) — 系统层面：数据流、SQS、API、安全
+- [Java 端设计](./java-design.md) — Java 后端模块、表设计、SQS 集成
+- [Python 端设计](./python-design.md) — AI 引擎、映射、记忆、提示词
+- [前端设计](./frontend-design.md) — 路由、组件、dva、交互
+- [代码示例](./code-examples.md) — DDL 和参考代码
+- [设计理念](./design-philosophy.md) — 设计原则
+
+**外部参考:**
+
+| 资源 | 链接 |
 |------|------|
-| 技术设计方案 | [docs/智能解析/technical-design.md](./technical-design.md) |
-| Lovable 原型 | [Lovable Preview](https://preview--visual-link.lovable.app/) (需 token) |
+| Lovable 原型预览 | [Lovable Preview](https://preview--visual-link.lovable.app/) (需 token) |
 | Lovable 编辑器 | [Lovable Dev](https://lovable.dev/projects/6dfa3c14-7c77-4565-9c1f-73999c9dcbc7) |
+| Figma — Story #1 | [Portfolio Portal #46-56961](https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56961&t=J0dmokNmqXCGtFih-1) |
+| Figma — Story #2 / #3 | [Portfolio Portal #46-56977](https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=46-56977&t=J0dmokNmqXCGtFih-1) |
+
+---
+
+## 11. 2026-04-20 项目内部补丁（Asana EPIC 外新增）
+
+> 以下 4 项需求**未在 Asana EPIC 原始 Story 中**，由用户于 2026-04-20 直接口头补充。技术方案已落地到 7 份设计文档，但需在需求评审时明示 PM，以避免被质疑"需求依据在哪"。后续建议同步添加到 Asana 作为 EPIC 子任务。
+
+### 11.1 Task 修订（Revision）
+
+**业务诉求**: 用户发现历史 task 映射错误、需要补充文件、或季度末追加期间数据时，能"基于上个任务进行修改"，系统记录"基于哪个 task 修改"。
+
+**技术实现**:
+- 新增 4 个字段：`parent_task_id` / `revision_number` / `revision_reason`（必填 ≥10 字符）/ `superseded_by`
+- 新增端点 `POST /tasks/{parentTaskId}/revise`（详见 [java-design.md §2.3](./java-design.md)）
+- 原任务在修订版 Commit 成功后自动置为 `SUPERSEDED`
+- UI：Financial Entry 列表页"基于此任务修订"按钮、UploadPage 继承文件展示、SuccessPage 版本链（详见 [frontend-design.md §12](./frontend-design.md)）
+- 并发防护：`UNIQUE(parent_task_id, revision_number)` 约束 + `FOR UPDATE` 锁
+
+**使用场景**:
+- 客户更正了 Q1 原始数据 → 修订版覆盖
+- 季度末追加 March 数据 → 修订版新增期间
+- 发现映射错误 → 修订版纠正（Commit 后记忆学习自动学习纠正）
+
+### 11.2 REVIEWING 前的事件持久化（Q16 简化：不主动推送）
+
+**业务诉求**: 解析完成后需要记录"任务状态变化"的事件，用户登录时自行发现。**不主动发邮件/push 通知任何人**。
+
+**技术实现**:
+- Task 状态机新增 `SIMILARITY_CHECKING` / `SIMILARITY_CHECKED` 2 个瞬态（几乎无停留）+ `SIMILARITY_CHECK_FAILED` 作为预留值（未来接入邮件服务时启用）
+- 新增 `doc_parse_notification` 表仅作为**事件日志**（event_type + payload + created_at），不含 recipient / channel / retry 字段
+- 事件类型：`PARSE_COMPLETE` / `COMMIT_COMPLETE` / `COMMIT_FAILED` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED` / `NEW_CLOSED_MONTH`
+- 用户发现途径：
+  1. LG Dashboard "待处理任务" 模块（读 `doc_parse_task.status`）
+  2. App 头部 NotificationIndicator 🔔 徽章（读 `doc_parse_notification` 事件列表）
+
+**为什么简化**: 邮件/push 集成复杂度高，且 LG 用户频繁登录（属于日常工作系统），登录时自行查看待处理列表已经足够。未来如需推送可基于 `doc_parse_notification` 表的事件日志回溯实现。
+
+### 11.3 文件记忆处理 3 子状态 + 任务级记忆学习状态
+
+**业务诉求**: 文件记忆处理前/中/后状态都要存数据库；任务级记忆学习的进行中/完成状态也要存数据库。
+
+**技术实现**:
+- 文件级 `processing_stage` 拆出 3 个记忆子状态：`MAPPING_MEMORY_LOOKUP`（查询中）/ `MAPPING_MEMORY_APPLY`（应用中）/ `MAPPING_MEMORY_COMPLETE`（完成）
+- 任务级 `status` 新增 4 个记忆学习态：`MEMORY_LEARN_PENDING` / `MEMORY_LEARN_IN_PROGRESS` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`
+- 每个状态切换都通过 `OcrProgress` / `OcrMemoryLearnProgress` SQS 消息 → Java 写入 DB，Python 崩溃重启也能恢复
+- 新增 `doc_parse_memory_learn_log` 审计表（Python INSERT 权限）记录每次学习的新增/更新数量
+- UI：ProcessingPage 文件级进度条展示细粒度阶段、SuccessPage 悬浮条展示记忆学习任务级进度
+
+### 11.4 S3 Presigned URL 上传/查看
+
+**业务诉求**: 文件上传改为"后端生成链接，前端直传 S3"；文件查看改为"后端生成链接，前端直查 S3"。
+
+**技术实现**:
+- 上传 3 步流程：`POST /upload/request-urls` → 前端 XHR PUT 直传 S3 → `POST /upload/complete`（Java 验证 S3 对象 + MIME magic bytes）
+- 文件查看：`POST /files/{fileId}/download-url` 返回 5 分钟有效的 Presigned GET URL
+- Bucket CORS 配置限制生产域名，严禁 `*` 或 localhost
+- PUT URL 必须配 `content-length-range` 条件防超限
+- 前端 SHA-256 分块计算（hash-wasm）防低端机卡顿
+- 前端 URL 自动续签（剩余 < 1 分钟时重新申请）
+
+**为什么改造**: 旧 multipart 经 Java 中转方案造成 Java 服务器承担 N 倍文件大小的网络流量。Presigned URL 方案前端直传 S3，Java 仅颁发短期令牌，解决带宽瓶颈。
+
+---
+
+## 12. Proforma 文档类型处理规则（2026-04-20 补充）
+
+Asana Story 未明确 "Proforma"（预测/预算表）如何处理。根据业务讨论确定：
+
+- Proforma 文档**不写入 fi_***（因为是预测数据，与历史实际数据不同源）
+- Python 提取阶段识别到 `document_type=PROFORMA` 后：
+  - ExtractedTable 正常入库（用户可在 ReviewPage 查看）
+  - 但 commit 阶段 Java 会跳过所有 `document_type=PROFORMA` 的数据，不触发 fi_* 冲突检测
+  - UI 在 SuccessPage 提示 "检测到 N 份 Proforma 文件，已归档到 Company Documents 但未写入财务数据"
+- 未来如需 Proforma 参与预测模块，可单独开发 `fi_forecast_*` 表
