@@ -46,11 +46,11 @@
 
 2. **生成通知消息**
    - 系统不会立即重定向用户
-   - 而是在有该公司权限的用户下次登录时显示通知或toast消息，按照用户通知
+   - 而是在有该公司权限的用户下次登录时显示条幅消息，按照用户通知
 
 3. **通知内容与行为**
    - **通知文案**：Benchmark Data Updated. Benchmark results for have been updated based on the latest financial data.
-   - **通知形式**：Toast消息
+   - **通知形式**：、条幅消息
    - **交互选项**：
      - 用户可点击通知中的链接，导航到Company Benchmarking页面 跳转完成后条幅关闭后续解除通知
      - 用户可点击"关闭"按钮，解除通知
