@@ -46,7 +46,7 @@
 
 2. **生成通知消息**
    - 系统不会立即重定向用户
-   - 而是在用户下次登录时显示通知或toast消息
+   - 而是在有该公司权限的用户下次登录时显示通知或toast消息，按照用户通知
 
 3. **通知内容与行为**
    - **通知文案**：Benchmark Data Updated. Benchmark results for have been updated based on the latest financial data.
