@@ -24,7 +24,7 @@
 
 
 2. **自动跳转到基准对标页面**
-   - 提交新closed month成功后，提交人将跳转到
+   - 提交新closed month成功后，提交人将跳转到Company Benchmarking页面
    - 其他人进入该公司Financial Entry页面，有条幅提示，条幅内容见场景2.3
 
 
