@@ -10,7 +10,7 @@
 
 ### 使用流程
 
-#### 2.1 行业基准更新工作流
+#### 2.1 外部行业基准更新工作流
 
 1. **管理员填写新行业基准版本**
 
@@ -30,29 +30,35 @@
    - 邮件内容例如：
    标题: New Benchmark Survey Update
    正文：“Hello Jacobo Vargas,
-         We’ve added a new industry benchmark survey (KeyBanc SaaS Survey — 2026) therefore benchmark comparisons now reflect the latest survey year.
+         We’ve added a new industry benchmark survey (KeyBanc SaaS Survey — 2026) therefore benchmark comparisons for [CompanyName]/[PortfolioName] now reflect the latest survey year.
          As a result, you may notice changes in your company’s relative positioning due to the updated benchmark data.
          If you have any questions or would like help interpreting these changes, feel free to reach out.”
          - 括号内容是更新的Benchmark Entry中的platform-Edition. 人名为实际接收人
     - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portal角色)/company benchmarking tab页面(Company Admin角色)
     - 超链接跳转的异常处理: 若portfolio portal人员不再有对应公司的访问权限，则页面横幅不显示
+    - Portfolio manager在一个组织下收一封，若在某个组织下管理多个portfolio,则portfolio名字罗列即可
+    - Company Admin有几个公司收几封，每封都带着各个公司的名字
 
 #### 2.2 LG内部基准变化监测工作流
 
 1. **触发条件**
-   - closed month月份的任意指标的百分位计算由平台基准变为同行基准或由同行基准变为平台基准
-   - closed month月份的任意指标值未改变但该指标actual对internal peer百分位变化大于等于10（如由P10变为P20)，该变化是由于内部基准变化导致（同行公司财务数据变化、同行公司变化）
-   - closed month月份任意指标值变化且其同行公司/同行公司数据也变化导致的指标actual对internal peer百分位变化大于等于10
+   - 首次发送：有同行变化即发，不考虑阈值，记录当前百分位为新基准
+   - closed month月份的任意指标的百分位计算由平台基准变为同行基准或由同行基准变为平台基准，记录当前百分位为新基准
+   - closed month月份的任意指标值未改变，但对比上一封邮件，该指标actual对internal peer百分位变化大于等于10（如由P10变为P20)，该变化是由于内部基准变化导致（同行公司财务数据变化、同行公司变化），记录当前百分位为新基准
+   - closed month月份任意指标值变化且其同行公司/同行公司数据也变化导致的指标actual对internal peer百分位变化大于等于10 （对比上一封邮件），记录当前百分位为新基准
+   - 特殊情况：
+    - 新 closed month 入库时 → 静默更新基准（不发通知），新 closed month 是全新数据点，不发通知。但系统须静默将基准线更新为该 closed month当前百分位，防止其被后续评估误判为偏移。
+    - Closed month 数据被修订但是又未触发邮件通知时 → 静默更新基准（不发通知），已有 closed month 的财务数据被事后修正但是又未触发邮件通知时，静默更新基准至重算后的百分位，防止数据修正被误判为 peer 偏移
    - 指标：ARR Growth Rate、 Gross Margin、 Monthly Net Burn Rate、 Monthly Runway、 Rule of 40、 Sales Efficiency Ratio
    - 背景补充：closed month (Financial Statements Settings中为Manual的公司，clsoed month是Financia Entry表中最后一个有Actuals数据的月份；Financial Statements Settings中为Automatic的公司，clsoed month以15号为界限，如果系统服务器时间过了15号，就是上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）；如果系统服务器时间没过15号，就是上上个月（前提是前提是Financial Entry表中上上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）。
 
-2. **横幅提示**
+3. **横幅提示**
    - Admin portal用户首次登录，会在portfolio benchmarking tab页面和company benchmarking tab页面提示；关闭一个页面的横幅，并不影响另一个页面，都是单独显示的。
    - Company Admin首次登录，会在company benchmarking tab页面提示。
    - 提示词例如：Benchmark positioning updated. Your company’s placement may have shifted due to changes in benchmark data, not your financial performance.
    - 用户可关闭横幅。若不关闭，则一直显示。
 
-3. **邮件提示**
+4. **邮件提示**
    - 满足触发条件后Portfolio manager或其他有该公司权限的人和Company Admin都会收到提示邮件
    - 邮件内容例如：
    标题: Update to Benchmark Positioning
@@ -63,10 +69,10 @@
     - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portal角色)/company benchmarking tab页面(Company Admin角色)
     - 超链接跳转的异常处理: 若portfolio portal人员不再有对应公司的访问权限，则页面横幅不显示
 
-4. **监测频率**
-   - 每天定时监测
+5. **监测频率**
+   - 每月25号监测
 
-5. **监测数据类型**
+6. **监测数据类型**
    - Actuals数据
 ---
 
