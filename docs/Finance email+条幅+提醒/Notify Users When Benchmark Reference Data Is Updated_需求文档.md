@@ -47,12 +47,12 @@
    - closed month月份的任意指标值未改变，但对比上一封邮件，该指标actual对internal peer百分位变化大于等于10（如由P10变为P20)，该变化是由于内部基准变化导致（同行公司财务数据变化、同行公司变化），记录当前百分位为新基准，并发邮件
    - closed month月份任意指标值变化且其同行公司/同行公司数据也变化导致的指标actual对internal peer百分位变化大于等于10 （对比上一封邮件），记录当前百分位为新基准，并发邮件
 
-1.2 **特殊情况**：
+ 1.2 **特殊情况**：
     - 新 closed month 入库时 → 静默更新基准（不发通知），新 closed month 是全新数据点，不发通知。但系统须静默将基准线更新为该 closed month当前百分位，防止其被后续评估误判为偏移。
     - Closed month 数据被修订但是又未触发邮件通知时 → 静默更新基准（不发通知），已有 closed month 的财务数据被事后修正但是又未触发邮件通知时，静默更新基准至重算后的百分位，防止数据修正被误判为 peer 偏移
    - 指标：ARR Growth Rate、 Gross Margin、 Monthly Net Burn Rate、 Monthly Runway、 Rule of 40、 Sales Efficiency Ratio
    
-1.3 **背景补充**：closed month (Financial Statements Settings中为Manual的公司，clsoed month是Financia Entry表中最后一个有Actuals数据的月份；Financial Statements Settings中为Automatic的公司，clsoed month以15号为界限，如果系统服务器时间过了15号，就是上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）；如果系统服务器时间没过15号，就是上上个月（前提是前提是Financial Entry表中上上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）。
+ 1.3 **背景补充**：closed month (Financial Statements Settings中为Manual的公司，clsoed month是Financia Entry表中最后一个有Actuals数据的月份；Financial Statements Settings中为Automatic的公司，clsoed month以15号为界限，如果系统服务器时间过了15号，就是上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）；如果系统服务器时间没过15号，就是上上个月（前提是前提是Financial Entry表中上上个月有Actuals数据，若没有就继续往历史月份找，找到有actuals数据的月份位置）。
 
 3. **横幅提示**
    - Admin portal用户首次登录，会在portfolio benchmarking tab页面和company benchmarking tab页面提示；关闭一个页面的横幅，并不影响另一个页面，都是单独显示的。
