@@ -26,7 +26,7 @@
    - 用户可关闭横幅。若不关闭，则一直显示。
 
 4. **邮件提示**
-   - 满足触发条件后Admin Portal和Company Admin都会收到提示邮件
+   - 满足触发条件后Portfolio manager和Company Admin都会收到提示邮件
    - 邮件内容例如：
    标题: New Benchmark Survey Update
    正文：“Hello Jacobo Vargas,
@@ -35,7 +35,7 @@
          If you have any questions or would like help interpreting these changes, feel free to reach out.”
          - 括号内容是更新的Benchmark Entry中的platform-Edition. 人名为实际接收人
     - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portal角色)/company benchmarking tab页面(Company Admin角色)
-    - 超链接跳转的异常处理: 若portfolio portal人员不再有对应公司的访问权限，则页面横幅不显示
+    - 超链接跳转的异常处理: 若portfolio manager不再有对应公司的访问权限，则页面横幅不显示
     - Portfolio manager在一个组织下收一封，若在某个组织下管理多个portfolio,则portfolio名字罗列即可
     - Company Admin有几个公司收几封，每封都带着各个公司的名字
 
@@ -59,15 +59,15 @@
    - 用户可关闭横幅。若不关闭，则一直显示。
 
 4. **邮件提示**
-   - 满足触发条件后Portfolio manager或其他有该公司权限的人和Company Admin都会收到提示邮件
+   - 满足触发条件后Portfolio manager和Company Admin都会收到提示邮件
    - 邮件内容例如：
    标题: Update to Benchmark Positioning
    正文：“Hello Jacobo Vargas,
         You may notice a change in your company’s benchmark positioning.
         This shift is due to updates in the benchmark reference data, which can affect how companies are ranked relative to one another. It reflects movement within the cohort, not changes in your company’s financial performance.”
-        - 人名为实际接收人，Portfolio manager或其他有该公司权限的人/Company Admin
-    - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio portal角色)/company benchmarking tab页面(Company Admin角色)
-    - 超链接跳转的异常处理: 若portfolio portal人员不再有对应公司的访问权限，则页面横幅不显示
+        - 人名为实际接收人，Portfolio manager/Company Admin
+    - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio manager)/company benchmarking tab页面(Company Admin角色)
+    - 超链接跳转的异常处理: 若portfolio manager不再有对应公司的访问权限，则页面横幅不显示
 
 5. **监测频率**
    - 每月25号监测
