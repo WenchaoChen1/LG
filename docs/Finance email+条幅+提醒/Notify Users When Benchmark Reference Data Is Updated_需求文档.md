@@ -26,7 +26,7 @@
    - 用户可关闭横幅。若不关闭，则一直显示。
 
 4. **邮件提示**
-   - 满足触发条件后Portfolio manager和Company Admin都会收到提示邮件
+   - 满足触发条件后Admin Portal和Company Admin都会收到提示邮件
    - 邮件内容例如：
    标题: New Benchmark Survey Update
    正文：“Hello Jacobo Vargas,
