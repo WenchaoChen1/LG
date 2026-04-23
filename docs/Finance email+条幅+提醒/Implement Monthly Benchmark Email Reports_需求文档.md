@@ -104,6 +104,7 @@
 ```
 
 所有指标依次排列展示，每个指标包含不同数据类型，依次排列展示，Actual数据一定展示，预测数据优先Committed Forecast数据，若无Committed Forecast数据，则展示System Generated Forecast数据，如两种预测都没有，则不显示预测。
+按钮：点击跳转到该company的benchmarking页面
 
 #### 3.2  Portfolio manager多公司邮件模板
 
@@ -151,7 +152,7 @@ Below is a summary of companies with meaningful changes in benchmark positioning
 ```
 
 所有指标依次排列展示，每个指标包含不同数据类型，依次排列展示，Actual数据一定展示，预测数据优先Committed Forecast数据，若无Committed Forecast数据，则展示System Generated Forecast数据，如两种预测都没有，则不显示预测。
-
+按钮：点击跳转到该portfolio的benchmarking页面
 
 ### 4.指标内容板块详解
 
