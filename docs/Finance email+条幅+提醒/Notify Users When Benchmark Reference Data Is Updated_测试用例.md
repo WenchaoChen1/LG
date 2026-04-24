@@ -58,7 +58,6 @@
 | | | | 查看邮件发送日志 | 仅生成 1 批邮件任务，platform-Edition 字段为 `KeyBanc SaaS Survey — 2026` |
 | TC-002 | 新增全新平台触发一次通知 | 当前平台为 KeyBanc、High Alpha、Benchmarkit 三个 | 管理员在 Benchmark Entry 添加新平台 `NewSurvey` 的 2026 Edition 并保存 | 实时触发一次外部基准更新流程 |
 | | | | 查看横幅文案 | 括号内显示 `NewSurvey — 2026` |
-| TC-003 | 同时新增三平台 Edition 触发三次 | KeyBanc、High Alpha、Benchmarkit 各有历史 Edition | 管理员在同一次操作中分别为三个平台各添加 2026 Edition 并保存 | 系统触发 3 次外部基准更新流程，或将 3 条合并为 1 次但在横幅/邮件中以逗号罗列三条 platform-Edition |
 | | | | 查看横幅文案 | 括号内以逗号分隔显示 `KeyBanc SaaS Survey — 2026, High Alpha — 2026, Benchmarkit — 2026` |
 | TC-004 | 触发机制实时性 | 管理员已登录 Admin 端 Benchmark Entry 页面 | 管理员保存新 Edition 的同一分钟内，登录一个 Company Admin 账号查看 company benchmarking tab | 横幅立即可见，无明显延迟（<1 分钟） |
 | TC-005 | 无触发条件不发送通知 | 平台仅修正已有 Edition 字段值，未新增 Edition 亦未新增平台 | 管理员保存修改 | 不发送邮件，不显示横幅 |
