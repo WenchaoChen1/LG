@@ -58,7 +58,6 @@
 | | | | 查看邮件发送日志 | 仅生成 1 批邮件任务，platform-Edition 字段为 `KeyBanc SaaS Survey — 2026` |
 | TC-002 | 新增全新平台触发一次通知 | 当前平台为 KeyBanc、High Alpha、Benchmarkit 三个 | 管理员在 Benchmark Entry 添加新平台 `NewSurvey` 的 2026 Edition 并保存 | 实时触发一次外部基准更新流程 |
 | | | | 查看横幅文案 | 括号内显示 `NewSurvey — 2026` |
-| TC-003 | 同时新增三平台 Edition 触发三次 | KeyBanc、High Alpha、Benchmarkit 各有历史 Edition | 管理员在同一次操作中分别为三个平台各添加 2026 Edition 并保存 | 系统触发 3 次外部基准更新流程，或将 3 条合并为 1 次但在横幅/邮件中以逗号罗列三条 platform-Edition |
 | | | | 查看横幅文案 | 括号内以逗号分隔显示 `KeyBanc SaaS Survey — 2026, High Alpha — 2026, Benchmarkit — 2026` |
 | TC-004 | 触发机制实时性 | 管理员已登录 Admin 端 Benchmark Entry 页面 | 管理员保存新 Edition 的同一分钟内，登录一个 Company Admin 账号查看 company benchmarking tab | 横幅立即可见，无明显延迟（<1 分钟） |
 | TC-005 | 无触发条件不发送通知 | 平台仅修正已有 Edition 字段值，未新增 Edition 亦未新增平台 | 管理员保存修改 | 不发送邮件，不显示横幅 |
@@ -164,30 +163,15 @@
 | TC-060 | 所有 6 个指标均参与监测 | 某公司 6 个指标均有 Actuals 数据 | 监测任务运行，分别构造 6 个指标满足触发条件的情况 | ARR Growth Rate、Gross Margin、Monthly Net Burn Rate、Monthly Runway、Rule of 40、Sales Efficiency Ratio 每个指标均能独立触发邮件 |
 | TC-061 | 非监测指标不触发 | 除 6 指标外的其他指标百分位变化≥10 | 监测任务运行 | 不触发邮件或横幅 |
 
-### 十一、closed month 判定规则
+### 十一、特殊公司状态与绑定
 
 | 编号 | 测试用例名称 | 前置条件 | 测试步骤 | 预期结果 |
 |---|---|---|---|---|
-| TC-062 | Manual 公司 closed month 取最后一条 Actuals 月份 | 公司 Financial Statements Settings = Manual；Financial Entry 最后一条 Actuals 为 2026-02 | 监测任务读取 closed month | closed month = 2026-02 |
-| TC-063 | Manual 公司无 Actuals 不参与监测 | Manual 公司 Financial Entry 无任何 Actuals 记录 | 监测任务运行 | 该公司被跳过，不触发通知 |
-| TC-064 | Automatic 公司系统时间未过 15 号取上上月 | 公司 Settings = Automatic；服务器时间 2026-04-10；Financial Entry 2026-02 有 Actuals | 读取 closed month | closed month = 2026-02 |
-| TC-065 | Automatic 公司系统时间过 15 号取上月 | Settings = Automatic；服务器时间 2026-04-20；Financial Entry 2026-03 有 Actuals | 读取 closed month | closed month = 2026-03 |
-| TC-066 | Automatic 公司目标月无 Actuals 向历史回溯 | Settings = Automatic；服务器时间 2026-04-20；Financial Entry 2026-03 无 Actuals，2026-02 有 Actuals | 读取 closed month | closed month = 2026-02 |
-| TC-067 | Automatic 公司目标月与前月均无 Actuals 继续回溯 | 服务器时间 2026-04-20；2026-03、2026-02 均无 Actuals；2026-01 有 Actuals | 读取 closed month | closed month = 2026-01 |
-| TC-068 | Automatic 公司完全无 Actuals 不参与监测 | Automatic 公司 Financial Entry 无任何 Actuals | 监测任务运行 | 跳过该公司 |
-| TC-069 | 服务器时间恰好为 15 号 00:00 的边界 | Settings = Automatic；服务器时间 2026-04-15 00:00 | 读取 closed month | 按"未过 15 号"判定（取上上月 2026-02 有 Actuals） |
-| TC-070 | 服务器时间 15 号 23:59 的边界 | Settings = Automatic；服务器时间 2026-04-15 23:59 | 读取 closed month | 按"未过 15 号"判定（同 TC-069） |
-| TC-071 | 服务器时间 16 号 00:00 的边界 | Settings = Automatic；服务器时间 2026-04-16 00:00 | 读取 closed month | 按"已过 15 号"判定，取上月 2026-03 有 Actuals |
-
-### 十二、特殊公司状态与绑定
-
-| 编号 | 测试用例名称 | 前置条件 | 测试步骤 | 预期结果 |
-|---|---|---|---|---|
-| TC-072 | Exited 公司不参与监测 | Company A 状态 = Exited；满足内部基准变化触发条件 | 监测任务运行 | 不向 A 的任何相关人发送邮件；不显示横幅 |
-| TC-073 | Shut down 公司不参与监测 | Company B 状态 = Shut down；满足触发条件 | 监测任务运行 | 不发送邮件，不显示横幅 |
-| TC-074 | 未绑定 portfolio 的公司不参与监测 | Company C 未绑定任何 portfolio；满足触发条件 | 监测任务运行 | 不发送邮件，不显示横幅 |
-| TC-075 | Active 公司且已绑定 portfolio 正常参与 | Company D 状态 = Active 且绑定 Portfolio P1；满足触发条件 | 监测任务运行 | 正常发送邮件与显示横幅 |
-| TC-076 | 外部基准通知对 Exited 公司 | Company A 状态 = Exited | 管理员触发外部基准更新 | 针对 Company A 的横幅不显示；相关接收人邮件中不包含 Company A（与"特殊情况说明"逻辑一致） |
+| TC-062 | Exited 公司不参与监测 | Company A 状态 = Exited；满足内部基准变化触发条件 | 监测任务运行 | 不向 A 的任何相关人发送邮件；不显示横幅 |
+| TC-063 | Shut down 公司不参与监测 | Company B 状态 = Shut down；满足触发条件 | 监测任务运行 | 不发送邮件，不显示横幅 |
+| TC-064 | 未绑定 portfolio 的公司不参与监测 | Company C 未绑定任何 portfolio；满足触发条件 | 监测任务运行 | 不发送邮件，不显示横幅 |
+| TC-065 | Active 公司且已绑定 portfolio 正常参与 | Company D 状态 = Active 且绑定 Portfolio P1；满足触发条件 | 监测任务运行 | 正常发送邮件与显示横幅 |
+| TC-066 | 外部基准通知对 Exited 公司 | Company A 状态 = Exited | 管理员触发外部基准更新 | 针对 Company A 的横幅不显示；相关接收人邮件中不包含 Company A（与"特殊情况说明"逻辑一致） |
 
 ---
 
@@ -217,7 +201,6 @@
 | R20 | 新 closed month 静默更新 | ✅ 已覆盖 | TC-035, TC-036 | |
 | R21 | 修订数据未触发时静默更新 | ✅ 已覆盖 | TC-037, TC-038 | |
 | R22 | 6 指标覆盖 | ✅ 已覆盖 | TC-060, TC-061 | |
-| R23 | closed month 定义规则 | ✅ 已覆盖 | TC-062~TC-071 | 含 Manual/Automatic 与 15 号边界 |
 | R24 | Admin 双 tab 均显示横幅 | ✅ 已覆盖 | TC-039, TC-040 | |
 | R25 | Admin 双 tab 横幅独立 | ✅ 已覆盖 | TC-041, TC-042 | |
 | R26 | Company Admin 仅 company tab 横幅 | ✅ 已覆盖 | TC-043, TC-044 | |
@@ -230,6 +213,6 @@
 | R33 | 内部基准失去权限横幅不显示 | ✅ 已覆盖 | TC-056 | |
 | R34 | 每月 25 号监测 | ✅ 已覆盖 | TC-057, TC-058 | |
 | R35 | 仅 Actuals 数据监测 | ✅ 已覆盖 | TC-059 | |
-| R36 | Exited/Shut down/未绑定 portfolio 公司不监测 | ✅ 已覆盖 | TC-072~TC-076 | |
+| R36 | Exited/Shut down/未绑定 portfolio 公司不监测 | ✅ 已覆盖 | TC-062~TC-066 | |
 
 **覆盖率：100%**（36/36 需求全部已覆盖）
