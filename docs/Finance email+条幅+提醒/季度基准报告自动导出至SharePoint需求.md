@@ -74,7 +74,7 @@
 - 说明：
   - S&M_Expenses_q = 季度内月度S&M支出之和
   - S&M_Payroll_q = 季度内月度S&M薪酬之和
-  - New_MRR_LTM_q = 季度内月度新增MRR(最近12个月)之和
+  - New_MRR_LTM_q = 季度内月度新增MRR之和
 
 **数据完整性处理：** 分母为0时，记录并显示为0而非NULL
 
