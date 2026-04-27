@@ -60,7 +60,7 @@
 
 **4. Monthly Runway**
 - 计算方法：季度末现金除以季度导出的月度烧钱率
-- 公式：`Monthly_Runway_quarter = Cash_at_quarter_end / Monthly_Net_Burn_quarter`
+- 公式：`Monthly_Runway_quarter = -（ Cash_at_quarter_end / Monthly_Net_Burn_quarter）`
 - 说明：遵循LG前端表格中的相同显示逻辑（NA场景）
 
 **5. Rule of 40**
