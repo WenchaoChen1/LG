@@ -78,6 +78,13 @@
 
 **数据完整性处理：** 分母为0时，记录并显示为0而非NULL
 
+#### 3.2.3 基准指标展示
+指标名称
+Actual值
+Internal Peers: 百分位值 百分位变化（↓ ↑ 无 ）
+High Alpha [Edition]:百分位值 百分位变化（↓ ↑ 无 ）
+Benchmarkit.ai [Edition]:百分位值 百分位变化（↓ ↑ 无 ）
+
 ---
 
 ## 四、数据流和系统集成
