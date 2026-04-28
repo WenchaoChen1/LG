@@ -93,10 +93,9 @@
   - **行标签模式**：
     - P&L：Revenue、COGS、Gross Margin、EBITDA、Net Income。
     - Balance Sheet：Assets、Liabilities、Equity、Cash、Debt。
-    - 若 P&L 与 BS 指标同时出现 → Proforma。
   - **结构线索**：Balance Sheet 满足 Assets = Liabilities + Equity；P&L 为按期合计的流量报表。
 - **边缘案例**：如果某个表格类型无法依据既定规则进行明确归类，则意味着该表格中未提取出可映射至 LG 支持指标的财务科目。若整个文件中均未提取出任何财务科目，相关情况将在“数据映射”页面上予以提示。
-- 多页财务包可能同时包含多种文档类型。
+- 多页财务可能同时包含多种文档类型。
 
 **报告期识别（按优先级）**
 1. 列头、行标签
