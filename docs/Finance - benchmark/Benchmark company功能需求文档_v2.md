@@ -363,7 +363,7 @@ Bottom Rank（情景：Cash < 0 且Monthly Net Burn Rate < 0；或 Cash < 0 且M
 							
 1. **指标排序**							
    - 大部分指标按升序排序						
-   - Monthly Net Burn Rate 按升序排序							
+   - Monthly Net Burn Rate 按降序排序							
    - 该排序方式称为"正向排序"							
 							
 2. **排名计算**							
