@@ -81,9 +81,9 @@
 #### 3.2.3 基准指标展示
 指标名称
 - Actual值
-- Internal Peers: 百分位值 百分位变化（↓ ↑ 无 ）
-- High Alpha [Edition]:百分位值 百分位变化（↓ ↑ 无 ）
-- Benchmarkit.ai [Edition]:百分位值 百分位变化（↓ ↑ 无 ）
+- Internal Peers: 百分位值 百分位变化（↓ ↑ 无,跟上个季度对比，若上个季度为空，则无变化即可 ）
+- High Alpha [Edition]:百分位值 百分位变化（↓ ↑ 无，跟上个季度对比，若上个季度为空，则无变化即可 ）
+- Benchmarkit.ai [Edition]:百分位值 百分位变化（↓ ↑ 无，跟上个季度对比，若上个季度为空，则无变化即可 ）
 
 ---
 
