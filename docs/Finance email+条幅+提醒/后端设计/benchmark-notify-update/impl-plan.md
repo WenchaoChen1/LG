@@ -259,49 +259,124 @@ git commit -m "feat: UserService 新增 canAccessCompany / hasVisibleCompanyUnde
 
 ---
 
-### Task A5：BenchmarkNotifyAlertServiceImpl.getNotifyAlert 加权限过滤
+### Task A5：横幅查询接口改造为 list + 行级权限过滤
+
+> 旧设计 `GET /benchmark/notify-alerts` 一次只返回一条横幅，前端在同一页面要分别拉 2.1 和 2.2 两次。改为返回 `List`，一次拉到上下文下的全部命中（每页面最多 2 条），前端按 `notifyType` 自行分流。同时把 G3 权限过滤改成对返回集合做行级过滤。
 
 **Files：**
-- Modify: `gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/service/BenchmarkNotifyAlertServiceImpl.java`
+- Modify: `gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/contract/benchmarkNotify/BenchmarkNotifyAlertQueryCriteria.java`（去掉 `notifyType` 的 `@NotNull`）
+- Modify: `gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/repository/BenchmarkNotifyAlertRepository.java`（新增 finder）
+- Modify: `gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/service/BenchmarkNotifyAlertService.java`（接口换签名）
+- Modify: `gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/service/BenchmarkNotifyAlertServiceImpl.java`（实现新方法 + G3 过滤）
+- Modify: `gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/controller/BenchmarkNotifyAlertController.java`（返回 `Result<List<...>>`）
 
-- [ ] **A5.1：注入 UserService**
+- [ ] **A5.1：放宽 Criteria（去掉 notifyType 的 @NotNull）**
 
-类头部追加：
+把 `BenchmarkNotifyAlertQueryCriteria` 里 `notifyType` 字段上的 `@NotNull` 注解删掉，并把 `userId` 保留 `@NotBlank`。`companyId`、`companyGroupId` 二选一的校验放到 Service 层抛 `BadRequestException`。
+
+- [ ] **A5.2：Repository 新增按 (userId, companyId, companyGroupId) 拉所有 type 的 finder**
+
+```java
+List<FinancialBenchmarkNotifyAlert> findAllByUserIdAndCompanyIdAndCompanyGroupId(
+    String userId, String companyId, String companyGroupId);
+```
+
+- [ ] **A5.3：Service 接口替换签名**
+
+把 `BenchmarkNotifyAlertService` 里的：
+
+```java
+BenchmarkNotifyAlertDto getNotifyAlert(BenchmarkNotifyAlertQueryCriteria criteria);
+```
+
+改为：
+
+```java
+List<BenchmarkNotifyAlertDto> listNotifyAlerts(BenchmarkNotifyAlertQueryCriteria criteria);
+```
+
+- [ ] **A5.4：注入 UserService 并实现 listNotifyAlerts**
+
+`BenchmarkNotifyAlertServiceImpl` 类头部追加：
 
 ```java
 @Resource
 private com.gstdev.cioaas.web.system.service.UserService userService;
 ```
 
-- [ ] **A5.2：在 getNotifyAlert 返回前追加权限校验**
-
-在 `return mapper.toDto(entity);` 之前插入：
+实现方法：
 
 ```java
-// G3: 权限过期则不返回横幅
-Integer type = entity.getNotifyType();
-String requesterUserId = entity.getUserId();
-boolean authorized;
-if (BenchmarkNotifyAlertEnum.ENTRY_UPDATE_PORTFOLIO_ADMIN.getCode().equals(type)
-    || BenchmarkNotifyAlertEnum.POSITION_UPDATE_PORTFOLIO_ADMIN.getCode().equals(type)) {
-  // portfolio 场景：校验用户在该 companyGroup 下仍有 >=1 家可见公司
-  authorized = userService.hasVisibleCompanyUnderGroup(requesterUserId, entity.getCompanyGroupId());
-} else {
-  // company 场景：校验对目标 companyId 仍有访问权限
-  authorized = userService.canAccessCompany(requesterUserId, entity.getCompanyId());
+@Override
+public List<BenchmarkNotifyAlertDto> listNotifyAlerts(BenchmarkNotifyAlertQueryCriteria criteria) {
+  String userId = StringUtils.defaultString(criteria.getUserId(), "");
+  String companyId = StringUtils.defaultString(criteria.getCompanyId(), "");
+  String companyGroupId = StringUtils.defaultString(criteria.getCompanyGroupId(), "");
+  Integer notifyType = criteria.getNotifyType();
+
+  if (StringUtils.isBlank(userId)) {
+    return Collections.emptyList();
+  }
+  if (StringUtils.isBlank(companyId) && StringUtils.isBlank(companyGroupId)) {
+    throw new BadRequestException("Either companyId or companyGroupId is required");
+  }
+
+  List<FinancialBenchmarkNotifyAlert> rows = repository
+      .findAllByUserIdAndCompanyIdAndCompanyGroupId(userId, companyId, companyGroupId);
+
+  return rows.stream()
+      .filter(r -> notifyType == null || notifyType.equals(r.getNotifyType()))
+      .filter(this::isAuthorized)
+      .map(mapper::toDto)
+      .collect(Collectors.toList());
 }
-if (!authorized) {
-  return null;
+
+/** G3: 失权用户该行不可见。 */
+private boolean isAuthorized(FinancialBenchmarkNotifyAlert entity) {
+  Integer type = entity.getNotifyType();
+  String requesterUserId = entity.getUserId();
+  if (BenchmarkNotifyAlertEnum.ENTRY_UPDATE_PORTFOLIO_ADMIN.getCode().equals(type)
+      || BenchmarkNotifyAlertEnum.POSITION_UPDATE_PORTFOLIO_ADMIN.getCode().equals(type)) {
+    return userService.hasVisibleCompanyUnderGroup(requesterUserId, entity.getCompanyGroupId());
+  }
+  return userService.canAccessCompany(requesterUserId, entity.getCompanyId());
 }
 ```
 
-> 说明：`hasVisibleCompanyUnderGroup` 是配套新增方法，在 A4 中一并实现（若未实现则本步骤连带补齐）。
+> 说明：`hasVisibleCompanyUnderGroup` / `canAccessCompany` 由 A4 提供。`isAuthorized` 抽成私有方法，避免和后续可能的列表过滤路径重复代码。
 
-- [ ] **A5.3：commit**
+- [ ] **A5.5：Controller 改返回类型**
+
+把：
+
+```java
+@GetMapping
+public Result<BenchmarkNotifyAlertDto> getNotifyAlert(BenchmarkNotifyAlertQueryCriteria criteria){
+  return Result.success(benchmarkNotifyAlertService.getNotifyAlert(criteria));
+}
+```
+
+改为：
+
+```java
+@GetMapping
+public Result<List<BenchmarkNotifyAlertDto>> listAlerts(BenchmarkNotifyAlertQueryCriteria criteria){
+  return Result.success(benchmarkNotifyAlertService.listNotifyAlerts(criteria));
+}
+```
+
+`@Operation(summary = "...")` 同步改为 "List benchmark notify alerts for current user under a company or portfolio context"。
+
+- [ ] **A5.6：编译 + commit**
 
 ```bash
-git add gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/service/BenchmarkNotifyAlertServiceImpl.java
-git commit -m "feat: getNotifyAlert 加权限过滤，失权用户不返回横幅（G3）"
+mvn -pl gstdev-cioaas-web compile -q
+git add gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/contract/benchmarkNotify/BenchmarkNotifyAlertQueryCriteria.java \
+        gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/repository/BenchmarkNotifyAlertRepository.java \
+        gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/service/BenchmarkNotifyAlertService.java \
+        gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/service/BenchmarkNotifyAlertServiceImpl.java \
+        gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/fi/controller/BenchmarkNotifyAlertController.java
+git commit -m "feat: 横幅查询改为 listNotifyAlerts 一次返回多类型 + 行级权限过滤（G3）"
 ```
 
 ---
@@ -1939,7 +2014,7 @@ git commit -m "test: BenchmarkPositionMonitor 集成测试覆盖 3 关键路径"
 
 - [ ] **F2.1：权限过滤 IT**
 
-造一个 portfolio_admin 用户 + 一个他原本管理的 company_group，save 一条 `ENTRY_UPDATE_PORTFOLIO_ADMIN` alert；断开用户与该 group 的绑定（模拟失权）；调用 `getNotifyAlert` → 期望返回 null。
+造一个 portfolio_admin 用户 + 一个他原本管理的 company_group，save 一条 `ENTRY_UPDATE_PORTFOLIO_ADMIN` alert；断开用户与该 group 的绑定（模拟失权）；调用 `GET /benchmark/notify-alerts?userId=...&companyGroupId=...` → 期望返回空数组（该行被 G3 行级过滤掉）。
 
 - [ ] **F2.2：邮件切换 IT**
 

@@ -316,16 +316,18 @@ BENCHMARK_POSITION_UPDATE
 
 ### 8.2 G3 — 横幅权限过滤
 
-`BenchmarkNotifyAlertServiceImpl.getNotifyAlert(criteria)` 返回前追加过滤：
+`BenchmarkNotifyAlertServiceImpl.listNotifyAlerts(criteria)` 在返回前对每行做权限过滤：
 
 ```
-若 notifyType 是 portfolio 角色（2 或 4）：
-    校验当前用户在该 companyGroupId 下仍有 ≥1 家可见公司；否则返回 null。
-若 notifyType 是 company 角色（1、3、5）：
-    校验当前用户仍有该 companyId 的访问权限；否则返回 null。
+对返回集合里的每一行 alert：
+  若 alert.notifyType 是 portfolio 角色（2 或 4）：
+      校验当前用户在该 alert.companyGroupId 下仍有 ≥1 家可见公司；否则该行剔除。
+  若 alert.notifyType 是 company 角色（1、3、5）：
+      校验当前用户仍有该 alert.companyId 的访问权限；否则该行剔除。
+最终返回过滤后的列表（可能为空数组）。
 ```
 
-"可见公司 / 访问权限"的判断：调研 `userService`/`companyService` 的既有方法（暂未确认具体方法名——实施阶段补上）。若无现成方法，新增一个 `UserService#canAccessCompany(userId, companyId)` 工具方法。
+"可见公司 / 访问权限"的判断：在 `UserService` 新增 `canAccessCompany(userId, companyId)` 与 `hasVisibleCompanyUnderGroup(userId, companyGroupId)` 两个工具方法，复用既有的 `r_portfolio_user` / `r_company_group` 关系（`r_company_group.status = 0` 仅统计在册公司）。
 
 ---
 
@@ -360,7 +362,7 @@ CIOaas-api/gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/
 │   └── BenchmarkPositionTriggerReasonEnum.java      # 新增
 ├── fi/service/
 │   ├── BenchmarkEntryServiceImpl.java               # 改：sendEmail 切 EmailType + 模板
-│   └── BenchmarkNotifyAlertServiceImpl.java         # 改：getNotifyAlert 加权限过滤
+│   └── BenchmarkNotifyAlertServiceImpl.java         # 改：getNotifyAlert → listNotifyAlerts（返回 List）+ 行级权限过滤
 ├── scheduler/enums/FixedScheduleTypeEnum.java       # 改：追加 BenchmarkPositionMonitor
 ├── scheduler/service/ScheduleProcessor.java         # 改：switch case 新增
 └── system/enums/EmailTypeEnum.java                  # 改：追加两个 enum 值
