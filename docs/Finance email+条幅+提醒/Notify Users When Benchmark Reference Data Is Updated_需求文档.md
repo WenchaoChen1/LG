@@ -65,7 +65,7 @@
    - 邮件内容例如：
    标题: Update to Benchmark Positioning
    正文：“Hello Jacobo Vargas,
-        You may notice a change in your company’s benchmark positioning.
+        You may notice a change in [company name]’s benchmark positioning.
         This shift is due to updates in the benchmark reference data, which can affect how companies are ranked relative to one another. It reflects movement within the cohort, not changes in your company’s financial performance.”
         - 人名为实际接收人，Portfolio manager/Company Admin
     - 超链接：View Benchmark,点击进入Looking Glass系统，若未登录，则跳转至登录页面；若已登录，则跳转至portfolio benchmarking tab页面(portfolio manager)/company benchmarking tab页面(Company Admin角色)
