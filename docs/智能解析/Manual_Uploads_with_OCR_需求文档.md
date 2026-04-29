@@ -13,7 +13,7 @@
     └─ 2b. 直接解析（Excel / CSV）
 ③ AI 辅助科目映射（自动，后台）
 ④ Side-by-Side 审核与内联编辑（用户核对）
-    └─ 冲突解决（含可选备注）——写入环节中触发
+    └─ 冲突解决（含必填备注）——写入环节中触发
 ⑤ 写入 LG Schema
 ⑥ 系统从用户修正中学习，持续优化后续映射
 ```
@@ -43,18 +43,18 @@
 **文件大小限制与校验**
 - 单文件 ≤ 20MB；批量总大小 ≤ 100MB。
 - 文档类型和名字相同的文件判定为重复，仅保留一个，第二个不予上传
-- 对无效文件类型、超限、损坏文件，不执行上传，并展示对应错误：
+- 无效文件类型、超限、损坏的文件，不可上传，并展示对应错误：
   - `Failed to Upload {File name}. File exceeds the 20MB limit`
   - `Failed to Upload {File name}. File type is not supported`
   - `Failed to Upload {File name}. File is corrupted`
   - `Failed to Upload {File name}. The combined size of your files exceeds the 100MB limit.`
   - `Failed to Upload {File name}. A file with this name already exists.`
-- 同种类型Error不必重复内容,仅File name罗列即可，error消息展示五秒自动消失
+- 同种类型Error，内容不重复展示,仅罗列File name，error消息展示五秒自动消失
 - 动态更新：若旧报错消息尚未消失时，新上传文件再次触发同类型错误，应将新文件名追加至现有列表中，并重置 5 秒倒计时。
 - 不同类型隔离：若触发的是不同类型的错误，则正常弹出新的错误消息框，各自独立计时。
 
 **状态与队列管理**
-- 每个文件需显示实时状态：进度条实时展示上传进度
+- 每个文件需显示实时状态：进度条实时展示上传进度，Next按钮在全部上传完成前不可用
 - 显示整体批量状态与进度条。
 - Pending 或 Uploading 状态可取消上传。
 - 用户可在此页面：Remove按钮可移除文件、点击上传按钮继续添加文件、点击clear all按钮清空上传的所有文件。
@@ -78,30 +78,30 @@
 - 精确捕获无公式数值；正确解释负数、小数、百分数、货币符号。
 - 表头、子表头与对应数据行正确关联。
 
-**文档类型分类**
-- 系统将内容分为：Profit & Loss (Actuals)、Balance Sheet (Actuals)、Proforma
-- 分类依据（可组合使用）：
-  - **表/工作表名关键词**：
-  `P&L / Income / Profit` → P&L；
-  `Balance / Assets / Liabilities` → Balance Sheet；
-  `Forecast / Proforma / Projection` → Proforma。
+**表格类型识别**
+- 每一个提取出的表格都会沿两个维度独立进行分类：报表类型（Statement Type）和数据类型（Data Type）。报表类型与数据类型是独立进行分类的。
+
+- 数据类型：Actuals、Proforma
+ - 关键词：
+  - `Forecast / Proforma / Projection / Budget / Plan` → Proforma（满足其中任一条件即视为预测数据）
+  - 若上述所有信号均未出现，该表格将被归类为“Actuals”
+
+- 报表类型：P&L、Balance sheet
+ - 关键词：
+  - `P&L / Income / Profit` → P&L
+  - `Balance / Assets / Liabilities`  → Balance sheet
   - **行标签模式**：
     - P&L：Revenue、COGS、Gross Margin、EBITDA、Net Income。
     - Balance Sheet：Assets、Liabilities、Equity、Cash、Debt。
-    - 若 P&L 与 BS 指标同时出现 → Proforma。
   - **结构线索**：Balance Sheet 满足 Assets = Liabilities + Equity；P&L 为按期合计的流量报表。
-- **兜底**：如果某个表格类型无法依据既定规则进行明确归类，则意味着该表格中未提取出可映射至 LG 支持指标的财务科目。若整个文件中均未提取出任何财务科目，相关情况将在“数据映射”页面上予以提示。
-- 多页财务包可能同时包含多种文档类型。
+- **边缘案例**：如果某个表格类型无法依据既定规则进行明确归类，则意味着该表格中未提取出可映射至 LG 支持指标的财务科目。若整个文件中均未提取出任何财务科目，相关情况将在“数据映射”页面上予以提示。
+- 多页财务可能同时包含多种文档类型。
 
 **报告期识别（按优先级）**
 1. 列头、行标签
 2. 工作表名
 3. 表格标题或附近文字
-4. 文件名（兜底）
-
-**提取后的两种呈现形态**（供 Step 4 使用）
-- 原始提取行项（Raw）：按源文档检测到的原样。
-- 标准化视图（Standardized）：映射到 LG 标准科目（尽力映射，可审核）。
+4. 文件名（作为回退选项）
 
 #### 3.2b Excel / CSV 直接解析
 
@@ -187,11 +187,12 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 呈现左右分屏，供用户在写入前核对、修正抽取数据与映射结果。
 
 **左面板 — 源文档浏览器**
-- 顶部：文件选择下拉（可切换文件或选择 "All Files" 查看全部）。
+- 顶部：文件选择下拉，可切换文件或选择 "All Files" 查看全部文件。
   - Excel 多 Sheet：下拉下方显示 Sheet Tab 导航。
   - PDF：显示翻页控件。- 点击右上角Cancel按钮，会出Cancel Data Mapping?确认弹框，可点击Cancel data mapping回到Financial Entry页面,若点击Continue data mapping,保持在本页不动。
+  - All: 显示文件列表
 
-- 新增文件 / 替换与删除已上传文件的操作。
+- 右上角处有选项可新增文件 / 替换与删除已上传文件，若文件下拉处选择的ALL选项，则仅显示新增选项。
 - 有 Excel / CSV 时可切换 Tab。
 - 底部：缩放控制条（PDF / 图片）。
 
@@ -202,14 +203,16 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
   - 仅 Proforma 数据 → 默认 Proforma。
   - 同时包含 → 默认 Actuals。
   - 切换到所选文件无数据的 Tab → 显示空状态。
+  - 预测数据字体为紫色
 - Tab 下按当前所选文档类型 / 文件列出 LG 财务指标，与 Financial Entry 相同格式；右面板支持水平与垂直滚动。结构：
   - **Unmapped accounts**（位于 Actuals / Proforma Tab 上方）
     - AI 未能映射到任何 LG 指标的源账户。
     - 数据不完整的源账户：
-      - 缺账户名 → 显示 "UNIDENTIFIED"；
-      - 缺值 → 显示 "NA"；
-      - 缺日期 → 集中放置在同一列
-    - 数据不完整的账户在补全前，无手动映射的下箭头按钮，不能手动指派到 LG 指标。
+      - 缺账户名 → 显示 "UNIDENTIFIED"，可编辑名称，编辑完后标签消失；
+      - 缺值（未识别） → 显示 "NA"；
+      - 缺日期 → 显示"No Date"，可从日历下拉选择器中选择月份，选择后该数据自动落到相应月份下
+      - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账户名称，即切换显示为“No Date”
+      - 若No date项选择了日期后多出一列月份，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
     - 用户可为 UNIDENTIFIED 账户手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
   - **LG 科目**
   - **底层源行项**
@@ -219,6 +222,8 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
     - 同一时间期内映射到同一 LG 指标的多个源账户，若 AI 判定语义部分或完全重复（如 "desk and chair expenses" 与 "office furniture expenses"），在每个重复源行项与对应 LG 行上显示告警图标。
     - 用户可将源行项改映射到LG两种类型的任意一个指标。
 - 若无财务科目可映射到 LG 支持指标，显示相应提示信息。
+- 若提取数据为非连续月，会有消息提示
+- 该面板可左右滑动，首列固定
 
 **左右面板联动**
 - 左侧选文件 → 右侧同步展示该文件抽取数据。
@@ -228,18 +233,18 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 
 **内联编辑**
 - 可编辑项：
-  - **数值**：删除数值后默认回填 0。
-  - **日历月份**：若抽取数据含无法识别/匹配为日期的时间期（月+年），在指标表左端追加一个空白月份列，列头显示告警图标；用户可为该列或账户指定/修正日期；所有源账户都有日期后该列自动消失。
-  - **科目指派**。
-- 编辑值即时替换抽取值。
-- 系统跟踪：抽取值 与 用户编辑值。
+  - **数值**：删除数值后默认回填 0，作为有效数据，编辑过的数值灰色背景显示
+  - **科目指派**
+   - 只有账户名的所有月份数据都非N/A时（“-”可以）指派下拉按钮才可用
+   - 数据不完整的账户行在补全前，无手动映射的下拉按钮，不能手动指派到LG指标，指派后该账户名下所有的月份（整行数据）数据都被指派到相应月份，非单元格颗粒度。 
+- 编辑值实时替换提取值
+- 已识别的源账户名称不可编辑
 
 **返回与继续**
 - 用户可确认已审核数据。
 - 用户可拒绝并重新上传 / 上传新文件。
 - 确认后进入写入 LG Schema 步骤。
-- 仍存在 Unmapped accounts 时尝试进入下一步：弹出确认弹窗，告知"Unmapped Accounts 组的数据不会被写入 LG"，须显式确认。
-- 点击右上角Next按钮，出现Unmapped Accounts Pending确认弹窗
+- 仍存在 Unmapped accounts 时，点击右上角Next按钮，尝试进入下一步，会弹出确认弹窗，告知"Unmapped Accounts 组的数据不会被写入 LG"，须显式确认。
  - 内容：The following issues were found in your Data Mapping:
         [50] fields with mismatched LG metric mappings
         [15] unmapped accounts that will not be written to Looking Glass
@@ -265,13 +270,15 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 **既有数据冲突检测与用户抉择**
 - 按公司、LG 指标、报告期（月+年）维度比对；冲突校验作为后台任务进行，按目标 LG 指标与月份的存储币种进行比较。
 - 仅当目标月份有值、且该值不同于映射合计时，才视为冲突。
-- 冲突页面分为Actuals / Proforma Tab
-- 冲突页面与 Financial Entry 相同格式展示：列为报告期、行为 LG 指标；冲突单元格字体橙色高亮。
+- 冲突页面只显示Actuals有冲突的数据；预测数据则直接覆盖，生成新committed forecast版本，history 页面的Source 显示Import Statements
+- 冲突页面与 Financial Entry 相同格式展示：列为报告期、行为 LG 指标；冲突单元格字体红色。
 - 点击冲突有详情弹框：
   - 指标-Month Year
   - Radio 选项：MAPPED VALUE（默认选中），LG VALUE；
-  - Notes 详见3.6
-- 选择并备注完点击弹框外可关闭弹框并记住选择
+  - Notes 必填，详见3.6
+  - ✖按钮，该popup只能通过点击该关闭按钮关闭
+  - Save and Next 按钮/ Save 按钮
+- 冲突解决后点击Save and next 按钮，冲突数值变绿色，自动打开下一个冲突的popup，最后一个冲突popup 按钮为Save。
 
 **覆盖与跳过**
 - 选择Mapped Value：新数据替换选定期次与指标的当前版本；原值保留为历史版本。
@@ -305,6 +312,8 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 - 显示清晰的成功提示。
 - 用户随后进入 Benchmark Info Page（来自单独 ticket 1212956218889125，不在本 EPIC 范围内）。
 
+**特殊情况**
+- 若整批文件都未提取到有效财务数据，直接弹出成功popup，保存文件，无需进入mapping步骤，上传成功后停 留在原financial statement页面
 ---
 
 ### 3.6 数据校验期的备注字段（冲突解决备注）

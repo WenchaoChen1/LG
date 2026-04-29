@@ -60,7 +60,7 @@
 
 **4. Monthly Runway**
 - 计算方法：季度末现金除以季度导出的月度烧钱率
-- 公式：`Monthly_Runway_quarter = Cash_at_quarter_end / Monthly_Net_Burn_quarter`
+- 公式：`Monthly_Runway_quarter = -（ Cash_at_quarter_end / Monthly_Net_Burn_quarter）`
 - 说明：遵循LG前端表格中的相同显示逻辑（NA场景）
 
 **5. Rule of 40**
@@ -74,9 +74,16 @@
 - 说明：
   - S&M_Expenses_q = 季度内月度S&M支出之和
   - S&M_Payroll_q = 季度内月度S&M薪酬之和
-  - New_MRR_LTM_q = 季度内月度新增MRR(最近12个月)之和
+  - New_MRR_LTM_q = 季度内月度新增MRR之和
 
 **数据完整性处理：** 分母为0时，记录并显示为0而非NULL
+
+#### 3.2.3 基准指标展示
+指标名称
+- Actual值
+- Internal Peers: 百分位值 百分位变化（↓ ↑ 无 ）
+- High Alpha [Edition]:百分位值 百分位变化（↓ ↑ 无 ）
+- Benchmarkit.ai [Edition]:百分位值 百分位变化（↓ ↑ 无 ）
 
 ---
 
