@@ -306,9 +306,10 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
  The following data has been submitted to [company name]:
  [amount] Source Files, [amount]Data Types Updated, [amount]Mapped Accounts
  - Close按钮：点击关闭弹窗
+
 **特殊情况**
 - 回到上一步的操作：返回上一步过程中，若上下步都未做改变，则已修改/编辑的数据或已解决的冲突都保存，上下步来回切换时展示内容不变
-- 如果返回时，在某一步做了改动，判断是否有影响，有变化的展示数据，没变化的不变还是展示记住的数据
+- 在冲突页面返回到mapping页面时，在mapping页面的mapped板块做了改动，点击Next到mapping summary页面，提示Your mapping changes have been applied. Please review the updated verification results.继续点击start verification,判断对冲突页面数据是否有影响，有变化的展示数据，没变化的不变还是展示用户之前解决的冲突数据。如果此时再回到mapping summary页面，提示消息已经消失。
  - 例如：在解决冲突页面已经解决了部分冲突，回到上一步mapping页面，修改了一些数据，这部分数据有已解决的冲突，则回到冲突页面时要重新检测展示
 
 **Schema 完整性与错误处理**
