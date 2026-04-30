@@ -197,8 +197,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 - 底部：缩放控制条（PDF / 图片）。
 
 **右面板 — 数据映射**
-- 若该批文件没有任何可用数据，右面版提示 No mapped data
-  No mapped amount data was extracted from this file, so nothing can be mapped. Try uploading a clearer file or a different file format.
+  
 - 平台级 USD 显示开关不适用于该上传流程。
 - 显示两个 Tab：**Actuals** 与 **Proforma**，默认显示规则：
   - 仅 Actuals 数据（P&L / Balance Sheet）→ 默认 Actuals。
@@ -217,6 +216,11 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
       - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
     - 用户可为 UNIDENTIFIED 账户手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
     - 指派下拉中每个指标都包含Actuals和Forecast两种选择，Forecast显示紫色
+**特殊情况**
+- 若该批文件没有任何可用数据，右面版提示 No mapped data
+  No mapped amount data was extracted from this file, so nothing can be mapped. Try uploading a clearer file or a different file format.
+- 点击Next直接提交文档到documents,首次提交时，创建文件夹，命名为Imports documents
+  
   - **LG 科目**
   - **底层源行项**
     - 显示最细粒度行项名；支持多币种并原样显示。
@@ -276,6 +280,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 - 仅当目标月份有值、且该值不同于映射合计时，才视为冲突。
 - 冲突页面只显示Actuals有冲突的数据；预测数据则直接覆盖，生成新committed forecast版本，history 页面的Source 显示Import Statements
 - 冲突页面与 Financial Entry 相同格式展示：列为报告期、行为 LG 指标；冲突单元格字体红色。
+- 若上传数据与LG数据的货币不同，则统一转换为LG货币对比，若选择上传数据，存还是存原始货币和值
 - 点击冲突有详情弹框：
   - 指标-Month Year
   - Radio 选项：MAPPED VALUE（默认选中），LG VALUE；
@@ -300,7 +305,11 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
  - 提示信息：Data Submitted Successfully
  The following data has been submitted to [company name]:
  [amount] Source Files, [amount]Data Types Updated, [amount]Mapped Accounts
- - Close按钮：点击关闭弹窗  
+ - Close按钮：点击关闭弹窗
+**特殊情况**
+- 回到上一步的操作：返回上一步过程中，若上下步都未做改变，则已修改/编辑的数据或已解决的冲突都保存，上下步来回切换时展示内容不变
+- 如果返回时，在某一步做了改动，判断是否有影响，有变化的展示数据，没变化的不变还是展示记住的数据
+ - 例如：在解决冲突页面已经解决了部分冲突，回到上一步mapping页面，修改了一些数据，这部分数据有已解决的冲突，则回到冲突页面时要重新检测展示
 
 **Schema 完整性与错误处理**
 - 所有数据须通过 LG Schema 校验后方可写入。
