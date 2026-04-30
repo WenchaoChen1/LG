@@ -52,13 +52,14 @@
 - 同种类型Error，内容不重复展示,仅罗列File name，error消息展示五秒自动消失
 - 动态更新：若旧报错消息尚未消失时，新上传文件再次触发同类型错误，应将新文件名追加至现有列表中，并重置 5 秒倒计时。
 - 不同类型隔离：若触发的是不同类型的错误，则正常弹出新的错误消息框，各自独立计时。
+- 若同批文档总大小超过100MB，按照上传速度，速度慢的超过100MB总量的文件不予上传
 
 **状态与队列管理**
 - 每个文件需显示实时状态：进度条实时展示上传进度，Next按钮在全部上传完成前不可用
-- 显示整体批量状态与进度条。
-- Pending 或 Uploading 状态可取消上传。
-- 用户可在此页面：Remove按钮可移除文件、点击上传按钮继续添加文件、点击clear all按钮清空上传的所有文件。
-
+- 上传过程中，显示clear all按钮，若点击此按钮，则清空全部在上传的文件
+- 上传完成后，点击Remove按钮可移除文件
+- 点击上传按钮继续添加文件
+  
 **返回与继续**
 - 点击Next按钮，系统自动将文件转入处理流水线，进入 3.2 的提取逻辑。
 - 点击Cancel按钮，关闭弹框，回到Financial Entry页面
@@ -67,20 +68,8 @@
 
 ### 3.2 数据提取-Data Mapping步骤
 
-#### 3.2a OCR + AI 提取（扫描 PDF / 图片）
-
-**适用文档**
-- 图片型 PDF、扫描 PDF、独立图片文件（JPG、PNG 等）。
-- 支持多页文档；自动识别含财务表格的页面；无可提取财务内容的页面跳过并记录日志。
-
-**OCR 与表格提取**
-- 即使存在以下情况仍能提取表格：无边框、版面倾斜/旋转、格式不一致。
-- 精确捕获无公式数值；正确解释负数、小数、百分数、货币符号。
-- 表头、子表头与对应数据行正确关联。
-
 **表格类型识别**
 - 每一个提取出的表格都会沿两个维度独立进行分类：报表类型（Statement Type）和数据类型（Data Type）。报表类型与数据类型是独立进行分类的。
-
 - 数据类型：Actuals、Proforma
  - 关键词：
   - `Forecast / Proforma / Projection / Budget / Plan` → Proforma（满足其中任一条件即视为预测数据）
@@ -102,6 +91,17 @@
 2. 工作表名
 3. 表格标题或附近文字
 4. 文件名（作为回退选项）
+
+#### 3.2a OCR + AI 提取（扫描 PDF / 图片）
+
+**适用文档**
+- 图片型 PDF、扫描 PDF、独立图片文件（JPG、PNG 等）。
+- 支持多页文档；自动识别含财务表格的页面；无可提取财务内容的页面跳过并记录日志。
+
+**OCR 与表格提取**
+- 即使存在以下情况仍能提取表格：无边框、版面倾斜/旋转、格式不一致。
+- 精确捕获无公式数值；正确解释负数、小数、百分数、货币符号。
+- 表头、子表头与对应数据行正确关联。
 
 #### 3.2b Excel / CSV 直接解析
 
@@ -184,10 +184,10 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 
 ### 3.4 Side-by-Side 审核与内联编辑
 
-呈现左右分屏，供用户在写入前核对、修正抽取数据与映射结果。
+呈现左右分屏，供用户在写入前核对、修正抽取数据与映射结果。左屏显示解析进度
 
 **左面板 — 源文档浏览器**
-- 顶部：文件选择下拉，可切换文件或选择 "All Files" 查看全部文件。
+- 顶部：文件选择下拉，可切换文件或选择 "All Files" ，默认显示"All Files"。
   - Excel 多 Sheet：下拉下方显示 Sheet Tab 导航。
   - PDF：显示翻页控件。- 点击右上角Cancel按钮，会出Cancel Data Mapping?确认弹框，可点击Cancel data mapping回到Financial Entry页面,若点击Continue data mapping,保持在本页不动。
   - All: 显示文件列表
@@ -197,6 +197,8 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 - 底部：缩放控制条（PDF / 图片）。
 
 **右面板 — 数据映射**
+- 若该批文件没有任何可用数据，右面版提示 No mapped data
+  No mapped amount data was extracted from this file, so nothing can be mapped. Try uploading a clearer file or a different file format.
 - 平台级 USD 显示开关不适用于该上传流程。
 - 显示两个 Tab：**Actuals** 与 **Proforma**，默认显示规则：
   - 仅 Actuals 数据（P&L / Balance Sheet）→ 默认 Actuals。
@@ -210,10 +212,11 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
     - 数据不完整的源账户：
       - 缺账户名 → 显示 "UNIDENTIFIED"，可编辑名称，编辑完后标签消失；
       - 缺值（未识别） → 显示 "NA"；
-      - 缺日期 → 显示"No Date"，可从日历下拉选择器中选择月份，选择后该数据自动落到相应月份下
+      - 缺日期 → 显示"No Date"，可从日历下拉选择器中选择开始月份，选择后该数据自动落到相应月份下，若一个account有多个数据，则选择开始月份后，从左到右第一个数据落到开始月份，后面月份依次累加，数据依次落到月份，直到最后一个数据
       - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账户名称，即切换显示为“No Date”
-      - 若No date项选择了日期后多出一列月份，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
+      - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
     - 用户可为 UNIDENTIFIED 账户手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
+    - 指派下拉中每个指标都包含Actuals和Forecast两种选择，Forecast显示紫色
   - **LG 科目**
   - **底层源行项**
     - 显示最细粒度行项名；支持多币种并原样显示。
@@ -239,6 +242,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
    - 数据不完整的账户行在补全前，无手动映射的下拉按钮，不能手动指派到LG指标，指派后该账户名下所有的月份（整行数据）数据都被指派到相应月份，非单元格颗粒度。 
 - 编辑值实时替换提取值
 - 已识别的源账户名称不可编辑
+- 下方已匹配的项也可编辑数值，也可重新指派指标（包括Actuals和Forecast）,也可指派为unmapped，回到unmapped板块
 
 **返回与继续**
 - 用户可确认已审核数据。
@@ -278,7 +282,9 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
   - Notes 必填，详见3.6
   - ✖按钮，该popup只能通过点击该关闭按钮关闭
   - Save and Next 按钮/ Save 按钮
-- 冲突解决后点击Save and next 按钮，冲突数值变绿色，自动打开下一个冲突的popup，最后一个冲突popup 按钮为Save。
+- 冲突解决后点击Save and next 按钮，冲突数值变绿色，自动打开下一个冲突的popup，最后一个冲突popup 按钮为Save,跳转顺序为同一个指标从左到右，一个指标完成后跳下一个指标，依旧从左到右。
+**特殊情况**
+ 冲突只对比Actuals数据，预测数据不进行冲突对比。若一批数据只有预测数据，则直接提交，不走冲突检测流程，上一步mapping的按钮名称为Confirm and write to LG
 
 **覆盖与跳过**
 - 选择Mapped Value：新数据替换选定期次与指标的当前版本；原值保留为历史版本。
