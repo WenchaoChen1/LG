@@ -12,24 +12,17 @@
 
 - [表清单总览（Schema Overview）](#表清单总览schema-overview)
   - [设计原则](#设计原则)
-  - [一、任务编排（4 张，Java 拥有）](#一任务编排4-张java-拥有)
-  - [二、AI 解析产物（4 张，Python 拥有）](#二ai-解析产物4-张python-拥有)
-  - [三、用户交互与提交审计（3 张，Java 拥有）](#三用户交互与提交审计3-张java-拥有)
-  - [四、记忆与跨域审计（4 张，混合所有权）](#四记忆与跨域审计4-张混合所有权)
+  - [设计原则](#设计原则)
+  - [全部 15 张表统一总览](#全部-15-张表统一总览)
   - [关系图（核心引用链）](#关系图核心引用链)
 - [0. 物理部署模型](#0-物理部署模型)
 - [1. 扩展与枚举](#1-扩展与枚举)
   - [1.1 PostgreSQL 扩展](#11-postgresql-扩展)
   - [1.2 枚举值清单（与代码 enum 严格对应）](#12-枚举值清单与代码-enum-严格对应)
-- [2. Java 拥有的表（`ai_financial_extraction_*` Java owned）](#2-java-拥有的表ai_financial_extraction_-java-owned)
+- [2. Java 主导的表（文件上传 + fi_* 事务）](#2-java-主导的表文件上传--fi_-事务)
   - [2.1 ai_financial_extraction_task](#21-ai_financial_extraction_task)
   - [2.2 ai_financial_extraction_file](#22-ai_financial_extraction_file)
-  - [2.5 ai_financial_extraction_memory_learn_log](#25-ai_financial_extraction_memory_learn_log)
-  - [2.6 ai_financial_extraction_commit_audit](#26-ai_financial_extraction_commit_audit)
-  - [2.7 ai_financial_extraction_erasure_log](#27-ai_financial_extraction_erasure_log)
-  - [2.8 ai_financial_extraction_similarity_hint（新增：相似度检测结果）](#28-ai_financial_extraction_similarity_hint新增相似度检测结果)
-  - [2.9 ai_financial_extraction_task_state_log（2026-05-06 新增）](#29-ai_financial_extraction_task_state_log2026-05-06-新增)
-- [3. Python 拥有的表（`ai_financial_extraction_*` Python owned）](#3-python-拥有的表ai_financial_extraction_-python-owned)
+- [3. Python 主导的表（`ai_financial_extraction_*` Python owned）](#3-python-主导的表ai_financial_extraction_-python-owned)
   - [3.1 ai_financial_extraction_extracted_table](#31-ai_financial_extraction_extracted_table)
   - [3.2 ai_financial_extraction_extracted_row（新增 label_embedding 列）](#32-ai_financial_extraction_extracted_row新增-label_embedding-列)
   - [3.3 ai_financial_extraction_mapping_result](#33-ai_financial_extraction_mapping_result)
@@ -38,6 +31,11 @@
   - [3.6 ai_financial_extraction_mapping_memory_audit](#36-ai_financial_extraction_mapping_memory_audit)
   - [3.8 ai_financial_extraction_mapping_change_log（2026-05-06 新增）](#38-ai_financial_extraction_mapping_change_log2026-05-06-新增)
   - [3.9 ai_financial_extraction_conflict_note（2026-05-06 从 §2.4 迁移到 Python 主导）](#39-ai_financial_extraction_conflict_note2026-05-06-从-24-迁移到-python-主导)
+  - [3.10 ai_financial_extraction_memory_learn_log（2026-05-06 从 §2.5 迁移到 Python 主导）](#310-ai_financial_extraction_memory_learn_log2026-05-06-从-25-迁移到-python-主导)
+  - [3.11 ai_financial_extraction_commit_audit（2026-05-06 从 §2.6 迁移到 Python 主导）](#311-ai_financial_extraction_commit_audit2026-05-06-从-26-迁移到-python-主导)
+  - [3.12 ai_financial_extraction_erasure_log（2026-05-06 从 §2.7 迁移到 Python 主导）](#312-ai_financial_extraction_erasure_log2026-05-06-从-27-迁移到-python-主导)
+  - [3.13 ai_financial_extraction_similarity_hint（2026-05-06 从 §2.8 迁移到 Python 主导）](#313-ai_financial_extraction_similarity_hint2026-05-06-从-28-迁移到-python-主导)
+  - [3.14 ai_financial_extraction_task_state_log（2026-05-06 从 §2.9 迁移到 Python 主导）](#314-ai_financial_extraction_task_state_log2026-05-06-从-29-迁移到-python-主导)
 - [4. 数据库角色与权限](#4-数据库角色与权限)
 - [5. 数据生命周期](#5-数据生命周期)
   - [5.1 文件保留策略（S3）](#51-文件保留策略s3)
@@ -66,36 +64,38 @@ OCR Agent 包含 **15 张表**，**全部使用 `ai_financial_extraction_` 前�
 |---|------|:---:|---------|:---:|------|
 | [2.1](#21-ai_financial_extraction_task) | [`ai_financial_extraction_task`](#21-ai_financial_extraction_task) | Java | OCR 解析任务主表，记录每次上传/修订的整体生命周期；含 22 个状态枚举、修订链、`mapping_snapshot_hash`（变更检测）、`has_extractable_data` / `extraction_skip_reason`（无数据标记） | Java | Python (SELECT) |
 | [2.2](#22-ai_financial_extraction_file) | [`ai_financial_extraction_file`](#22-ai_financial_extraction_file) | Java | 单文件元数据（filename / S3 key / hash / status / processing_stage / progress / `replaced_by_file_id` 替换链），与 `ai_financial_extraction_task` 1:N | Java | Python (SELECT) |
-| [2.5](#25-ai_financial_extraction_memory_learn_log) | [`ai_financial_extraction_memory_learn_log`](#25-ai_financial_extraction_memory_learn_log) | Java | 系统学习审计（Story #8）：每次 commit 后记忆学习的尝试次数（最多 3 次）+ 新增/更新条目数 + 失败原因 | Python (INSERT，跨域例外) + Java | 共享 |
-| [2.6](#26-ai_financial_extraction_commit_audit) | [`ai_financial_extraction_commit_audit`](#26-ai_financial_extraction_commit_audit) | Java | 每次 commit 对 `fi_*` 写入操作的审计（action: written/overwritten/skipped + old_value/new_value），财务数据溯源关键，**永久保留** | Java | Python (SELECT) |
-| [2.7](#27-ai_financial_extraction_erasure_log) | [`ai_financial_extraction_erasure_log`](#27-ai_financial_extraction_erasure_log) | Java | GDPR "Right to be Forgotten" 擦除请求和执行审计（target_type / s3_objects_deleted / db_records_deleted） | Java | Python (SELECT) |
-| [2.8](#28-ai_financial_extraction_similarity_hint新增相似度检测结果) | [`ai_financial_extraction_similarity_hint`](#28-ai_financial_extraction_similarity_hint新增相似度检测结果) | Java | Python 相似度检测器输出的"高相似度 account_label 对"，供前端审核页顶部横幅展示；含用户合并/忽略决策 | Python (INSERT/UPDATE 检测字段) + Java (UPDATE user_decision) | 共享 |
-| [2.9](#29-ai_financial_extraction_task_state_log2026-05-06-新增) | 🔴 [**`ai_financial_extraction_task_state_log`**](#29-ai_financial_extraction_task_state_log2026-05-06-新增) | Java | **全流程状态变更总日志**（架构边界 §0.6 强制要求）：每次 `task.status` 变更必写一行；含 4 步流程所有事件（上传/解析/校验/保存）+ 终态事件；**已覆盖原 notification + extraction_skip 全部职责** | Java (AOP 切面 + v2 后 Python 也 INSERT) | Python (SELECT/INSERT) |
 | [3.1](#31-ai_financial_extraction_extracted_table) | [`ai_financial_extraction_extracted_table`](#31-ai_financial_extraction_extracted_table) | Python | OCR / Excel 提取出的表格（document_type / currency / source_page），与 `ai_financial_extraction_file` 1:N | Python | Java (SELECT) |
 | [3.2](#32-ai_financial_extraction_extracted_row新增-label_embedding-列) | [`ai_financial_extraction_extracted_row`](#32-ai_financial_extraction_extracted_row新增-label_embedding-列) | Python | 表格中的每一行（account_label / cell_values / `label_embedding` 用于相似度检测），与 `ai_financial_extraction_extracted_table` 1:N | Python | Java (SELECT) |
 | [3.3](#33-ai_financial_extraction_mapping_result) | [`ai_financial_extraction_mapping_result`](#33-ai_financial_extraction_mapping_result) | Python | AI 映射结果（lg_category / confidence / source / reasoning），1 行最多 1 条映射 | Python | Java (SELECT) |
 | [3.4](#34-ai_financial_extraction_conflict_record) | [`ai_financial_extraction_conflict_record`](#34-ai_financial_extraction_conflict_record) | Python | 冲突记录主体（lg_category / reporting_period / existing_value / mapped_value / **note 必填** / resolution / resolved_order） | Python (Java 也写 resolution) | 共享 |
 | [3.5](#35-ai_financial_extraction_mapping_memory两层架构通用--公司) | [`ai_financial_extraction_mapping_memory`](#35-ai_financial_extraction_mapping_memory两层架构通用--公司) | Python | 两层架构（通用层 + 公司层）的 account_label → lg_category 映射记忆库；含命中/确认/拒绝计数和 trust 标志 | Python | **仅 Python**（跨公司商业机密，Java 无权访问） |
 | [3.6](#36-ai_financial_extraction_mapping_memory_audit) | [`ai_financial_extraction_mapping_memory_audit`](#36-ai_financial_extraction_mapping_memory_audit) | Python | 记忆变更审计（CREATE/CONFIRM/REJECT/ARCHIVE），含 `idempotency_key` 防 SQS at-least-once 重复 | Python | **仅 Python** |
-| [3.8](#38-ai_financial_extraction_mapping_change_log2026-05-06-新增) | [`ai_financial_extraction_mapping_change_log`](#38-ai_financial_extraction_mapping_change_log2026-05-06-新增) | Python | 步骤导航变更追踪：用户回退后修改 mapping 触发的 hash 变更 + 下游清空 conflict_resolutions 的次数 | Java | Python (SELECT) |
+| [3.8](#38-ai_financial_extraction_mapping_change_log2026-05-06-新增) | [`ai_financial_extraction_mapping_change_log`](#38-ai_financial_extraction_mapping_change_log2026-05-06-新增) | Python | 步骤导航变更追踪：用户回退后修改 mapping 触发的 hash 变更 + 下游清空 conflict_resolutions 的次数 | Python | Java (SELECT) |
 | [3.9](#39-ai_financial_extraction_conflict_note2026-05-06-从-24-迁移到-python-主导) | [`ai_financial_extraction_conflict_note`](#39-ai_financial_extraction_conflict_note2026-05-06-从-24-迁移到-python-主导) | Python | 冲突解决备注的 thread（多条回复，含 `auto_generated` 系统消息），与 `ai_financial_extraction_conflict_record` 1:N | Python（`/ocr/conflicts/{id}/resolve` 写顶层 + 系统自动追加） | Java (SELECT，commit 时读取) |
+| [3.10](#310-ai_financial_extraction_memory_learn_log2026-05-06-从-25-迁移到-python-主导) | [`ai_financial_extraction_memory_learn_log`](#310-ai_financial_extraction_memory_learn_log2026-05-06-从-25-迁移到-python-主导) | Python | 系统学习审计（Story #8）：每次 commit 后记忆学习的尝试次数（最多 3 次）+ 新增/更新条目数 + 失败原因 | Python | Java (SELECT) |
+| [3.11](#311-ai_financial_extraction_commit_audit2026-05-06-从-26-迁移到-python-主导) | [`ai_financial_extraction_commit_audit`](#311-ai_financial_extraction_commit_audit2026-05-06-从-26-迁移到-python-主导) | Python | 每次 commit 对 `fi_*` 写入操作的审计（action: written/overwritten/skipped + old_value/new_value），财务数据溯源关键，**永久保留** | Java (跨域 INSERT，同 fi_* 事务) | 共享 |
+| [3.12](#312-ai_financial_extraction_erasure_log2026-05-06-从-27-迁移到-python-主导) | [`ai_financial_extraction_erasure_log`](#312-ai_financial_extraction_erasure_log2026-05-06-从-27-迁移到-python-主导) | Python | GDPR "Right to be Forgotten" 擦除请求和执行审计（target_type / s3_objects_deleted / db_records_deleted） | Java (跨域 INSERT/UPDATE，端点接收) | 共享 |
+| [3.13](#313-ai_financial_extraction_similarity_hint2026-05-06-从-28-迁移到-python-主导) | [`ai_financial_extraction_similarity_hint`](#313-ai_financial_extraction_similarity_hint2026-05-06-从-28-迁移到-python-主导) | Python | Python 相似度检测器输出的"高相似度 account_label 对"，供前端审核页顶部横幅展示；含用户合并/忽略决策 | Python（检测 + user_decision 端点均在 Python 侧） | Java (SELECT) |
+| [3.14](#314-ai_financial_extraction_task_state_log2026-05-06-从-29-迁移到-python-主导) | 🔴 [**`ai_financial_extraction_task_state_log`**](#314-ai_financial_extraction_task_state_log2026-05-06-从-29-迁移到-python-主导) | Python | **全流程状态变更总日志**（架构边界 §0.6 强制要求）：每次 `task.status` 变更必写一行；含 4 步流程所有事件（上传/解析/校验/保存）+ 终态事件；**已覆盖原 notification + extraction_skip 全部职责** | Python (业务流程主写) + Java (跨域 INSERT，AOP 切面拦截 status 变更) | 共享 |
 
-> **共 15 张表**：Java 主导 7 张（§2.1-2.9，§2.3 已删除，§2.4 已迁移到 Python）+ Python 主导 8 张（§3.1-3.9，§3.7 已删除）。原 `ai_financial_extraction_notification`（§2.3）和 `ai_financial_extraction_extraction_skip_log`（§3.7）已合并到 `ai_financial_extraction_task_state_log`（§2.9）。**v2 主要业务下沉到 Python**：编辑 / 验证 / 冲突解决 / 备注 thread 全部由 Python 主导。
+> **共 15 张表**：Java 主导 2 张（§2.1-2.2，仅文件上传相关）+ Python 主导 13 张（§3.1-3.14，核心业务）。原 `ai_financial_extraction_notification`（§2.3）和 `ai_financial_extraction_extraction_skip_log`（§3.7）已合并到 `ai_financial_extraction_task_state_log`（§3.14）。**v2 主要业务下沉到 Python**：编辑 / 验证 / 冲突解决 / 备注 thread / 记忆学习 / 相似度检测 / 状态主线日志全部由 Python 主导，Java 仅在 fi_* 同事务审计、AOP 状态拦截、GDPR 端点入口三个路径上保留必要的跨域 INSERT 例外。
 
 
 ### 关系图（核心引用链）
 
 ```
-ai_financial_extraction_task ─┬─< ai_financial_extraction_file ─< ai_financial_extraction_extracted_table ─< ai_financial_extraction_extracted_row ─< ai_financial_extraction_mapping_result
-             ├─< ai_financial_extraction_conflict_record ─< ai_financial_extraction_conflict_note   (Python 主导，§3.4 + §3.9)
-             ├─< ai_financial_extraction_commit_audit
-             ├─< ai_financial_extraction_memory_learn_log
-             ├─< ai_financial_extraction_similarity_hint
-             ├─< ai_financial_extraction_mapping_change_log
-             └─< ai_financial_extraction_task_state_log    🔴 全流程状态主线日志（含原 notification + extraction_skip 职责）
+图例：[J] = Java 主导  [P] = Python 主导
 
-ai_financial_extraction_mapping_memory ─< ai_financial_extraction_mapping_memory_audit  (独立，不依赖 task)
-ai_financial_extraction_erasure_log                                     (独立审计)
+[J] ai_financial_extraction_task ─┬─< [J] ai_financial_extraction_file ─< [P] ai_financial_extraction_extracted_table ─< [P] ai_financial_extraction_extracted_row ─< [P] ai_financial_extraction_mapping_result
+             ├─< [P] ai_financial_extraction_conflict_record ─< [P] ai_financial_extraction_conflict_note   (§3.4 + §3.9)
+             ├─< [P] ai_financial_extraction_commit_audit                  (§3.11，Java 跨域 INSERT 同 fi_* 事务)
+             ├─< [P] ai_financial_extraction_memory_learn_log              (§3.10，Python 完全主导)
+             ├─< [P] ai_financial_extraction_similarity_hint               (§3.13，Python 完全主导)
+             ├─< [P] ai_financial_extraction_mapping_change_log            (§3.8)
+             └─< [P] ai_financial_extraction_task_state_log    🔴 全流程状态主线日志（§3.14，Java 跨域 INSERT AOP 切面）
+
+[P] ai_financial_extraction_mapping_memory ─< [P] ai_financial_extraction_mapping_memory_audit  (独立，不依赖 task)
+[P] ai_financial_extraction_erasure_log                                     (§3.12，独立审计；Java 跨域 INSERT/UPDATE 端点接收)
 ```
 
 ---
@@ -230,9 +230,11 @@ Balance Sheet:       Cash / Accounts Receivable / R&D Capitalized / Other Assets
 
 ---
 
-## 2. Java 拥有的表（`ai_financial_extraction_*` Java owned）
+## 2. Java 主导的表（文件上传 + fi_* 事务）
 
 归属 Java 域，由 `CIOaas-api` 的 `docparse` 包管理。Python 一般只有 SELECT 权限，少数例外明确标注。
+
+> **v2 收敛（2026-05-06）**：Java 端表数从 8 → 2。除 §2.1 task（任务主表）+ §2.2 file（文件元数据）外，所有审计/学习/相似度/状态日志表均迁移到 §3 Python 主导。理由：用户指令「主要业务放到 python 中」+ 编辑/验证/冲突解决/记忆学习均由 Python 端点驱动；Java 仅在 fi_* 事务和 GDPR 擦除路径上保留必要的跨域 INSERT 例外（详见 §4 GRANT）。
 
 > **命名约定**: 全部表统一使用 `ai_financial_extraction_` 前缀。Java/Python 两侧的表共享同一前缀，所有权通过 §4 数据库角色与权限隔离。
 
@@ -374,194 +376,15 @@ CREATE INDEX idx_ai_financial_extraction_file_pending_sync
 
 > §2.4 ~~ai_financial_extraction_conflict_note~~ — **2026-05-06 已迁移**到 §3.9（Python 主导）。冲突解决（`/ocr/conflicts/{id}/resolve`）由 Python 写入，与 §3.4 `conflict_record` 归属一致。
 
-### 2.5 ai_financial_extraction_memory_learn_log
-
-**用途**: 记忆学习决策日志（**架构边界 §0.4 强制要求**）— 每次 fi_* commit 成功后，Java 通过 `ocr-memory-learn-queue` 触发 Python 学习；Python 消费消息后，**每次尝试都必须写一行**到本表，记录是否成功、新增/更新了多少条记忆、失败原因等关键信息。
-
-**关键设计**:
-- **跨域写入例外**: Python 有 INSERT 权限（§4 GRANT 明确授予）但**无 UPDATE/DELETE 权限**——日志一旦写入不可篡改
-- **SQS 幂等**: `UNIQUE (task_id, attempt_number)` 约束防止 SQS at-least-once 重复消费导致同一次尝试重复记录
-- **重试可见性**: `attempt_number` 最大 3 次（与 [system-architecture.md §0.4](./system-architecture.md#04-关键规则记忆处理必须有日志) 三层日志中的"决策日志"层对应）
-- **与变更明细的关系**: 本表记录"做了几次 + 整体成功/失败"，详细的每条记忆变更见 §3.6 `ai_financial_extraction_mapping_memory_audit`
-
-```sql
-CREATE TABLE ai_financial_extraction_memory_learn_log (
-    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id              UUID NOT NULL REFERENCES ai_financial_extraction_task(id),
-    attempt_number       INT NOT NULL DEFAULT 1,                     -- 第几次（最多 3 次）
-    result               VARCHAR(20) NOT NULL,                       -- 'success' / 'failed'
-    new_memory_count     INT NOT NULL DEFAULT 0,
-    updated_memory_count INT NOT NULL DEFAULT 0,
-    error_message        TEXT,
-    started_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    completed_at         TIMESTAMPTZ,
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (task_id, attempt_number)                                 -- SQS at-least-once 幂等
-);
-```
-
-**索引**:
-```sql
-CREATE INDEX idx_ai_financial_extraction_memory_learn_log_task
-    ON ai_financial_extraction_memory_learn_log (task_id, attempt_number);
-
-CREATE INDEX idx_ai_financial_extraction_memory_learn_log_failed
-    ON ai_financial_extraction_memory_learn_log (result, created_at)
-    WHERE result = 'failed';
-```
-
-### 2.6 ai_financial_extraction_commit_audit
-
-**用途**: 记录每次 commit 对 fi_* 的写入操作（written / overwritten / skipped）。
-
-```sql
-CREATE TABLE ai_financial_extraction_commit_audit (
-    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id          UUID NOT NULL REFERENCES ai_financial_extraction_task(id),
-    row_id           UUID NOT NULL,                                  -- ai_financial_extraction_extracted_row.id
-    lg_category      VARCHAR(50) NOT NULL,
-    reporting_period VARCHAR(10) NOT NULL,                           -- YYYY-MM
-    action           VARCHAR(20) NOT NULL,                           -- 'written' / 'overwritten' / 'skipped'
-    old_value        NUMERIC(20,4),
-    new_value        NUMERIC(20,4),
-    conflict_note_id UUID REFERENCES ai_financial_extraction_conflict_note(id),
-    committed_by     BIGINT NOT NULL,
-    committed_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-**索引**:
-```sql
-CREATE INDEX idx_commit_audit_task
-    ON ai_financial_extraction_commit_audit (task_id, committed_at);
-
-CREATE INDEX idx_commit_audit_period
-    ON ai_financial_extraction_commit_audit (lg_category, reporting_period);
-```
-
-### 2.7 ai_financial_extraction_erasure_log
-
-**用途**: GDPR "Right to be Forgotten" 擦除请求和执行审计。
-
-```sql
-CREATE TABLE ai_financial_extraction_erasure_log (
-    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    target_type        VARCHAR(20) NOT NULL,                         -- 'task' / 'user' / 'company'
-    target_id          VARCHAR(50) NOT NULL,
-    requested_by       BIGINT NOT NULL,
-    reason             VARCHAR(500),
-    status             VARCHAR(20) NOT NULL DEFAULT 'PENDING',       -- PENDING/PROCESSING/COMPLETED/FAILED
-    s3_objects_deleted INT DEFAULT 0,
-    db_records_deleted INT DEFAULT 0,
-    error_message      TEXT,
-    requested_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    completed_at       TIMESTAMPTZ
-);
-
-CREATE INDEX idx_erasure_log_status
-    ON ai_financial_extraction_erasure_log (status, requested_at);
-```
-
-### 2.8 ai_financial_extraction_similarity_hint（新增：相似度检测结果）
-
-**用途**: 存储 Python 相似度检测器发现的"高相似度 account_label 对"，供前端 ReviewPage 顶部横幅展示。**Python 有 INSERT/UPDATE 权限**（跨域写入例外）。
-
-```sql
-CREATE TABLE ai_financial_extraction_similarity_hint (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id           UUID NOT NULL REFERENCES ai_financial_extraction_task(id),
-    row_id_a          UUID NOT NULL,                                 -- ai_financial_extraction_extracted_row.id（较小 ID）
-    row_id_b          UUID NOT NULL,                                 -- ai_financial_extraction_extracted_row.id（较大 ID）
-    label_a           VARCHAR(200) NOT NULL,                         -- 冗余存储便于展示
-    label_b           VARCHAR(200) NOT NULL,
-    file_id_a         UUID NOT NULL,                                 -- 便于"跨文件相似"提示
-    file_id_b         UUID NOT NULL,
-    similarity_score  NUMERIC(4,3) NOT NULL,                         -- 0.900 ~ 1.000
-    user_decision     VARCHAR(20),                                   -- 'MERGED' / 'IGNORED' / NULL
-    decided_at        TIMESTAMPTZ,
-    decided_by        BIGINT,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- 唯一约束：同 task 下同一对 row 只记录一次（强制 row_id_a < row_id_b 去重）
-    UNIQUE (task_id, row_id_a, row_id_b),
-    CHECK (row_id_a < row_id_b),                                     -- 保证顺序，避免 (A,B) 和 (B,A) 同时存在
-    CHECK (similarity_score >= 0.9 AND similarity_score <= 1.0)
-);
-```
-
-**索引**:
-```sql
-CREATE INDEX idx_ai_financial_extraction_similarity_hint_task
-    ON ai_financial_extraction_similarity_hint (task_id, user_decision)
-    WHERE user_decision IS NULL;
-    -- 仅索引"未处理"的 hint，前端查询快
-```
-
-**设计要点**:
-- `row_id_a < row_id_b` 约束：避免同一对被记录两次（(A,B) 和 (B,A) 视为相同）
-- `similarity_score >= 0.9` 约束：只存真正高相似度的（低相似度无业务价值）
-- `user_decision` 三态：`NULL`（待处理，前端高亮）/ `'MERGED'`（用户选择合并）/ `'IGNORED'`（用户选择忽略）
-- 不含 embedding 字段：embedding 存在 `ai_financial_extraction_extracted_row.label_embedding`（§3.2），这里只存对比结果
-
-### 2.9 ai_financial_extraction_task_state_log（2026-05-06 新增）
-
-**用途**: 全流程状态变更总日志（**架构边界 [system-architecture.md §0.6](./system-architecture.md#06-关键规则全流程状态必须留-log) 强制要求**）— `ai_financial_extraction_task.status` 每次变更必须写一行。承载 4 步流程的全部生命周期事件，作为 [user-input-requirements.md R-3.4](../user-input-requirements.md#3-4-步流程定义2026-05-06) "整个流程所有状态记录 log" 的唯一落地点。
-
-> **2026-05-06 简化**：原设计含 `snapshot_data` JSONB 字段用于存储校验前后数据快照，经多 agent 头脑风暴判定为过度设计（数据已存在 `ai_financial_extraction_extracted_row` + `ai_financial_extraction_mapping_result.original_ai_suggestion` 等原表），删除该字段，改为通过 `mapping_snapshot_hash` 关联到原表当时的状态。详见 [system-architecture.md §0.6 校验前后数据如何留存](./system-architecture.md#06-关键规则全流程状态必须留-log)。
-
-**与其他 3 张审计表的分工**（原 5 张已合并为 4 张）：
-
-| 表 | 粒度 | 职责 |
-|----|------|------|
-| **`ai_financial_extraction_task_state_log`** | **任务状态主线** | 每次 status 变更 + 4 步流程的所有事件（含原 notification 事件 + 原 extraction_skip 事件）|
-| `ai_financial_extraction_mapping_change_log` | 任务级 | mapping 变更的统计明细（`downstream_invalidated_count` 是 state_log 无法推导的） |
-| `ai_financial_extraction_commit_audit` | row 级 | fi_* 写入操作明细（written/overwritten/skipped + old/new value） |
-| `ai_financial_extraction_memory_learn_log` | 任务级 | 记忆学习决策（最多 3 次重试） |
-
-```sql
-CREATE TABLE ai_financial_extraction_task_state_log (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id         UUID NOT NULL REFERENCES ai_financial_extraction_task(id),
-    old_status      VARCHAR(30),                                       -- NULL = 任务首次创建
-    new_status      VARCHAR(30) NOT NULL,
-    event_type      VARCHAR(50) NOT NULL,
-        -- Phase 1 上传: UPLOAD_INITIATED / UPLOAD_FILE_VALIDATED / UPLOAD_S3_PERSISTED / UPLOAD_REJECTED
-        -- Phase 2 解析: EXTRACT_QUEUED / EXTRACT_STARTED / EXTRACT_COMPLETED / EXTRACT_FAILED / EXTRACT_NO_DATA
-        --              （注：EXTRACT_PROGRESS 高频细粒度事件改为只更新 ai_financial_extraction_file.processing_stage，不写 state_log，避免日志膨胀）
-        -- Phase 3 校验: VALIDATION_START / VERIFICATION_TRIGGERED / CONFLICT_DETECTED / CONFLICT_RESOLVED
-        --              / NAVIGATION_BACK / REMAP_TRIGGERED / VALIDATION_END
-        --              （注：MAPPING_EDITED / SUMMARY_VIEWED 等用户行为事件由前端记录在埋点系统，不进 state_log）
-        -- Phase 4 保存: COMMIT_START / COMMIT_SUCCESS / COMMIT_FAILED
-        --              / MEMORY_LEARN_TRIGGERED / MEMORY_LEARN_COMPLETE / MEMORY_LEARN_FAILED
-        --              （注：MEMORY_LEARN_PROGRESS 不进 state_log，仅在 OcrResultSqsProcessor 中处理）
-        -- 终态:        TASK_COMPLETED / TASK_FAILED / TASK_SUPERSEDED / TASK_EXPIRED
-    triggered_by    VARCHAR(100) NOT NULL,
-        -- 'user:{userId}' / 'sqs:{queueName}:{msgId}' / 'system:{component}' / 'aspect:TaskStateAuditAspect'
-    error_detail    TEXT,                                               -- *_FAILED 事件填充错误信息；EXTRACT_NO_DATA 填充 file_id + skip_reason
-    correlation_id  UUID,                                               -- 关联同一外部触发（如 SQS msg）下的多条事件
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-**索引**:
-```sql
-CREATE INDEX idx_ai_financial_extraction_task_state_log_task
-    ON ai_financial_extraction_task_state_log (task_id, created_at);
-
-CREATE INDEX idx_ai_financial_extraction_task_state_log_event
-    ON ai_financial_extraction_task_state_log (event_type, created_at);
-
--- 错误诊断：快速找最近失败的状态转换
-CREATE INDEX idx_ai_financial_extraction_task_state_log_failed
-    ON ai_financial_extraction_task_state_log (created_at DESC)
-    WHERE error_detail IS NOT NULL;
-```
-
-**关键设计**:
-- **不可篡改**: 表结构无 UPDATE 字段，仅 `INSERT`，保证审计完整性
-- **AOP 切面注入**: Java 端通过 `TaskStateAuditAspect` 拦截 `ai_financial_extraction_task.status` 更新，自动写日志（避免业务代码遗漏）
-- **Python 不直接写**: Python 通过 `ocr-result-queue` 上报状态后，Java 在消费时统一写日志（保持单一写入点）
-- **不存数据快照**: 校验前后的数据通过 `mapping_snapshot_hash` 关联到 `ai_financial_extraction_extracted_row` + `ai_financial_extraction_mapping_result.original_ai_suggestion` 等原表（避免双倍存储）
-- **行为事件外置**: 用户在前端的轻量行为（点开 Summary、查看冲突列表等）由前端埋点处理，state_log 只记录有"状态语义"的事件
+> §2.5 ~~ai_financial_extraction_memory_learn_log~~ — **2026-05-06 已迁移**到 §3.10（Python 主导）。
+>
+> §2.6 ~~ai_financial_extraction_commit_audit~~ — **2026-05-06 已迁移**到 §3.11（Python 主导）。
+>
+> §2.7 ~~ai_financial_extraction_erasure_log~~ — **2026-05-06 已迁移**到 §3.12（Python 主导）。
+>
+> §2.8 ~~ai_financial_extraction_similarity_hint~~ — **2026-05-06 已迁移**到 §3.13（Python 主导）。
+>
+> §2.9 ~~ai_financial_extraction_task_state_log~~ — **2026-05-06 已迁移**到 §3.14（Python 主导）。
 
 ---
 
@@ -845,6 +668,203 @@ CREATE INDEX idx_ai_financial_extraction_conflict_note_parent
 - **resolution 只在顶层**: 避免回复 note 上重复 OVERWRITE/SKIP，保持单一事实源
 - **auto_generated 标识**: 区分人工备注和系统审计追加，前端可分组展示
 
+### 3.10 ai_financial_extraction_memory_learn_log（2026-05-06 从 §2.5 迁移到 Python 主导）
+
+**用途**: 记忆学习决策日志（**架构边界 §0.4 强制要求**）— 每次 fi_* commit 成功后，Java 通过 `ocr-memory-learn-queue` 触发 Python 学习；Python 消费消息后，**每次尝试都必须写一行**到本表，记录是否成功、新增/更新了多少条记忆、失败原因等关键信息。
+
+**关键设计**:
+- **Python 主导**: v2 起所有写入均来自 Python（学习是 Python 自治流程的一部分）
+- **不可篡改**: 表结构无 UPDATE 字段，日志一旦写入不可篡改
+- **SQS 幂等**: `UNIQUE (task_id, attempt_number)` 约束防止 SQS at-least-once 重复消费导致同一次尝试重复记录
+- **重试可见性**: `attempt_number` 最大 3 次（与 [system-architecture.md §0.4](./system-architecture.md#04-关键规则记忆处理必须有日志) 三层日志中的"决策日志"层对应）
+- **与变更明细的关系**: 本表记录"做了几次 + 整体成功/失败"，详细的每条记忆变更见 §3.6 `ai_financial_extraction_mapping_memory_audit`
+
+```sql
+CREATE TABLE ai_financial_extraction_memory_learn_log (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id              UUID NOT NULL REFERENCES ai_financial_extraction_task(id),
+    attempt_number       INT NOT NULL DEFAULT 1,                     -- 第几次（最多 3 次）
+    result               VARCHAR(20) NOT NULL,                       -- 'success' / 'failed'
+    new_memory_count     INT NOT NULL DEFAULT 0,
+    updated_memory_count INT NOT NULL DEFAULT 0,
+    error_message        TEXT,
+    started_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at         TIMESTAMPTZ,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (task_id, attempt_number)                                 -- SQS at-least-once 幂等
+);
+```
+
+**索引**:
+```sql
+CREATE INDEX idx_ai_financial_extraction_memory_learn_log_task
+    ON ai_financial_extraction_memory_learn_log (task_id, attempt_number);
+
+CREATE INDEX idx_ai_financial_extraction_memory_learn_log_failed
+    ON ai_financial_extraction_memory_learn_log (result, created_at)
+    WHERE result = 'failed';
+```
+
+### 3.11 ai_financial_extraction_commit_audit（2026-05-06 从 §2.6 迁移到 Python 主导）
+
+**用途**: 记录每次 commit 对 fi_* 的写入操作（written / overwritten / skipped）。
+
+**v2 主导关系**: 表归 Python 主导（与 §3.4 `conflict_record` / §3.9 `conflict_note` 业务链一致），但 fi_* 事务由 Java 承载，因此 Java 在 commit 事务内 **跨域 INSERT** 本表（保证同事务原子性，避免事务跨服务边界）；Python 仅 SELECT 用于学习链路追溯。
+
+```sql
+CREATE TABLE ai_financial_extraction_commit_audit (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id          UUID NOT NULL REFERENCES ai_financial_extraction_task(id),
+    row_id           UUID NOT NULL,                                  -- ai_financial_extraction_extracted_row.id
+    lg_category      VARCHAR(50) NOT NULL,
+    reporting_period VARCHAR(10) NOT NULL,                           -- YYYY-MM
+    action           VARCHAR(20) NOT NULL,                           -- 'written' / 'overwritten' / 'skipped'
+    old_value        NUMERIC(20,4),
+    new_value        NUMERIC(20,4),
+    conflict_note_id UUID REFERENCES ai_financial_extraction_conflict_note(id),
+    committed_by     BIGINT NOT NULL,
+    committed_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+**索引**:
+```sql
+CREATE INDEX idx_commit_audit_task
+    ON ai_financial_extraction_commit_audit (task_id, committed_at);
+
+CREATE INDEX idx_commit_audit_period
+    ON ai_financial_extraction_commit_audit (lg_category, reporting_period);
+```
+
+### 3.12 ai_financial_extraction_erasure_log（2026-05-06 从 §2.7 迁移到 Python 主导）
+
+**用途**: GDPR "Right to be Forgotten" 擦除请求和执行审计。
+
+**v2 主导关系**: 表归 Python 主导（与其他审计/学习表归属对齐），但 GDPR 擦除请求由 Java 端点接收并发起，因此 Java **跨域 INSERT/UPDATE** 本表（写入请求 + 推进 status / 记录 deleted 计数）；Python 后续若承担擦除子任务，可在自己的 SELECT 权限下读取审计上下文。
+
+```sql
+CREATE TABLE ai_financial_extraction_erasure_log (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    target_type        VARCHAR(20) NOT NULL,                         -- 'task' / 'user' / 'company'
+    target_id          VARCHAR(50) NOT NULL,
+    requested_by       BIGINT NOT NULL,
+    reason             VARCHAR(500),
+    status             VARCHAR(20) NOT NULL DEFAULT 'PENDING',       -- PENDING/PROCESSING/COMPLETED/FAILED
+    s3_objects_deleted INT DEFAULT 0,
+    db_records_deleted INT DEFAULT 0,
+    error_message      TEXT,
+    requested_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at       TIMESTAMPTZ
+);
+
+CREATE INDEX idx_erasure_log_status
+    ON ai_financial_extraction_erasure_log (status, requested_at);
+```
+
+### 3.13 ai_financial_extraction_similarity_hint（2026-05-06 从 §2.8 迁移到 Python 主导）
+
+**用途**: 存储 Python 相似度检测器发现的"高相似度 account_label 对"，供前端 ReviewPage 顶部横幅展示。
+
+**v2 主导关系**: 完全归 Python 主导（检测算法 + 用户决策端点均在 Python 侧）— `POST /ocr/tasks/{id}/similarity-merge` 等 user_decision 写入端点也由 Python 承载；Java 仅 SELECT。
+
+```sql
+CREATE TABLE ai_financial_extraction_similarity_hint (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id           UUID NOT NULL REFERENCES ai_financial_extraction_task(id),
+    row_id_a          UUID NOT NULL,                                 -- ai_financial_extraction_extracted_row.id（较小 ID）
+    row_id_b          UUID NOT NULL,                                 -- ai_financial_extraction_extracted_row.id（较大 ID）
+    label_a           VARCHAR(200) NOT NULL,                         -- 冗余存储便于展示
+    label_b           VARCHAR(200) NOT NULL,
+    file_id_a         UUID NOT NULL,                                 -- 便于"跨文件相似"提示
+    file_id_b         UUID NOT NULL,
+    similarity_score  NUMERIC(4,3) NOT NULL,                         -- 0.900 ~ 1.000
+    user_decision     VARCHAR(20),                                   -- 'MERGED' / 'IGNORED' / NULL
+    decided_at        TIMESTAMPTZ,
+    decided_by        BIGINT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- 唯一约束：同 task 下同一对 row 只记录一次（强制 row_id_a < row_id_b 去重）
+    UNIQUE (task_id, row_id_a, row_id_b),
+    CHECK (row_id_a < row_id_b),                                     -- 保证顺序，避免 (A,B) 和 (B,A) 同时存在
+    CHECK (similarity_score >= 0.9 AND similarity_score <= 1.0)
+);
+```
+
+**索引**:
+```sql
+CREATE INDEX idx_ai_financial_extraction_similarity_hint_task
+    ON ai_financial_extraction_similarity_hint (task_id, user_decision)
+    WHERE user_decision IS NULL;
+    -- 仅索引"未处理"的 hint，前端查询快
+```
+
+**设计要点**:
+- `row_id_a < row_id_b` 约束：避免同一对被记录两次（(A,B) 和 (B,A) 视为相同）
+- `similarity_score >= 0.9` 约束：只存真正高相似度的（低相似度无业务价值）
+- `user_decision` 三态：`NULL`（待处理，前端高亮）/ `'MERGED'`（用户选择合并）/ `'IGNORED'`（用户选择忽略）
+- 不含 embedding 字段：embedding 存在 `ai_financial_extraction_extracted_row.label_embedding`（§3.2），这里只存对比结果
+
+### 3.14 ai_financial_extraction_task_state_log（2026-05-06 从 §2.9 迁移到 Python 主导）
+
+**用途**: 全流程状态变更总日志（**架构边界 [system-architecture.md §0.6](./system-architecture.md#06-关键规则全流程状态必须留-log) 强制要求**）— `ai_financial_extraction_task.status` 每次变更必须写一行。承载 4 步流程的全部生命周期事件，作为 [user-input-requirements.md R-3.4](../user-input-requirements.md#3-4-步流程定义2026-05-06) "整个流程所有状态记录 log" 的唯一落地点。
+
+**v2 主导关系**: 表归 Python 主导（核心校验/编辑/验证/冲突解决/学习状态变更均来自 Python）；Java 在自己负责的 4 步流程节点（上传完成、点 Next 触发 SQS、commit 成功）也通过 AOP 切面 **跨域 INSERT** 本表，与 Python 写入并存形成完整状态主线。
+
+> **2026-05-06 简化**：原设计含 `snapshot_data` JSONB 字段用于存储校验前后数据快照，经多 agent 头脑风暴判定为过度设计（数据已存在 `ai_financial_extraction_extracted_row` + `ai_financial_extraction_mapping_result.original_ai_suggestion` 等原表），删除该字段，改为通过 `mapping_snapshot_hash` 关联到原表当时的状态。详见 [system-architecture.md §0.6 校验前后数据如何留存](./system-architecture.md#06-关键规则全流程状态必须留-log)。
+
+**与其他 3 张审计表的分工**（原 5 张已合并为 4 张）：
+
+| 表 | 粒度 | 职责 |
+|----|------|------|
+| **`ai_financial_extraction_task_state_log`** | **任务状态主线** | 每次 status 变更 + 4 步流程的所有事件（含原 notification 事件 + 原 extraction_skip 事件）|
+| `ai_financial_extraction_mapping_change_log` | 任务级 | mapping 变更的统计明细（`downstream_invalidated_count` 是 state_log 无法推导的） |
+| `ai_financial_extraction_commit_audit` | row 级 | fi_* 写入操作明细（written/overwritten/skipped + old/new value） |
+| `ai_financial_extraction_memory_learn_log` | 任务级 | 记忆学习决策（最多 3 次重试） |
+
+```sql
+CREATE TABLE ai_financial_extraction_task_state_log (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id         UUID NOT NULL REFERENCES ai_financial_extraction_task(id),
+    old_status      VARCHAR(30),                                       -- NULL = 任务首次创建
+    new_status      VARCHAR(30) NOT NULL,
+    event_type      VARCHAR(50) NOT NULL,
+        -- Phase 1 上传: UPLOAD_INITIATED / UPLOAD_FILE_VALIDATED / UPLOAD_S3_PERSISTED / UPLOAD_REJECTED
+        -- Phase 2 解析: EXTRACT_QUEUED / EXTRACT_STARTED / EXTRACT_COMPLETED / EXTRACT_FAILED / EXTRACT_NO_DATA
+        --              （注：EXTRACT_PROGRESS 高频细粒度事件改为只更新 ai_financial_extraction_file.processing_stage，不写 state_log，避免日志膨胀）
+        -- Phase 3 校验: VALIDATION_START / VERIFICATION_TRIGGERED / CONFLICT_DETECTED / CONFLICT_RESOLVED
+        --              / NAVIGATION_BACK / REMAP_TRIGGERED / VALIDATION_END
+        --              （注：MAPPING_EDITED / SUMMARY_VIEWED 等用户行为事件由前端记录在埋点系统，不进 state_log）
+        -- Phase 4 保存: COMMIT_START / COMMIT_SUCCESS / COMMIT_FAILED
+        --              / MEMORY_LEARN_TRIGGERED / MEMORY_LEARN_COMPLETE / MEMORY_LEARN_FAILED
+        --              （注：MEMORY_LEARN_PROGRESS 不进 state_log，仅在 OcrResultSqsProcessor 中处理）
+        -- 终态:        TASK_COMPLETED / TASK_FAILED / TASK_SUPERSEDED / TASK_EXPIRED
+    triggered_by    VARCHAR(100) NOT NULL,
+        -- 'user:{userId}' / 'sqs:{queueName}:{msgId}' / 'system:{component}' / 'aspect:TaskStateAuditAspect'
+    error_detail    TEXT,                                               -- *_FAILED 事件填充错误信息；EXTRACT_NO_DATA 填充 file_id + skip_reason
+    correlation_id  UUID,                                               -- 关联同一外部触发（如 SQS msg）下的多条事件
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+**索引**:
+```sql
+CREATE INDEX idx_ai_financial_extraction_task_state_log_task
+    ON ai_financial_extraction_task_state_log (task_id, created_at);
+
+CREATE INDEX idx_ai_financial_extraction_task_state_log_event
+    ON ai_financial_extraction_task_state_log (event_type, created_at);
+
+-- 错误诊断：快速找最近失败的状态转换
+CREATE INDEX idx_ai_financial_extraction_task_state_log_failed
+    ON ai_financial_extraction_task_state_log (created_at DESC)
+    WHERE error_detail IS NOT NULL;
+```
+
+**关键设计**:
+- **不可篡改**: 表结构无 UPDATE 字段，仅 `INSERT`，保证审计完整性
+- **双写主线**: Python 端业务流程（编辑/验证/冲突解决/学习）的 status 变更直接 INSERT；Java 端通过 `TaskStateAuditAspect` 拦截上传/commit 路径上的 `ai_financial_extraction_task.status` 更新自动写日志（避免业务代码遗漏）
+- **不存数据快照**: 校验前后的数据通过 `mapping_snapshot_hash` 关联到 `ai_financial_extraction_extracted_row` + `ai_financial_extraction_mapping_result.original_ai_suggestion` 等原表（避免双倍存储）
+- **行为事件外置**: 用户在前端的轻量行为（点开 Summary、查看冲突列表等）由前端埋点处理，state_log 只记录有"状态语义"的事件
+
 ---
 
 ## 4. 数据库角色与权限
@@ -858,76 +878,76 @@ CREATE ROLE python_worker LOGIN PASSWORD '***';
 GRANT USAGE ON SCHEMA public TO java_app, python_worker;
 
 -- =================================================================
--- Java 拥有的表（ai_financial_extraction_* — Java owned）
+-- Java 主导的表（仅 §2.1 task + §2.2 file，文件上传相关）
 -- =================================================================
 
--- Java 完全访问（v2: 移除 conflict_note，conflict_note 已迁移到 §3.9 Python 主导）
+-- Java 完全访问（v2 收敛：仅保留任务主表 + 文件元数据；其余审计/学习/相似度/状态日志已迁移到 Python 主导）
 GRANT SELECT, INSERT, UPDATE, DELETE ON
     ai_financial_extraction_task,
-    ai_financial_extraction_file,
-    ai_financial_extraction_memory_learn_log,
-    ai_financial_extraction_commit_audit,
-    ai_financial_extraction_erasure_log,
-    ai_financial_extraction_similarity_hint
+    ai_financial_extraction_file
 TO java_app;
 
--- Python 只读（查状态用）
+-- Python 只读 task / file（查状态用）
 GRANT SELECT ON
     ai_financial_extraction_task,
-    ai_financial_extraction_file,
-    ai_financial_extraction_commit_audit,
-    ai_financial_extraction_erasure_log
+    ai_financial_extraction_file
 TO python_worker;
 
--- ⚠️ 跨域写入例外（2 张表）
--- Python 需要 INSERT 这两张表（异步回调场景），但无 UPDATE/DELETE 权限，不能篡改
-GRANT INSERT ON ai_financial_extraction_memory_learn_log TO python_worker;
-GRANT INSERT, UPDATE ON ai_financial_extraction_similarity_hint TO python_worker;
--- similarity_hint 需要 UPDATE 是因为 Python 可能多次触发检测（覆盖旧结果）
--- user_decision 字段由 Java 更新（用户在 UI 点击合并/忽略时）
-
 -- =================================================================
--- Python 拥有的表（ai_financial_extraction_* — Python owned）
+-- Python 主导的表（ai_financial_extraction_* — Python owned）
 -- =================================================================
 
+-- Python 完全访问（v2 收敛后核心业务表 + 从 §2 迁移过来的 5 张审计/学习/相似度/状态日志表）
 GRANT SELECT, INSERT, UPDATE, DELETE ON
     ai_financial_extraction_extracted_table,
     ai_financial_extraction_extracted_row,
     ai_financial_extraction_mapping_result,
     ai_financial_extraction_conflict_record,
-    ai_financial_extraction_conflict_note,                  -- v2 新增：从 §2.4 迁移过来
+    ai_financial_extraction_conflict_note,                  -- §3.9（原 §2.4 迁移）
     ai_financial_extraction_mapping_memory,
-    ai_financial_extraction_mapping_memory_audit
+    ai_financial_extraction_mapping_memory_audit,
+    ai_financial_extraction_mapping_change_log,             -- §3.8
+    ai_financial_extraction_memory_learn_log,               -- §3.10（原 §2.5 迁移）
+    ai_financial_extraction_commit_audit,                   -- §3.11（原 §2.6 迁移）
+    ai_financial_extraction_erasure_log,                    -- §3.12（原 §2.7 迁移）
+    ai_financial_extraction_similarity_hint,                -- §3.13（原 §2.8 迁移）
+    ai_financial_extraction_task_state_log                  -- §3.14（原 §2.9 迁移）
 TO python_worker;
 
--- Java 只读 ai_financial_extraction_*（commit 时读取用 + conflict_note 审计读取）
+-- Java 只读 ai_financial_extraction_*（commit 时读取数据 + 审计追溯）
 GRANT SELECT ON
     ai_financial_extraction_extracted_table,
     ai_financial_extraction_extracted_row,
     ai_financial_extraction_mapping_result,
     ai_financial_extraction_conflict_record,
-    ai_financial_extraction_conflict_note                   -- v2 新增：commit 时读 note thread 写入 commit_audit.conflict_note_id
+    ai_financial_extraction_conflict_note,                  -- commit 时读 note thread 写入 commit_audit.conflict_note_id
+    ai_financial_extraction_mapping_change_log,
+    ai_financial_extraction_memory_learn_log,               -- 审计追溯
+    ai_financial_extraction_commit_audit,                   -- 审计追溯
+    ai_financial_extraction_erasure_log,                    -- 审计追溯
+    ai_financial_extraction_similarity_hint,                -- 前端通过 Java 历史接口需要时读取
+    ai_financial_extraction_task_state_log                  -- AOP 切面写入前后读取上一状态
 TO java_app;
 
--- Java 对 ai_financial_extraction_conflict_record 需要 UPDATE（5b 用户解决冲突时写 resolution / note / resolved_order）
+-- ⚠️ Java 跨域写入例外（保留必要的 fi_* 同事务 / GDPR 发起 / 状态主线 AOP 路径）
+-- 这些表归 Python 主导，但 Java 在自己负责的事务/端点路径上必须能写入，否则会破坏事务原子性或丢失状态主线事件
+
+-- 1) commit_audit：fi_* 事务由 Java 承载，必须在同事务内 INSERT 审计行（跨服务事务无法原子）
+GRANT INSERT ON ai_financial_extraction_commit_audit TO java_app;
+
+-- 2) erasure_log：GDPR Right to be Forgotten 请求由 Java 端点接收并发起，需要 INSERT 请求行 + UPDATE 推进 status / 更新 deleted 计数
+GRANT INSERT, UPDATE ON ai_financial_extraction_erasure_log TO java_app;
+
+-- 3) task_state_log：Java AOP 切面（TaskStateAuditAspect）拦截 task.status 变更（上传完成 / 点 Next / commit 成功等节点）必须 INSERT，否则会在 Java 负责的状态转换上丢日志
+GRANT INSERT ON ai_financial_extraction_task_state_log TO java_app;
+
+-- 4) conflict_record：Java commit 路径在最终落库时可能需要更新冲突状态（兜底），保留 UPDATE 权限
 GRANT UPDATE ON ai_financial_extraction_conflict_record TO java_app;
 
--- =================================================================
--- 2026-05-06 新增表（Step 5a/5b/5c 边界用例支持）
--- =================================================================
-
--- ai_financial_extraction_extraction_skip_log：已删除（合并至 ai_financial_extraction_task_state_log），无需 GRANT
-
--- ai_financial_extraction_task_state_log（2026-05-06 新增）：Java 通过 AOP 切面统一写入（架构边界 §0.6），Python 仅读
-GRANT INSERT, SELECT ON ai_financial_extraction_task_state_log TO java_app;
-GRANT SELECT ON ai_financial_extraction_task_state_log TO python_worker;
-
--- ai_financial_extraction_mapping_change_log：Java 写入（5a 入口 + Previous 回退检测），Python 只读（学习阶段了解修改频次）
-GRANT SELECT, INSERT ON ai_financial_extraction_mapping_change_log TO java_app;
-GRANT SELECT ON ai_financial_extraction_mapping_change_log TO python_worker;
-
--- ⚠️ Java 无权访问 ai_financial_extraction_mapping_memory*（跨公司商业机密）
--- 不需要 GRANT，默认 DENY
+-- ⚠️ 完全归 Python（Java 无写权限）
+-- ai_financial_extraction_memory_learn_log：v2 起所有写者都在 Python 端（学习是 Python 自治流程）
+-- ai_financial_extraction_similarity_hint：检测算法 + user_decision 端点均在 Python 侧
+-- ai_financial_extraction_mapping_memory*：跨公司商业机密，Java 默认 DENY，无需 GRANT
 
 -- =================================================================
 -- fi_* 财务表（Java 完全访问，Python 仅 SELECT — v2 新边界）
@@ -940,11 +960,6 @@ GRANT SELECT, INSERT, UPDATE ON fi_* TO java_app;
 GRANT SELECT ON fi_financial_data TO python_worker;
 GRANT SELECT ON fi_metrics TO python_worker;
 -- 其他 fi_* 表同理（仅 SELECT）
-
--- v2 新增：Python 跨域写权限例外（前端面向端点所需）
-GRANT INSERT ON ai_financial_extraction_task_state_log TO python_worker;          -- /ocr/* 端点写状态变更日志
-GRANT UPDATE (resolution, resolved_at, resolved_by, note) ON ai_financial_extraction_conflict_record TO python_worker;  -- /ocr/conflicts/{id}/resolve
--- ai_financial_extraction_conflict_note 已迁移到 Python 主导（§3.9），完整 CRUD 权限已在上方 Python 表权限块中授予
 ```
 
 ---

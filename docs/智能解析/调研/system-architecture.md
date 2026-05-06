@@ -101,9 +101,9 @@
 | # | 步骤 | 主体 | 关键动作 | 与详细 Pipeline 的对应 |
 |---|------|------|---------|---------------------|
 | **1** | **文件上传** | **Java** | 校验文件类型/大小/格式/重名 → 写入 S3 → 创建 `ai_financial_extraction_task` + `ai_financial_extraction_file` 行 | Pipeline §1（上传） |
-| **2** | **文件解析** | **Java SQS → Python → Java DB** | Java 入队 `ocr-extract-queue` → Python 消费执行 OCR/AI 提取/AI 映射 → 通过 `ocr-result-queue` 回传结构化数据 → Java 写入 `ai_financial_extraction_extracted_*` / `ai_financial_extraction_mapping_result` → 前端轮询取数据 | Pipeline §2-§3（提取 + 映射） |
-| **3** | **数据校验** | **Java** | 用户在前端审核/编辑/Mapping Summary/冲突解决；**校验前后的数据快照必须落 log**；Java 全程记录每一次状态变更 | Pipeline §4 + §5a + §5b（Review + Summary + Conflict） |
-| **4** | **数据保存** | **Java commit + Java SQS → Python** | Java 整批事务写入 `fi_*` → `@AfterCommit` 入队 `ocr-memory-learn-queue` → Python 消费执行记忆学习（更新 `ai_financial_extraction_mapping_memory`） → 写 `ai_financial_extraction_memory_learn_log` 与 `ai_financial_extraction_mapping_memory_audit` 双重日志 | Pipeline §5c + §6（Commit + Learn） |
+| **2** | **文件解析** | **Java SQS → Python → Python DB** | Java 入队 `ocr-extract-queue` → Python 消费执行 OCR/AI 提取/AI 映射 → Python 直接写 `ai_financial_extraction_extracted_*` / `ai_financial_extraction_mapping_result` → 通过 `ocr-result-queue` 回传文件级进度给 Java 更新 `task/file.status` → 前端通过 Python `/ocr/tasks/{id}/state` 轮询 | Pipeline §2-§3（提取 + 映射） |
+| **3** | **数据校验** | **Python** | 用户通过 Python 端点审核/编辑/Mapping Summary/冲突解决；Python 写 `ai_financial_extraction_extracted_row` / `mapping_result` / `conflict_record` / `conflict_note` / `task_state_log` | Pipeline §4 + §5a + §5b（Review + Summary + Conflict） |
+| **4** | **数据保存** | **Java commit + Java SQS → Python** | Java 整批事务写入 `fi_*` + 同事务写 `commit_audit`（跨域 INSERT 例外）→ `@AfterCommit` 入队 `ocr-memory-learn-queue` → Python 消费执行记忆学习（更新 `ai_financial_extraction_mapping_memory`）→ 写 `memory_learn_log` 与 `mapping_memory_audit` 双重日志 | Pipeline §5c + §6（Commit + Learn） |
 
 **关键约束**:
 
@@ -116,11 +116,11 @@
 > **原边界**（v1）："前端永远不直接调 Python；Python 不暴露 HTTP" — 已废弃。
 > **新边界**（v2）：前端**同时**与 Java（上传/提交相关）+ Python（查询/编辑/验证）直接交互。
 
-| 服务 | 职责 | 前端是否直接调用 |
-|------|------|:---:|
-| **Java（CIOaas-api）** | **文件上传 + 最终提交**：S3 presigned URL 申请、文件校验、上传完成、**点 Next 触发 SQS**、最终 commit 写 fi_*、闭月 email、Imported Statements 同步、任务修订（revise） | ✅ 是（`/api/v1/docparse/*`，6 个端点） |
-| **Python（CIOaas-python）** | **AI 处理 + 用户面向查询/编辑/验证**：OCR / Excel / AI 映射、相似度检测、记忆学习、**前端综合状态聚合**、**用户编辑**、**冲突验证**（读 fi_*）、单冲突解决 | ✅ **是（新边界）**（`/ocr/*`，4 个端点） |
-| **Frontend（CIOaas-web）** | UI、用户交互、按需调用 Java 或 Python；步骤 1-2 / 7 调 Java；步骤 3-6 调 Python | — |
+| 服务 | 职责 | 前端是否直接调用 | 主导的表 |
+|------|------|:---:|---------|
+| **Java（CIOaas-api）** | **文件上传 + 最终提交**：S3 presigned URL、文件校验、点 Next 触发 SQS、最终 commit 写 fi_*、闭月 email、Imported Statements 同步、任务修订 | ✅ 是（`/api/v1/docparse/*`，8 个端点） | **2 张**：§2.1 task / §2.2 file（仅文件上传相关） |
+| **Python（CIOaas-python）** | **核心业务**：AI 提取/映射、相似度检测、记忆学习；**前端面向 4 个端点**：综合状态聚合 / 用户编辑 / 冲突验证 / 单冲突解决；**全部审计日志表**（commit_audit / task_state_log / erasure_log / memory_learn_log / similarity_hint） | ✅ 是（`/ocr/*`，4 个端点） | **13 张**：§3.1-§3.14 全部业务 + 审计表 |
+| **Frontend（CIOaas-web）** | UI、用户交互、按需调用 Java 或 Python；步骤 1-2 / 7 调 Java；步骤 3-6 调 Python | — | — |
 
 **Python 端必备基础设施（v2 新增）**：
 
@@ -163,28 +163,39 @@ Java 调用 Python 的**唯一方式**是 SQS 消息。严格对应用户需求 
 
 ### 0.4 关键规则：记忆处理必须有日志
 
-记忆学习是**唯一允许 Python 写 Java 拥有的表**的例外（跨域写入），但必须满足以下三层日志要求：
+记忆学习是**核心业务**，必须满足以下三层日志要求（v2 后所有日志表都在 Python 主导）：
 
 | 层级 | 表 / 主体 | 内容 |
 |------|----------|------|
-| **决策日志** | `ai_financial_extraction_memory_learn_log`（每 task 一行，UNIQUE(task_id, attempt_number) 防 SQS at-least-once 重复） | 尝试编号、success/failed、新增/更新条目数、错误信息、起止时间 |
-| **变更明细** | `ai_financial_extraction_mapping_memory_audit`（每条记忆变更一行，含 `idempotency_key` 防重） | event_type（CREATE/CONFIRM/REJECT/ARCHIVE）、old_category、new_category、actor、reason |
+| **决策日志** | `ai_financial_extraction_memory_learn_log`（Python 主导，§3.10）— 每 task 一行，UNIQUE(task_id, attempt_number) 防 SQS at-least-once 重复 | 尝试编号、success/failed、新增/更新条目数、错误信息、起止时间 |
+| **变更明细** | `ai_financial_extraction_mapping_memory_audit`（Python 主导，§3.6）— 每条记忆变更一行，含 `idempotency_key` 防重 | event_type（CREATE/CONFIRM/REJECT/ARCHIVE）、old_category、new_category、actor、reason |
 | **进度回传** | `ocr-result-queue` 的 `OcrMemoryLearnProgress` 消息 | 阶段（START / IN_PROGRESS / COMPLETE / FAILED）、进度 %、当前处理的 row 数 |
 
 任务级记忆学习状态由 `ai_financial_extraction_task.status`（`MEMORY_LEARN_PENDING` / `MEMORY_LEARN_IN_PROGRESS` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`）反映，详见 [database-schema.md §1.2 Task 状态](./database-schema.md)。
 
-### 0.5 关键规则：Python 跨域权限清单（v2 扩展）
+### 0.5 关键规则：跨域权限清单（v2 收敛后）
 
-**v2 重要变更**：因 Python 现承担前端面向的 verify/review 端点，跨域权限清单扩展。
+**v2 边界变化**：Java 主导只剩 §2.1 task + §2.2 file（两张文件上传相关的表）；其他 13 张全部迁到 Python 主导（§3）。原"Python 跨域写入 Java 拥有的表"清单大幅缩减；反过来产生了**Java 跨域写入 Python 主导表**的若干例外。
+
+**Java 跨域权限例外（写入 Python 主导表）**：
+
+| 表 | Java 权限 | 用途 / 原因 |
+|----|----------|------------|
+| `ai_financial_extraction_commit_audit`（§3.11）| INSERT | Java commit 端点 fi_* 写入事务的同事务审计（必须同事务，不可异步） |
+| `ai_financial_extraction_task_state_log`（§3.14）| INSERT | Java AOP 切面拦截 `task.status` 变更统一记录 |
+| `ai_financial_extraction_erasure_log`（§3.12）| INSERT / UPDATE | GDPR 擦除请求由 Java 发起 + 推进进度计数 |
+| `ai_financial_extraction_conflict_record`（§3.4）| UPDATE | commit 时兜底更新 resolution（防 Python 端流程异常） |
+
+**Python 跨域权限例外（读 Java 主导 / 财务表）**：
 
 | 表 | Python 权限 | 用途 |
 |----|------------|------|
-| `ai_financial_extraction_memory_learn_log` | INSERT | 记忆学习审计（§0.4） |
-| `ai_financial_extraction_similarity_hint` | INSERT / UPDATE（仅 detection 字段，不能改 user_decision） | 相似度检测结果回写 |
-| `ai_financial_extraction_task_state_log` | INSERT | **v2 新增**：Python 面向用户的端点写状态变更日志（与 Java AOP 统一写入并存） |
-| `ai_financial_extraction_conflict_record` | UPDATE（resolution / resolved_at / resolved_by 字段）| **v2 新增**：`/ocr/conflicts/{id}/resolve` 端点更新解决决定 |
-| `ai_financial_extraction_conflict_note` | INSERT | **v2 新增**：解决冲突时自动追加 note 到 thread |
-| `fi_*` 财务表 | **SELECT 只读** | **v2 新增**：`/ocr/tasks/{id}/verify` 跑冲突检测时对比现有数据；**严禁 INSERT/UPDATE/DELETE**（最终写入仍由 Java commit 接口） |
+| `fi_*` 财务表 | **SELECT 只读** | `/ocr/tasks/{id}/verify` 跑冲突检测时对比现有数据；**严禁 INSERT/UPDATE/DELETE**（最终写入仍由 Java commit 接口的事务承载） |
+
+**完全无跨域**（Python 100% 自主）:
+- `ai_financial_extraction_memory_learn_log`（§3.10）— Python 端 memory_learn_consumer 唯一写者
+- `ai_financial_extraction_similarity_hint`（§3.13）— Python 端 similarity_check_consumer + `/review` 端点写者（v2 起 user_decision 也走 Python）
+- 其他 11 张 Python 表（§3.x）
 
 > 原 `ai_financial_extraction_extraction_skip_log` 已并入 `ai_financial_extraction_task_state_log`，由 Java 在收到 Python 的 `OcrResult{status: NO_DATA}` 后写入 `EXTRACT_NO_DATA` 事件，无需 Python 跨域写入。
 
