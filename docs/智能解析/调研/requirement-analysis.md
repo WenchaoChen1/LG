@@ -8,7 +8,8 @@
 > **创建日期**: 2026-04-16（本文档）
 > **关联文档**: [数据库 Schema](./database-schema.md) · [设计理念](./design-philosophy.md) · [系统架构](./system-architecture.md) · [Java 端设计](./java-design.md) · [Python 端设计](./python-design.md) · [前端设计](./frontend-design.md) · [代码示例](./code-examples.md)
 
-> 本文档已与 Asana EPIC 于 **2026-04-20** 同步（Story #5/#6/#7/#8 重大更新 + 新增 §11 项目内部补丁）。
+> 本文档已与 Asana EPIC 于 **2026-05-06** 同步（**Step 5 拆为 5a/5b/5c + 新增 6 个 subtask**：Mapping Summary、Conflict Resolution、Commit+Display、两个边界用例、后端基础设施）。
+> 上次同步: 2026-04-20（Story #5/#6/#7/#8 重大更新 + §11 项目内部补丁）。
 
 ---
 
@@ -55,13 +56,16 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 
 ---
 
-## 3. 核心工作流（6 步 Pipeline）
+## 3. 核心工作流（6 步 Pipeline，Step 5 拆 3 子步）
 
 ```
-① 上传文件 → ② 数据提取(OCR/Excel) → ③ AI 账户映射 → ④ 并排审核编辑 → ⑤ 写入 LG → ⑥ 系统持续学习
+① 上传文件 → ② 数据提取 → ③ AI 映射 → ④ 并排审核 → ⑤ 写入 LG ─┬─ 5a Mapping Summary
+                                                              ├─ 5b Conflict Resolution
+                                                              └─ 5c Commit + Display Results
+                                                              → ⑥ 系统持续学习
 ```
 
-### 3.1 流程详解
+### 3.1 流程详解（2026-05-06 更新）
 
 | 步骤 | 用户操作 | 系统行为 | 对应 Story |
 |------|----------|----------|------------|
@@ -69,8 +73,14 @@ Users can upload PDFs or spreadsheets; system parses them using OCR and extracts
 | 2. 提取 | 无（等待） | OCR/Excel 解析，提取表格结构 | Story #2, #3 |
 | 3. 映射 | 无（自动） | AI 将行项映射到 LG 标准分类 | Story #4 |
 | 4. 审核 | 查看、编辑、确认 | 并排展示原始文档和提取数据 | Story #5 |
-| 5. 写入 | 确认提交 | 冲突检测 → 写入数据库 | Story #6, #7 |
+| **5a. 映射汇总** | 查看汇总，点击 Start Verification | 展示文件数 / 类型数 / 账户数；触发冲突检测 | **Mapping Summary Page**（4.9） |
+| **5b. 冲突解决** | 逐个解决冲突 + 必填备注 | 显示 Financial Entry 风格冲突列表，覆盖/保留二选一 | **Conflict Resolution**（4.10） |
+| **5c. 提交+结果** | 确认 | 写入 fi_*，跳转 Benchmark Info Page | **Commit & Display Results**（4.11） |
 | 6. 学习 | 无（自动） | 保存用户修正作为 AI 训练信号 | Story #8 |
+
+> **注**: 原 Story #6 "Write data to LG Schema" 的内容已被拆分到 5a/5b/5c 三个独立 Story。原 §4.6 保留作为历史参考，实际实现以 §4.9-4.11 为准。
+>
+> **额外**: 两个边界用例（§4.12 / §4.13）+ 后端基础设施（§4.14）也是 2026-05-06 新增。
 
 ---
 
@@ -265,11 +275,12 @@ If a document type cannot be clearly categorized based on the defined rules, the
 
 **Mobile Responsive**（可折叠面板）
 
-### 4.6 Story #6: Write data to LG Schema
+### 4.6 Story #6: Write data to LG Schema  ⚠️ **已被 5a/5b/5c 拆分（2026-05-06）**
 
 - **Asana GID**: 1212365913414040
-- **负责人**: Jesús H Peralta
-- **状态**: Ready for Design
+- **负责人**: Jesús H Peralta（无新负责人）
+- **状态**: SUPERSEDED — 内容拆分到 §4.9 Mapping Summary、§4.10 Conflict Resolution、§4.11 Commit & Display Results
+- **本节保留作为历史参考；实际实现以 §4.9-4.11 为准。**
 
 **核心需求 (2026-04-19 重大更新):**
 
@@ -408,6 +419,270 @@ If a document type cannot be clearly categorized based on the defined rules, the
 
 **UX 设计:**
 - **非侵入式反馈**：用户无需显式提供反馈，学习从现有交互中自动发生
+
+---
+
+### 4.9 Step 5a — Mapping Summary Page（2026-05-06 新增）
+
+- **Asana GID**: 1214321015206840
+- **负责人**: Karen Arnoldi
+- **状态**: Open
+- **位置**: 工作流 Step 5a（在 Side-by-Side Review 之后、冲突检测之前）
+
+**业务背景:**
+在系统检查冲突并写入 LG 之前，必须给用户一个清晰的处理结果汇总作为 checkpoint。用户主动点击 **Start Verification** 才会触发后端冲突检测。
+
+**核心需求:**
+
+- **Verify Data Summary 屏幕** — 展示三个数字：
+  - 本次提交的源文件总数
+  - 映射类型总数（Actuals / Proforma 数）
+  - 映射的源账户总数
+- **写入前置条件检查（hard gate）:**
+  - 所有提取的行项必须已审核并批准映射
+  - 任何 unmapped / unreviewed / 缺失元数据的行项都会**阻止写入**并显示明确错误
+- **用户必须点击 Start Verification** 才会触发系统检查（仅检查 Actuals tab 中的映射数据）
+- **实时进度指示器** — 展示验证进行中
+- **不能跳过此屏幕** — 验证完成前用户无法继续
+- **回退处理** — 验证过程中点击 Previous 会**停止验证**并回到 Verify Data Summary 页
+- **平台级 USD display toggle 不适用于此流程**
+
+**与现有需求关系:**
+- 本 Story 替换了原 Story #6 的"Verify Data Summary"部分
+- "Start Verification" 按钮的进度指示器是 5b 冲突检测的入口
+
+---
+
+### 4.10 Step 5b — Conflict Resolution of Manual Uploads（2026-05-06 新增）
+
+- **Asana GID**: 1214321015206841
+- **负责人**: Karen Arnoldi
+- **状态**: Open
+- **位置**: 工作流 Step 5b（5a 触发 verification 后、5c 写入之前）
+
+**业务背景:**
+verification 通过后，系统比对每个 mapped metric 与 LG 中已存数据的差异。**只有 Actuals tab 参与冲突检测，Proforma 整体豁免**。每个冲突必须由用户手动决策，且**强制要求填写备注**。
+
+**冲突检测逻辑:**
+
+- 比较维度: company + metric + reporting_month + reporting_year
+- 触发条件: 目标 month **已有值**且**与映射 sum 不同** → 触发冲突
+- 排除条件:
+  - LG 该 metric/month 为空 → **直接自动写入**，无冲突
+  - 现有值与映射 sum 完全一致 → **不触发新写入**，无冲突
+
+**展示逻辑:**
+
+- 布局沿用 **Financial Entry 的格式**（列=报告周期，行=LG metric）
+- 每个冲突单元格高亮
+- 解决后单元格颜色变为**绿色**
+
+**冲突弹窗内容（每个冲突）:**
+
+| 元素 | 说明 |
+|------|------|
+| 当前 LG 值 | 显示 |
+| 映射结果 sum | 显示 |
+| Select action（默认选中） | 用映射值覆盖 LG 现有值 |
+| Keep LG Value | 保留 LG 现有值 |
+| **Note 字段（必填）** | 主按钮在 Note 填好前**禁用** |
+| 主按钮（动态文案） | 非最后一个冲突: "Save & Next"；最后一个: "Save" |
+| X 图标 | 关闭弹窗（点击外部不关闭） |
+
+**Save & Next 导航逻辑:**
+
+- 当前 metric 还有冲突月份 → 跳到同 metric 的下一个冲突月份
+- 当前 metric 已无冲突 → 跳到下一个 metric 的第一个冲突月份
+
+**Overwrite vs Keep 行为:**
+
+- **Overwrite**: 新值替换活跃版本；旧值保留为历史记录
+- **Keep（Skip）**: LG 数据不变；该 metric 不写入；其他满足条件的 metric/document 继续写入
+- LG 中该 metric/month 为空 → 自动写入（无冲突）
+- 现有数据与映射值匹配 → 不触发新写入
+
+**与 Story #7 的关系:**
+- Note 字段功能在 [Story #7](https://app.asana.com/1/1170332106480422/task/1213752333534662) 中定义
+
+---
+
+### 4.11 Step 5c — Commit Uploaded Data to LG & Display Results（2026-05-06 新增）
+
+- **Asana GID**: 1214321015206842
+- **负责人**: Karen Arnoldi
+- **状态**: Open
+- **位置**: 工作流 Step 5c（5b 完成后）
+
+**业务背景:**
+解决完所有冲突后，系统执行真正的 fi_* 写入。本 Story 涵盖**写入执行 + 校验 + 审计 + 写入后体验**。
+
+**写入前置条件（必须全部满足，否则阻止写入）:**
+
+- 所有映射的行项已审核并批准
+- 无 unmapped / 缺失元数据的行项
+- **所有冲突已在 §4.10 解决**
+
+**Schema 完整性 + 错误处理:**
+
+- 所有数据必须通过 LG schema 验证
+- 验证失败 →
+  - 中止写入
+  - 显示明确错误
+  - 引导用户回到相关步骤，错误高亮
+- **禁止部分写入** — 整批 mapped data 要么全部成功，要么全部失败
+
+**审计与版本控制:**
+
+- 每次写入（成功或失败）记录:
+  - timestamp / user identity / source documents / reporting period / document type / action（written/overwritten/skipped）
+- 被覆盖的旧值保留历史版本
+
+**Post-Write 行为（重要的新需求）:**
+
+- 写入成功后，财务数据**立即反映**于:
+  - Financial Entry pages
+  - Committed Forecast pages
+  - 下游 normalization / benchmarking workflows
+- **Proforma 数据的特殊处理（不走冲突解决）:**
+  - 创建一个**新的 committed forecast**版本
+  - 现有 forecast 24 个月 + 上传 proforma 6-7 个月 → 系统**更新这些月份并追加到剩余月份**形成新版本
+  - 新版本的 user 是上传者
+- **所有上传文件**（无论是否提取出账户）都保存到 Documents 页 → **新文件夹 `Imported Statements`**
+- **Email 通知**: 若引入新的 closed month，触发 email 通知
+- **成功后跳转**: [Benchmark Info Page](https://app.asana.com/1/1170332106480422/task/1212956218889125)
+
+**UX:**
+
+- 成功 banner / page 总结写入内容（账户数、报告周期、文档类型）
+- 跳转 Benchmark Info Page 时给提示（如 "View your updated benchmarks"）
+- 错误消息必须**具体可操作**（如 "3 items are missing an LG category"），禁止泛化错误
+
+---
+
+### 4.12 Edge Case — Documents Without Extractable Data（2026-05-06 新增）
+
+- **Asana GID**: 1214321015206843
+- **负责人**: Shue Yang
+- **状态**: Open
+
+**业务背景:**
+用户上传的文档（如纯图片封面、叙述性报告等）**无法提取任何财务数据**。系统不能 fail/stall/显示空映射屏幕，必须优雅地跳过 mapping/conflict/write 步骤直接保存。
+
+**核心需求:**
+
+- 当**所有上传文件都无可提取数据**:
+  - extraction 步骤后系统检测到 → 跳过 mapping review、conflict resolution、write
+  - 显示空 mapping 屏幕，用户点 Next 后系统将文档保存到 Documents
+  - 提示信息: "No financial data was found in your uploaded documents. Your files have been saved to your Documents page under Imported Statements."
+  - 用户可点击 "Documentation" 跳转 Documentation 页，或关闭弹窗回到 Financial Statements tab
+- **混合批次处理（部分文件有数据、部分没有）:**
+  - **只有有数据的文件**走完整 mapping/write workflow
+  - **无数据的文件**保存到 Imported Statements 文件夹，**不阻塞**有数据文件的流程
+- **所有上传文件**（无论是否含财务数据）都保存到 Imported Statements
+- **审计日志**: 记录跳过 write 的原因（"no extractable financial data found"）
+
+**UX:**
+
+- 提示信息**中性**，让用户理解文件保存成功（即便没数据）
+- 混合批次时清晰指出哪些文件被跳过及原因，并确认其他文件流程正常完成
+
+---
+
+### 4.13 Edge Case — Steps Navigation（2026-05-06 新增）
+
+- **Asana GID**: 1214321015206844
+- **负责人**: Shue Yang
+- **状态**: Open
+
+**业务背景:**
+多步骤流程中用户必须能 Previous 回退（修正映射、重看提取数据等）而**不丢失工作**或**触发不必要的重新处理**。系统必须**智能区分**两种情况：
+- 回退后**没改任何东西** → 保留之前结果，不重跑
+- 回退后**做了修改** → 重跑下游受影响的步骤
+
+**Scenario 1 — 回退后未改:**
+
+- 用户 Previous → Next（无修改）
+- 系统**保留所有处理结果和已解决状态**
+- **不重跑** extraction、mapping、conflict detection 或任何计算逻辑
+- 用户立即进入下一步，无延迟
+
+**Scenario 2 — 回退后有改:**
+
+- 用户 Previous → 编辑 mapping 或 extracted data → Next
+- 系统**检测到变化**并重跑下游所有步骤的相关计算逻辑
+- 重跑包括:
+  - 重新跑 conflict detection（基于更新的 mapping）
+  - **清空之前基于旧 mapping 的 conflict resolutions**
+- 用户看到下游步骤的**全新视图**，不会显示陈旧数据
+- 显示提示告知用户为何下游 refresh 了（如 "Your mapping changes have been applied. Please review the updated verification results."）
+
+**通用导航行为:**
+
+- Previous 按钮在每一步都可用（除第 1 步外）
+- 点 Previous 不会丢失未受影响步骤的数据
+- **只有受影响下游步骤**才会 refresh
+- 系统精确识别"变更点"边界，未受影响的已解决状态被保留
+
+**UX:**
+
+- 回退不应让用户感到"惩罚"——无修改的回退应**瞬间且无缝**
+- 重跑触发时消息应**积极向前**（如 "We've updated the verification based on your changes"）而非警告语气
+- 步骤指示器贯穿全流程，让用户明确 Previous 会去哪
+- 检测到变更时，下游步骤可考虑**置灰**直到 reprocess 完成
+
+---
+
+### 4.14 Backend Infrastructure & Framework Setup（2026-05-06 新增 — 技术 Story）
+
+- **Asana GID**: 1214121140726201
+- **负责人**: Liang Chunru
+- **状态**: Open
+- **类型**: 技术基础设施（无 user-facing UI）
+
+**业务背景:**
+所有 user-facing Story 开发前，必须先建立后端基础设施。本 Story 是其他 Story 的**前置依赖**，目的是 unblock 所有下游开发。
+
+**File Storage & Upload Infrastructure:**
+
+- 配置安全的存储位置（已知是 S3）
+- 上传文件使用唯一 ID 关联 company + upload session（支持多文件批次 + 下游 pipeline 追踪）
+- 文件类型校验: PDF / Excel (.xlsx, .xls) / CSV / JPG / JPEG / PNG / TIFF
+- 文件大小限制: 单文件 20MB / 批量 100MB
+- 访问控制: Company User / Company Admin / Portfolio Admin（按 scope）
+
+**OCR Provider 集成:**
+
+- 选定 OCR provider（已知是 eSapiens）
+- API key 安全存储
+- 测试样本: 扫描 PDF / 图片 PDF / 独立图片（JPG/PNG/TIFF）
+- 支持多页文档处理
+
+**Document Processing Pipeline:**
+
+- 后端处理队列管理整个 upload 阶段（已知是 SQS）
+- 支持两条路径:
+  - OCR 必需路径（扫描 PDF / 图片）
+  - 直接解析路径（Excel / CSV）
+- 每个 pipeline 阶段有错误处理 + 日志（失败文档记录原因，不静默失败）
+
+**Internal Data Contracts:**
+
+- 提取数据的内部数据模型必须能容纳两条路径的输出
+- 必须支持:
+  - 原始 line items
+  - 文档类型分类（P&L / Balance Sheet / Proforma）
+  - 报告周期分配
+  - source reference（page number + location）
+- 必须**为未来 LG 财务分类的扩展留出空间**（如 Product Revenue、Sales Revenue、Other Revenue 等）
+
+**AI 集成基础:**
+
+- 选定 AI provider，API key 安全存储
+- 基本集成测试: AI provider 可接收 line item 数据并返回映射建议（**完整映射逻辑在 Story #4 中实现**）
+
+**Audit Logging:**
+
+- 每次文件上传记录: company / user / timestamp / file type / file size
 
 ---
 
@@ -652,6 +927,13 @@ If a document type cannot be clearly categorized based on the defined rules, the
 | 2026-04-07 | Liang 提交 Lovable 评审意见 |
 | 2026-04-09 | 多个 story 状态改为 On Hold |
 | 2026-04-13 | story 状态恢复为 Ready for Design |
+| 2026-04-20 | 本地需求文档同步 Asana（Story #5/#6/#7/#8 + §11 补丁） |
+| 2026-04-27 | Asana: Story #1/#3/#6 修改 |
+| 2026-04-28 | Asana: Story #2/#4/#7/#8 修改 |
+| 2026-04-30 | Asana: Story #5 重大修改（Karen） |
+| 2026-05-01 | Asana 新增 §4.14 Backend Infrastructure（Liang Chunru） |
+| 2026-05-06 | Asana 新增 §4.9-4.13 Mapping Summary / Conflict Resolution / Commit + 2 个 Edge Case（Karen + Shue Yang） |
+| 2026-05-06 | 本地需求文档**当前同步**：Step 5 拆为 5a/5b/5c，原 Story #6 SUPERSEDED |
 
 ---
 
