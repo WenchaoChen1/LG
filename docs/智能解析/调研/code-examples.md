@@ -940,3 +940,569 @@ msg = OcrProgressMessage(task_id=..., processing_stage="MAPPING_LLM", ...)
 json_body = msg.model_dump_json(by_alias=True)  # ⚠️ by_alias=True 必加
 # 结果: {"messageType":"OcrProgress","taskId":"...","processingStage":"MAPPING_LLM",...}
 ```
+
+---
+
+## 16. Step 5 拆分实现示例（2026-05-06 新增）
+
+> **需求来源**: [requirement-analysis.md §4.9-4.14](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)
+> **背景**: Asana 2026-05-06 将 Step 5 写入流程拆为 5a Mapping Summary / 5b Conflict Resolution / 5c Commit & Display，
+> 并新增 Edge Case（无可提取数据 / 步骤导航变更检测）和后端基础设施 Story。
+>
+> **命名说明**: 以下 Java/SQL 中的"task"表统一使用 `doc_parse_task`（与 [database-schema.md §2.1](./database-schema.md#21-doc_parse_task) 保持一致）。
+> 用户提示中的 `ai_ocr_task` 是历史称谓，本节按权威 schema 修正。
+
+### 16.1 Java — Mapping Summary Controller（§4.9）
+
+```java
+// CIOaas-api/api/src/main/java/com/lg/docparse/web/MappingSummaryController.java
+@RestController
+@RequestMapping("/api/v1/ocr/tasks/{taskId}")
+@RequiredArgsConstructor
+public class MappingSummaryController {
+
+    private final MappingSummaryService summaryService;
+    private final ConflictVerificationService verifyService;
+
+    /**
+     * §4.9 — 返回 Verify Data Summary：文件数 / 类型数 / 账户数。
+     * 数据来自 doc_parse_task.summary_cache（写入时缓存，避免每次重算）。
+     */
+    @GetMapping("/mapping-summary")
+    public ApiResponse<MappingSummaryDto> getSummary(
+            @PathVariable UUID taskId,
+            @AuthenticationPrincipal JwtUser user) {
+        MappingSummaryDto dto = summaryService.getSummary(taskId, user.getCompanyId());
+        return ApiResponse.success(dto);
+    }
+
+    /**
+     * §4.9 — 用户点击 "Start Verification" 触发后台冲突检测（异步）。
+     * 仅检测 Actuals tab 中的映射，Proforma 整体豁免。
+     * 幂等：已在 VERIFYING 状态再次调用直接返回当前进度。
+     */
+    @PostMapping("/verify/start")
+    public ApiResponse<VerifyStartResp> startVerification(
+            @PathVariable UUID taskId,
+            @AuthenticationPrincipal JwtUser user) {
+        // hard gate：所有行项必须已审核且无 unmapped
+        verifyService.assertReadyForVerification(taskId, user.getCompanyId());
+        VerifyStartResp resp = verifyService.startAsync(taskId, user.getUserId());
+        return ApiResponse.success(resp);
+    }
+
+    /**
+     * §4.9 — 实时进度（前端轮询，2s 间隔）。
+     * Previous 按钮回退会调用 /verify/cancel 停止。
+     */
+    @GetMapping("/verify/progress")
+    public ApiResponse<VerifyProgressDto> getProgress(@PathVariable UUID taskId) {
+        return ApiResponse.success(verifyService.getProgress(taskId));
+    }
+
+    @PostMapping("/verify/cancel")
+    public ApiResponse<Void> cancelVerification(@PathVariable UUID taskId) {
+        verifyService.cancel(taskId);
+        return ApiResponse.success(null);
+    }
+}
+
+@Data
+@Builder
+public class MappingSummaryDto {
+    private int totalFiles;          // 本次提交源文件总数（包括无可提取数据的文件）
+    private int totalTypes;          // 映射类型总数（Actuals / Proforma 数）
+    private int totalAccounts;       // 映射的源账户总数
+    private List<FileSummary> files; // 每个文件的 type + account 数
+    private boolean hasExtractableData; // §4.12 用，前端据此走不同提示分支
+}
+```
+
+### 16.2 Java — Conflict Resolution（§4.10：Note 必填 + 动态按钮）
+
+```java
+// CIOaas-api/api/src/main/java/com/lg/docparse/web/ConflictResolutionController.java
+@RestController
+@RequestMapping("/api/v1/ocr/tasks/{taskId}/conflicts")
+@RequiredArgsConstructor
+public class ConflictResolutionController {
+
+    private final ConflictResolutionService resolutionService;
+
+    /**
+     * §4.10 — 返回所有冲突（按 metric × month 展开），前端按 Financial Entry 风格渲染。
+     * 解决一个返回下一个高亮的位置（同 metric 优先，否则下一个 metric 第一个冲突）。
+     */
+    @GetMapping
+    public ApiResponse<ConflictListDto> listConflicts(@PathVariable UUID taskId) {
+        return ApiResponse.success(resolutionService.list(taskId));
+    }
+
+    /**
+     * §4.10 — 解决单个冲突。
+     * 业务规则：
+     *  1. action=OVERWRITE → 旧值入历史，新值入活跃版本
+     *  2. action=KEEP      → LG 不变，该 metric 跳过写入（不影响其他 metric）
+     *  3. note 必填（@NotBlank）— 后端兜底校验，前端 Note 为空时主按钮 disabled
+     *  4. isLast=true 时前端按钮文案 "Save"，否则 "Save & Next"（前端自行处理）
+     */
+    @PostMapping("/{conflictId}/resolve")
+    public ApiResponse<NextConflictDto> resolve(
+            @PathVariable UUID taskId,
+            @PathVariable UUID conflictId,
+            @Valid @RequestBody ResolveConflictRequest req,
+            @AuthenticationPrincipal JwtUser user) {
+
+        NextConflictDto next = resolutionService.resolve(
+            taskId, conflictId, req, user.getUserId());
+        return ApiResponse.success(next);
+    }
+}
+
+@Data
+public class ResolveConflictRequest {
+    @NotNull
+    private ConflictAction action;          // OVERWRITE / KEEP
+
+    @NotBlank(message = "Note is required when resolving a conflict")
+    @Size(max = 1000)
+    private String note;                    // §4.10 强制要求；落库到 doc_parse_conflict_note
+}
+
+@Data
+@Builder
+public class NextConflictDto {
+    private UUID nextConflictId;            // null = 已无下一个
+    private boolean isLast;                 // 用于前端显示 Save vs Save & Next
+    private int remainingCount;
+    private String nextMetricCode;          // 跨 metric 跳转时前端高亮新行
+}
+```
+
+### 16.3 Java — Commit Service 整批事务（§4.11）
+
+```java
+// CIOaas-api/api/src/main/java/com/lg/docparse/service/CommitService.java
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class CommitService {
+
+    private final FiActualsRepository actualsRepo;
+    private final FiForecastVersionRepository forecastVersionRepo;
+    private final ImportedStatementsService importedStatementsService;
+    private final CommitAuditService auditService;
+    private final EmailNotificationService emailService;
+    private final SchemaValidator schemaValidator;
+
+    /**
+     * §4.11 — 整批事务写入：要么全部成功，要么全部回滚。
+     *
+     * 流程：
+     *  1. 写入前置校验（unmapped / 缺失元数据 / 未解决冲突 → 抛 BusinessException）
+     *  2. Schema 完整性校验（失败 → 抛错引导回相关步骤）
+     *  3. 在单一事务内执行：
+     *     a. 按 OVERWRITE/KEEP 决策写 fi_actuals（旧值进 fi_actuals_history）
+     *     b. Proforma → 创建新 forecast 版本（24 个月旧 + 6-7 个月新）
+     *     c. 所有上传文件保存到 Documents / Imported Statements 文件夹
+     *     d. 记录审计（doc_parse_commit_audit）
+     *  4. 事务提交后再触发外部副作用（email / 跳转），避免事务内做远程调用
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public CommitResult commit(UUID taskId, Long userId) {
+        DocParseTask task = loadAndLock(taskId);
+
+        // 1. 前置校验（hard gate）
+        assertAllRowsMapped(task);
+        assertAllConflictsResolved(task);
+
+        // 2. Schema 校验（失败抛 SchemaValidationException，含具体行号 / 字段）
+        List<MappingResult> approved = loadApprovedMappings(taskId);
+        schemaValidator.validate(approved);
+
+        // 3. 事务内写入
+        WrittenStats stats = writeActuals(approved, task);
+        UUID forecastVersionId = writeProformaIfAny(approved, task);   // §4.11 新版本
+        importedStatementsService.saveAllFilesToDocuments(taskId);     // §4.12 即使无数据也保存
+        auditService.recordCommit(task, stats, userId);                // 审计：含 written/overwritten/skipped
+
+        // 标记 Task 完成
+        task.setStatus(TaskStatus.COMPLETED);
+        task.setCompletedAt(Instant.now());
+
+        // 4. 事务提交后由 ApplicationEventPublisher 派发；
+        //    使用 @TransactionalEventListener(AFTER_COMMIT) 保证副作用不在事务内
+        eventPublisher.publishEvent(new CommitCompletedEvent(
+            task.getId(), stats, forecastVersionId,
+            stats.hasNewClosedMonth()  // §4.11 新增 closed month 才发邮件
+        ));
+
+        return CommitResult.builder()
+            .taskId(taskId)
+            .stats(stats)
+            .forecastVersionId(forecastVersionId)
+            .redirectTo("/benchmarks/info")  // §4.11 跳转 Benchmark Info Page
+            .build();
+    }
+
+    private void assertAllConflictsResolved(DocParseTask task) {
+        long unresolved = conflictRepo.countByTaskIdAndResolutionIsNull(task.getId());
+        if (unresolved > 0) {
+            throw new BusinessException(
+                "CONFLICTS_UNRESOLVED",
+                String.format("%d conflict(s) still pending resolution", unresolved));
+        }
+    }
+}
+```
+
+### 16.4 Java — 变更检测算法（§4.13 步骤导航）
+
+```java
+// CIOaas-api/api/src/main/java/com/lg/docparse/service/MappingChangeDetector.java
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class MappingChangeDetector {
+
+    private final ObjectMapper canonicalMapper;     // 注入开启 SORT_PROPERTIES_ALPHABETICALLY 的 mapper
+    private final DocParseTaskRepository taskRepo;
+    private final ConflictResolutionRepository conflictRepo;
+
+    /**
+     * §4.13 — 用户从下游步骤 Previous 回退后，判断 mapping 是否变化。
+     *  - 未变 → 保留所有结果（含 conflict_resolutions），瞬间进入下一步
+     *  - 已变 → 清空 conflict_resolutions，重新触发 verify
+     *
+     * 哈希算法：对 mappingResults 做 canonical JSON（key 排序、剔除 timestamps）
+     * 后取 SHA-256，与 doc_parse_task.mapping_snapshot_hash 比较。
+     */
+    @Transactional
+    public ChangeDetectionResult detectAndHandle(UUID taskId) {
+        DocParseTask task = taskRepo.findByIdForUpdate(taskId)
+            .orElseThrow(() -> new NotFoundException("Task not found"));
+
+        List<MappingResult> current = loadCurrentMappings(taskId);
+        String newHash = sha256(canonicalJson(current));
+        String oldHash = task.getMappingSnapshotHash();
+
+        if (newHash.equals(oldHash)) {
+            return ChangeDetectionResult.unchanged();   // §4.13 Scenario 1
+        }
+
+        // §4.13 Scenario 2 — 变更：清空旧解决方案 + 重跑 verification
+        int cleared = conflictRepo.deleteByTaskId(taskId);
+        task.setMappingSnapshotHash(newHash);
+        task.setMappingChangedAt(Instant.now());
+        taskRepo.save(task);
+
+        // 记录变更日志，便于审计回放
+        changeLogRepo.save(MappingChangeLog.builder()
+            .taskId(taskId)
+            .oldHash(oldHash)
+            .newHash(newHash)
+            .clearedResolutions(cleared)
+            .build());
+
+        log.info("Mapping changed for task={}, cleared {} resolutions, will rerun verify",
+            taskId, cleared);
+        return ChangeDetectionResult.changed(cleared);
+    }
+
+    /** Canonical JSON：key 按字典序、排除 timestamps / id 等不稳定字段 */
+    private String canonicalJson(List<MappingResult> mappings) {
+        try {
+            List<Map<String, Object>> stable = mappings.stream()
+                .map(m -> Map.<String, Object>of(
+                    "rowIndex", m.getRowIndex(),
+                    "label", m.getAccountLabel(),
+                    "category", m.getLgCategory(),
+                    "confidence", m.getConfidence(),
+                    "userOverride", m.isUserOverride()
+                ))
+                .sorted(Comparator.comparing(m -> (Integer) m.get("rowIndex")))
+                .toList();
+            return canonicalMapper.writeValueAsString(stable);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Canonical serialization failed", e);
+        }
+    }
+
+    private String sha256(String input) {
+        return DigestUtils.sha256Hex(input.getBytes(StandardCharsets.UTF_8));
+    }
+}
+```
+
+### 16.5 DDL 字段补丁（与 database-schema.md 同步）
+
+> **同步要求**: 以下 ALTER / CREATE 必须**同时**写入 [database-schema.md §2.1](./database-schema.md#21-doc_parse_task) 与对应迁移脚本。
+> 本文件仅作开发参考，权威定义以 database-schema.md 为准。
+
+```sql
+-- ① 扩展 doc_parse_task：5a/5b/5c 拆分 + 边界用例支持
+ALTER TABLE doc_parse_task
+    ADD COLUMN mapping_changed_at      TIMESTAMPTZ,
+    -- §4.13 最后一次 mapping 变更时间，用于 UI 显示 "based on your changes"
+    ADD COLUMN mapping_snapshot_hash   VARCHAR(64),
+    -- §4.13 SHA-256(canonical(mapping)); 进入 5b 前写入；5b 比对清空 conflict_resolutions
+    ADD COLUMN has_extractable_data    BOOLEAN NOT NULL DEFAULT TRUE,
+    -- §4.12 全部文件无可提取数据时为 false → 跳过 5a/5b/5c
+    ADD COLUMN extraction_skip_reason  VARCHAR(50),
+    -- §4.12 NO_TABLES / NARRATIVE_ONLY / IMAGE_NO_DATA / MIXED_PARTIAL
+    ADD COLUMN summary_cache           JSONB;
+    -- §4.9 缓存 {totalFiles,totalTypes,totalAccounts,...} 避免每次重算
+
+CREATE INDEX idx_doc_parse_task_mapping_hash
+    ON doc_parse_task (mapping_snapshot_hash)
+    WHERE mapping_snapshot_hash IS NOT NULL;
+
+-- ② 跳过 write 的审计日志（§4.12）
+CREATE TABLE ai_ocr_extraction_skip_log (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id         UUID NOT NULL REFERENCES doc_parse_task(id),
+    file_id         UUID REFERENCES doc_parse_file(id),     -- NULL = 整个 task 全部跳过
+    company_id      BIGINT NOT NULL,
+    skip_reason     VARCHAR(50) NOT NULL,
+        -- NO_TABLES / NARRATIVE_ONLY / IMAGE_NO_DATA
+    detected_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    detector_meta   JSONB                                    -- Python 透传：识别置信度、页面数等
+);
+
+CREATE INDEX idx_extraction_skip_task ON ai_ocr_extraction_skip_log (task_id);
+
+-- ③ Mapping 变更日志（§4.13）
+CREATE TABLE ai_ocr_mapping_change_log (
+    id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id                  UUID NOT NULL REFERENCES doc_parse_task(id),
+    old_hash                 VARCHAR(64),                    -- NULL = 首次进入 5b
+    new_hash                 VARCHAR(64) NOT NULL,
+    cleared_resolutions      INT NOT NULL DEFAULT 0,         -- 因变更被清空的 conflict 数
+    triggered_by             BIGINT NOT NULL,                -- user_id
+    changed_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_mapping_change_task_time
+    ON ai_ocr_mapping_change_log (task_id, changed_at DESC);
+```
+
+### 16.6 Python — 提取契约扩展（§4.12 无可提取数据）
+
+```python
+# source/ocr_agent/schemas/extraction.py
+from typing import Literal, Optional
+from pydantic import BaseModel, Field
+
+SkipReason = Literal["NO_TABLES", "NARRATIVE_ONLY", "IMAGE_NO_DATA"]
+
+class ExtractionResult(BaseModel):
+    """§4.12 扩展：明确标记是否有可提取数据。
+
+    has_extractable_data=False 时：
+      - tables 必为空
+      - skip_reason 必填
+      - Java 端收到后跳过 mapping/conflict/write，直接保存到 Imported Statements
+    """
+    has_extractable_data: bool = True
+    skip_reason: Optional[SkipReason] = None
+    tables: list["ExtractedTable"] = Field(default_factory=list)
+    extraction_notes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_consistency(self):
+        if not self.has_extractable_data:
+            if self.tables:
+                raise ValueError("tables must be empty when has_extractable_data=False")
+            if not self.skip_reason:
+                raise ValueError("skip_reason required when has_extractable_data=False")
+        return self
+
+
+# source/ocr_agent/pipeline/extract.py
+async def extract_node(state: OCRPipelineState) -> dict:
+    """§4.12 — 提取后判定是否有可提取数据，回传 Java 端走不同分支。"""
+    all_results: list[ExtractionResult] = []
+    for f in state["files"]:
+        result = await extract_one(f)
+        all_results.append(result)
+
+    # 整批是否全部无可提取数据 → Java 端 has_extractable_data=False
+    any_extractable = any(r.has_extractable_data and r.tables for r in all_results)
+
+    return {
+        "extracted_tables": [t.model_dump() for r in all_results for t in r.tables],
+        "skip_logs": [
+            {"file_id": f["id"], "reason": r.skip_reason}
+            for f, r in zip(state["files"], all_results)
+            if not r.has_extractable_data
+        ],
+        "has_extractable_data": any_extractable,
+        "current_step": "map" if any_extractable else "skip_to_save",
+    }
+```
+
+### 16.7 前端 — dva Model 变更检测与清空逻辑（§4.13）
+
+```typescript
+// CIOaas-web/src/models/ocrUpload.ts（节选）
+import { sha256 } from '@/utils/hash';
+
+interface FinancialUploadModelState {
+  // ... 既有字段（见 §12）
+  mappingHash: string | null;            // §4.13 当前 mapping 的本地哈希
+  prevMappingHash: string | null;        // 进入 5b 时的快照
+  conflictResolutions: ConflictResolution[];
+  mappingDirty: boolean;                 // §4.13 用户是否在 4 编辑过 mapping
+  changeNoticeVisible: boolean;          // §4.13 提示文案显隐
+}
+
+const ocrUploadModel = {
+  namespace: 'ocrUpload',
+  effects: {
+    /** 进入 5b（Conflict Resolution）前写入快照 */
+    *enterStep5b({ payload }, { call, put, select }) {
+      const mappings = yield select((s) => s.ocrUpload.mappingResults);
+      const hash = yield call(sha256, canonicalize(mappings));
+      yield put({ type: 'setSnapshot', payload: { hash } });
+    },
+
+    /** §4.13 — 从下游回到上游、再返回时调用 */
+    *checkMappingChanged(_, { call, put, select }) {
+      const { mappingResults, prevMappingHash } = yield select((s) => s.ocrUpload);
+      const newHash = yield call(sha256, canonicalize(mappingResults));
+
+      if (newHash !== prevMappingHash) {
+        // 变更检测命中：清空旧 resolution、提示用户、重新触发 verification
+        yield put({ type: 'clearConflictResolutions' });
+        yield put({ type: 'showChangeNotice' });
+        yield put({ type: 'restartVerification' });
+      }
+      yield put({ type: 'setSnapshot', payload: { hash: newHash } });
+    },
+  },
+  reducers: {
+    setSnapshot(state, { payload }) {
+      return { ...state, prevMappingHash: payload.hash, mappingHash: payload.hash };
+    },
+    clearConflictResolutions(state) {
+      return { ...state, conflictResolutions: [] };
+    },
+    showChangeNotice(state) {
+      return { ...state, changeNoticeVisible: true };
+    },
+  },
+};
+```
+
+### 16.8 前端 — ConflictDialog 组件骨架（§4.10）
+
+```tsx
+// CIOaas-web/src/pages/ocr/components/ConflictDialog.tsx
+import { Modal, Radio, Input, Button, Form } from 'antd';
+import { useState } from 'react';
+
+interface ConflictDialogProps {
+  conflict: ConflictItem;
+  isLast: boolean;                         // §4.10 决定主按钮文案
+  onResolved: (next: NextConflictDto) => void;
+  onClose: () => void;
+}
+
+export const ConflictDialog: React.FC<ConflictDialogProps> = ({
+  conflict, isLast, onResolved, onClose,
+}) => {
+  const [action, setAction] = useState<'OVERWRITE' | 'KEEP'>('OVERWRITE'); // §4.10 默认 OVERWRITE
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  // §4.10 Note 必填 — 空白时主按钮 disabled
+  const canSubmit = note.trim().length > 0 && !submitting;
+  const buttonLabel = isLast ? 'Save' : 'Save & Next';   // §4.10 动态文案
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    try {
+      const next = await api.resolveConflict(conflict.taskId, conflict.id, { action, note });
+      onResolved(next);          // 父组件据此跳到 next.nextConflictId 或关闭
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      title={`Conflict — ${conflict.metricName} ${conflict.reportingMonth}`}
+      onCancel={onClose}                     // §4.10 仅 X 图标可关闭
+      maskClosable={false}                   // §4.10 点外部不关闭
+      footer={null}
+    >
+      <div className="conflict-values">
+        <div>Current LG value: <strong>{conflict.currentLgValue}</strong></div>
+        <div>Mapping sum:     <strong>{conflict.mappingSum}</strong></div>
+      </div>
+
+      <Radio.Group value={action} onChange={(e) => setAction(e.target.value)}>
+        <Radio value="OVERWRITE">Overwrite LG with mapping value</Radio>
+        <Radio value="KEEP">Keep LG value (skip this metric)</Radio>
+      </Radio.Group>
+
+      <Form.Item label="Note" required validateStatus={note ? 'success' : 'error'}>
+        <Input.TextArea
+          rows={3}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Required: explain why you chose this action"
+        />
+      </Form.Item>
+
+      <Button type="primary" disabled={!canSubmit} onClick={handleSubmit} loading={submitting}>
+        {buttonLabel}
+      </Button>
+    </Modal>
+  );
+};
+```
+
+### 16.9 前端 — 变更检测 hook（§4.13）
+
+```tsx
+// CIOaas-web/src/pages/ocr/hooks/useMappingChangeDetector.ts
+import { useEffect } from 'react';
+import { useDispatch, useSelector } from 'dva';
+import { message } from 'antd';
+
+/**
+ * §4.13 — 当用户从 Previous 回到映射编辑页修改后再前进，
+ * 检测 mappingHash 是否变更：
+ *  - 变更：清空 conflict resolutions、提示用户、自动重跑 verification
+ *  - 未变：什么都不做（瞬间无缝进入下一步）
+ */
+export function useMappingChangeDetector() {
+  const dispatch = useDispatch();
+  const { mappingDirty, mappingHash, prevMappingHash } = useSelector(
+    (s: GlobalState) => s.ocrUpload,
+  );
+
+  useEffect(() => {
+    if (mappingDirty && mappingHash && mappingHash !== prevMappingHash) {
+      dispatch({ type: 'ocrUpload/clearConflictResolutions' });
+      dispatch({ type: 'ocrUpload/restartVerification' });
+      message.info(
+        // §4.13 积极向前的措辞，而非警告
+        "Your mapping changes have been applied. Please review the updated verification results.",
+        4,
+      );
+    }
+  }, [mappingHash, prevMappingHash, mappingDirty, dispatch]);
+}
+```
+
+---
+
+## 变更日志
+
+| 日期 | 变更 |
+|------|------|
+| 2026-04-20 | 新增 §15 S3 Presigned URL 实操（CORS / Java 双端点 / 前端分块 SHA-256 / 续签 / Pydantic camelCase）。 |
+| 2026-05-06 | 新增 §16 Step 5 拆分实现示例（响应 [requirement-analysis.md §4.9-4.14](./requirement-analysis.md)）：<br/>• §16.1 MappingSummaryController（5a 三接口）<br/>• §16.2 ConflictResolutionController（5b Note 必填、动态按钮）<br/>• §16.3 CommitService 整批事务（5c fi_* 写入 + Imported Statements + email + Proforma 新版本）<br/>• §16.4 MappingChangeDetector（4.13 SHA-256 + 清空 resolutions）<br/>• §16.5 DDL 补丁（doc_parse_task 5 个新字段 + 2 张新表）<br/>• §16.6 Python ExtractionResult 扩展（4.12 has_extractable_data / skip_reason）<br/>• §16.7 dva Model 快照与清空<br/>• §16.8 ConflictDialog（Note 必填 / Save vs Save & Next）<br/>• §16.9 useMappingChangeDetector hook |

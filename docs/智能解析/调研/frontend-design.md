@@ -52,16 +52,25 @@ POST   /api/v1/docparse/tasks/{taskId}/conflicts/{conflictId}/notes   → Confir
 
 ## 1. 页面路由
 
-所有页面挂载在 `/financial` 路由前缀下，通过 `sessionId` 串联完整流程：
+所有页面挂载在 `/financial` 路由前缀下，通过 `sessionId`（即 `taskId`）串联完整流程：
 
 ```
-路由                                  组件               说明
-────────────────────────────────────────────────────────────────────────────
-/financial/upload                    UploadPage          Step 1: 文件上传 + 队列管理
-/financial/upload/:sessionId         ProcessingPage      Step 2: AI 提取进度（自动跳转）
-/financial/review/:sessionId         ReviewPage          Step 3: 并排审核 + 内联编辑（核心页面）
-/financial/confirm/:sessionId        ConfirmPage         Step 4+5: 冲突解决 + 最终提交
+路由                                       组件                       说明
+─────────────────────────────────────────────────────────────────────────────────────────
+/financial/upload                         UploadPage                Step 1: 文件上传 + 队列管理
+/financial/upload/:taskId                 ProcessingPage            Step 2: AI 提取进度（自动跳转）
+/financial/review/:taskId                 ReviewPage                Step 3-4: 并排审核 + 内联编辑（核心页面）
+/financial/upload/:taskId/summary         MappingSummaryPage        Step 5a: 映射汇总 + Start Verification（§4.9 新增）
+/financial/upload/:taskId/conflicts       ConflictResolutionPage    Step 5b: 冲突解决（§4.10 新增）
+/financial/upload/:taskId/commit          CommitPage                Step 5c: 写入 LG + 成功页（§4.11 新增）
+/financial/upload/:taskId/empty           EmptyMappingPage          §4.12 Edge Case：无可提取数据
 ```
+
+**变更说明（2026-05-06）**: 原 `/financial/confirm/:sessionId` 单一路由（ConfirmPage 内三阶段切换）拆为 3 个独立路由对应 5a/5b/5c。理由：
+
+1. 每一步都是独立的"checkpoint"（详见 §4.9-4.11），用户可以 Previous 来回切换；URL 必须能精确表达当前步骤，否则浏览器后退/分享/审计日志都会失真。
+2. §4.13 要求 Previous 在每一步可用且能保留状态；独立路由让"步骤栈"自然成立，避免在单页内手工管理回退栈。
+3. §4.12 的"无数据"边界用例需要一个专属空态页，独立路由让导航守卫直接命中。
 
 **UmiJS 路由配置** (`config/routes.ts`):
 
@@ -75,28 +84,49 @@ POST   /api/v1/docparse/tasks/{taskId}/conflicts/{conflictId}/notes   → Confir
       name: 'financial-upload',
     },
     {
-      path: '/financial/upload/:sessionId',
+      path: '/financial/upload/:taskId',
       component: './Financial/Upload/ProcessingPage',
       name: 'financial-processing',
+      exact: true,
     },
     {
-      path: '/financial/review/:sessionId',
+      path: '/financial/review/:taskId',
       component: './Financial/Review/ReviewPage',
       name: 'financial-review',
     },
+    // ====== 2026-05-06 新增 5a / 5b / 5c / Empty 路由 ======
     {
-      path: '/financial/confirm/:sessionId',
-      component: './Financial/Confirm/ConfirmPage',
-      name: 'financial-confirm',
+      path: '/financial/upload/:taskId/summary',
+      component: './Financial/Commit/MappingSummaryPage',
+      name: 'financial-mapping-summary',
+    },
+    {
+      path: '/financial/upload/:taskId/conflicts',
+      component: './Financial/Commit/ConflictResolutionPage',
+      name: 'financial-conflicts',
+    },
+    {
+      path: '/financial/upload/:taskId/commit',
+      component: './Financial/Commit/CommitPage',
+      name: 'financial-commit',
+    },
+    {
+      path: '/financial/upload/:taskId/empty',
+      component: './Financial/Commit/EmptyMappingPage',
+      name: 'financial-empty-mapping',
     },
   ],
 }
 ```
 
 **导航守卫**:
-- `ProcessingPage`: 如果 session 状态已是 `COMPLETED`，直接 `history.replace` 到 ReviewPage
-- `ReviewPage`: 如果 session 状态不是 `COMPLETED`，重定向回 ProcessingPage
-- `ConfirmPage`: 如果存在未通过的硬验证，重定向回 ReviewPage 并显示错误提示
+- `ProcessingPage`: 如果 task.status 已经 ≥ `REVIEWING`，根据当前 status 跳转到对应页面（见 §5.1 状态映射）
+- `ReviewPage`: 如果 task.status 不是 `REVIEWING`，根据当前 status 跳转到对应页面
+- `MappingSummaryPage` (Step 5a): 仅 `REVIEWING` / `VERIFYING` 状态可访问；ReviewPage 通过 ActionBar 的 "Next: Verify Mapping" 进入
+- `ConflictResolutionPage` (Step 5b): 仅 `CONFLICT_RESOLUTION` 状态可访问；如果检测无冲突则自动跳到 5c
+- `CommitPage` (Step 5c): 仅 `COMMITTING` / `COMPLETED` 状态可访问
+- `EmptyMappingPage`: 仅当所有文件均无可提取数据（§4.12）才展示
+- 旧路径 `/financial/confirm/:sessionId` 保留 301 → `/financial/upload/:taskId/summary`，避免外部链接断裂
 
 ## 2. 组件层级
 
@@ -282,7 +312,11 @@ ReviewPage
   └── ActionBar (固定在页面底部)
         ├── Previous 按钮 (返回 ProcessingPage 或 UploadPage)
         ├── Save Draft 按钮 (手动触发保存，通常自动保存已覆盖)
-        └── Next: Confirm 按钮 (primary, 触发硬验证后跳转 ConfirmPage)
+        └── Next: Verify Mapping 按钮 (primary)
+              文案 2026-05-06 更新（原 "Next: Confirm"）
+              点击 → dispatch financialUpload/proceedFromReview
+                     → 触发硬验证 + §4.13 变更检测
+                     → history.push(`/financial/upload/:taskId/summary`)（进入 5a）
 ```
 
 **SplitView 分割线交互**:
@@ -291,50 +325,320 @@ ReviewPage
 - 双击分割线恢复 50/50
 - 比例存储在 `localStorage` 中，刷新后保持
 
-#### ConfirmPage
+#### MappingSummaryPage（Step 5a — 2026-05-06 新增，对应 [requirement-analysis §4.9](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)）
 
 ```
-ConfirmPage（Asana 2026-04-19 重构为两阶段流程）
+MappingSummaryPage（路由: /financial/upload/:taskId/summary）
   │
-  ├── Stage 1: VerifyDataSummary（新增阶段，冲突检测前的摘要）
-  │     ├── SummaryStats
-  │     │     ├── 源文件总数
-  │     │     ├── 映射类型数
-  │     │     └── 映射账户数
-  │     ├── StartVerificationButton (antd Button primary)
-  │     │     点击 → 调 POST /docparse/tasks/{id}/verify
-  │     └── VerificationProgress (实时进度指示器)
-  │           轮询 GET /docparse/tasks/{id}/verify/status
+  ├── StepIndicator（贯穿 5a/5b/5c 的步骤指示器）
+  │     [✓ Review] → [● Verify Mapping] → [○ Resolve Conflicts] → [○ Commit]
   │
-  ├── Stage 2: ConflictResolutionView（verify 完成后显示）
-  │     ├── FinancialEntryFormatGrid
-  │     │     以 Financial Entry 格式渲染 (列=报告周期，行=LG 指标)
-  │     │     每个 ConflictCell 高亮（黄色背景 + warning 图标）
-  │     │
-  │     └── ConflictPopup (点击冲突单元格打开)
-  │           ├── CurrentLGValue (当前 LG 中的值)
-  │           ├── MappingResultSum (映射结果的总和)
-  │           ├── ActionButtons (仅两个选项，Cancel 已移除)
-  │           │     ├── "用映射值覆盖" (Select action → Overwrite)
-  │           │     └── "保留 LG 值" (Keep LG Value → Skip)
-  │           └── NoteField (Asana Story #7 2026-04-19)
-  │                 ├── Textarea (placeholder: "解释为何这样处理冲突，可选")
-  │                 │     2000 字限制 + CharCount (0/2000)
-  │                 ├── AutoDefaultNote
-  │                 │     用户不填时系统自动生成:
-  │                 │     "{时间} - {用户} 接受上传值覆盖 LG（原 {旧值} → 新 {新值}）"
-  │                 ├── NoteThread (历史 notes 倒序时间线)
-  │                 │     每条 NoteItem: 作者 + 时间 + 内容 + AutoGenerated 徽章
-  │                 └── AddReplyInput
-  │                       用户可追加新 note 到 thread (类似 Slack 评论回复)
+  ├── SummaryStats（中央卡片，三个数字大字号显示）
+  │     ┌──────────────────────────────────────────────────┐
+  │     │  Mapping Summary                                  │
+  │     │  ────────────────────────────────                 │
+  │     │   3                  2                  47        │
+  │     │  Source Files   Statement Types   Source Accounts │
+  │     │                                                   │
+  │     │  Statement Types: P&L (1), Proforma (1)           │
+  │     │  Files: 2024_PnL.pdf, BS.xlsx, Forecast.xlsx      │
+  │     └──────────────────────────────────────────────────┘
   │
-  └── Stage 3: CommitButton (所有冲突解决后才能点击)
-        antd Button type="primary" size="large", disabled until 所有冲突都已选择
-        Text: "确认并写入 LG"
-        点击 → POST /docparse/tasks/{id}/commit
-        成功 → 跳转 SuccessPage + 触发新闭月邮件（后端异步）
-        失败 → 整体 rollback（不允许部分写入），显示错误
+  ├── PreflightChecklist（写入前置条件，hard gate）
+  │     ✓ All extracted line items reviewed and approved
+  │     ✓ No unmapped accounts remaining
+  │     ✓ All metadata complete (Account / Value / Month)
+  │     ✗ "3 items are missing an LG category" — 任一项失败则禁用 Start Verification
+  │       并提供 "Back to Review" 链接定位到对应行
+  │
+  ├── StartVerificationButton (antd Button primary, size large)
+  │     文案: "Start Verification"
+  │     条件:  PreflightChecklist 全部通过才可点击
+  │     点击 → POST /api/v1/docparse/tasks/{id}/verify
+  │            → task.status: REVIEWING → VERIFYING
+  │            → 切换为 VerificationProgressView
+  │
+  ├── VerificationProgressView（验证进行中的内联视图，替换 SummaryStats）
+  │     ├── ProgressBar (antd Progress percent, 实时百分比)
+  │     │     轮询 GET /api/v1/docparse/tasks/{id}/verify/status (每 1s)
+  │     │     展示 "Comparing {processedMetrics}/{totalMetrics} metrics..."
+  │     ├── 取消按钮 (Previous)
+  │     │     点击 → 中止验证（后端将 task.status 回退到 REVIEWING）
+  │     │            前端回到 SummaryStats 视图（不离开本页）
+  │     │            注：§4.9 明确"验证过程中点击 Previous 会停止验证并回到 Verify Data Summary 页"
+  │     └── 完成后：
+  │            - 检测到冲突 → history.push(`/financial/upload/:taskId/conflicts`)
+  │            - 无冲突 → history.push(`/financial/upload/:taskId/commit`)（直接进入提交，详见 §4.10 自动写入条件）
+  │
+  └── ActionBar（页面底部）
+        ├── PreviousButton — 回到 ReviewPage（启用变更检测，见 §15）
+        └── StartVerificationButton（同上，sticky）
 ```
+
+**关键约束**:
+- **不能跳过此屏幕** — 用户必须主动点击 Start Verification 才会触发 verify
+- **平台级 USD display toggle 不适用于此流程**（§4.9 明确）
+- **仅 Actuals tab 参与冲突检测**，Proforma 整体豁免（提示文案 "Proforma data will be saved as a new committed forecast version"）
+
+#### ConflictResolutionPage（Step 5b — 2026-05-06 新增，对应 [requirement-analysis §4.10](./requirement-analysis.md#410-step-5b--conflict-resolution-of-manual-uploads2026-05-06-新增)）
+
+```
+ConflictResolutionPage（路由: /financial/upload/:taskId/conflicts）
+  │
+  ├── StepIndicator [✓ Review] → [✓ Verify] → [● Resolve Conflicts] → [○ Commit]
+  │
+  ├── ConflictHeader
+  │     "{resolvedCount} of {totalCount} conflicts resolved"
+  │     ProgressBar (绿色填充，已解决比例)
+  │
+  ├── FinancialEntryGrid（沿用 Financial Entry 视觉风格 — antd Table + 固定首列 + 横向滚动）
+  │     列定义: 第 1 列 = LG Metric（固定列），后续列 = 报告周期（动态月份）
+  │     行: LG metric 列表（仅展示有冲突的 metric，按 19 类排序）
+  │
+  │     单元格状态机:
+  │       ┌──────────┬────────────────────────────────────────────────┐
+  │       │ 无冲突    │ 灰色文本，普通显示                              │
+  │       │ 待解决冲突 │ 黄色高亮背景 + warning 图标 + 数值（hover 显示对比）│
+  │       │ 已解决    │ 绿色背景 + ✓ 图标 + 解决后的最终值              │
+  │       │ 当前选中  │ 蓝色描边（用于自动跳转时视觉锚定）              │
+  │       └──────────┴────────────────────────────────────────────────┘
+  │
+  │     点击冲突单元格 → 打开 ConflictDialog（见下方）
+  │     已解决单元格点击 → 重新打开 ConflictDialog 允许修改决策
+  │
+  ├── ConflictDialog（antd Modal — 受控，不可点击外部关闭）
+  │     ┌────────────────────────────────────────────────────┐
+  │     │  Resolve Conflict: Revenue · 2024-03           [X] │
+  │     │  ────────────────────────────────────────────────  │
+  │     │                                                    │
+  │     │   Current LG Value:    $1,250,000                  │
+  │     │   Mapped Result Sum:   $1,275,000                  │
+  │     │                                                    │
+  │     │   ○ Select action      (use mapped value, default)│
+  │     │   ○ Keep LG Value      (skip this metric)          │
+  │     │                                                    │
+  │     │   Note (required)                                  │
+  │     │   ┌──────────────────────────────────────────┐    │
+  │     │   │ Explain why this resolution was chosen...│    │
+  │     │   └──────────────────────────────────────────┘    │
+  │     │   {charCount}/2000                                  │
+  │     │                                                    │
+  │     │   NoteThread (历史追加记录，倒序时间线)            │
+  │     │                                                    │
+  │     │                              [ Save & Next ]       │  ← 动态文案
+  │     └────────────────────────────────────────────────────┘
+  │
+  │     按钮规则（§4.10 严格执行）:
+  │       1. Note 字段为空（trim 后 length === 0） → 主按钮 disabled
+  │       2. 当前不是最后一个冲突 → 文案 "Save & Next"
+  │       3. 当前是最后一个冲突   → 文案 "Save"
+  │       4. X 图标关闭弹窗，但点击外部不关闭（antd Modal maskClosable={false}）
+  │
+  │     Save & Next 自动跳转算法（详见下方 NextConflictResolver）:
+  │       - 同 metric 内按月份从左到右
+  │       - 跨 metric 时按 19 类的固定顺序
+  │
+  └── ActionBar
+        ├── PreviousButton — 回到 MappingSummaryPage(5a)，触发变更检测（§15）
+        └── ProceedButton  — 文案 "Commit to LG"，仅当所有冲突已解决才启用
+              点击 → history.push(`/financial/upload/:taskId/commit`) → 触发 5c 写入
+```
+
+**NextConflictResolver — 自动跳转下一个冲突的逻辑**:
+
+```typescript
+// utils/conflictNavigator.ts
+import type { ConflictItem } from '@/models/financialUpload';
+
+const LG_METRIC_ORDER = [
+  // P&L
+  'Revenue', 'COGS', 'S&M Expenses', 'R&D Expenses', 'G&A Expenses',
+  'S&M Payroll', 'R&D Payroll', 'G&A Payroll', 'Other Income', 'Other Expense',
+  // Balance Sheet
+  'Cash', 'Accounts Receivable', 'R&D Capitalized', 'Other Assets',
+  'Accounts Payable', 'Short Term Debt', 'Long Term Debt', 'Other Liabilities', 'Equity',
+];
+
+export function findNextConflict(
+  current: ConflictItem,
+  all: ConflictItem[]
+): ConflictItem | null {
+  const unresolved = all.filter(c => !c.resolution || c.conflictId === current.conflictId);
+  if (unresolved.length <= 1) return null; // 当前是最后一个
+
+  // 1. 同 metric 内按月份从左到右
+  const sameMetric = unresolved
+    .filter(c => c.metric === current.metric && c.conflictId !== current.conflictId)
+    .sort((a, b) => a.period.localeCompare(b.period)); // ISO 月份字符串排序
+  if (sameMetric.length > 0) return sameMetric[0];
+
+  // 2. 跨 metric 按 LG_METRIC_ORDER 顺序
+  const currentIdx = LG_METRIC_ORDER.indexOf(current.metric);
+  for (let i = currentIdx + 1; i < LG_METRIC_ORDER.length; i++) {
+    const next = unresolved
+      .filter(c => c.metric === LG_METRIC_ORDER[i])
+      .sort((a, b) => a.period.localeCompare(b.period))[0];
+    if (next) return next;
+  }
+  return null;
+}
+
+export function isLastConflict(
+  current: ConflictItem,
+  all: ConflictItem[]
+): boolean {
+  return findNextConflict(current, all) === null;
+}
+```
+
+**ConflictDialog 主按钮 props 推导**:
+
+```typescript
+const saveButtonText = isLastConflict(current, conflicts) ? 'Save' : 'Save & Next';
+const saveButtonDisabled = !note || note.trim().length === 0;
+
+<Button
+  type="primary"
+  disabled={saveButtonDisabled}
+  onClick={handleSave}
+>
+  {saveButtonText}
+</Button>
+```
+
+**handleSave 行为**:
+
+```typescript
+async function handleSave() {
+  // 1. 持久化决策到后端
+  await dispatch({
+    type: 'financialUpload/resolveConflict',
+    payload: { conflictId: current.conflictId, resolution: selectedAction, note },
+  });
+  // 2. UI: 关闭对话框，对应单元格变绿
+  // 3. 自动跳转
+  const next = findNextConflict(current, conflicts);
+  if (next) {
+    setActiveConflict(next); // 立即弹出下一个 ConflictDialog
+  } else {
+    // 所有冲突已解决 — 关闭对话框，"Commit to LG" 按钮变可点
+  }
+}
+```
+
+**Note 字段（详见 §3 dva model 的 conflictResolutions）**:
+- 必填（§4.10 强制要求，与 §4.7 Story #7 中"可选"不冲突 — 5b 流程升级为必填）
+- 2000 字符限制 + CharCount 实时显示
+- NoteThread 沿用 §3 ConfirmPage 已定义的组件（追加 reply 形成时间线）
+
+#### CommitPage（Step 5c — 2026-05-06 新增，对应 [requirement-analysis §4.11](./requirement-analysis.md#411-step-5c--commit-uploaded-data-to-lg--display-results2026-05-06-新增)）
+
+```
+CommitPage（路由: /financial/upload/:taskId/commit）
+  │
+  ├── 默认渲染 CommitLoadingView，根据 commitStatus 切换为 SuccessView / ErrorView
+  │
+  ├── CommitLoadingView（task.status = COMMITTING）
+  │     ┌────────────────────────────────────────────────────┐
+  │     │  ⟳ Writing your data to Looking Glass...           │
+  │     │  ────────────────────────────────────────────────  │
+  │     │  ProgressBar (轮询 GET /tasks/{id}/status)          │
+  │     │                                                    │
+  │     │  ⚠ Do not close this tab until the write completes │
+  │     │     (Operation is atomic — partial writes are not  │
+  │     │      possible; closing here triggers retry on next │
+  │     │      visit.)                                       │
+  │     └────────────────────────────────────────────────────┘
+  │
+  ├── CommitSuccessBanner（task.status ∈ {COMMITTED, MEMORY_LEARN_*}）
+  │     ┌────────────────────────────────────────────────────┐
+  │     │  ✓ Successfully written to Looking Glass            │
+  │     │  ────────────────────────────────────────────────  │
+  │     │   Accounts written:    47                          │
+  │     │   Reporting periods:   2024-01 … 2024-03           │
+  │     │   Document types:      P&L, Proforma                │
+  │     │   New committed forecast version:  v3 (Proforma)   │
+  │     │   Files saved to: Documents → Imported Statements   │
+  │     │                                                    │
+  │     │   [ View your updated benchmarks → ]               │
+  │     │   [ Back to Financial Entry ]                       │
+  │     └────────────────────────────────────────────────────┘
+  │
+  │     交互:
+  │       - "View your updated benchmarks" 跳转 Benchmark Info Page
+  │         (Asana GID 1212956218889125)
+  │       - 顶部 NotificationIndicator 触发 Toast: "New closed month detected, email sent."
+  │         (仅当 §4.11 "若引入新的 closed month" 条件满足)
+  │       - 记忆学习悬浮条沿用 §13.4 已有设计
+  │
+  ├── CommitErrorView（task.status 仍为 CONFLICT_RESOLUTION 或 REVIEWING — Java 事务回滚）
+  │     ┌────────────────────────────────────────────────────┐
+  │     │  ✗ Write to Looking Glass failed                   │
+  │     │  ────────────────────────────────────────────────  │
+  │     │  错误消息（具体可操作，禁止泛化）:                  │
+  │     │    "3 items are missing an LG category. Please      │
+  │     │     return to Review and resolve them."             │
+  │     │                                                    │
+  │     │   [ Retry Commit ]   [ Back to Review ]            │
+  │     └────────────────────────────────────────────────────┘
+  │
+  │     错误消息文案要求（§4.11 明确）:
+  │       禁止: "Failed to commit. Please try again."
+  │       允许: "3 items are missing an LG category"
+  │             "Schema validation failed: Revenue cannot be negative"
+  │             "Conflict in 2024-03 Revenue is not yet resolved"
+  │
+  └── ActionBar
+        ├── 成功状态 → [View Benchmarks] / [Back to Financial Entry]
+        ├── 失败状态 → [Retry] / [Back to Review]
+        └── Loading 中 → 按钮全部隐藏
+```
+
+**与 §4.11 的对齐点**:
+- 整批原子写入：commitStatus = 'committing' 时禁止用户离开（beforeunload 阻拦）
+- 成功后 Proforma 数据创建新的 committed forecast 版本（后端处理，前端只展示版本号）
+- 文件统一归档到 Documents → "Imported Statements" 文件夹（前端 SuccessBanner 提示）
+- 若引入新闭月触发 email 通知（前端不触发，仅显示 Toast）
+
+#### EmptyMappingPage（§4.12 Edge Case — 2026-05-06 新增）
+
+```
+EmptyMappingPage（路由: /financial/upload/:taskId/empty）
+  ┌────────────────────────────────────────────────────────┐
+  │  📄 No financial data found                             │
+  │  ────────────────────────────────────────────────────  │
+  │  No financial data was found in your uploaded documents.│
+  │  Your files have been saved to your Documents page      │
+  │  under "Imported Statements".                           │
+  │                                                        │
+  │  [ View Documentation → ]   [ Close ]                  │
+  └────────────────────────────────────────────────────────┘
+```
+
+**触发条件**:
+- ProcessingPage 轮询完成时检测到 `task.allFilesNoExtractable === true`（后端返回字段）
+- 自动 `history.replace(/financial/upload/:taskId/empty)`，跳过 Review/Verify/Conflict/Commit
+- 文件已由后端归档到 Imported Statements 文件夹（前端只展示提示）
+
+**混合批次处理**（部分文件有数据、部分没有，§4.12 强调）:
+- **不**跳到 EmptyMappingPage，而是正常进入 ReviewPage
+- ReviewPage 顶部加 `SkippedFilesBanner` 横幅:
+  ```
+  ┌────────────────────────────────────────────────────────┐
+  │  ℹ 2 of 5 files contained no extractable data and were │
+  │    saved to Imported Statements without further       │
+  │    processing:                                         │
+  │      • cover_page.pdf                                  │
+  │      • notes.png                                       │
+  │  The remaining 3 files are ready for your review below.│
+  └────────────────────────────────────────────────────────┘
+  ```
+- 横幅可关闭（X 按钮），但 session 内持久（基于 `task.skipped_files` 字段）
+- 不阻塞 review 流程（§4.12 明确"不阻塞有数据文件的流程"）
+
+**UX 文案要求（§4.12）**:
+- 提示信息**中性** — 让用户理解文件保存成功而非失败
+- 文案禁用 "failed" / "error" 等词，使用 "saved" / "no data found" 等中性表达
 
 **Note 字段可见性（2026-04-19 扩展）**
 
@@ -435,7 +739,8 @@ interface ConflictItem {
   conflictId: string;
   tableId: string;
   accountLabel: string;
-  period: string;
+  metric: string;                 // LG metric 名称（用于 5b 网格 + Next 跳转，§4.10 新增）
+  period: string;                 // ISO 月份字符串 e.g. "2024-03"
   existingValue: number;
   existingSource: string;         // e.g. "QuickBooks"
   existingDate: string;           // 写入时间
@@ -443,6 +748,30 @@ interface ConflictItem {
   /** 全大写对齐 Java enum DocParseConflictAction；Cancel 选项已移除（Asana 2026-04-19） */
   resolution?: 'OVERWRITE' | 'SKIP';
   note?: string;
+  resolvedAt?: string;            // ISO timestamp，用于 5b 单元格变绿动画
+}
+
+/** 冲突决策映射（§4.10 — 用 Map 而非 array 便于 O(1) 查询/更新） */
+type ConflictResolutionMap = Record<string, {
+  resolution: 'OVERWRITE' | 'SKIP';
+  note: string;
+  resolvedAt: string;
+}>;
+
+/** Mapping Summary（5a 展示数据） */
+interface MappingSummary {
+  sourceFileCount: number;
+  statementTypeCount: number;
+  statementTypes: Array<{ type: 'P&L' | 'Balance Sheet' | 'Proforma' | 'Misc'; count: number }>;
+  mappedAccountCount: number;
+  files: Array<{ fileId: string; filename: string; documentType: string }>;
+  /** Preflight check 结果，全部 pass 才允许 Start Verification */
+  preflightChecks: {
+    allReviewed: boolean;
+    noUnmapped: boolean;
+    metadataComplete: boolean;
+    failureMessages: string[];     // e.g. ["3 items are missing an LG category"]
+  };
 }
 
 /** Task 级状态 —— 对齐 java-design.md §3.1 DocParseStatus enum 20 值 */
@@ -532,6 +861,39 @@ interface FinancialUploadModelState {
   conflicts: ConflictItem[];
   commitStatus: 'idle' | 'committing' | 'success' | 'error';
   commitErrorMessage?: string;
+
+  // ===== 2026-05-06 新增：5a / 5b / 5c + 变更检测 =====
+
+  /** Step 5a: Mapping Summary 展示数据（进入 5a 时拉取） */
+  mappingSummary: MappingSummary | null;
+
+  /** Step 5a: 实时验证进度 (0-100)；轮询 GET /verify/status 更新 */
+  verificationProgress: number;
+
+  /** Step 5b: 冲突决策（O(1) 查询，对应 §4.10 自动跳转算法） */
+  conflictResolutions: ConflictResolutionMap;
+
+  /** §4.13 变更检测：进入 5a 时记录 mapping 快照 hash
+   *  - 进入 5a 时由 effect 计算并存储
+   *  - 用户从 5a/5b/5c 点 Previous 回 ReviewPage 修改后再前进时，
+   *    比对新 hash != mappingSnapshotHash，触发 conflictResolutions 清空 + 重新 verify */
+  mappingSnapshotHash: string | null;
+
+  /** §4.13 变更检测：mapping 是否被修改（dirty flag）
+   *  - ReviewPage 触发 updateRow / overrideMapping 时设置为 true
+   *  - 进入 5a 后置回 false（snapshot 已记录） */
+  mappingDirty: boolean;
+
+  /** §4.13 用户从 5a 退回 review 后再次进入时显示提示横幅 */
+  showRefreshNotice: boolean;
+
+  /** §4.12 Edge Case：所有文件均无可提取数据
+   *  - 后端 status API 返回 allFilesNoExtractable=true 时设置
+   *  - 触发 EmptyMappingPage 跳转 */
+  allFilesNoExtractable: boolean;
+
+  /** §4.12 混合批次：被跳过的文件（仅记录，用于 ReviewPage SkippedFilesBanner） */
+  skippedFiles: Array<{ fileId: string; filename: string; reason: string }>;
 }
 ```
 
@@ -796,6 +1158,254 @@ effects: {
     }
   },
 }
+```
+
+#### Effects — 5a / 5b / 5c 与变更检测（2026-05-06 新增）
+
+```typescript
+// utils/mappingHash.ts —— 用于 §4.13 变更检测
+import { sha256 } from 'hash-wasm';
+
+/**
+ * 计算 mapping 状态的 hash。
+ * 关键不变量：只要这个 hash 没变，就保证下游 verify 结果可复用。
+ * 为了语义稳定，必须按 rowId 排序后序列化。
+ */
+export async function computeMappingHash(state: {
+  extractedTables: ExtractedTable[];
+  mappingResults: Record<string, MappingResult>;
+}): Promise<string> {
+  const sortedRows = state.extractedTables
+    .flatMap(t => t.rows.map(r => ({ tableId: t.tableId, rowId: r.rowId, label: r.accountLabel, values: r.values })))
+    .sort((a, b) => a.rowId.localeCompare(b.rowId));
+  const sortedMappings = Object.entries(state.mappingResults)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([rowId, m]) => ({ rowId, lgCategory: m.lgCategory }));
+  const payload = JSON.stringify({ sortedRows, sortedMappings });
+  return sha256(payload);
+}
+
+effects: {
+  /** Step 5a 进入时：拉取 summary 数据 + 记录 mapping snapshot hash */
+  *enterMappingSummary({ payload }: { payload: { taskId: string } }, { call, put, select }) {
+    const summary: MappingSummary = yield call(getMappingSummary, payload.taskId);
+    const state = yield select(s => s.financialUpload);
+    const hash: string = yield call(computeMappingHash, state);
+
+    yield put({
+      type: 'setState',
+      payload: {
+        mappingSummary: summary,
+        mappingSnapshotHash: hash,
+        mappingDirty: false,
+        showRefreshNotice: false,
+      },
+    });
+  },
+
+  /** Step 5a 触发 verification */
+  *startVerification({ payload }: { payload: { taskId: string } }, { call, put }) {
+    yield put({ type: 'setState', payload: { verificationProgress: 0 } });
+
+    yield call(triggerVerify, payload.taskId);  // POST /tasks/{id}/verify
+    // 轮询 verify 状态
+    while (true) {
+      const resp = yield call(getVerifyStatus, payload.taskId);
+      yield put({ type: 'setState', payload: { verificationProgress: resp.progressPct } });
+
+      if (resp.status === 'CONFLICT_RESOLUTION') {
+        yield put({ type: 'fetchConflicts', payload: { taskId: payload.taskId } });
+        history.push(`/financial/upload/${payload.taskId}/conflicts`);
+        return;
+      }
+      if (resp.status === 'COMMITTING' || resp.status === 'COMPLETED') {
+        // 无冲突，直接进 5c（Java 在无冲突时已自动 commit）
+        history.push(`/financial/upload/${payload.taskId}/commit`);
+        return;
+      }
+      if (resp.status === 'REVIEWING') {
+        // 用户取消了 verification，停留在 5a
+        yield put({ type: 'setState', payload: { verificationProgress: 0 } });
+        return;
+      }
+      yield call(delay, 1000);
+    }
+  },
+
+  /** Step 5a 用户点击 Previous 取消 verification */
+  *cancelVerification({ payload }: { payload: { taskId: string } }, { call, put }) {
+    yield call(cancelVerify, payload.taskId);  // 后端将 task.status 回退到 REVIEWING
+    yield put({ type: 'setState', payload: { verificationProgress: 0 } });
+  },
+
+  /** Step 5b 拉取冲突列表 */
+  *fetchConflicts({ payload }: { payload: { taskId: string } }, { call, put }) {
+    const conflicts: ConflictItem[] = yield call(getConflicts, payload.taskId);
+    yield put({ type: 'setState', payload: { conflicts, conflictResolutions: {} } });
+  },
+
+  /** Step 5b 解决单个冲突（Save & Next 的 backend 持久化） */
+  *resolveConflict(
+    { payload }: { payload: { conflictId: string; resolution: 'OVERWRITE' | 'SKIP'; note: string } },
+    { call, put, select }
+  ) {
+    const { sessionId } = yield select(s => s.financialUpload);
+    yield call(postConflictResolution, sessionId, {
+      conflictId: payload.conflictId,
+      resolution: payload.resolution,
+      note: payload.note,
+    });
+    yield put({
+      type: 'mergeConflictResolution',
+      payload: {
+        conflictId: payload.conflictId,
+        resolution: payload.resolution,
+        note: payload.note,
+        resolvedAt: new Date().toISOString(),
+      },
+    });
+  },
+
+  /** Step 5c 提交（替换原 commitToLG，对接 5b 的 conflictResolutions） */
+  *commitFromConflicts(_, { call, put, select }) {
+    const { sessionId, conflictResolutions } = yield select(s => s.financialUpload);
+    yield put({ type: 'setState', payload: { commitStatus: 'committing' } });
+    try {
+      const resolutions = Object.entries(conflictResolutions).map(([conflictId, r]) => ({
+        conflictId,
+        resolution: r.resolution,
+        note: r.note,
+      }));
+      const result = yield call(commitToLG, sessionId, { conflict_resolutions: resolutions });
+      if (result.success) {
+        yield put({ type: 'setState', payload: { commitStatus: 'success' } });
+      } else {
+        yield put({ type: 'setState', payload: { commitStatus: 'error', commitErrorMessage: result.error } });
+      }
+    } catch (error) {
+      yield put({ type: 'setState', payload: {
+        commitStatus: 'error',
+        commitErrorMessage: error.response?.data?.message || '写入失败',
+      } });
+    }
+  },
+
+  /** §4.13 进入 ReviewPage 后用户做修改时调用 — 标记 dirty */
+  *markMappingDirty(_, { put, select }) {
+    const { mappingSnapshotHash } = yield select(s => s.financialUpload);
+    if (mappingSnapshotHash !== null) {
+      // 仅当之前进过 5a 才需要 dirty 标记（首次还没快照时不必）
+      yield put({ type: 'setState', payload: { mappingDirty: true } });
+    }
+  },
+
+  /** §4.13 用户从 ReviewPage 再次点击 Next: Verify Mapping 时调用
+   *  - 如果 mappingDirty=false → 直接 history.push 到 5a，保留所有结果（Scenario 1 — 瞬时无延迟）
+   *  - 如果 mappingDirty=true → 重新计算 hash 比对：
+   *      - hash 相同（用户改后又改回来）→ 同 Scenario 1
+   *      - hash 不同 → 清空 conflictResolutions、verificationProgress、conflicts，
+   *                   设置 showRefreshNotice=true，重新拉 mappingSummary，触发 verify */
+  *proceedFromReview({ payload }: { payload: { taskId: string } }, { call, put, select }) {
+    const state = yield select(s => s.financialUpload);
+    const { mappingDirty, mappingSnapshotHash } = state;
+
+    if (!mappingDirty || mappingSnapshotHash === null) {
+      // Scenario 1：未修改，瞬时进入 5a
+      history.push(`/financial/upload/${payload.taskId}/summary`);
+      return;
+    }
+
+    const newHash: string = yield call(computeMappingHash, state);
+    if (newHash === mappingSnapshotHash) {
+      // 修改又改回，等价未变
+      yield put({ type: 'setState', payload: { mappingDirty: false } });
+      history.push(`/financial/upload/${payload.taskId}/summary`);
+      return;
+    }
+
+    // Scenario 2：mapping 真的变了 → 重置下游 + 显示提示
+    yield put({
+      type: 'setState',
+      payload: {
+        conflictResolutions: {},
+        conflicts: [],
+        verificationProgress: 0,
+        mappingDirty: false,
+        showRefreshNotice: true, // 5a 顶部展示 "Your mapping changes have been applied..."
+      },
+    });
+    yield put({ type: 'enterMappingSummary', payload });
+    history.push(`/financial/upload/${payload.taskId}/summary`);
+  },
+}
+```
+
+**对应 reducers 补充**:
+
+```typescript
+reducers: {
+  /** 合并冲突决策（§4.10 — Save & Next 后立即更新 UI 让单元格变绿） */
+  mergeConflictResolution(state, { payload }: {
+    payload: { conflictId: string; resolution: 'OVERWRITE' | 'SKIP'; note: string; resolvedAt: string }
+  }) {
+    return {
+      ...state,
+      conflictResolutions: {
+        ...state.conflictResolutions,
+        [payload.conflictId]: {
+          resolution: payload.resolution,
+          note: payload.note,
+          resolvedAt: payload.resolvedAt,
+        },
+      },
+      conflicts: state.conflicts.map(c =>
+        c.conflictId === payload.conflictId
+          ? { ...c, resolution: payload.resolution, note: payload.note, resolvedAt: payload.resolvedAt }
+          : c
+      ),
+    };
+  },
+
+  /** §4.13 用户在 5a 关闭提示横幅 */
+  dismissRefreshNotice(state) {
+    return { ...state, showRefreshNotice: false };
+  },
+}
+```
+
+**§4.13 提示横幅文案（在 MappingSummaryPage 顶部渲染）**:
+
+```tsx
+{showRefreshNotice && (
+  <Alert
+    type="info"
+    showIcon
+    closable
+    onClose={() => dispatch({ type: 'financialUpload/dismissRefreshNotice' })}
+    message="Your mapping changes have been applied"
+    description="Please review the updated verification results below."
+  />
+)}
+```
+
+**下游步骤置灰**（§4.13 通用导航行为）:
+
+```tsx
+<StepIndicator>
+  <Step status="finish">Review</Step>
+  <Step status="process">Verify Mapping</Step>
+  {mappingDirty ? (
+    <>
+      <Step status="wait" disabled tooltip="Verification will refresh after you continue">Resolve Conflicts</Step>
+      <Step status="wait" disabled>Commit</Step>
+    </>
+  ) : (
+    <>
+      <Step status="wait">Resolve Conflicts</Step>
+      <Step status="wait">Commit</Step>
+    </>
+  )}
+</StepIndicator>
 ```
 
 #### Subscriptions
@@ -1925,4 +2535,99 @@ const FileIndicator: React.FC<{ fileId: string }> = ({ fileId }) => {
 
 - `SIMILARITY_CHECK_FAILED` 状态下前端**不显示** Banner（因为没有 hint 数据）
 - 不阻塞用户审核流程 —— 没有提示只是少了一个辅助，数据本身不受影响
+
+---
+
+## 15. Steps Navigation 与变更检测（§4.13 — 2026-05-06 新增）
+
+> 关联需求: [requirement-analysis §4.13](./requirement-analysis.md#413-edge-case--steps-navigation2026-05-06-新增)
+>
+> 关联实现: §3 dva model 中的 `mappingDirty` / `mappingSnapshotHash` / `conflictResolutions` 字段，§3 effects 中的 `enterMappingSummary` / `proceedFromReview`。
+
+### 15.1 设计目标
+
+让用户在 ReviewPage / 5a / 5b / 5c 之间用 Previous 自由回退，且：
+
+- **未做修改的回退要瞬时无感** — 不重跑 extraction、mapping、conflict detection
+- **做了修改的回退要诚实重跑** — 清空已被旧 mapping 决策的下游状态，避免陈旧数据
+- 系统**自己**精确识别"变更点"边界，不依赖用户告知
+
+### 15.2 变更点识别策略：mapping snapshot hash
+
+**为什么用 hash 而不是 dirty flag 单独判断**:
+
+仅用 `mappingDirty` 会误伤"用户改了又改回去"的场景（dirty 仍为 true，但语义上未变）。Hash 比对兜底了这种情况。
+
+**Hash 生成时机**:
+- 进入 5a (`enterMappingSummary` effect) 时计算并存储到 `mappingSnapshotHash`
+- 包含: 所有 `extractedTables.rows`（按 rowId 排序）+ 所有 `mappingResults`（按 rowId 排序）
+
+**Hash 比对时机**:
+- ReviewPage 点击 "Next: Verify Mapping" → `proceedFromReview` effect → 重新计算 hash 比对
+
+**对比矩阵**:
+
+| 用户行为 | mappingDirty | snapshot hash 比对 | 处理 |
+|---------|-------------|-----------------|-----|
+| 第一次从 Review 进入 5a | false | snapshot 为 null | 正常进入，记录 snapshot hash |
+| 从 5a 点 Previous 回 Review，未改任何东西 | false | — | 再次 Next：瞬时进入，保留之前的 verify/conflict 状态 |
+| 从 5a 点 Previous 回 Review，改了 mapping | true | 新 hash ≠ 旧 hash | 清空 conflictResolutions/conflicts/verificationProgress，showRefreshNotice=true，重新 verify |
+| 从 5a 点 Previous 回 Review，改完又改回 | true | 新 hash === 旧 hash | 视同未变：清掉 dirty，瞬时进入，保留状态 |
+| 从 5b 点 Previous 回 5a，未改 mapping | false | — | 5a 状态保留（已解决冲突仍标绿） |
+| 从 5b 点 Previous 回 5a 再回 Review 改了 mapping | true | 新 hash ≠ 旧 hash | 同 5a 改 mapping 路径 |
+
+### 15.3 状态保留语义
+
+**Scenario 1（未改）保留的状态**:
+- 5a 的 `mappingSummary`（数字不变就不重新拉）
+- 5b 的 `conflicts` 和 `conflictResolutions`（已解决标记保持）
+- 5c 的 `commitStatus`（如果之前已经 success 就保留）
+
+**Scenario 2（已改）需要清空的状态**:
+- `conflictResolutions: {}` — 因为依据的是旧 mapping
+- `conflicts: []` — 重新 verify 时由后端返回新冲突
+- `verificationProgress: 0` — 重置进度条
+- `commitStatus: 'idle'` — 强制重新走 commit
+- 不清空 `extractedTables` / `mappingResults` —— 这些是用户的工作成果
+
+### 15.4 UX 文案与视觉
+
+**Scenario 1（瞬时无感）**:
+- 不显示任何 toast / banner
+- StepIndicator 直接亮到当前步骤
+- 用户应感觉"和之前一模一样"
+
+**Scenario 2（重跑提示）**:
+- 5a 顶部 antd Alert（type="info"，不是 warning，§4.13 强调"积极向前"）:
+  - 主标题: "Your mapping changes have been applied"
+  - 描述: "Please review the updated verification results below."
+- StepIndicator 中下游步骤（5b/5c）显示为置灰状态 + tooltip "Verification will refresh after you continue"
+- 用户主动关闭横幅后再进入 5b 时，5b 的 grid 是全新数据
+
+### 15.5 Previous 按钮的全局规则
+
+| 当前页面 | Previous 行为 |
+|---------|--------------|
+| UploadPage | Previous 不显示（流程起点） |
+| ProcessingPage | Previous 显示 → 回到 UploadPage（取消任务，task.status → DRAFT） |
+| ReviewPage | Previous 显示 → 回到 ProcessingPage（task 状态保持 REVIEWING，下次回来无需重 extract） |
+| MappingSummaryPage (5a) | Previous → 回到 ReviewPage；如果当时正在 verify 则中止 verify |
+| ConflictResolutionPage (5b) | Previous → 回到 5a；当 ConflictDialog 打开时，X 关闭弹窗，再点 Previous 才离开页面 |
+| CommitPage (5c) Loading | Previous 隐藏（写入是原子操作，禁止打断） |
+| CommitPage (5c) Success | Previous 隐藏（流程结束，跳 Benchmark） |
+| CommitPage (5c) Error | Previous → 回到 ReviewPage（错误是回到源头修复） |
+
+**通用约束**:
+- Previous 按钮永远显示在页面左下，主操作按钮（Next/Save/Commit）在右下
+- 全程使用 `Prompt` 提示未保存的修改（已在 §7 自动保存中实现）
+
+---
+
+## 16. 变更日志
+
+| 日期 | 变更摘要 |
+|------|---------|
+| 2026-04-19 | ReviewPage 重构（左右联动 + Source Tracing）、ConfirmPage 加 Verify Data Summary + Note Field |
+| 2026-04-20 | S3 Presigned URL 上传/查看、Task 修订 UI（§12）、Q16 通知简化（§13）、相似度提示 UI（§14） |
+| 2026-05-06 | **Step 5 拆 5a/5b/5c 三个独立路由 + 页面 + dva 状态**（来源 [requirement-analysis §4.9-4.14](./requirement-analysis.md)）<br>• 新增路由: `/upload/:taskId/summary`、`/upload/:taskId/conflicts`、`/upload/:taskId/commit`、`/upload/:taskId/empty`<br>• 新增组件: `MappingSummaryPage`、`ConflictResolutionPage`（含 `ConflictDialog` + `NextConflictResolver`）、`CommitPage`（Loading / SuccessBanner / ErrorView）、`EmptyMappingPage`、`SkippedFilesBanner`<br>• dva model 扩展: `mappingSummary` / `verificationProgress` / `conflictResolutions` (Map) / `mappingSnapshotHash` / `mappingDirty` / `showRefreshNotice` / `allFilesNoExtractable` / `skippedFiles`；`ConflictItem` 增加 `metric` / `resolvedAt` 字段<br>• 新增 effects: `enterMappingSummary` / `startVerification` / `cancelVerification` / `fetchConflicts` / `resolveConflict` / `commitFromConflicts` / `markMappingDirty` / `proceedFromReview`<br>• 新增 §15 Steps Navigation 与变更检测（§4.13 落地方案，含 mapping snapshot hash 算法）<br>• 5b 动态按钮文案（Save / Save & Next）+ Note 必填禁用规则<br>• 5b 自动跳下一冲突算法（同 metric 月份从左到右 → 跨 metric 按 19 类顺序）<br>• 5c 错误消息具体可操作要求（禁止泛化错误）<br>• ReviewPage ActionBar "Next: Confirm" 改为 "Next: Verify Mapping" |
 ```

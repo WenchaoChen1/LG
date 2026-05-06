@@ -147,12 +147,26 @@ POST   /api/v1/docparse/files/{fileId}/download-url  # ★ 生成 presigned GET 
 # ============ 审核编辑 ============
 PATCH  /api/v1/docparse/tasks/{id}/review            # 保存用户编辑
 
-# ============ 提交流程（两阶段）============
-POST   /api/v1/docparse/tasks/{id}/verify            # 触发 Verify + 冲突检测
-GET    /api/v1/docparse/tasks/{id}/verify/status     # 查询 verify 进度
-GET    /api/v1/docparse/tasks/{id}/conflicts         # 获取冲突列表 + Summary
-POST   /api/v1/docparse/tasks/{id}/resolve           # 提交冲突解决方案（含 notes）
-POST   /api/v1/docparse/tasks/{id}/commit            # 写入 fi_*（@Transactional）
+# ============ 提交流程（Step 5a / 5b / 5c，2026-05-06 拆分）============
+# 5a — Mapping Summary Page（[requirement-analysis §4.9](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)）
+GET    /api/v1/docparse/tasks/{id}/mapping-summary   # ★ 5a 页面摘要（文件/类型/账户数 + hard gate 检查结果）
+POST   /api/v1/docparse/tasks/{id}/verify/start      # ★ 5a 用户点击 "Start Verification" 触发后端冲突检测
+GET    /api/v1/docparse/tasks/{id}/verify/progress   # ★ 5a 实时进度指示器轮询端点（替代旧 verify/status）
+
+# 5b — Conflict Resolution（[requirement-analysis §4.10](./requirement-analysis.md#410-step-5b--conflict-resolution-of-manual-uploads2026-05-06-新增)）
+GET    /api/v1/docparse/tasks/{id}/conflicts         # 获取冲突列表（仅 Actuals 参与；Proforma 整体豁免）
+POST   /api/v1/docparse/tasks/{id}/conflicts/{conflictId}/resolve  # ★ 单冲突解决（Note 必填硬校验，返回下一冲突定位）
+
+# 5c — Commit & Display Results（[requirement-analysis §4.11](./requirement-analysis.md#411-step-5c--commit-uploaded-data-to-lg--display-results2026-05-06-新增)）
+POST   /api/v1/docparse/tasks/{id}/commit            # 整批写入 fi_*（@Transactional，含 Proforma 追加新版本）
+GET    /api/v1/docparse/tasks/{id}/commit/result     # ★ 5c 写入结果摘要（账户数、报告周期、文档类型、Imported Statements 文件夹定位、Benchmark 跳转参数）
+
+# 兼容保留（旧端点，逐步废弃）
+POST   /api/v1/docparse/tasks/{id}/verify            # 旧 verify 触发；已被 verify/start 替代
+POST   /api/v1/docparse/tasks/{id}/resolve           # 旧批量 resolve；§4.10 改为单冲突逐个解决
+
+# ============ Steps Navigation（[requirement-analysis §4.13](./requirement-analysis.md#413-edge-case--steps-navigation2026-05-06-新增)）============
+POST   /api/v1/docparse/tasks/{id}/navigate-back     # ★ Previous 回退；返回是否需要重跑下游 + 已清空的 conflict 数
 
 # ============ 通知（新增）★ ============
 GET    /api/v1/docparse/tasks/{id}/notifications     # ★ 查询 task 通知发送状态
@@ -312,6 +326,16 @@ Commit 成功 → 新 task.status=COMPLETED → parent task.superseded_by = 新 
 
 #### 通知表的职责降级（Q16）
 `doc_parse_notification` 不再是"通知发送状态追踪表"，而是"任务事件日志"。**不主动推送邮件/push**，用户通过 LG Dashboard "待处理任务" 列表自行发现。字段精简为 `event_type + payload + created_at`，删除了 `recipient_id` / `channel` / `status` / `retry_count`。
+
+#### Step 5 拆分新增字段（2026-05-06）
+为支撑 [requirement-analysis §4.9-4.13](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增) 的 5a/5b/5c 流程与导航变更检测，在 `doc_parse_task` 上新增 4 个字段（DDL 同步至 [database-schema.md §2.1](./database-schema.md#21-doc_parse_task)）：
+
+| 字段 | 类型 | 用途 |
+|------|------|------|
+| `mapping_snapshot_hash` | VARCHAR(64) | mapping + extracted_row 的 SHA-256 指纹。用户 Previous 回到 Review 修改后再 Next 时，重新计算 hash 与此值对比，决定是否重跑下游（§4.13 Scenario 1 vs 2 判定）|
+| `mapping_changed_at` | TIMESTAMPTZ | 上次 mapping 变更时间。用于 Sweeper 判断"REVIEWING 是否需要刷新摘要缓存"，以及前端展示"上次修改时间" |
+| `has_extractable_data` | BOOLEAN | 文件提取阶段聚合后写入；`false` 时 Step 5a/5b/5c 全部跳过，仅落 Imported Statements（§4.12 No Extractable Data 边界用例）|
+| `summary_cache` | JSONB | 5a Mapping Summary 摘要缓存（totalFiles / totalMappedTypes / totalMappedAccounts / hardGateErrors[]），命中后避免重复聚合查询；mapping 变更时清空 |
 
 #### 跨域 INSERT 例外（2 张表）
 Python 有 INSERT 权限访问 `doc_parse_memory_learn_log` 和 `doc_parse_similarity_hint`（Java 拥有的表）。理由：这两张表由 Python 生成内容（记忆学习审计 + 相似度检测结果），走 SQS 回传增加延迟和复杂度；直接 INSERT 简单可靠。Python 无 UPDATE/DELETE 权限，不能篡改已有记录。GRANT 语句详见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。
@@ -1074,6 +1098,383 @@ class Resolution {
 }
 ```
 
+### 5.6 Step 5a — Mapping Summary 与 Verify 触发（2026-05-06 新增）
+
+> 需求来源：[requirement-analysis §4.9](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)
+
+**核心契约**: 用户主动点击 "Start Verification" 才触发冲突检测；后端必须先做 hard gate 校验，存在 unmapped/unreviewed/缺失元数据的行项时**直接拒绝**进入 verify。
+
+#### 5.6.1 端点设计
+
+```java
+@RestController
+@RequestMapping("/api/v1/docparse/tasks/{taskId}")
+@Validated
+public class MappingSummaryController {
+
+    /** 5a 页面进入时调用：返回三组统计 + hard gate 错误清单 */
+    @GetMapping("/mapping-summary")
+    public DocParseMappingSummaryRespVo getSummary(@PathVariable UUID taskId) {
+        return mappingSummaryService.computeSummary(taskId);   // 命中 summary_cache 直接返回
+    }
+
+    /** 5a 点击 "Start Verification" 触发，状态机推进 REVIEWING → VERIFYING */
+    @PostMapping("/verify/start")
+    public DocParseVerifyStartRespVo startVerification(@PathVariable UUID taskId) {
+        return verificationService.startVerification(taskId);  // hard gate 校验 + 异步入队
+    }
+
+    /** 5a 进度轮询；返回 stage（PENDING/RUNNING/COMPLETED/ABORTED）+ percent + 已检测冲突数 */
+    @GetMapping("/verify/progress")
+    public DocParseVerifyProgressRespVo getProgress(@PathVariable UUID taskId) {
+        return verificationService.getProgress(taskId);
+    }
+}
+```
+
+#### 5.6.2 Service 关键方法签名
+
+```java
+public interface MappingSummaryService {
+    /**
+     * 聚合: 文件总数 / 映射类型数（Actuals + Proforma）/ 映射账户数 + hard gate 检查
+     * 命中 doc_parse_task.summary_cache 直接返回；mapping_changed_at 变化或 cache 为 null 时重算并写回
+     */
+    DocParseMappingSummaryRespVo computeSummary(UUID taskId);
+}
+
+public interface VerificationService {
+    /**
+     * 1. FOR UPDATE 锁 task；检查 status=REVIEWING
+     * 2. 调 MappingSummaryService.computeSummary() 取最新 hardGateErrors
+     * 3. 若 hardGateErrors 非空 → 抛 BusinessException("HARD_GATE_FAILED", errors)
+     * 4. 若 has_extractable_data=false → 跳到 §5.9 No-Data 分支
+     * 5. 推进 status=VERIFYING；publish event 启动异步 ConflictDetectionJob
+     */
+    DocParseVerifyStartRespVo startVerification(UUID taskId);
+
+    /** 用户中途 Previous → 异步任务收到 cancel 信号，回到 REVIEWING（§4.9 回退处理） */
+    void abortVerification(UUID taskId);
+
+    DocParseVerifyProgressRespVo getProgress(UUID taskId);
+}
+```
+
+#### 5.6.3 Hard Gate 检查规则
+
+```java
+// MappingSummaryService 内部实现
+List<HardGateError> validate(UUID taskId) {
+    List<HardGateError> errors = new ArrayList<>();
+    // 1. unmapped 行项（lg_category 为空）
+    long unmapped = mappingResultRepo.countByTaskIdAndLgCategoryIsNull(taskId);
+    if (unmapped > 0) errors.add(new HardGateError("UNMAPPED_ROWS", unmapped));
+    // 2. unreviewed 行项（user_reviewed=false 的非 confidence-high 项）
+    long unreviewed = extractedRowRepo.countUnreviewedRequired(taskId);
+    if (unreviewed > 0) errors.add(new HardGateError("UNREVIEWED_ROWS", unreviewed));
+    // 3. 缺失元数据：account_label / value / reporting_period 任一为空
+    long missing = extractedRowRepo.countMissingMetadata(taskId);
+    if (missing > 0) errors.add(new HardGateError("MISSING_METADATA", missing));
+    return errors;
+}
+```
+
+---
+
+### 5.7 Step 5b — 单冲突逐个解决 + Note 必填（2026-05-06 重构）
+
+> 需求来源：[requirement-analysis §4.10](./requirement-analysis.md#410-step-5b--conflict-resolution-of-manual-uploads2026-05-06-新增)
+
+**重大变更**: 由原 §5.4 的"批量 resolve"改为**逐个冲突解决**，前端弹窗驱动。Note 强制非空（与原 §5.4 "可选填写 Note" 不同）。
+
+#### 5.7.1 端点设计
+
+```java
+@RestController
+@RequestMapping("/api/v1/docparse/tasks/{taskId}/conflicts")
+public class ConflictResolutionController {
+
+    /** 仅 Actuals 冲突；Proforma 整体豁免不入此列表 */
+    @GetMapping
+    public DocParseConflictListRespVo listConflicts(@PathVariable UUID taskId) {
+        return conflictService.listActualsConflicts(taskId);
+    }
+
+    /** 单冲突解决：Note 必填硬校验；返回下一冲突定位（Save & Next 导航） */
+    @PostMapping("/{conflictId}/resolve")
+    public DocParseConflictResolveRespVo resolveOne(
+            @PathVariable UUID taskId,
+            @PathVariable UUID conflictId,
+            @RequestBody @Valid DocParseSingleConflictResolveReqVo req) {
+        return conflictService.resolve(taskId, conflictId, req);
+    }
+}
+
+@Data
+public class DocParseSingleConflictResolveReqVo {
+    @NotNull
+    private DocParseConflictAction action;     // OVERWRITE | SKIP（Cancel 已移除）
+    @NotBlank @Size(max = 2000)
+    private String note;                       // ⚠️ 必填硬校验，前端按钮 disabled until note
+}
+
+@Data
+public class DocParseConflictResolveRespVo {
+    private UUID resolvedConflictId;
+    private boolean isLast;                    // 末尾冲突 → 前端按钮文案变为 "Save"，否则 "Save & Next"
+    private UUID nextConflictId;               // 同 metric 下一月 → 跨 metric 第一冲突
+    private String nextMetric;
+    private int remainingCount;
+}
+```
+
+#### 5.7.2 Save & Next 导航逻辑（§4.10）
+
+```java
+// ConflictService.resolve() 内部
+DocParseConflictResolveRespVo computeNext(UUID taskId, UUID currentConflictId) {
+    Conflict cur = conflictRepo.findById(currentConflictId);
+    // 1. 同 metric 下一未解决月份
+    Optional<Conflict> sameMetric = conflictRepo
+        .findFirstByTaskIdAndMetricAndResolvedFalseAndIdNotOrderByReportingPeriod(
+            taskId, cur.getLgMetric(), currentConflictId);
+    if (sameMetric.isPresent()) return resp(sameMetric.get(), false);
+    // 2. 跨 metric 的第一个未解决冲突
+    Optional<Conflict> nextMetric = conflictRepo
+        .findFirstByTaskIdAndResolvedFalseOrderByLgMetricAscReportingPeriodAsc(taskId);
+    if (nextMetric.isPresent()) return resp(nextMetric.get(), false);
+    // 3. 全部解决 → isLast=true，按钮变 "Save"，前端引导用户进入 5c
+    return new DocParseConflictResolveRespVo(currentConflictId, true, null, null, 0);
+}
+```
+
+#### 5.7.3 Service 方法签名
+
+```java
+public interface ConflictService {
+    /** 仅返回 Actuals 冲突（按 lg_metric, reporting_period 排序） */
+    DocParseConflictListRespVo listActualsConflicts(UUID taskId);
+
+    /**
+     * 1. 校验 task.status IN (CONFLICT_RESOLUTION, VERIFYING)
+     * 2. 校验 note 非空（@Valid 已做但二次防御）
+     * 3. 写 ai_ocr_conflict_record.resolution + doc_parse_conflict_note
+     * 4. 计算下一冲突定位
+     * 5. 若全部解决 → 推进 task.status=CONFLICT_RESOLUTION（保持，等用户点 Commit）
+     */
+    DocParseConflictResolveRespVo resolve(UUID taskId, UUID conflictId,
+                                          DocParseSingleConflictResolveReqVo req);
+}
+```
+
+---
+
+### 5.8 Step 5c — Commit、Proforma 追加版本、Imported Statements（2026-05-06 新增）
+
+> 需求来源：[requirement-analysis §4.11](./requirement-analysis.md#411-step-5c--commit-uploaded-data-to-lg--display-results2026-05-06-新增)
+
+**核心变更**（相对原 §5.4）：
+- Proforma 走**追加新 committed forecast 版本**路径，**不参与冲突解决**
+- 所有上传文件（含无数据文件）都同步到 Documents 的 `Imported Statements` 文件夹
+- Commit 引入新 closed month 时触发邮件通知
+- 成功后跳转 Benchmark Info Page，附带提示参数
+
+#### 5.8.1 Commit Controller
+
+```java
+@RestController
+@RequestMapping("/api/v1/docparse/tasks/{taskId}")
+public class CommitController {
+
+    @PostMapping("/commit")
+    @Transactional
+    public DocParseCommitRespVo commit(@PathVariable UUID taskId) {
+        return commitService.commit(taskId);
+    }
+
+    /** 5c 跳转 Benchmark 前端获取写入摘要 + 跳转参数 */
+    @GetMapping("/commit/result")
+    public DocParseCommitResultRespVo getResult(@PathVariable UUID taskId) {
+        return commitService.getResult(taskId);
+    }
+}
+
+@Data
+public class DocParseCommitResultRespVo {
+    private int writtenAccountCount;
+    private List<String> writtenPeriods;          // ["2024-01", "2024-02"]
+    private List<String> documentTypes;           // ["P&L", "Balance Sheet"]
+    private UUID importedStatementsFolderId;      // Documents 服务返回的文件夹 ID
+    private boolean newClosedMonthIntroduced;
+    private String benchmarkRedirectUrl;          // 5c 跳转目标
+    private String banner;                        // "View your updated benchmarks"
+}
+```
+
+#### 5.8.2 Service 方法（在原 §5.4 基础上增加）
+
+```java
+public interface CommitService {
+    /**
+     * 整批事务（@Transactional + FOR UPDATE 锁 task）：
+     * 1. 校验 task.status=CONFLICT_RESOLUTION 且所有冲突已解决
+     * 2. 分流写入：
+     *    - Actuals 行项 → fi_* 表（按 §5.7 resolution OVERWRITE/SKIP 规则）
+     *    - Proforma 行项 → 调 ProformaForecastService.appendVersion() 追加新版本
+     * 3. doc_parse_commit_audit 全量记录（written/overwritten/skipped + Proforma append 也算 written）
+     * 4. AFTER_COMMIT 阶段：
+     *    a. 调 ImportedStatementsService.syncAllFiles(taskId)（含 has_extractable_data=false 的文件）
+     *    b. 检测新 closed month → 发邮件
+     *    c. 触发下游 normalization
+     *    d. 发记忆学习 SQS（仅 wasOverridden=true 行项）
+     */
+    DocParseCommitRespVo commit(UUID taskId);
+
+    DocParseCommitResultRespVo getResult(UUID taskId);
+}
+
+public interface ProformaForecastService {
+    /**
+     * Proforma 追加版本逻辑：
+     * 1. 找当前 active committed forecast（取最新版本，24 个月窗口）
+     * 2. 上传 proforma 月份 ∩ 现有月份 → 替换值
+     * 3. 上传 proforma 月份 ∉ 现有月份 → 追加月份
+     * 4. 创建新 forecast_version 记录（user=上传者，supersedes=旧版本 ID）
+     * 5. 旧版本保留为历史不删除（审计要求）
+     */
+    UUID appendVersion(UUID taskId, UUID companyId, List<ProformaRow> rows);
+}
+
+public interface ImportedStatementsService {
+    /**
+     * 同步上传文件元数据到 Documents 服务的 "Imported Statements" 文件夹：
+     * - 该文件夹按 company_id 全局唯一，首次提交时由 CompanyDocService 自动创建
+     * - 文件元数据: { fileName, s3Key, uploadedAt, uploadedBy, taskId, hasExtractableData }
+     * - 包含 has_extractable_data=false 的文件（§4.12 边界用例）
+     */
+    UUID syncAllFiles(UUID taskId);
+}
+```
+
+#### 5.8.3 闭月邮件触发条件
+
+```java
+// AFTER_COMMIT 事件监听器
+@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+public void onCommitSuccess(CommitSuccessEvent event) {
+    // 1. 检测是否引入新 reporting period
+    Set<String> newPeriods = commitAuditRepo.findNewlyIntroducedPeriods(event.getTaskId());
+    if (!newPeriods.isEmpty()) {
+        // 2. 触发新闭月邮件（同步 Java 现有邮件服务，不走 Python）
+        closedMonthMailService.notify(event.getCompanyId(), newPeriods);
+        // 3. 同步事件日志（§5.4.1 Q16 简化版，不重试）
+        notificationEventService.log(event.getTaskId(), "NEW_CLOSED_MONTH",
+            Map.of("newPeriods", newPeriods));
+    }
+}
+```
+
+---
+
+### 5.9 边界用例 — 无可提取数据（2026-05-06 新增）
+
+> 需求来源：[requirement-analysis §4.12](./requirement-analysis.md#412-edge-case--documents-without-extractable-data2026-05-06-新增)
+
+**业务规则**: 全部文件 `has_extractable_data=false` 时跳过 5a/5b/5c，**仅同步到 Imported Statements**；混合批次不阻塞有数据文件流程。
+
+```java
+public interface NoDataHandlerService {
+    /**
+     * 由 Python 端 OcrResultSqsProcessor.handleResult() 收到所有结果后调用：
+     * 聚合 task 下所有 file 的 has_extractable_data 字段：
+     *   - 全部 false → 推进 task.status=NO_DATA_BYPASS（新增枚举值）
+     *                  → AFTER_COMMIT 调 ImportedStatementsService.syncAllFiles()
+     *                  → 推进 task.status=COMPLETED（跳过 MEMORY_LEARN，无需学习）
+     *                  → 前端轮询发现状态变化，弹"未提取到财务数据"提示
+     *   - 全部 true  → 走正常 5a/5b/5c 流程
+     *   - 混合       → 仅有数据文件参与 5a 摘要 + 5b 冲突 + 5c commit；
+     *                  无数据文件在 5c AFTER_COMMIT 时一并 sync 到 Imported Statements
+     */
+    void evaluateExtractability(UUID taskId);
+}
+```
+
+**新增枚举值**: `DocParseStatus.NO_DATA_BYPASS` —— 仅供"全部无数据"批次使用，区别于 `FAILED`（处理失败）。Sweeper 不需要扫描该状态（瞬态）。
+
+---
+
+### 5.10 边界用例 — Steps Navigation 变更检测（2026-05-06 新增）
+
+> 需求来源：[requirement-analysis §4.13](./requirement-analysis.md#413-edge-case--steps-navigation2026-05-06-新增)
+
+**核心契约**: Previous 在所有步骤都可用；回退后**未修改**则保留下游结果不重跑；**有修改**则重跑下游 + 清空旧 conflict resolutions。判定靠 `mapping_snapshot_hash` 对比。
+
+```java
+@RestController
+@RequestMapping("/api/v1/docparse/tasks/{taskId}")
+public class NavigationController {
+
+    /**
+     * 用户在 5a/5b/5c 点 Previous 回到 Review 时调用。
+     * 返回值告知前端是否需要"置灰下游 + 重跑"。
+     */
+    @PostMapping("/navigate-back")
+    @Transactional
+    public DocParseNavigateBackRespVo navigateBack(
+            @PathVariable UUID taskId,
+            @RequestBody DocParseNavigateBackReqVo req) {
+        return navigationService.handleNavigateBack(taskId, req.getTargetStep());
+    }
+}
+
+public interface NavigationService {
+    /**
+     * 1. 计算当前 mapping_snapshot_hash（基于 ai_ocr_extracted_row + ai_ocr_mapping_result 的稳定序列化哈希）
+     * 2. 与 doc_parse_task.mapping_snapshot_hash 对比：
+     *    - 相等 → mappingChanged=false，前端无延迟前进
+     *    - 不等 → mappingChanged=true，执行：
+     *        a. 清空 ai_ocr_conflict_record 和 doc_parse_conflict_note 的 resolution（保留 thread 历史）
+     *        b. 推进 task.status=REVIEWING（即使是从 CONFLICT_RESOLUTION 回来）
+     *        c. 清空 doc_parse_task.summary_cache（强制 5a 重新聚合）
+     *        d. 更新 mapping_snapshot_hash + mapping_changed_at
+     * 3. 返回 { mappingChanged, clearedConflictCount, message }
+     */
+    DocParseNavigateBackRespVo handleNavigateBack(UUID taskId, NavStep targetStep);
+
+    /**
+     * 计算稳定 hash：SHA-256(JSON(sorted_rows + sorted_mappings))
+     * 关键字段：row.value、row.account_label、row.reporting_period、mapping.lg_category
+     */
+    String computeSnapshotHash(UUID taskId);
+}
+```
+
+**Conflict 清空策略**: `ai_ocr_conflict_record.resolution_action` 重置为 NULL，但 `doc_parse_conflict_note` 不删除（用户历史 thread 是审计记录的一部分，下次可见）。
+
+---
+
+### 5.11 后端基础设施（2026-05-06 技术 Story）
+
+> 需求来源：[requirement-analysis §4.14](./requirement-analysis.md#414-backend-infrastructure--framework-setup2026-05-06-新增--技术-story)
+
+本 Story 是其他 Story 的前置依赖，多数已在原 §1-§4 中覆盖。本节仅追加**Liang Chunru 验收清单**层面的明确说明：
+
+| 基础能力 | 现状 | 对应章节 |
+|---------|------|---------|
+| S3 安全存储 + presigned 直传 | 已设计 | §2.1 / §5.4.3 / §5.4.4 |
+| 唯一 ID 关联 company + upload session | 已设计（task_id + file_id + file_hash） | §3.1 / §3.2 |
+| 文件类型校验（PDF/Excel/CSV/JPG/JPEG/PNG/TIFF） | 已设计 | §6.2 |
+| 文件大小限制（单 20MB / 批 100MB） | DocParseProperties 配置 | §1.1 |
+| Company User / Admin / Portfolio Admin 访问控制 | 走 JWT scope 校验 | §6.1 |
+| OCR provider（eSapiens）API key 安全存储 | AWS Secrets Manager（Python 端读取） | python-design.md |
+| SQS 处理队列（OCR 路径 + 直接解析路径） | 已设计 3 队列 | §4.1-4.5 |
+| 内部数据契约（line items / 文档类型 / 报告周期 / source ref） | extracted_table/row schema | python-design.md / database-schema.md |
+| 为未来 LG 财务分类扩展留空间 | mapping_result.lg_category 字符串字段，无枚举绑定 | database-schema.md |
+| AI provider 集成测试 | OpenRouter / Instructor，Story #4 实现 | python-design.md |
+| Audit Logging（company / user / timestamp / file type / file size） | doc_parse_file 表已包含 + commit_audit 全量审计 | §3.1 |
+
+**新增 Liang Chunru 验收点**: 所有 5a/5b/5c 端点必须支持 `X-Request-Id` 透传到 SQS 消息和审计日志，便于跨 Java/Python 链路追踪。
+
 ---
 
 ## 6. 安全要求
@@ -1144,3 +1545,14 @@ Python IAM Role:
 |------|------|
 | `java_app` | 完全访问 Java 拥有的表 + `SELECT` 权限访问 Python 表 |
 | `python_worker` | 完全访问 Python 拥有的表 + `SELECT` 权限访问 `doc_parse_task`、`doc_parse_file`（查状态） + 零权限访问 `fi_*` 表 |
+
+---
+
+## 7. 变更日志
+
+| 日期 | 版本 | 变更摘要 | 关联需求 |
+|------|------|---------|---------|
+| 2026-04-16 | v1.0 | 首版：DDD 模块结构、SQS 集成、上传/审核/提交流程 | 初始 EPIC |
+| 2026-04-19 | v1.1 | 新增 Verify Data Summary 两阶段、冲突 Note thread、Cancel 移除 | Story #5/#6/#7 |
+| 2026-04-20 | v1.2 | S3 Presigned URL 直传、Task 修订、相似度提示、记忆学习进度 | 项目内部补丁 |
+| **2026-05-06** | **v1.3** | **Step 5 拆分为 5a/5b/5c**：新增 `MappingSummaryController` / `ConflictResolutionController` / `CommitController` / `NavigationController`；`doc_parse_task` 新增 4 字段（mapping_snapshot_hash / mapping_changed_at / has_extractable_data / summary_cache）；新增 `NoDataHandlerService` / `ProformaForecastService` / `ImportedStatementsService` / `NavigationService`；冲突解决改为单冲突逐个 + Note 必填硬校验；Commit 后同步所有文件到 Imported Statements 文件夹 + 闭月邮件 + Benchmark 跳转；新增 `DocParseStatus.NO_DATA_BYPASS` 状态 | [requirement-analysis §4.9-4.14](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增) |

@@ -2,6 +2,8 @@
 
 > **关联文档**: [数据库 Schema](./database-schema.md) · [设计理念](./design-philosophy.md) · [需求分析](./requirement-analysis.md) · [Java 端设计](./java-design.md) · [Python 端设计](./python-design.md) · [前端设计](./frontend-design.md) · [代码示例](./code-examples.md)
 
+> **本文档已与 Asana EPIC 于 2026-05-06 同步**：Step 5 拆为 5a/5b/5c，新增 6 个 subtask（Mapping Summary、Conflict Resolution、Commit & Display Results、No-Extractable-Data 边界、Steps Navigation 边界、Backend Infrastructure）。详细需求见 [requirement-analysis.md §4.9-4.14](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)。变更详情见本文档末尾「变更日志」。
+
 ---
 
 ## 1. 需求概述
@@ -21,8 +23,19 @@
 ### 1.3 核心工作流
 
 ```
-① 上传文件 → ② 数据提取(AI Vision/Excel) → ③ AI 账户映射 → ④ 并排审核编辑 → ⑤ 写入 LG → ⑥ 系统持续学习
+① 上传文件 → ② 数据提取(AI Vision/Excel) → ③ AI 账户映射 → ④ 并排审核编辑 ─┐
+                                                                          │
+                                                                          ▼
+                                              ⑤ 写入 LG（拆为三子步）
+                                              ┌─ 5a Mapping Summary（Verify Data Summary checkpoint）
+                                              ├─ 5b Conflict Resolution（仅 Actuals 参与）
+                                              └─ 5c Commit & Display Results
+                                                                          │
+                                                                          ▼
+                                              ⑥ 系统持续学习
 ```
+
+> **2026-05-06 更新**：原 Story #6 "Write data to LG" 拆分为 5a/5b/5c 三个子步。Mapping Summary 是写入前的强制 checkpoint，Conflict Resolution 仅对 Actuals 触发（Proforma 豁免），Commit 阶段保证「全部成功 or 全部失败」无部分写入。
 
 ### 1.4 子任务清单
 
@@ -33,9 +46,15 @@
 | 3 | Extraction of Financial Data - Excel | Jesús H Peralta | 直接解析 Excel/CSV 表格，处理合并单元格 |
 | 4 | Add AI-Assisted Account Mapping Suggestions | Liang Chunru | AI 自动映射到 LG 标准财务分类（19 类） |
 | 5 | Side-by-Side Review & Inline Editing | Jesús H Peralta | 并排审核 + 内联编辑 + Raw/Standardized 视图 |
-| 6 | Write data to LG Schema | Jesús H Peralta | 冲突检测 + Overwrite/Skip（Cancel 2026-04-19 移除）+ 审计日志 |
+| ~~6~~ | ~~Write data to LG Schema~~ | ~~Jesús H Peralta~~ | **已于 2026-05-06 拆分为 5a/5b/5c**（保留作为历史引用） |
 | 7 | Add Note Field to Data Validation | Jesús H Peralta | 冲突解决时添加备注（≤2000 字） |
 | 8 | System Learning and Continuous Improvement | Liang Chunru | 保存并复用公司级映射记忆 |
+| **5a** | **Mapping Summary Page**（2026-05-06 新增） | Karen Arnoldi | 写入前 checkpoint：展示文件/类型/账户数；用户点 Start Verification 触发后端冲突检测 |
+| **5b** | **Conflict Resolution of Manual Uploads**（2026-05-06 新增） | Karen Arnoldi | 仅 Actuals 参与；Note 必填；Save & Next 自动跳下一冲突；Proforma 整体豁免 |
+| **5c** | **Commit Uploaded Data to LG & Display Results**（2026-05-06 新增） | Karen Arnoldi | 整批成功或失败；Proforma 创建新 committed forecast 版本；保存到 Imported Statements；跳转 Benchmark Info Page；触发 closed-month email |
+| **EC1** | **No-Extractable-Data Edge Case**（2026-05-06 新增） | Shue Yang | 无数据时跳过 mapping/conflict/write；混合批次只跑有数据的文件；所有文件保存到 Imported Statements |
+| **EC2** | **Steps Navigation Edge Case**（2026-05-06 新增） | Shue Yang | Previous 不丢数据；无修改瞬时返回；有修改重跑下游并清空旧 conflict resolutions |
+| **INF** | **Backend Infrastructure & Framework Setup**（2026-05-06 新增） | Liang Chunru | S3 文件存储 + OCR provider (eSapiens) + SQS 队列 + AI provider 集成基础（其他 Story 前置依赖） |
 
 ---
 
@@ -830,15 +849,41 @@ Python 只把行项分别映射为 `other_income` 或 `other_expense` 原始字�
 ### 4.4 Pipeline 状态机
 
 ```
-UPLOAD ──→ PREPROCESS ──→ EXTRACT ──→ MAP ──→ VALIDATE ──→ REVIEW ──→ COMMIT
-  │            │              │         │         │           │          │
-  ↓            ↓              ↓         ↓         ↓           ↓          ↓
-FAILED      FAILED         FAILED   FAILED   ┌─CONFLICT   (用户      FAILED
-                                              │  RESOLVE    编辑)
-                                              ↓
-                                           用户选择
-                                        Overwrite/Skip（Cancel 已移除）
+UPLOAD ──→ PREPROCESS ──→ EXTRACT ──→ MAP ──→ VALIDATE ──→ REVIEW ──→ ┐
+  │            │              │         │         │           │       │
+  ↓            ↓              ↓         ↓         ↓           ↓       │
+FAILED      FAILED         FAILED   FAILED     FAILED     (用户编辑)  │
+                                                                      │
+                                          ┌───────────────────────────┘
+                                          ▼
+                            ┌─────────── 5a MAPPING_SUMMARY ──────────┐
+                            │  Verify Data Summary (file/type/account 数)│
+                            │  用户点 Start Verification → VERIFYING    │
+                            └────────────────────┬──────────────────────┘
+                                                 │ 仅 Actuals 触发冲突检测
+                                                 │ Proforma 整体豁免
+                                                 ▼
+                            ┌─────────── 5b CONFLICT_RESOLUTION ─────┐
+                            │  Financial-Entry 风格列表 + Note 必填    │
+                            │  Overwrite / Keep（无 Cancel）         │
+                            │  Save & Next 自动跳下一冲突             │
+                            └────────────────────┬────────────────────┘
+                                                 │ 全部冲突已解决
+                                                 ▼
+                            ┌─────────── 5c COMMIT & DISPLAY ────────┐
+                            │  整批成功或全部失败（无部分写入）         │
+                            │  fi_* 写入 + Proforma 创建新 forecast 版本│
+                            │  保存到 Imported Statements 文件夹        │
+                            │  → 跳转 Benchmark Info Page             │
+                            └────────────────────┬────────────────────┘
+                                                 ▼
+                                            COMMITTED → MEMORY_LEARN → COMPLETED
+
+                            旁路：无可提取数据 → 跳过 5a/5b/5c，文件直接保存（详见 §4.6）
+                            旁路：用户 Previous 修改了上游 → 重跑并清空 5b 状态（详见 §4.5）
 ```
+
+> 状态机字段 `task.status` 的取值见 §4.1.1。`MAPPING_SUMMARY`（隐含于 REVIEWING→VERIFYING 之间的 UI 锚点）与 `VERIFYING`/`CONFLICT_RESOLUTION`/`COMMITTING`/`COMMITTED` 已在 §4.1.1 状态机中定义，本节用图示突出 5a/5b/5c 的线性顺序与旁路。
 
 **LangGraph 状态图的优势**:
 - 每个节点独立运行、独立测试
@@ -861,6 +906,224 @@ FAILED      FAILED         FAILED   FAILED   ┌─CONFLICT   (用户      FAILE
 - 有数据冲突 → 进入冲突解决流程
 
 > Python 端 Pipeline 各节点实现详见 [python-design.md](./python-design.md)。
+
+---
+
+### 4.5 Step 5 子流程架构（5a → 5b → 5c）
+
+> 需求来源：[requirement-analysis.md §4.9-4.11](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)。本节描述 cross-cutting 架构层面的数据流与所有权边界，各端实现细节见 [java-design.md](./java-design.md)、[frontend-design.md](./frontend-design.md)。
+
+#### 4.5.1 三子步数据流
+
+```
+[REVIEWING (前端审核完成)]
+        │
+        │ 用户点 "Continue to Verify"
+        ▼
+[5a: MAPPING_SUMMARY 屏幕]
+        │  Java 计算 summary（同步、纯查询，不走 SQS）：
+        │    - 源文件总数 = COUNT(doc_parse_file WHERE task_id=?)
+        │    - 映射类型数 = COUNT(DISTINCT document_type)（Actuals / Proforma）
+        │    - 映射源账户数 = COUNT(DISTINCT mapped_account_label)
+        │  Hard gate：所有行项必须 reviewed && mapped，否则 422
+        │
+        │ 用户点 "Start Verification"
+        ▼
+[VERIFYING (5a→5b 过渡)]
+        │  Java 启动 verification job（异步任务，进度可轮询）：
+        │    - 仅扫描 Actuals tab 中的 mapping
+        │    - Proforma 整体跳过（直接进入 5c）
+        │    - 比对维度：(company_id, metric, reporting_month, reporting_year)
+        │    - 写 doc_parse_conflict 表（detected）
+        │  前端轮询 GET /verify/progress，显示百分比
+        │  回退点：用户点 Previous 触发 verification.cancel，状态回 MAPPING_SUMMARY
+        │
+        ▼
+[5b: CONFLICT_RESOLUTION 屏幕]
+        │  Java 返回冲突列表（Financial-Entry 风格：行=metric，列=月份）
+        │  用户逐个解决：
+        │    - 选择 Overwrite / Keep
+        │    - 填 Note（必填，主按钮禁用直到非空）
+        │    - Save & Next 自动跳下一冲突（同 metric → 下一月份；本 metric 完 → 下一 metric）
+        │  Java 写 doc_parse_conflict_resolution 表（resolution + note）
+        │  全部解决 → 自动进入 COMMITTING
+        │
+        ▼
+[5c: COMMITTING + DISPLAY RESULTS]
+        │  Java 单事务（@Transactional）：
+        │    - Schema 校验（失败 → ROLLBACK + 422 + 错误高亮）
+        │    - Actuals: 按 resolution 写入 fi_*（Overwrite 创建新 active version + 历史保留）
+        │    - Proforma: 创建新 committed_forecast 版本（不参与冲突；旧月份覆盖、新月份追加）
+        │    - 写审计日志：timestamp / user / source documents / period / doc_type / action
+        │    - 所有上传文件（含无数据文件）登记到 file_objects.folder='Imported Statements'
+        │    - 触发 closed-month email（如引入新闭月）
+        │  全部成功 → COMMITTED；任何失败 → 整批 ROLLBACK，task.status=FAILED
+        │
+        ▼
+[跳转 Benchmark Info Page] + 成功 banner（账户数 / 报告周期 / 文档类型）
+```
+
+#### 4.5.2 所有权边界
+
+| 阶段 | Java | Python | Frontend |
+|------|------|--------|----------|
+| 5a Summary 计算 | **Owner**（纯 SQL 聚合，不走 SQS） | — | 展示 + Start Verification 按钮 |
+| 5a Hard Gate 校验 | **Owner**（unmapped/unreviewed 阻断） | — | 显示阻断错误 |
+| 5b 冲突检测 | **Owner**（fi_* 比对，仅 Actuals） | — | 进度轮询 |
+| 5b Note 持久化 | **Owner**（doc_parse_conflict_note） | — | 必填校验、字符上限提示 |
+| 5b Save & Next 导航 | **Owner**（next-conflict 排序逻辑） | — | UI 自动跳转 |
+| 5c fi_* 写入 | **Owner**（@Transactional 整批） | — | — |
+| 5c Proforma forecast 版本 | **Owner**（写 committed_forecast） | — | — |
+| 5c Imported Statements 落盘 | **Owner**（更新 file_objects.folder） | — | — |
+| 5c Closed-month email | **Owner** | — | — |
+| 记忆学习触发（post-commit） | **Owner**（AFTER_COMMIT 发 SQS） | **Owner**（消费） | — |
+
+#### 4.5.3 关键架构决策
+
+1. **Summary 不走 SQS**：5a 是纯查询 + 校验，无 AI 计算；前端同步等待 200~500ms 即可，避免引入异步状态。
+2. **Verification 走异步 + 进度轮询**：批量任务可能扫描数千行 fi_*，使用 Java 内部线程池（不需要 Python 介入），通过 `verify_progress` 字段持久化进度。
+3. **Proforma 整条路径独立**：Proforma 不参与 5b（无冲突概念），在 5c 中作为新 forecast 版本独立写入，路径上从 5a 直接跳到 5c 的 Proforma 分支。
+4. **整批事务边界**：5c 的所有写入（fi_*、forecast、folder 标记）必须在同一 @Transactional 中，任何步骤失败必须 rollback 所有 fi_* 写入；Imported Statements 文件夹标记是该事务的一部分。
+5. **后置动作只在事务提交后触发**：closed-month email、记忆学习 SQS 都通过 `TransactionSynchronization.afterCommit` 触发，避免事务回滚后误发通知。
+
+---
+
+### 4.6 步骤导航变更检测机制（Steps Navigation）
+
+> 需求来源：[requirement-analysis.md §4.13](./requirement-analysis.md#413-edge-case--steps-navigation2026-05-06-新增)。本节描述 cross-cutting 状态字段、重跑触发逻辑与下游清空策略；前端按钮交互见 [frontend-design.md](./frontend-design.md)。
+
+#### 4.6.1 设计目标
+
+让用户在多步骤流程中自由 Previous，**未修改 → 瞬时返回保留所有结果**，**有修改 → 重跑受影响的下游并清空陈旧状态**。系统必须精确识别"变更点"边界。
+
+#### 4.6.2 核心状态字段
+
+新增/复用 `doc_parse_task` / `doc_parse_file` 字段：
+
+| 字段 | 类型 | 用途 |
+|------|------|------|
+| `mapping_snapshot_hash` | VARCHAR(64) | 进入 5a 时计算的 mapping 哈希（SHA-256 of sorted mapping rows）|
+| `extraction_snapshot_hash` | VARCHAR(64) | 进入 review 阶段时计算的提取数据哈希 |
+| `mapping_changed_at` | TIMESTAMPTZ | 用户最近一次修改 mapping 的时间 |
+| `extraction_changed_at` | TIMESTAMPTZ | 用户最近一次修改提取数据的时间 |
+| `verify_snapshot_hash` | VARCHAR(64) | 上次完成 verification 时基于的 mapping hash |
+| `dirty_downstream` | VARCHAR(32) | 标记需重跑的下游：NONE / VERIFY / CONFLICT / ALL |
+
+> 哈希计算只对**会影响下游计算**的字段排序后做 SHA-256：mapping = (file_id, row_id, mapped_label, document_type, reporting_period)；extraction = (file_id, row_id, raw_label, raw_value, raw_period)。
+
+#### 4.6.3 重跑触发判定
+
+当用户从某步骤 Next（前进）时，Java 比对 hash：
+
+```
+on Next 进入 5a (Mapping Summary):
+  if current_mapping_hash == verify_snapshot_hash:
+      dirty_downstream = NONE         # 直接显示上次 summary，无需重新计算
+  else:
+      dirty_downstream = VERIFY       # 用户必须重新点 Start Verification
+      清空：doc_parse_conflict (status='detected')
+            doc_parse_conflict_resolution (本批所有 resolution + note)
+      verify_snapshot_hash = NULL
+
+on Next 进入 5b (Conflict Resolution):
+  if dirty_downstream IN (VERIFY, CONFLICT, ALL):
+      显示 Toast: "Your mapping changes have been applied. Please review the updated verification results."
+      引导用户回 5a 重新 Start Verification
+
+on Previous from 5b → 5a:
+  保留已 detected 的冲突列表 + 已填 resolution；不重置 verify_snapshot_hash
+  用户若不修改 mapping，Next 回到 5b 时 hash 一致 → 沿用已有解决进度
+```
+
+#### 4.6.4 下游清空策略
+
+| 用户操作 | 清空目标 | 保留 |
+|----------|---------|------|
+| Previous 后修改 mapping | conflict + resolution + note + verify 进度 | 提取数据、上传文件 |
+| Previous 后修改提取数据（行编辑/删除噪音） | mapping 受影响行 + 下游全部（VERIFY+CONFLICT+ALL） | 文件 S3 对象 |
+| Previous 后无修改 | 不清空任何东西 | 全部 |
+| 5b 中点 Previous 回 5a | 不清空（保留已填 note 与 resolution） | 全部 |
+| 5a 中 verification 进行时点 Previous | 取消 verification job，清空本次 detected 列表 | 上一次 verify 的结果（如果存在） |
+
+#### 4.6.5 实现要点
+
+- **写时计算 hash**：每次用户 PATCH /review 提交编辑，Java 在事务内重算 `mapping_snapshot_hash` 并更新 `mapping_changed_at`。
+- **置灰下游**：前端读取 `dirty_downstream`，对受影响的步骤（5a/5b 标签）置灰，避免用户看到陈旧数据。
+- **不影响记忆学习**：记忆学习只在 COMPLETED 后基于 final mapping 触发，与 dirty_downstream 无关。
+- **审计**：每次清空 conflict_resolution 写入 `doc_parse_navigation_audit`（task_id, from_step, to_step, cleared_what, timestamp）。
+
+---
+
+### 4.7 No-Extractable-Data 流程分支
+
+> 需求来源：[requirement-analysis.md §4.12](./requirement-analysis.md#412-edge-case--documents-without-extractable-data2026-05-06-新增)。
+
+#### 4.7.1 检测点
+
+Python extraction 完成时（PERSISTING 阶段），如果 `ai_ocr_extracted_row` 中该 file 行数 = 0 且 OCR 文本无可识别表格：
+
+- 写 `doc_parse_file.has_extractable_data = false`
+- file.status 仍走到 `REVIEW_READY`（不视为 FAILED）
+- processing_stage 标记 `NO_DATA_DETECTED`
+- 通过 OcrResult SQS 消息上报 `extracted_row_count=0`
+
+#### 4.7.2 分支决策（Java 收到 OcrResult 后）
+
+```
+case 1: 全批次都无数据（task 中所有 file.has_extractable_data = false）
+  task.status: PROCESSING → REVIEW_READY → NO_DATA_SHORTCUT
+  跳过 5a/5b/5c 全部
+  执行：
+    - 把所有文件登记到 file_objects.folder='Imported Statements'
+    - 写审计日志：reason='no extractable financial data found'
+    - task.status = COMPLETED（但跳过记忆学习，因为没有 mapping diff）
+  前端展示：空 mapping 屏幕 + 提示文案 + 跳转 Documents/Documentation 页
+
+case 2: 混合批次（部分有数据、部分无）
+  有数据的文件：走完整 5a/5b/5c 流程
+  无数据的文件：单独处理，登记到 Imported Statements，不阻塞主流程
+  在 5a Summary 中明示："X of Y files contained no extractable data and were saved as-is"
+  在 5c 成功 banner 中重申：哪些文件成功写入 / 哪些只保存到 Imported Statements
+```
+
+#### 4.7.3 关键边界
+
+- **不重试 extraction**：no-data 不是失败，不进入 DLQ。
+- **保留 S3 文件**：即使无数据也保留原始文件，遵循 8.4 文件留存策略。
+- **不触发 closed-month email**：因为没有引入任何新月份的财务数据。
+- **不触发记忆学习**：没有 user-corrected mapping 可学。
+
+---
+
+### 4.8 Imported Statements S3 路径与文件夹设计
+
+> 需求来源：[requirement-analysis.md §4.11/§4.12](./requirement-analysis.md#411-step-5c--commit-uploaded-data-to-lg--display-results2026-05-06-新增)。
+
+#### 4.8.1 S3 路径规范
+
+S3 物理路径**不变**（仍按 §8.2 的 `ocr-uploads/{companyId}/{taskId}/{fileId}/{filename}` 格式存储），但在 Documents 页面**通过逻辑文件夹 `Imported Statements` 暴露**给用户。
+
+#### 4.8.2 逻辑文件夹实现
+
+复用现有 `file_objects` 表的 `folder` 字段（Java 的 storage 模块管理）：
+
+| 字段 | 取值 | 说明 |
+|------|------|------|
+| `file_objects.folder` | `'Imported Statements'` | OCR pipeline 完成后由 Java 在 5c 事务内统一更新 |
+| `file_objects.source_task_id` | UUID（doc_parse_task.id） | 反向追溯到 OCR task |
+| `file_objects.import_status` | `IMPORTED` / `IMPORTED_NO_DATA` | 区分有数据 vs 无数据导入 |
+
+#### 4.8.3 时机
+
+- **5c 事务提交时**：批量更新 `file_objects.folder='Imported Statements'`（all-or-nothing 与 fi_* 写入同事务）。
+- **No-Data 分支**：在 NO_DATA_SHORTCUT 路径里同步更新（不在 5c 事务内，但仍在 Java 单事务内）。
+- **混合批次**：所有文件统一打标签（含无数据的）；按 `import_status` 区分展示。
+
+#### 4.8.4 生命周期
+
+- **永久保留**：Imported Statements 中的文件遵循 §8.4 规则，与 fi_* 写入产生强依赖（用户可点击查看原始凭证）。
+- **删除约束**：用户在 Documents 页面删除会同时移除 S3 对象 + 标记 `doc_parse_file.status=DELETED`，但**不能删除已 COMMITTED task 引用的源文件**（防止破坏审计链）。
+- **Presigned URL 查看**：通过现有 `POST /api/v1/docparse/files/{fileId}/download-url` 端点生成 15 分钟有效签名 URL。
 
 ---
 
@@ -1102,13 +1365,27 @@ POST   /api/v1/docparse/upload/abort                    取消上传
 # 文件查看（Presigned GET URL）
 POST   /api/v1/docparse/files/{fileId}/download-url
 
-# 审核 / 提交（三阶段 commit）
-PATCH  /api/v1/docparse/tasks/{id}/review
-POST   /api/v1/docparse/tasks/{id}/verify
-GET    /api/v1/docparse/tasks/{id}/verify/status
-GET    /api/v1/docparse/tasks/{id}/conflicts
-POST   /api/v1/docparse/tasks/{id}/resolve
-POST   /api/v1/docparse/tasks/{id}/commit
+# 审核 / 提交（5a → 5b → 5c 三阶段，2026-05-06 拆分）
+PATCH  /api/v1/docparse/tasks/{id}/review                  审核编辑（行/映射/删除噪音）
+
+# Step 5a: Mapping Summary
+GET    /api/v1/docparse/tasks/{id}/summary                 获取 5a 汇总（文件/类型/账户数）+ hard-gate 校验结果
+POST   /api/v1/docparse/tasks/{id}/verify/start            5a 触发：用户点 Start Verification（启动 verification job）
+GET    /api/v1/docparse/tasks/{id}/verify/progress         5a 进度轮询：百分比 + 当前阶段
+POST   /api/v1/docparse/tasks/{id}/verify/cancel           5a 取消：用户回退时停止 verification job
+
+# Step 5b: Conflict Resolution
+GET    /api/v1/docparse/tasks/{id}/conflicts               冲突列表（Financial-Entry 风格 metric × 月份）
+POST   /api/v1/docparse/tasks/{id}/conflicts/{cId}/resolve 单条冲突解决（Overwrite/Keep + Note 必填）
+GET    /api/v1/docparse/tasks/{id}/conflicts/next          Save & Next 导航：返回下一冲突 ID
+
+# Step 5c: Commit & Display
+POST   /api/v1/docparse/tasks/{id}/commit                  最终写入 fi_* + Proforma forecast 版本（整批事务）
+GET    /api/v1/docparse/tasks/{id}/commit/result           写入结果（账户数 / 周期 / 导入文件夹位置）
+
+# 步骤导航（Steps Navigation 边界用例，§4.6）
+POST   /api/v1/docparse/tasks/{id}/navigate/back           Previous：声明回退到指定步骤；返回 dirty_downstream 状态
+GET    /api/v1/docparse/tasks/{id}/navigate/dirty-state    查询哪些下游步骤需重跑（dirty_downstream）
 
 # 通知 / 记忆学习（状态可观测性）
 GET    /api/v1/docparse/tasks/{id}/notifications
@@ -1572,3 +1849,42 @@ defusedxml>=0.7.1
 # openai>=1.50.0                                 # text-embedding-3-small（RAG embedding 用）
 # 自定义检索 pipeline: chunking → embedding → recall → re-ranking
 ```
+
+---
+
+## 16. 变更日志
+
+| 版本 | 日期 | 变更摘要 | 来源 |
+|------|------|---------|------|
+| v1.0 | 2026-04-16 | 初版：OCR Agent 架构、6 步工作流、SQS 消息、API 设计 | 调研阶段 |
+| v1.1 | 2026-04-20 | 项目内部补丁：Task 修订（version chain）、Presigned URL 直传 S3、记忆学习 3 子状态、Note Thread RESTful 化 | requirement-analysis §11 |
+| **v1.2** | **2026-05-06** | **Asana EPIC 同步：Step 5 拆分 + 6 个新 subtask** | **requirement-analysis §4.9-4.14** |
+
+### v1.2 (2026-05-06) 详细变更
+
+**Step 5 三子步拆分（原 Story #6 → 5a/5b/5c）：**
+
+- 工作流图（§1.3）: ⑤ 写入 LG 拆为 5a Mapping Summary → 5b Conflict Resolution → 5c Commit & Display
+- 子任务清单（§1.4）: 标记原 Story #6 为已拆分，新增 5a/5b/5c + EC1/EC2/INF 共 6 行
+- Pipeline 状态机（§4.4）: 图示更新，明示 5a→5b→5c 顺序与两条旁路（无数据 / 步骤导航重跑）
+
+**新增章节：**
+
+- **§4.5 Step 5 子流程架构**：5a→5b→5c 数据流、各阶段所有权边界、5 个关键架构决策（Summary 不走 SQS、Verification 异步轮询、Proforma 独立路径、整批事务、afterCommit 触发后置）
+- **§4.6 步骤导航变更检测机制**：新增 6 个状态字段（mapping_snapshot_hash / extraction_snapshot_hash / mapping_changed_at / extraction_changed_at / verify_snapshot_hash / dirty_downstream），定义 hash 对比与下游清空策略
+- **§4.7 No-Extractable-Data 流程分支**：检测点在 PERSISTING 阶段，全批次无数据走 NO_DATA_SHORTCUT 直达 COMPLETED；混合批次只让有数据的走 5a/5b/5c
+- **§4.8 Imported Statements S3 路径设计**：复用 `file_objects.folder` 字段，5c 事务内统一打标签，新增 `import_status` 与 `source_task_id` 字段
+
+**API 列表更新（§6.1）：**
+
+- 5a: GET /summary、POST /verify/start、GET /verify/progress、POST /verify/cancel
+- 5b: GET /conflicts、POST /conflicts/{id}/resolve、GET /conflicts/next
+- 5c: POST /commit、GET /commit/result
+- 导航: POST /navigate/back、GET /navigate/dirty-state
+
+**保留不变：**
+
+- §2 Agent 定位、§3 技术选型、§5 SQS 拓扑、§7 数据模型主体、§8 安全设计、§9 状态通知、§13 开发分期、§14 Multi-Agent 演进路线
+- 所有跨子项目接口契约（Java↔Python SQS 消息 schema 不变）
+
+> 边界提示：本文档只描述 cross-cutting 架构。Java 端的 5a/5b/5c Controller/Service/事务实现见 [java-design.md](./java-design.md)；Python 端 No-Data 检测见 [python-design.md](./python-design.md)；前端 5a/5b/5c 页面、Previous 按钮交互、dirty 置灰策略见 [frontend-design.md](./frontend-design.md)。

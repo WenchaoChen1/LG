@@ -314,12 +314,15 @@ Python 完成一个文件的**全部处理**（提取+映射+验证+持久化）
   "detectedCurrencies": ["USD"],
   "memoryHitCount": 8,
   "llmMapCount": 15,
+  "hasExtractableData": true,
+  "extractionSkipReason": null,
   "error": null
 }
 ```
 
 **status 取值**:
-- `completed` — 成功，file 进入 REVIEW_READY
+- `completed` — 成功，file 进入 REVIEW_READY（**仅当 `hasExtractableData=true`**）
+- `completed_no_data` — 文件保存成功但无可提取财务数据，file 进入 NO_DATA 状态。Java 据此跳过 mapping/conflict/write，仅写入 Documents/Imported Statements 文件夹。**详见 [requirement-analysis.md §4.12](./requirement-analysis.md#412-edge-case--documents-without-extractable-data)**
 - `failed` — 失败，file 进入 FILE_FAILED，`error` 字段填充
 
 **字段说明**:
@@ -327,6 +330,8 @@ Python 完成一个文件的**全部处理**（提取+映射+验证+持久化）
 - `currencyWarning`: 是否检测到多种货币（前端显示 alert 图标）
 - `detectedCurrencies`: 检测到的所有货币列表（前端 CurrencySelector 用）
 - `memoryHitCount` / `llmMapCount`: 统计信息，供 Review Dashboard 展示
+- `hasExtractableData`（**2026-05-06 新增**）: false 表示文档无可识别财务数据，Java 走 §4.12 跳过分支
+- `extractionSkipReason`（**2026-05-06 新增**）: 跳过原因枚举，供审计日志和前端中性提示使用（值见 §2.2 ExtractedTable 字段定义）
 
 #### 1.3.3 OcrMemoryLearnProgress 消息（任务级记忆学习进度）
 
@@ -491,6 +496,95 @@ async def handle_extract_message(message: OcrExtractMessage, db: AsyncSession):
 | 所有重试耗尽 | 进 DLQ，Java 通过 `QueueMessageLog.isDlq=true` 追踪 |
 | 结果消息发送失败 | Python 通过 SQS 回调通知 Java 更新状态；Java 轮询时 fallback 查 Python 表 |
 
+### 1.6 消费 ocr-remap-queue（重新映射触发，2026-05-06 新增）
+
+> **需求来源**: [requirement-analysis.md §4.13 Edge Case — Steps Navigation](./requirement-analysis.md#413-edge-case--steps-navigation)
+
+当用户在多步骤流程中**点 Previous 回退并修改了 extracted data**（例如改了 row label、改了 reporting period、改了行项金额）后再 Next，**Java 端**会比对修改前后的快照，**仅在确实有变化时**向 `ocr-remap-queue` 发消息触发 Python 重跑映射。**未修改的回退（Scenario 1）由 Java 直接复用既有结果，不发消息**，详见 [java-design.md](./java-design.md)。
+
+**消息 Schema（Java → Python）**:
+
+```json
+{
+  "messageType": "OcrRemap",
+  "queueName": "ocr-remap-queue",
+  "uuid": "msg-uuid",
+  "sendTime": "2026-05-06T10:00:00Z",
+  "taskId": "task-uuid",
+  "fileId": "file-uuid",
+  "companyId": "123",
+  "trigger": "user_edited_extraction",
+  "changedRowIds": ["row-uuid-1", "row-uuid-2"],
+  "reason": "User changed account_label on 2 rows after Previous → Edit → Next"
+}
+```
+
+**字段说明**:
+- `trigger` 取值: `user_edited_extraction` / `user_edited_mapping_metadata` / `user_edited_period`
+- `changedRowIds`: 受影响的 row 列表。若整表都变（如 reporting_periods 改了）则为空列表表示"全表重映射"
+
+**Python Consumer 处理逻辑**:
+
+```python
+# consumers/remap_consumer.py
+async def handle_remap_message(message: OcrRemapMessage, db: AsyncSession):
+    """重新映射触发处理。
+
+    - 清空旧的 mapping_result（仅清受影响行；若 changedRowIds 为空则清整个 file）
+    - 重新走三层映射（rule → memory → LLM）
+    - 重发 OcrResult，让 Java 重跑 conflict detection
+    """
+    file_id = message.file_id
+
+    # Step 1：拿行级锁，防止并发 extract 与 remap 互踩
+    locked = await _try_lock_file(db, file_id)
+    if not locked:
+        logger.info(f"File {file_id} busy, will retry via SQS visibility timeout")
+        return
+
+    # Step 2：清旧 mapping
+    if message.changed_row_ids:
+        await db.execute(
+            text("DELETE FROM ai_ocr_mapping_result WHERE row_id = ANY(:ids)"),
+            {"ids": message.changed_row_ids},
+        )
+    else:
+        await db.execute(
+            text("""
+                DELETE FROM ai_ocr_mapping_result
+                WHERE row_id IN (
+                    SELECT r.id FROM ai_ocr_extracted_row r
+                    JOIN ai_ocr_extracted_table t ON r.table_id = t.id
+                    WHERE t.file_id = :file_id
+                )
+            """),
+            {"file_id": file_id},
+        )
+
+    # Step 3：仅跑 map 节点（不重跑 extract）
+    await run_remap_pipeline(file_id, message.changed_row_ids, db)
+    await db.commit()
+
+    # Step 4：发 OcrResult（status=remap_completed），Java 据此清空旧 conflict 并重跑
+    await result_producer.send_remap_result(
+        task_id=message.task_id,
+        file_id=file_id,
+        company_id=message.company_id,
+    )
+```
+
+**与 conflict resolution 的边界**:
+- Python 仅负责 mapping 重算 + 回传 `OcrResult`
+- **Java 端**根据 `OcrResult{status=remap_completed}` **清空旧的 conflict resolutions**（§4.13 要求"清空之前基于旧 mapping 的 conflict resolutions"）并重新做 §4.10 冲突检测
+- Python 端**不参与冲突弹窗**，详见 [java-design.md](./java-design.md)
+
+**幂等性**: 重跑前先 DELETE，多次消费同一消息结果一致。若 SQS 重发已消费的 `OcrRemap`，第二次执行会清空又重新写入，最终态相同。
+
+**性能**:
+- 仅跑 map 节点，无 extract / classify / OCR 调用
+- 典型耗时 1-3s（rule + memory 命中），LLM 命中 5-10s
+- SQS `visibilityTimeout=120s` 充裕
+
 ---
 
 ## 2. AI 提取引擎
@@ -582,6 +676,28 @@ class ExtractedTable(BaseModel):
         description=(
             "无法识别的周期数。前端根据此计数在指标表最右端追加空白月份列，"
             "让用户手动分配日期。[Asana 2026-04-19 Story #5 Calendar Month]"
+        )
+    )
+    # ★ 2026-05-06 新增：requirement-analysis.md §4.12 Edge Case
+    # 当文档无可提取财务数据时，下游 mapping/conflict/write 全部跳过；
+    # Java 读取这两个字段做分支决策，详见 java-design.md。
+    has_extractable_data: bool = Field(
+        default=True,
+        description=(
+            "False = 文档不含可识别的财务表格/数值（如纯封面图、纯叙述、"
+            "标题页、图片但无数据）。Java 端据此跳过 mapping review、conflict "
+            "resolution、fi_* 写入，仅保存到 Documents/Imported Statements。"
+        )
+    )
+    extraction_skip_reason: str | None = Field(
+        default=None,
+        description=(
+            "为 None 表示有可提取数据；否则取以下枚举之一："
+            "'no_tables_detected'（未检测到任何表格结构）、"
+            "'narrative_only'（纯叙述/段落文本，无数值数据）、"
+            "'image_only_no_data'（图片型 PDF 但 OCR 后无数值）、"
+            "'cover_or_title_page'（封面/标题页/目录页）、"
+            "'all_zero_values'（识别出表格但所有数值为 0/空）。"
         )
     )
 
@@ -910,6 +1026,113 @@ async def handle_similarity_check(message: OcrSimilarityCheckMessage, db: AsyncS
 **失败降级**:
 - embedding API 故障（OpenAI 503）→ 跳过 embedding 更新，只用已有 embedding 检测（部分覆盖）
 - pgvector 查询失败 → consumer 抛异常，SQS 重试 3 次后进 DLQ，Java Sweeper 10 min 兜底推进 `REVIEWING`
+
+### 2.6 无可提取数据识别（2026-05-06 新增）
+
+> **需求来源**: [requirement-analysis.md §4.12 Edge Case — Documents Without Extractable Data](./requirement-analysis.md#412-edge-case--documents-without-extractable-data)
+
+提取节点完成后，必须**显式判断**文档是否含有可继续走 mapping/conflict/write 流程的财务数据。判定结果通过 `ExtractedTable.has_extractable_data` 与 `extraction_skip_reason` 写入 `ai_ocr_extracted_table`，并在 `OcrResult` SQS 消息中以 `status=completed_no_data` 通知 Java。**Java 据此跳过下游所有写入步骤，详见 [java-design.md](./java-design.md)。**
+
+#### 判定算法
+
+```python
+# engines/extraction_classifier.py
+from dataclasses import dataclass
+
+@dataclass
+class ExtractabilityVerdict:
+    has_data: bool
+    reason: str | None  # None 表示有数据；否则为 skip 枚举
+
+def classify_extractability(
+    tables: list[ExtractedTable],
+    ocr_text: str,
+    page_count: int,
+) -> ExtractabilityVerdict:
+    """提取阶段后调用一次。
+
+    判定优先级（先匹配先返回）：
+    1. tables 为空 + OCR 文本极少（<50 字符）→ image_only_no_data
+    2. tables 为空 + OCR 文本是叙述（无数字行项）→ narrative_only
+    3. tables 为空 + OCR 文本仅含标题/页眉（如 "ANNUAL REPORT 2024"）→ cover_or_title_page
+    4. tables 不为空但所有 row.values 全为 0 / 空 → all_zero_values
+    5. 其它（连表格结构都没识别出来）→ no_tables_detected
+    6. 否则 → has_data=True
+    """
+    has_any_row = any(len(t.rows) > 0 for t in tables)
+    has_any_value = any(
+        any(v not in (None, 0, 0.0) for v in r.values.values())
+        for t in tables for r in t.rows
+    )
+
+    if not tables and len(ocr_text.strip()) < 50:
+        return ExtractabilityVerdict(False, "image_only_no_data")
+    if not has_any_row and _is_narrative(ocr_text):
+        return ExtractabilityVerdict(False, "narrative_only")
+    if not has_any_row and _looks_like_cover(ocr_text, page_count):
+        return ExtractabilityVerdict(False, "cover_or_title_page")
+    if has_any_row and not has_any_value:
+        return ExtractabilityVerdict(False, "all_zero_values")
+    if not has_any_row:
+        return ExtractabilityVerdict(False, "no_tables_detected")
+    return ExtractabilityVerdict(True, None)
+
+
+def _is_narrative(text: str) -> bool:
+    """启发式：句子多但数字稀疏 → 视为叙述性文本。"""
+    import re
+    sentences = re.split(r"[.!?。！？]\s+", text)
+    digits = sum(c.isdigit() for c in text)
+    return len(sentences) >= 5 and digits / max(len(text), 1) < 0.02
+
+
+def _looks_like_cover(text: str, page_count: int) -> bool:
+    """单页 + 文字极少 + 含明显标题词 → 封面/标题页。"""
+    keywords = ("annual report", "financial statements", "table of contents",
+                "prepared by", "confidential", "draft")
+    lower = text.lower()
+    return page_count <= 1 and len(text) < 500 and any(k in lower for k in keywords)
+```
+
+#### 写入与回传
+
+```python
+# workflow/nodes/extract.py（节选）
+async def extract_node(state: OCRPipelineState) -> OCRPipelineState:
+    tables = await run_extraction(state["file"])
+    verdict = classify_extractability(tables, state["ocr_text"], state["page_count"])
+
+    # 标记每个 table（即便 tables 为空也要落一条占位记录，便于审计）
+    if not tables:
+        tables = [ExtractedTable(
+            document_type="MISC", rows=[], reporting_periods=[],
+            has_extractable_data=False,
+            extraction_skip_reason=verdict.reason,
+        )]
+    else:
+        for t in tables:
+            t.has_extractable_data = verdict.has_data
+            t.extraction_skip_reason = verdict.reason
+
+    state["tables"] = tables
+    state["skip_downstream"] = not verdict.has_data
+    return state
+```
+
+LangGraph 在 `extract` 节点之后做条件路由：`skip_downstream=True` → 直接跳到终点节点发送 `OcrResult{status: completed_no_data, extractionSkipReason: ...}`；否则继续 `map → validate`。
+
+#### 与 Java 的契约边界
+
+| 责任方 | 行为 |
+|--------|------|
+| **Python** | 判定 + 写 `ai_ocr_extracted_table.has_extractable_data/extraction_skip_reason`；发送 `OcrResult{status=completed_no_data}` |
+| **Java** | 收到后置 `doc_parse_file.processing_stage=NO_DATA`；该文件**不进入** mapping review；任务汇总时若**所有文件**均无数据，按 §4.12 跳过 5a/5b/5c，仅写 Documents/Imported Statements；混合批次时只让有数据的文件走完整流程 |
+
+#### 审计
+
+无数据文件仍写入 `ai_ocr_extracted_table`（rows 为空），便于事后审计"为何这个文件被跳过"。Java 端的写入审计日志会记录 `skip_reason="no_extractable_financial_data_found"` 并关联 `extraction_skip_reason`。
+
+---
 
 ## 3. AI 映射引擎（三层架构）
 
@@ -1919,3 +2142,335 @@ asyncpg                     # PostgreSQL 异步驱动
 # openai>=1.50.0                                 # text-embedding-3-small（RAG embedding 用）
 # 自定义检索 pipeline: chunking → embedding → recall → re-ranking
 ```
+
+---
+
+## 9. OCR Provider 集成（eSapiens，2026-05-06 新增）
+
+> **需求来源**: [requirement-analysis.md §4.14 Backend Infrastructure & Framework Setup](./requirement-analysis.md#414-backend-infrastructure--framework-setup2026-05-06-新增--技术-story)
+
+### 9.1 集成边界
+
+| 处理路径 | 是否使用 OCR Provider | 说明 |
+|----------|----------------------|------|
+| 扫描 PDF / 图片 PDF | ✅ eSapiens | 文件先经 eSapiens 文本化，再走 Vision 提取 |
+| 独立图片（JPG/PNG/TIFF） | ✅ eSapiens | 同上 |
+| 数字 PDF（含文本层） | ⚠️ 可选 | 若 `pdf2image` + 文本层抽取够用则跳过 eSapiens；否则降级走 OCR |
+| Excel / CSV | ❌ 不使用 | 直接 `openpyxl` / `pandas` 解析 |
+
+**决策点**: 在 `workflow/nodes/preprocess.py` 内根据 MIME + 是否含文本层路由，**eSapiens 仅在确实需要 OCR 时调用**，避免不必要的成本和延迟。
+
+### 9.2 客户端封装
+
+```python
+# engines/ocr_provider/esapiens_client.py
+import httpx
+from dataclasses import dataclass
+from .secrets import get_secret  # 见 §9.4
+
+@dataclass
+class OCRPage:
+    page_index: int
+    text: str
+    confidence: float
+    bounding_boxes: list[dict] | None  # 行级坐标，便于源引用回链
+
+@dataclass
+class OCRResult:
+    pages: list[OCRPage]
+    total_pages: int
+    provider: str = "esapiens"
+    provider_request_id: str | None = None  # 供审计追踪
+
+class ESapiensClient:
+    """eSapiens OCR API 异步客户端。
+
+    - API key 从 secret manager 加载（不读 env，不写代码）
+    - 超时与重试由 httpx 处理（指数退避，最多 3 次）
+    - 多页文档：服务端原生支持；客户端按 page-by-page 流式接收
+    """
+    def __init__(self, base_url: str, timeout_s: int = 120):
+        self._base_url = base_url
+        self._client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=timeout_s,
+            transport=httpx.AsyncHTTPTransport(retries=3),
+        )
+
+    async def ocr_document(self, file_bytes: bytes, content_type: str) -> OCRResult:
+        api_key = await get_secret("ESAPIENS_API_KEY")
+        resp = await self._client.post(
+            "/v1/ocr/documents",
+            headers={"Authorization": f"Bearer {api_key}"},
+            files={"file": ("upload", file_bytes, content_type)},
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        return OCRResult(
+            pages=[OCRPage(**p) for p in body["pages"]],
+            total_pages=body["total_pages"],
+            provider_request_id=body.get("request_id"),
+        )
+```
+
+### 9.3 多页文档处理流程
+
+```
+原始 PDF (10 页)
+  │
+  ├─→ 含文本层？是 → pdf2image + PyMuPDF 抽取文本（跳过 eSapiens）
+  │
+  └─→ 否（扫描件）→ ESapiensClient.ocr_document(bytes)
+                          │
+                          ↓
+                    OCRResult{pages: [10 页]}
+                          │
+                          ↓ 每页并发处理（asyncio.Semaphore(5)）
+                          │
+                    Vision 模型 + Instructor → ExtractedTable[]
+                          │
+                          ↓ 跨页表格合并（同一 document_type + 列对齐）
+                          ↓
+                    最终 ExtractedTable[]
+```
+
+**跨页表格合并规则**:
+- 同 `document_type` + 同 `reporting_periods` → 合并 rows
+- `provider_request_id` 写入 `ai_ocr_extracted_table.provider_metadata`，便于审计
+- bounding boxes 存入 `ai_ocr_extracted_row.source_reference`（page + region），支撑前端"原文引用"
+
+### 9.4 API Key 安全存储
+
+| 环境 | 存储方式 |
+|------|----------|
+| 本地开发 | `.env.local`（gitignore），`AWS_PROFILE` 走开发者个人凭证 |
+| Staging / Prod | **AWS Secrets Manager**，secret 名 `lg/ocr/esapiens-api-key` |
+
+```python
+# engines/ocr_provider/secrets.py
+import aioboto3
+from functools import lru_cache
+
+_session = aioboto3.Session()
+
+async def get_secret(name: str) -> str:
+    """从 AWS Secrets Manager 异步加载 secret。
+
+    - 启动时由 health check 预加载并校验存在
+    - 进程内缓存 1 小时，到期重拉（轮换支持）
+    """
+    async with _session.client("secretsmanager") as sm:
+        resp = await sm.get_secret_value(SecretId=_resolve(name))
+        return resp["SecretString"]
+
+def _resolve(name: str) -> str:
+    """逻辑名 → 实际 secret 名（按环境前缀）。"""
+    import os
+    env = os.environ.get("DEPLOY_ENV", "dev")
+    mapping = {
+        "ESAPIENS_API_KEY": f"lg/{env}/ocr/esapiens-api-key",
+        "OPENROUTER_API_KEY": f"lg/{env}/ai/openrouter-api-key",
+        "OPENAI_API_KEY": f"lg/{env}/ai/openai-api-key",
+    }
+    return mapping[name]
+```
+
+**禁止事项**:
+- ❌ 任何 OCR / AI 的 API key 出现在源代码、Dockerfile、docker-compose.yml 中
+- ❌ 通过环境变量直接传 key（仅传 `secret_id` 引用）
+- ❌ 在日志、SQS 消息、错误堆栈中打印 key
+
+### 9.5 集成测试
+
+测试 fixture 放在 `tests/fixtures/ocr_provider/`：
+- `scanned_pnl.pdf` — 扫描版 P&L（5 页）
+- `image_only_pdf.pdf` — 纯图片 PDF（无文本层）
+- `single_image.png` — 独立图片
+- `multi_currency_bs.pdf` — 含混合货币的 Balance Sheet
+- `cover_page.pdf` — 封面页（用于 §2.6 has_extractable_data=False 验证）
+
+CI 中以 mock 客户端（`pytest-httpx`）跑契约测试；夜间任务对真实 eSapiens sandbox 跑 smoke test。
+
+---
+
+## 10. AI Provider 集成（2026-05-06 新增）
+
+> **需求来源**: [requirement-analysis.md §4.14](./requirement-analysis.md#414-backend-infrastructure--framework-setup2026-05-06-新增--技术-story)
+
+### 10.1 当前选型
+
+| 用途 | Provider | 模型 | 备注 |
+|------|----------|------|------|
+| 文档提取（Vision） | OpenRouter | `google/gemini-2.5-flash` | 主选；成本低、速度快 |
+| 复杂提取（fallback） | OpenRouter | `anthropic/claude-sonnet-4` | Vision 失败/置信度低时升级 |
+| 映射推理（LLM 层） | OpenRouter | `anthropic/claude-sonnet-4` | 准确率优先 |
+| Embedding（相似度检测） | OpenAI | `text-embedding-3-small` | 1536 维，pgvector HNSW |
+
+**为何选 OpenRouter**: 单一密钥访问 Gemini / Claude / GPT 等多家模型，便于 A/B 测试与按任务路由；故障可一键切换备用模型。
+
+### 10.2 客户端封装
+
+复用现有 `source/financial/langchain_service.py` 的 OpenRouter client（`AsyncOpenAI(base_url="https://openrouter.ai/api/v1")`），通过 Instructor 注入 Pydantic 结构化输出（详见 §2.2）。
+
+```python
+# engines/ai_provider/router.py
+from enum import StrEnum
+
+class AITask(StrEnum):
+    EXTRACTION = "extraction"
+    EXTRACTION_COMPLEX = "extraction_complex"
+    MAPPING = "mapping"
+    EMBEDDING = "embedding"
+
+# 模型路由表（可由 config.py 通过 env 覆盖，便于灰度发布）
+MODEL_ROUTING = {
+    AITask.EXTRACTION:         ("openrouter", "google/gemini-2.5-flash"),
+    AITask.EXTRACTION_COMPLEX: ("openrouter", "anthropic/claude-sonnet-4"),
+    AITask.MAPPING:            ("openrouter", "anthropic/claude-sonnet-4"),
+    AITask.EMBEDDING:          ("openai",     "text-embedding-3-small"),
+}
+```
+
+### 10.3 API Key 安全存储
+
+与 §9.4 同一套 Secret Manager 流程：
+
+| 逻辑名 | Secret Manager 路径 |
+|--------|---------------------|
+| `OPENROUTER_API_KEY` | `lg/{env}/ai/openrouter-api-key` |
+| `OPENAI_API_KEY` | `lg/{env}/ai/openai-api-key` |
+
+启动时由 `app.on_event("startup")` 预加载并校验三把 key（eSapiens / OpenRouter / OpenAI）均可读取，否则 fail-fast 不启动 consumer。
+
+### 10.4 集成测试 Fixtures
+
+```
+tests/fixtures/ai_provider/
+├── extraction_input_pnl.json       # 模拟 Vision 输入
+├── extraction_expected_pnl.json    # 期望 ExtractedTable 输出
+├── mapping_input_unmapped.json     # 待映射 line items
+├── mapping_expected.json           # 期望 LG category（部分允许 confidence 浮动）
+└── embedding_smoke.json            # 5 个标签 → 期望 cosine 相似度区间
+```
+
+测试策略：
+- **Unit**: 全 mock LLM 响应，验证 parser / 重试 / 错误处理
+- **Contract**: 周期性对真实 OpenRouter 跑提取/映射，断言结构合规（不断言精确分类）
+- **Eval**: 标注集 100 条 line items，监控 mapping 准确率（基线 ≥ 85%），低于阈值告警
+
+---
+
+## 11. LG Category 配置化扩展（2026-05-06 新增）
+
+> **需求来源**: [requirement-analysis.md §4.14](./requirement-analysis.md#414-backend-infrastructure--framework-setup2026-05-06-新增--技术-story) — "必须为未来 LG 财务分类的扩展留出空间（如 Product Revenue、Sales Revenue、Other Revenue 等）"
+
+### 11.1 现状与问题
+
+当前 19 个 LG 分类在三处**硬编码**：
+1. `LGCategory` Python enum（`schemas/mapping.py`）
+2. 数据库 `ai_ocr_mapping_result.lg_category` 的 CHECK 约束
+3. `prompts/mapping_system.md` 的 prompt 文本
+
+**问题**: 新增分类（如细分 Revenue → Product Revenue / Sales Revenue / Other Revenue）需要同时改 3 处 + 重新部署，违反"为未来扩展留出空间"。
+
+### 11.2 配置化方案
+
+引入 `lg_category_definition` 表，作为**单一事实来源**：
+
+```sql
+-- DDL 详见 database-schema.md §3.7（待新增）
+CREATE TABLE lg_category_definition (
+    code            VARCHAR(64) PRIMARY KEY,         -- 'Revenue' / 'Product_Revenue'
+    parent_code     VARCHAR(64) REFERENCES lg_category_definition(code),
+    statement_type  VARCHAR(32) NOT NULL,            -- INCOME_STATEMENT / BALANCE_SHEET
+    display_name    VARCHAR(128) NOT NULL,
+    description     TEXT,
+    keywords        TEXT[],                          -- 规则引擎用
+    excluded_terms  TEXT[],
+    sort_order      INT,
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    introduced_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deprecated_at   TIMESTAMPTZ
+);
+```
+
+**关键设计点**:
+- `parent_code` 支持**层级**：`Revenue`（父）→ `Product_Revenue` / `Sales_Revenue` / `Other_Revenue`（子）
+- `is_active` + `deprecated_at` 支持**软删除**：旧映射记录保留分类引用，但新映射不再使用
+- `keywords` / `excluded_terms` 让规则引擎从表读取，不再硬编码
+
+### 11.3 三处硬编码的重构
+
+| 硬编码位置 | 重构方案 |
+|------------|----------|
+| `LGCategory` enum | 启动时从 `lg_category_definition` 动态生成；运行期不可变（保留 enum 的类型安全） |
+| DB CHECK 约束 | 改为外键约束 `FOREIGN KEY (lg_category) REFERENCES lg_category_definition(code)` |
+| Prompt 文本 | `prompts/mapping_system.md` 改为模板，启动时从表渲染 `## LG Categories` 章节 |
+
+```python
+# engines/lg_category_loader.py
+from enum import Enum
+
+async def load_lg_categories(db) -> type[Enum]:
+    """启动时调用一次，构建 LGCategory enum。"""
+    rows = await db.execute(text("""
+        SELECT code, display_name FROM lg_category_definition
+        WHERE is_active = TRUE
+        ORDER BY sort_order
+    """))
+    members = {r.code: r.code for r in rows}
+    return Enum("LGCategory", members, type=str)
+
+
+async def render_mapping_prompt(template: str, db) -> str:
+    """把 prompt 模板里的 {{LG_CATEGORIES}} 替换为表内分类清单。"""
+    rows = await db.execute(text("""
+        SELECT statement_type, display_name, description, parent_code
+        FROM lg_category_definition WHERE is_active = TRUE
+        ORDER BY statement_type, sort_order
+    """))
+    sections = _group_by_statement(rows)  # 按 IS / BS 分组、按层级缩进
+    return template.replace("{{LG_CATEGORIES}}", _format_sections(sections))
+```
+
+### 11.4 迁移策略
+
+1. **Phase 1（本期）**: 创建 `lg_category_definition` 表 + 灌入现有 19 条记录 + 改 prompt 为模板。Python enum 仍可硬编码作为兜底，但优先使用 DB 加载结果。
+2. **Phase 2（后续）**: 移除 enum 硬编码，完全依赖 DB；新增分类（如 Product Revenue）通过 DB migration + 灰度发布完成，无需改 Python 代码。
+3. **向后兼容**: 已存的 `ai_ocr_mapping_result.lg_category` 保持不变；新增子分类时旧的 `Revenue` 仍合法（父分类与子分类共存）。
+
+### 11.5 与记忆系统的关系
+
+`mapping_memory.normalized_category` 也引用 `lg_category_definition.code`。新增子分类时：
+- 旧记忆继续指向父分类，不强制升级
+- 后台 job 可基于 keywords 推荐"建议升级到子分类"，由管理员审核
+
+---
+
+## 12. 变更日志
+
+### 2026-05-06 — Step 5 拆分 + 6 个新 Story 落地
+
+> **需求来源**: [requirement-analysis.md §4.9–§4.14](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)
+
+| 章节 | 变更内容 | 关联 Story |
+|------|----------|-----------|
+| §1.3.2 OcrResult Schema | 新增 `hasExtractableData` / `extractionSkipReason` 字段 + `completed_no_data` status | §4.12 |
+| §1.6 ocr-remap-queue（新增） | 新增重映射触发队列与 consumer，支持 Java 端"修改后重跑映射"语义 | §4.13 |
+| §2.2 ExtractedTable Schema | 新增 `has_extractable_data` / `extraction_skip_reason` 字段 | §4.12 |
+| §2.6 无可提取数据识别（新增） | 提取阶段后的判定算法 + 5 类 skip reason + 与 Java 的契约边界 | §4.12 |
+| §9 OCR Provider 集成（新增） | eSapiens 客户端封装、多页文档处理、API key 安全存储 | §4.14 |
+| §10 AI Provider 集成（新增） | OpenRouter / OpenAI 选型、模型路由表、集成测试 fixtures | §4.14 |
+| §11 LG Category 配置化扩展（新增） | `lg_category_definition` 表化方案，支持未来子分类（Product Revenue 等） | §4.14 |
+
+**Java 主导、Python 端无新逻辑的 Story**:
+- §4.9 Mapping Summary Page (Step 5a) — Java 实现，详见 [java-design.md](./java-design.md)
+- §4.10 Conflict Resolution (Step 5b) — Java 实现，详见 [java-design.md](./java-design.md)
+- §4.11 Commit & Display Results (Step 5c) — Java 实现，详见 [java-design.md](./java-design.md)
+
+### 历史变更
+
+- **2026-04-20**: §1.3.3 OcrMemoryLearnProgress（任务级记忆学习进度）；§2.5 相似度检测引擎（Phase 2.5）；`label_embedding VECTOR(1536)` 列；跨域 INSERT 权限例外
+- **2026-04-19**: 报告周期识别 fallback 按列处理（Story #5 Calendar Month）
+- **2026-04-17**: 双层架构记忆学习（Layer A 公司级实时 + Layer B 核心引擎全局，Story #8）
+- **2026-04-16**: 文档初版（基于 EPIC 原始描述与初版 Story #1–#8）

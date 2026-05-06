@@ -34,7 +34,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; -- UUID 生成
 
 ### 1.2 枚举值清单（与代码 enum 严格对应）
 
-#### Task 状态（20 个）
+#### Task 状态（22 个）
 
 应用层 enum: `com.gstdev.cioaas.web.docparse.domain.enums.DocParseStatus`
 
@@ -47,10 +47,12 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; -- UUID 生成
 | `SIMILARITY_CHECKING` | 相似度检测中 | 所有 file.status=REVIEW_READY | SIMILARITY_CHECKED / SIMILARITY_CHECK_FAILED |
 | `SIMILARITY_CHECKED` | 检测完成（瞬态） | Python 返回相似度结果 | REVIEWING |
 | `SIMILARITY_CHECK_FAILED` | 检测失败（embedding API 故障等） | Python 异常或 Sweeper 超时 | REVIEWING（兜底推进，不阻塞主流程） |
-| `REVIEWING` | 用户审核中 | SIMILARITY_CHECKED 或人工跳过 | VERIFYING / FAILED |
-| `VERIFYING` | 冲突预检中 | POST /verify | CONFLICT_RESOLUTION / REVIEWING（失败回退） |
-| `CONFLICT_RESOLUTION` | 用户解决冲突中 | verify 返回有冲突 | COMMITTING / REVIEWING |
-| `COMMITTING` | 写入 fi_* 中（事务） | POST /commit | COMMITTED / REVIEWING（失败回退，Q7 方案 B） |
+| `REVIEWING` | 用户审核中（Step 5 之前的 inline 审核） | SIMILARITY_CHECKED 或人工跳过 | MAPPING_SUMMARY / FAILED |
+| `MAPPING_SUMMARY` | **Step 5a** 映射汇总展示（§4.9） | REVIEWING 完成（用户点 Next） | VERIFY_PENDING / REVIEWING（回退） |
+| `VERIFY_PENDING` | **Step 5a** 用户已点击 Start Verification，等待后端启动 verify（§4.9） | MAPPING_SUMMARY + 用户点击 | VERIFYING / MAPPING_SUMMARY（回退停止 verify） |
+| `VERIFYING` | **Step 5b** 冲突预检中 | VERIFY_PENDING 进入实际检测 | CONFLICT_RESOLUTION / REVIEWING（失败回退） |
+| `CONFLICT_RESOLUTION` | **Step 5b** 用户解决冲突中（§4.10） | verify 返回有冲突 | COMMITTING / REVIEWING |
+| `COMMITTING` | **Step 5c** 写入 fi_* 中（事务，§4.11） | POST /commit | COMMITTED / REVIEWING（失败回退，Q7 方案 B） |
 | `COMMITTED` | fi_* 写入成功（瞬态，等记忆学习） | commit 事务成功 | MEMORY_LEARN_PENDING |
 | `MEMORY_LEARN_PENDING` | 记忆学习排队 | AFTER_COMMIT 发 SQS | MEMORY_LEARN_IN_PROGRESS |
 | `MEMORY_LEARN_IN_PROGRESS` | Python 正在学习 | Python 消费消息 | MEMORY_LEARN_COMPLETE / MEMORY_LEARN_FAILED |
@@ -60,6 +62,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; -- UUID 生成
 | `SUPERSEDED` | 被修订版替代 | 修订版 COMPLETED 时 | 终态 |
 | `FAILED` | 任务失败（硬终态） | 全部文件 FILE_FAILED / Sweeper 超时 / VERIFYING 卡死 | 终态（只能 revise） |
 | `EXPIRED` | DRAFT 过期（24h 未操作） | Sweeper 清理 | 终态 |
+
+> **2026-05-06 更新**: 新增 `MAPPING_SUMMARY` / `VERIFY_PENDING` 两个状态，对应 Step 5 拆分后的 5a 子阶段（详见 [requirement-analysis.md §4.9](./requirement-analysis.md)）。
 
 #### File 状态（8 个）
 
@@ -169,9 +173,24 @@ CREATE TABLE doc_parse_task (
     completed_files INT NOT NULL DEFAULT 0,
     failed_files    INT NOT NULL DEFAULT 0,
 
+    -- Step 5 拆分相关字段（2026-05-06 新增，需求 §4.9-4.14）
+    mapping_changed_at        TIMESTAMPTZ,                           -- §4.13 用户最后一次修改 mapping 的时间（变更检测核心）
+    mapping_snapshot_hash     VARCHAR(64),                           -- §4.13 进入 5a 时记录的 mapping 数据 SHA-256 hash
+    has_extractable_data      BOOLEAN NOT NULL DEFAULT TRUE,         -- §4.12 false 表示绕过 mapping/conflict/write 流程
+    extraction_skip_reason    VARCHAR(50),                           -- §4.12 跳过原因：NO_TABLES/NARRATIVE_ONLY/IMAGE_NO_DATA
+    summary_cache             JSONB,                                 -- §4.9 5a 摘要缓存：{ "files": N, "types": N, "accounts": N, "computed_at": ... }
+    committed_forecast_id     UUID,                                  -- §4.11 关联生成的新 committed forecast 版本（Proforma 写入产物）
+    imported_statements_folder_id UUID,                              -- §4.11 关联 Documents 页 "Imported Statements" 文件夹
+
     completed_at    TIMESTAMPTZ,                                     -- 全部完成时间
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- 约束：跳过原因仅在 has_extractable_data=false 时允许写入
+    CHECK (
+        (has_extractable_data = TRUE  AND extraction_skip_reason IS NULL) OR
+        (has_extractable_data = FALSE AND extraction_skip_reason IN ('NO_TABLES', 'NARRATIVE_ONLY', 'IMAGE_NO_DATA'))
+    )
 );
 ```
 
@@ -194,6 +213,17 @@ CREATE INDEX idx_doc_parse_task_parent
 CREATE UNIQUE INDEX uq_doc_parse_task_parent_revision
     ON doc_parse_task (parent_task_id, revision_number)
     WHERE parent_task_id IS NOT NULL;
+
+-- §4.13 mapping 变更检测：按 mapping_changed_at 查询最近变更的活跃任务
+CREATE INDEX idx_doc_parse_task_mapping_changed
+    ON doc_parse_task (mapping_changed_at DESC)
+    WHERE mapping_changed_at IS NOT NULL
+      AND status NOT IN ('COMPLETED', 'SUPERSEDED', 'FAILED', 'EXPIRED');
+
+-- §4.12 过滤"无可提取数据"任务（Documents 页"Imported Statements"展示用）
+CREATE INDEX idx_doc_parse_task_skipped
+    ON doc_parse_task (company_id, created_at DESC)
+    WHERE has_extractable_data = FALSE;
 ```
 
 ### 2.2 doc_parse_file
@@ -217,6 +247,11 @@ CREATE TABLE doc_parse_file (
     upload_error    VARCHAR(20),                                     -- 5 种上传错误枚举
     error_message   TEXT,
     deleted         BOOLEAN NOT NULL DEFAULT false,                  -- 软删除
+
+    -- §4.11 / §4.12 Imported Statements 文件夹同步标记（2026-05-06 新增）
+    imported_statements_synced BOOLEAN NOT NULL DEFAULT FALSE,       -- 是否已同步到 Documents 页 "Imported Statements" 文件夹
+    synced_at                  TIMESTAMPTZ,                          -- 最近一次同步时间
+
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -237,6 +272,12 @@ CREATE UNIQUE INDEX idx_doc_parse_file_company_hash_active
 CREATE INDEX idx_doc_parse_file_stuck_processing
     ON doc_parse_file (status, updated_at)
     WHERE status = 'PROCESSING';
+
+-- §4.11 / §4.12 待同步到 Imported Statements 的文件
+CREATE INDEX idx_doc_parse_file_pending_sync
+    ON doc_parse_file (task_id, status)
+    WHERE imported_statements_synced = FALSE
+      AND deleted = FALSE;
 ```
 
 ### 2.3 doc_parse_notification（事件日志，Q16 简化版）
@@ -517,6 +558,8 @@ ALTER TABLE ai_ocr_mapping_result ADD CONSTRAINT chk_lg_category
 
 ### 3.4 ai_ocr_conflict_record
 
+> **2026-05-06 更新**（需求 §4.10 Step 5b）: Note 字段从可选改为**必填**（主按钮在 Note 填好前禁用）；resolution 增加 `PENDING` 默认值；新增 `resolved_order` 字段供"按 metric+month 排序解决"使用。
+
 ```sql
 CREATE TABLE ai_ocr_conflict_record (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -526,11 +569,32 @@ CREATE TABLE ai_ocr_conflict_record (
     reporting_month     INT NOT NULL,
     reporting_year      INT NOT NULL,
     data_classification VARCHAR(20) NOT NULL,
-    resolution          VARCHAR(20),                                 -- OVERWRITE/SKIP
-    user_note           VARCHAR(2000),
+    lg_category         VARCHAR(50),                                 -- §4.10 metric 维度（用于 Save & Next 同 metric 跳转）
+    existing_value      NUMERIC(20,4),                               -- §4.10 LG 中现有值（弹窗展示）
+    mapped_value        NUMERIC(20,4),                               -- §4.10 映射 sum（弹窗展示）
+    resolution          VARCHAR(20) NOT NULL DEFAULT 'PENDING',      -- §4.10 PENDING / OVERWRITE / SKIP
+    note                VARCHAR(2000) NOT NULL DEFAULT '',           -- §4.10 必填备注（CHECK 约束保证非空）
+    resolved_order      INT,                                         -- §4.10 用户解决顺序（按 metric+month 排序）
     resolved_by         BIGINT,
-    resolved_at         TIMESTAMPTZ
+    resolved_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT chk_conflict_resolution CHECK (resolution IN ('PENDING', 'OVERWRITE', 'SKIP')),
+    -- §4.10 必填 note：只要 resolution 不是 PENDING（即用户已操作），note 必须非空
+    CONSTRAINT chk_conflict_note_required CHECK (
+        resolution = 'PENDING' OR length(trim(note)) > 0
+    )
 );
+```
+
+**索引**:
+```sql
+CREATE INDEX idx_ai_ocr_conflict_record_task
+    ON ai_ocr_conflict_record (task_id, resolution, resolved_order);
+
+-- §4.10 同 metric 内冲突按 month 排序（Save & Next 跳转逻辑）
+CREATE INDEX idx_ai_ocr_conflict_record_metric
+    ON ai_ocr_conflict_record (task_id, lg_category, reporting_year, reporting_month);
 ```
 
 ### 3.5 mapping_memory（两层架构：通用 + 公司）
@@ -586,6 +650,62 @@ CREATE TABLE mapping_memory_audit (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (idempotency_key)                                         -- 幂等保护
 );
+```
+
+### 3.7 ai_ocr_extraction_skip_log（2026-05-06 新增）
+
+**用途**: §4.12 边界用例审计 — 记录哪些文件因"无可提取数据"被跳过 mapping/conflict/write 流程。混合批次时也用此表区分"哪些文件走完整流程、哪些只入 Imported Statements"。
+
+```sql
+CREATE TABLE ai_ocr_extraction_skip_log (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id     UUID NOT NULL REFERENCES doc_parse_task(id),
+    file_id     UUID NOT NULL REFERENCES doc_parse_file(id),
+    skip_reason VARCHAR(50) NOT NULL,                                -- NO_TABLES / NARRATIVE_ONLY / IMAGE_NO_DATA
+    detail      JSONB,                                               -- 可选：模型给出的判定依据（页面截图、文本片段统计等）
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT chk_skip_reason CHECK (skip_reason IN ('NO_TABLES', 'NARRATIVE_ONLY', 'IMAGE_NO_DATA')),
+    UNIQUE (task_id, file_id)                                        -- SQS at-least-once 幂等
+);
+```
+
+**索引**:
+```sql
+CREATE INDEX idx_ai_ocr_extraction_skip_log_task
+    ON ai_ocr_extraction_skip_log (task_id, detected_at DESC);
+
+-- 审计/统计：按 reason 聚合
+CREATE INDEX idx_ai_ocr_extraction_skip_log_reason
+    ON ai_ocr_extraction_skip_log (skip_reason, detected_at DESC);
+```
+
+### 3.8 ai_ocr_mapping_change_log（2026-05-06 新增）
+
+**用途**: §4.13 Step Navigation 边界用例 — 追踪用户在 5a/5b 阶段回退后修改 mapping 的次数和影响范围。每次 `mapping_snapshot_hash` 变化都记录一条；`downstream_invalidated_count` 字段记录因此清空了多少条已解决的 conflict_record（决定是否需要 reprocess + 用户提示文案）。
+
+```sql
+CREATE TABLE ai_ocr_mapping_change_log (
+    id                            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id                       UUID NOT NULL REFERENCES doc_parse_task(id),
+    changed_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    old_snapshot_hash             VARCHAR(64),                       -- 修改前的 hash（首次变更时为 NULL）
+    new_snapshot_hash             VARCHAR(64) NOT NULL,              -- 修改后的 hash
+    downstream_invalidated_count  INT NOT NULL DEFAULT 0,            -- 此次变更清空了多少 conflict_record（reset 为 PENDING）
+    triggered_by                  BIGINT NOT NULL,                   -- 触发用户 ID
+    change_summary                JSONB                              -- 可选：差异概要（哪些 row 的 lg_category 变了）
+);
+```
+
+**索引**:
+```sql
+CREATE INDEX idx_ai_ocr_mapping_change_log_task
+    ON ai_ocr_mapping_change_log (task_id, changed_at DESC);
+
+-- 仅索引"实际触发了下游失效"的变更（无失效的变更对运维排查无用）
+CREATE INDEX idx_ai_ocr_mapping_change_log_invalidated
+    ON ai_ocr_mapping_change_log (task_id, changed_at DESC)
+    WHERE downstream_invalidated_count > 0;
 ```
 
 ---
@@ -654,6 +774,21 @@ GRANT SELECT ON
     ai_ocr_conflict_record
 TO java_app;
 
+-- Java 对 ai_ocr_conflict_record 需要 UPDATE（5b 用户解决冲突时写 resolution / note / resolved_order）
+GRANT UPDATE ON ai_ocr_conflict_record TO java_app;
+
+-- =================================================================
+-- 2026-05-06 新增表（Step 5a/5b/5c 边界用例支持）
+-- =================================================================
+
+-- ai_ocr_extraction_skip_log：Python 写入（提取阶段判定），Java 读取（5a 决定是否跳过流程）
+GRANT INSERT, SELECT ON ai_ocr_extraction_skip_log TO python_worker;
+GRANT SELECT ON ai_ocr_extraction_skip_log TO java_app;
+
+-- ai_ocr_mapping_change_log：Java 写入（5a 入口 + Previous 回退检测），Python 只读（学习阶段了解修改频次）
+GRANT SELECT, INSERT ON ai_ocr_mapping_change_log TO java_app;
+GRANT SELECT ON ai_ocr_mapping_change_log TO python_worker;
+
 -- ⚠️ Java 无权访问 mapping_memory*（跨公司商业机密）
 -- 不需要 GRANT，默认 DENY
 
@@ -694,6 +829,8 @@ REVOKE ALL ON fi_metrics FROM python_worker;
 | `doc_parse_commit_audit` | 永久（fi_* 数据溯源关键） |
 | `doc_parse_similarity_hint` | 与 task 同生命周期（180 天） |
 | `ai_ocr_*` | 180 天后清理原始数据，保留 aggregated 统计 |
+| `ai_ocr_extraction_skip_log` | 永久（审计：哪些上传无可提取数据） |
+| `ai_ocr_mapping_change_log` | 与 task 同生命周期（180 天，调试用） |
 | `mapping_memory` | 18 个月未命中的标记待审核（月度 cron） |
 
 ### 5.3 GDPR 擦除流程
@@ -731,3 +868,11 @@ REVOKE ALL ON fi_metrics FROM python_worker;
 | 2026-04-20 | 新增 `ai_ocr_extracted_row.label_embedding VECTOR(1536)` + HNSW 索引 |
 | 2026-04-20 | 新增 `doc_parse_similarity_hint` 表（相似度检测结果） |
 | 2026-04-20 | Task 状态重命名：NOTIFYING→SIMILARITY_CHECKING, NOTIFIED→SIMILARITY_CHECKED, NOTIFY_FAILED→SIMILARITY_CHECK_FAILED |
+| 2026-05-06 | Step 5 拆分（需求 §4.9-4.14）：Task 状态新增 `MAPPING_SUMMARY` / `VERIFY_PENDING`（5a） |
+| 2026-05-06 | `doc_parse_task` 扩展 7 个字段：`mapping_changed_at` / `mapping_snapshot_hash`（§4.13）、`has_extractable_data` / `extraction_skip_reason`（§4.12）、`summary_cache`（§4.9）、`committed_forecast_id` / `imported_statements_folder_id`（§4.11）+ CHECK 约束 |
+| 2026-05-06 | `doc_parse_file` 扩展 `imported_statements_synced` / `synced_at`（§4.11/§4.12 Imported Statements 同步标记） |
+| 2026-05-06 | `ai_ocr_conflict_record` 扩展（§4.10）：`note` 必填（CHECK 约束）、`resolution` 默认 PENDING、新增 `resolved_order` / `lg_category` / `existing_value` / `mapped_value` |
+| 2026-05-06 | 新增 `ai_ocr_extraction_skip_log`（§4.12 无可提取数据审计） |
+| 2026-05-06 | 新增 `ai_ocr_mapping_change_log`（§4.13 Previous 导航变更追踪） |
+| 2026-05-06 | GRANT 更新：Java 获 `ai_ocr_conflict_record` UPDATE 权限；新表权限分配（Python 写 skip_log、Java 写 change_log） |
+| 2026-05-06 | 新增索引：`mapping_changed_at` / `has_extractable_data=FALSE` / Imported Statements pending sync / 冲突按 metric 排序 |
