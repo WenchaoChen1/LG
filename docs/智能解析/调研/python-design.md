@@ -173,16 +173,26 @@
 
 > **v2 整合（2026-05-06）**：原 `api-doc.md` 的 Python 端契约已全部并入本文档。Java 端契约见 [java-design.md](./java-design.md)。
 
-#### 0.1.1 REST 端点（Python，4 个，前端直接调用）
+#### 0.1.1 REST 端点（**全部 12 个 — Java + Python 统一索引**）
 
-| # | URL | 方法 | 用户步骤 | 一句话职责 | 详情 |
-|---:|-----|:---:|:---:|----------|:---:|
-| 7 | `/ocr/tasks/{id}/state` | GET | 步骤 3/5 | **综合状态聚合**（task + 文件进度 + 提取数据 + 映射 + 相似度提示 + 记忆学习状态 + 历史链 + Mapping Summary + verifyState） | §2.1 / §3 |
-| 8 | `/ocr/tasks/{id}/review` | PATCH | 步骤 4 | 客户变更：编辑 row/mapping + note + **mapping 变更检测自动触发 REMAP SQS** + 接受相似度决策 | §2.2 / §4 |
-| 9 | `/ocr/tasks/{id}/verify` | POST | 步骤 6 | 启动验证：跑冲突检测（读 fi_*）→ 写 `ai_ocr_conflict_record` → 进度通过 `/state` 轮询 | §2.3 / §5 |
-| 10 | `/ocr/conflicts/{id}/resolve` | POST | 步骤 6 | 单冲突解决（note 必填，自动写 conflict thread + Save & Next 导航） | §2.4 / §6 |
+> 本表是项目所有 REST 端点的全景清单（与 java-design.md §1.1 同步）。Java 端 8 个（详情见 [java-design.md](./java-design.md)）+ Python 端 4 个（详情见本文档下文 §2 / §3-§6）。
 
-> 通用约定：路径前缀 `/ocr`；JWT 中间件 + `company_id` 归属校验（§1.3-1.5）；返回 `Result<T>` 信封（§1.6）。
+| # | URL | 方法 | 端 | 用户步骤 | 一句话职责 | 详情 |
+|---:|-----|:---:|:---:|:---:|----------|:---:|
+| 1 | `/tasks/upload-init` | POST | Java | 步骤 1 | 创建 task + presigned PUT URL + 预关联公司文件表占位行 | [→ java-design.md](./java-design.md#21--posttasksupload-init) |
+| 2 | `/tasks/{id}/upload-complete` | POST | Java | 步骤 1 | 单文件上传完成（HeadObject + magic bytes 校验） | [→ java-design.md](./java-design.md#22--posttasksidupload-complete) |
+| 3 | `/tasks/{id}/files` | GET | Java | 任意 | 任务文件列表查询（含状态、进度、替换链） | [→ java-design.md](./java-design.md#23--gettasksidfiles--任务文件列表查询) |
+| 4 | `/files/{fileId}/replace` | POST | Java | 步骤 1 | 替换文件（软删旧文件 + 申请新 presigned URL） | [→ java-design.md](./java-design.md#24--postfilesfileidreplace--替换文件) |
+| 5 | `/tasks/{id}/start-processing` | POST | Java | 步骤 2 | 点 Next 触发批量入队 | [→ java-design.md](./java-design.md#25--posttasksidstart-processing) |
+| 6 | `/tasks/{id}/commit` | POST | Java | 步骤 7 | 写 fi_* + 触发记忆 SQS + 返回 Benchmark URL | [→ java-design.md](./java-design.md#26--posttasksidcommit) |
+| 7 | `/tasks/{id}/revise` | POST | Java | — | 任务修订：copy-on-write 创建新批次 | [→ java-design.md](./java-design.md#27--posttasksidrevise) |
+| 8 | `/files/{fileId}/download-url` | POST | Java | 辅助 | ReviewPage 渲染 PDF/Excel 时申请 5 min S3 presigned GET URL | [→ java-design.md](./java-design.md#28--postfilesfileiddownload-url) |
+| **9** | `/ocr/tasks/{id}/state` | GET | **Python** | 步骤 3/5 | 综合状态聚合（task + 文件进度 + 提取数据 + 映射 + 相似度提示 + 记忆学习状态 + 历史链 + Mapping Summary + verifyState） | [→ §2.1 / §3](#21-端点-1--ocrtasksidstate-get) |
+| **10** | `/ocr/tasks/{id}/review` | PATCH | **Python** | 步骤 4 | 客户变更：编辑 row/mapping + note + mapping 变更检测自动触发 REMAP SQS + 接受相似度决策 | [→ §2.2 / §4](#22-端点-2--ocrtasksidreview-patch) |
+| **11** | `/ocr/tasks/{id}/verify` | POST | **Python** | 步骤 6 | 启动验证：跑冲突检测（读 fi_*）→ 写 `ai_ocr_conflict_record` → 进度通过 `/state` 轮询 | [→ §2.3 / §5](#23-端点-3--ocrtasksidverify-post) |
+| **12** | `/ocr/conflicts/{id}/resolve` | POST | **Python** | 步骤 6 | 单冲突解决（note 必填，自动写 conflict thread + Save & Next 导航） | [→ §2.4 / §6](#24-端点-4--ocrconflictsidresolve-post) |
+
+> Python 端通用约定：路径前缀 `/ocr`；JWT 中间件 + `company_id` 归属校验（§1.3-1.5）；返回 `Result<T>` 信封（§1.6）。
 
 #### 0.1.2 SQS 队列
 

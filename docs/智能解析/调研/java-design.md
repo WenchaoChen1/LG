@@ -72,21 +72,24 @@
 - 返回 `Result<T>` 标准包装（success / data / error）
 - 用户可见错误信息均由 Java 生成（R-2.2 约束）
 
-### 1.1 REST 端点（用户面向：上传 + 提交）
+### 1.1 REST 端点（**全部 12 个 REST 端点 — Java + Python 统一索引**）
 
-| # | URL | 方法 | 用户步骤 | 一句话职责 |
-|---:|-----|:---:|:---:|----------|
-| 1 | `/tasks/upload-init` | POST | 步骤 1 | 一站式：创建 task + 申请 S3 presigned PUT URL + **预关联公司文件表占位行** |
-| 2 | `/tasks/{id}/upload-complete` | POST | 步骤 1 | 单文件上传完成（HeadObject + magic bytes 校验，写 `ai_ocr_file`） |
-| 3 | `/tasks/{id}/start-processing` | POST | 步骤 2 | **点 Next 触发**：批量入队所有已上传文件到 `ocr-extract-queue` |
-| 4 | `/tasks/{id}/commit` | POST | 步骤 7 | 写 fi_* + AFTER_COMMIT 触发记忆 SQS + 最终化 Imported Statements + 返回 Benchmark 跳转 URL |
-| 5 | `/tasks/{id}/revise` | POST | — | 任务修订：基于已 COMPLETED task 创建新批次（copy-on-write） |
+> 本表是项目所有 REST 端点的全景清单。Java 端 8 个（含本文档详情）+ Python 端 4 个（详情见 [python-design.md](./python-design.md)）。点击「详情」跳转到对应的章节。
 
-### 1.2 REST 端点（辅助：文件查看）
-
-| # | URL | 方法 | 用途 |
-|---:|-----|:---:|------|
-| 6 | `/files/{fileId}/download-url` | POST | ReviewPage 渲染 PDF/Excel 时申请 5 min S3 presigned GET URL |
+| # | URL | 方法 | 端 | 用户步骤 | 一句话职责 | 详情 |
+|---:|-----|:---:|:---:|:---:|----------|:---:|
+| 1 | `/tasks/upload-init` | POST | Java | 步骤 1 | 创建 task + 申请 S3 presigned PUT URL + 预关联公司文件表占位行 | [→](#21--posttasksupload-init) |
+| 2 | `/tasks/{id}/upload-complete` | POST | Java | 步骤 1 | 单文件上传完成（HeadObject + magic bytes 校验） | [→](#22--posttasksidupload-complete) |
+| 3 | `/tasks/{id}/files` | GET | Java | 任意步骤 | **任务文件列表查询**（含状态、进度、替换链） | [→](#23--gettasksidfiles--任务文件列表查询) |
+| 4 | `/files/{fileId}/replace` | POST | Java | 步骤 1 | **替换文件**（软删旧文件 + 申请新 presigned URL） | [→](#24--postfilesfileidreplace--替换文件) |
+| 5 | `/tasks/{id}/start-processing` | POST | Java | 步骤 2 | 点 Next 触发批量入队 | [→](#25--posttasksidstart-processing) |
+| 6 | `/tasks/{id}/commit` | POST | Java | 步骤 7 | 写 fi_* + 触发记忆 SQS + 返回 Benchmark URL | [→](#26--posttasksidcommit) |
+| 7 | `/tasks/{id}/revise` | POST | Java | — | 任务修订：copy-on-write 创建新批次 | [→](#27--posttasksidrevise) |
+| 8 | `/files/{fileId}/download-url` | POST | Java | 辅助 | ReviewPage 渲染 PDF/Excel 时申请 5 min S3 presigned GET URL | [→](#28--postfilesfileiddownload-url) |
+| 9 | `/ocr/tasks/{id}/state` | GET | Python | 步骤 3/5 | 综合状态聚合（task + 文件 + 数据 + 映射 + 相似度 + 记忆 + 历史 + summary） | [→ python-design.md](./python-design.md#21-端点-1--ocrtasksidstate-get) |
+| 10 | `/ocr/tasks/{id}/review` | PATCH | Python | 步骤 4 | 客户变更：编辑 row/mapping + note + 自动 mapping 变更检测 + 相似度决策 | [→ python-design.md](./python-design.md#22-端点-2--ocrtasksidreview-patch) |
+| 11 | `/ocr/tasks/{id}/verify` | POST | Python | 步骤 6 | 启动验证：跨域读 fi_* 跑冲突检测 → 写 `ai_ocr_conflict_record` | [→ python-design.md](./python-design.md#23-端点-3--ocrtasksidverify-post) |
+| 12 | `/ocr/conflicts/{id}/resolve` | POST | Python | 步骤 6 | 单冲突解决（note 必填，自动写 thread） | [→ python-design.md](./python-design.md#24-端点-4--ocrconflictsidresolve-post) |
 
 ### 1.3 SQS 出口生产者（Java → Python）
 
@@ -188,7 +191,7 @@ sequenceDiagram
 
 ---
 
-## 2. REST 端点详情（6 个 — 含业务逻辑 / 逻辑图 / 关联表 / 契约）
+## 2. REST 端点详情（8 个 — 含业务逻辑 / 逻辑图 / 关联表 / 契约）
 
 ### 2.1 POST /tasks/upload-init
 
@@ -293,7 +296,149 @@ sequenceDiagram
 
 ---
 
-### 2.3 POST /tasks/{id}/start-processing
+### 2.3 GET /tasks/{id}/files — 任务文件列表查询
+
+**支持的业务逻辑**：
+- **用户场景**：在上传页 / 进度页 / 审核页都需要显示当前 task 下的所有文件状态（含已上传 / 处理中 / 已 review_ready / 失败 / 已替换的）
+- 返回**全量**文件信息（含已软删除的，便于审计 + 显示替换链），按 `created_at` 排序
+- 已替换的旧文件单独标注（`deleted=true` + `replaced_by_file_id` 非空）
+- 不返回 S3 临时 URL（如需下载请走 §2.8 `/files/{fileId}/download-url`）
+
+**逻辑图**：
+
+```
+[Frontend]
+   │ GET /tasks/{id}/files
+   ▼
+[FileListController#listFiles]
+   │ JWT 验证 + companyId 归属校验
+   ▼
+[DocParseFileService#listByTaskId]
+   │ SELECT * FROM ai_ocr_file WHERE task_id=? ORDER BY created_at
+   ▼
+[DocParseFileRepository]
+   │ JPA 查询
+   ▼
+[ai_ocr_file 表]
+   │ 含 deleted/replaced_by_file_id/imported_statements_synced 等
+   ▼
+[Response: TaskFilesRespVo {files[], total, replacedCount}]
+```
+
+**关联的表**：
+- `ai_ocr_file` — SELECT 全字段（id, filename, file_type, file_size, file_hash, status, processing_stage, progress_pct, stage_detail, upload_error, error_message, deleted, replaced_by_file_id, imported_statements_synced, synced_at, created_at, updated_at）
+- `ai_ocr_task` — SELECT（仅校验 company_id 归属，不返回）
+
+**接口契约**：
+- **Controller**: `FileListController#listFiles`
+- **请求**: 路径参数 `taskId`；可选 query 参数 `includeDeleted: bool=true / activeOnly: bool=false`
+- **响应**: `TaskFilesRespVo`
+  ```
+  {
+    "taskId": "uuid",
+    "files": [
+      {
+        "fileId": "uuid",
+        "filename": "p&l_2024.pdf",
+        "fileType": "PDF",
+        "fileSize": 1234567,
+        "fileHash": "sha256...",
+        "status": "REVIEW_READY",
+        "processingStage": "REVIEW_READY",
+        "progressPct": 100,
+        "stageDetail": {...},
+        "uploadError": null,
+        "errorMessage": null,
+        "deleted": false,
+        "replacedByFileId": null,
+        "importedStatementsSynced": false,
+        "createdAt": "2026-05-06T10:30:00Z",
+        "updatedAt": "2026-05-06T10:35:12Z"
+      }
+    ],
+    "total": 3,
+    "activeCount": 2,
+    "replacedCount": 1,
+    "failedCount": 0
+  }
+  ```
+- **失败**: 404 task 不存在 / 403 跨 company
+
+---
+
+### 2.4 POST /files/{fileId}/replace — 替换文件
+
+**支持的业务逻辑**：
+- **用户场景**：用户上传错误文件（错版本、错文件），希望在 task 进入 PROCESSING **之前**替换；或某文件解析失败（FILE_FAILED）想换一个版本重传
+- **替换策略**：保留原文件审计链 — 旧文件 `deleted=true` + `replaced_by_file_id=newFileId`，新文件作为独立行（不重用 fileId）
+- **前置条件**：
+  - 旧文件必须属于当前用户 company
+  - 旧文件 `status` ∈ {PENDING, UPLOADED, FILE_FAILED}（**不允许** QUEUED/PROCESSING/REVIEW_READY 之后替换 — 此时已有下游数据）
+  - task.status 必须 ∈ {DRAFT, UPLOAD_COMPLETE}（PROCESSING 之后禁止）
+  - 新文件经过相同的预校验（大小 / 扩展名 / SHA-256 重名）
+- **后置动作**：返回新 fileId 的 presigned PUT URL，前端用此 URL 上传新文件，之后调 `/upload-complete` 完成
+
+**逻辑图**：
+
+```
+[Frontend]
+   │ POST /files/{fileId}/replace {filename, fileSize, contentType, sha256}
+   ▼
+[FileReplaceController#replaceFile]
+   │ JWT 验证 + companyId 归属校验
+   ▼
+[FileReplaceService#replace]
+   │ ① SELECT FOR UPDATE old_file + 校验 status 允许替换
+   │ ② 校验 task.status 允许替换
+   │ ③ 预校验新文件（大小 / 扩展名 / SHA-256 唯一性）
+   ▼
+[事务开始]
+   │ ④ INSERT new ai_ocr_file (PENDING)
+   │ ⑤ UPDATE old ai_ocr_file SET deleted=true, replaced_by_file_id=newId
+   │ ⑥ INSERT ai_ocr_task_state_log (event_type=FILE_REPLACED, snapshot{oldFileId, newFileId})
+[事务结束]
+   ▼
+[S3PresignedUrlClient#generatePutUrl]
+   │ 生成新 fileId 的 presigned PUT URL（15 min）
+   ▼
+[Response: ReplaceRespVo {newFileId, presignedUrl, expiresAt}]
+   ▼
+前端 PUT 文件到 S3，之后调 §2.2 /upload-complete
+```
+
+**关联的表**：
+- `ai_ocr_file` — SELECT FOR UPDATE old; INSERT new (PENDING); UPDATE old.deleted=true + old.replaced_by_file_id
+- `ai_ocr_task` — SELECT（校验 company_id + status 允许替换）
+- `ai_ocr_task_state_log` — INSERT (event_type=FILE_REPLACED)
+
+**接口契约**：
+- **Controller**: `FileReplaceController#replaceFile`
+- **请求**: `FileReplaceReqVo`
+  ```
+  {
+    "filename": "p&l_2024_v2.pdf",
+    "fileSize": 1234567,
+    "contentType": "application/pdf",
+    "sha256": "..."
+  }
+  ```
+- **响应**: `FileReplaceRespVo`
+  ```
+  {
+    "newFileId": "uuid",
+    "oldFileId": "uuid",
+    "presignedUrl": "https://...",
+    "expiresAt": "2026-05-06T10:45:00Z"
+  }
+  ```
+- **失败**:
+  - 409: 旧文件 status 不允许替换（已 QUEUED 之后）/ task.status 不允许替换（PROCESSING 之后）
+  - 403: 跨 company
+  - 422: 新文件预校验失败（同 SHA-256 已存在 / 大小超限）
+
+---
+
+### 2.5 POST /tasks/{id}/start-processing
 
 > 用户点 "Next" 后批量触发所有 UPLOADED 文件入队解析。**v2 新增端点**，替代 v1 隐式逐文件入队。
 
@@ -345,7 +490,7 @@ sequenceDiagram
 
 ---
 
-### 2.4 POST /tasks/{id}/commit
+### 2.6 POST /tasks/{id}/commit
 
 > 步骤 7 终结点：写 fi_* 财务表 + AFTER_COMMIT 触发记忆 SQS + 最终化 Imported Statements + 返回 Benchmark 跳转 URL。
 
@@ -419,7 +564,7 @@ sequenceDiagram
 
 ---
 
-### 2.5 POST /tasks/{id}/revise
+### 2.7 POST /tasks/{id}/revise
 
 > 任务修订：基于已 COMPLETED/SUPERSEDED task 创建新批次（copy-on-write）。
 
@@ -471,7 +616,7 @@ sequenceDiagram
 
 ---
 
-### 2.6 POST /files/{fileId}/download-url
+### 2.8 POST /files/{fileId}/download-url
 
 > ReviewPage 渲染 PDF/Excel 时申请 5 min S3 presigned GET URL。
 

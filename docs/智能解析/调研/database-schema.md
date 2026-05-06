@@ -346,6 +346,7 @@ CREATE TABLE ai_ocr_file (
     upload_error    VARCHAR(20),                                     -- 5 种上传错误枚举
     error_message   TEXT,
     deleted         BOOLEAN NOT NULL DEFAULT false,                  -- 软删除
+    replaced_by_file_id UUID REFERENCES ai_ocr_file(id),             -- 文件替换链：旧文件指向新文件（POST /files/{id}/replace 用）
 
     -- §4.11 / §4.12 Imported Statements 文件夹同步标记（2026-05-06 新增）
     imported_statements_synced BOOLEAN NOT NULL DEFAULT FALSE,       -- 是否已同步到 Documents 页 "Imported Statements" 文件夹
