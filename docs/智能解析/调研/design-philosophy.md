@@ -84,7 +84,7 @@ Layer 3: LLM 推理 (Claude Sonnet)    覆盖 ~15%    有成本    部分可审�
 | 边界 | 实现 | 解决的问题 |
 |------|------|-----------|
 | **状态** | LangGraph checkpoint → PostgreSQL | 用户关浏览器后可恢复（解决 P1 错误恢复问题） |
-| **记忆** | `ai_ocr_*` 表前缀隔离 | Chat Agent 来了用 `ai_chat_*`，互不干扰 |
+| **记忆** | `ai_financial_extraction_*` 表前缀隔离 | Chat Agent 来了用 `ai_chat_*`，互不干扰 |
 | **模型** | OCR Agent 自己选 Gemini Flash/Claude | Chat Agent 可以用 GPT-4o，互不关心 |
 | **接口** | 5 个标准 Tool | 今天前端调，明天 Orchestrator 调，零重构 |
 
@@ -192,7 +192,7 @@ LangGraph 状态机中有一个显式的 `REVIEW` 状态。系统**不能**从 R
 写入路径（Java 提交成功后触发）：
   1. Python 收到 SQS 消息，含 mappingComparisons（原始 vs 确认）
   2. 只处理 wasOverridden=true 的条目（AI 猜对的不存）
-  3. 写入 ai_ocr_mapping_memory → 用户修正的标签到分类关联
+  3. 写入 ai_financial_extraction_mapping_memory → 用户修正的标签到分类关联
 
 读取路径（下次上传时）：
   1. Layer 2 查 DB → 精确匹配 / trigram 模糊匹配（零 LLM 调用）
@@ -264,7 +264,7 @@ supervisor.add_node("rag", rag_app)
 
 | 基础设施 | OCR Agent | Chat Agent（未来） | RAG Agent（未来） |
 |----------|-----------|-------------------|-------------------|
-| PostgreSQL | `ai_ocr_*` 表 | `ai_chat_*` 表 | `ai_rag_*` 表 |
+| PostgreSQL | `ai_financial_extraction_*` 表 | `ai_chat_*` 表 | `ai_rag_*` 表 |
 | pgvector | — | — | 文档 embedding |
 | OpenRouter | Gemini + Claude | 对话模型 | Embedding |
 | LangGraph checkpoint | 按 thread_id 隔离 | 按 thread_id 隔离 | 按 thread_id 隔离 |
@@ -392,9 +392,9 @@ LangGraph 的开销是一个依赖。自制状态机的开销是永远的维护�
 **在架构中的体现**:
 
 - 文件级 `processing_stage` 12 个子状态（含 `MAPPING_MEMORY_LOOKUP/APPLY/COMPLETE` 3 个记忆子态）都写 DB，Python 每切换子状态都发 OcrProgress
-- 任务级 `ai_ocr_task.status` 20 个状态（含 SIMILARITY_CHECKING/MEMORY_LEARN_PENDING/IN_PROGRESS/COMPLETE）都写 DB
-- `ai_ocr_notification` 记录通知发送状态（PENDING/SENDING/SENT/FAILED），不是 fire-and-forget
-- `ai_ocr_memory_learn_log` 记录每次记忆学习的结果和重试历史
+- 任务级 `ai_financial_extraction_task.status` 20 个状态（含 SIMILARITY_CHECKING/MEMORY_LEARN_PENDING/IN_PROGRESS/COMPLETE）都写 DB
+- `ai_financial_extraction_notification` 记录通知发送状态（PENDING/SENDING/SENT/FAILED），不是 fire-and-forget
+- `ai_financial_extraction_memory_learn_log` 记录每次记忆学习的结果和重试历史
 
 **接受的 trade-off**:
 - 更多 DB 写入（每个 pipeline 阶段多 1 次 UPDATE），但单次成本 < 1ms，可忽略
@@ -411,7 +411,7 @@ LangGraph 的开销是一个依赖。自制状态机的开销是永远的维护�
 
 **在架构中的体现**:
 
-- `ai_ocr_task` 新增 `parent_task_id` / `revision_number` / `revision_reason` / `superseded_by` 4 个字段
+- `ai_financial_extraction_task` 新增 `parent_task_id` / `revision_number` / `revision_reason` / `superseded_by` 4 个字段
 - 原任务在修订版 Commit 成功后自动置为 `SUPERSEDED`
 - Copy-on-write 继承文件：修订版复用原文件的 S3 对象（通过 ref_count 防悬空引用）
 - UI 版本链展示：v1 → v2 → v3 + 每个版本的修订原因
@@ -420,7 +420,7 @@ LangGraph 的开销是一个依赖。自制状态机的开销是永远的维护�
 
 - 用户编辑频繁，per-edit 版本化会产生海量版本号
 - 修订颗粒度以"Commit"为界，对齐财务"提交即签字"的工作习惯
-- 未来如需 per-edit 历史，可在 `ai_ocr_mapping_result_history` 中实现，不影响 task 版本
+- 未来如需 per-edit 历史，可在 `ai_financial_extraction_mapping_result_history` 中实现，不影响 task 版本
 
 ### 原则 9：带宽由客户端承担，不由 Java
 

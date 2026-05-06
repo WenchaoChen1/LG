@@ -1032,13 +1032,13 @@ verification 通过后，系统比对每个 mapped metric 与 LG 中已存数据
 
 **技术实现**:
 - Task 状态机新增 `SIMILARITY_CHECKING` / `SIMILARITY_CHECKED` 2 个瞬态（几乎无停留）+ `SIMILARITY_CHECK_FAILED` 作为预留值（未来接入邮件服务时启用）
-- 新增 `ai_ocr_notification` 表仅作为**事件日志**（event_type + payload + created_at），不含 recipient / channel / retry 字段
+- 新增 `ai_financial_extraction_notification` 表仅作为**事件日志**（event_type + payload + created_at），不含 recipient / channel / retry 字段
 - 事件类型：`PARSE_COMPLETE` / `COMMIT_COMPLETE` / `COMMIT_FAILED` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED` / `NEW_CLOSED_MONTH`
 - 用户发现途径：
-  1. LG Dashboard "待处理任务" 模块（读 `ai_ocr_task.status`）
-  2. App 头部 NotificationIndicator 🔔 徽章（读 `ai_ocr_notification` 事件列表）
+  1. LG Dashboard "待处理任务" 模块（读 `ai_financial_extraction_task.status`）
+  2. App 头部 NotificationIndicator 🔔 徽章（读 `ai_financial_extraction_notification` 事件列表）
 
-**为什么简化**: 邮件/push 集成复杂度高，且 LG 用户频繁登录（属于日常工作系统），登录时自行查看待处理列表已经足够。未来如需推送可基于 `ai_ocr_notification` 表的事件日志回溯实现。
+**为什么简化**: 邮件/push 集成复杂度高，且 LG 用户频繁登录（属于日常工作系统），登录时自行查看待处理列表已经足够。未来如需推送可基于 `ai_financial_extraction_notification` 表的事件日志回溯实现。
 
 ### 11.3 文件记忆处理 3 子状态 + 任务级记忆学习状态
 
@@ -1048,7 +1048,7 @@ verification 通过后，系统比对每个 mapped metric 与 LG 中已存数据
 - 文件级 `processing_stage` 拆出 3 个记忆子状态：`MAPPING_MEMORY_LOOKUP`（查询中）/ `MAPPING_MEMORY_APPLY`（应用中）/ `MAPPING_MEMORY_COMPLETE`（完成）
 - 任务级 `status` 新增 4 个记忆学习态：`MEMORY_LEARN_PENDING` / `MEMORY_LEARN_IN_PROGRESS` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`
 - 每个状态切换都通过 `OcrProgress` / `OcrMemoryLearnProgress` SQS 消息 → Java 写入 DB，Python 崩溃重启也能恢复
-- 新增 `ai_ocr_memory_learn_log` 审计表（Python INSERT 权限）记录每次学习的新增/更新数量
+- 新增 `ai_financial_extraction_memory_learn_log` 审计表（Python INSERT 权限）记录每次学习的新增/更新数量
 - UI：ProcessingPage 文件级进度条展示细粒度阶段、SuccessPage 悬浮条展示记忆学习任务级进度
 
 ### 11.4 S3 Presigned URL 上传/查看

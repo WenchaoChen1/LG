@@ -24,11 +24,11 @@
 
 ## 1. 表设计要求（2026-04-某日，更早会话）
 
-> 输入原文: "1.表名前缀为ai_ocr_** 2.需要有每个表名的描述 3.在文件开始要有一个简介 关于和这个表设计的 几个表 每个表分别是做什么的"
+> 输入原文: "1.表名前缀为ai_financial_extraction_** 2.需要有每个表名的描述 3.在文件开始要有一个简介 关于和这个表设计的 几个表 每个表分别是做什么的"
 
-🔵 **R-1.1 表前缀统一**: 所有 OCR Agent 拥有的表必须以 `ai_ocr_` 为前缀，包括之前命名为 `doc_parse_*`（Java 拥有）和 `mapping_memory*`（Python 拥有）的表。
+🔵 **R-1.1 表前缀统一**: 所有 OCR Agent 拥有的表必须以 `ai_financial_extraction_` 为前缀，包括之前命名为 `doc_parse_*`（Java 拥有）和 `mapping_memory*`（Python 拥有）的表。
 
-🔵 **R-1.2 每张表必须有独立的"用途"描述段**: 不接受仅靠 DDL 注释。`### N.M ai_ocr_xxx` 标题下必须有一段独立段落说明"做什么"。
+🔵 **R-1.2 每张表必须有独立的"用途"描述段**: 不接受仅靠 DDL 注释。`### N.M ai_financial_extraction_xxx` 标题下必须有一段独立段落说明"做什么"。
 
 🔵 **R-1.3 文件开头必须有 Schema Overview**: 列出所有表 + 每张表的用途简介，便于读者快速建立全局认知。
 
@@ -94,7 +94,7 @@
 **对应技术输出位置**:
 - [system-architecture.md §0.0 项目核心流程（4 步抽象）](./调研/system-architecture.md#00-项目核心流程4-步抽象)
 - [system-architecture.md §0.6 全流程状态必须留 log](./调研/system-architecture.md#06-关键规则全流程状态必须留-log)
-- [database-schema.md §2.9 ai_ocr_task_state_log](./调研/database-schema.md#29-ai_ocr_task_state_log2026-05-06-新增)
+- [database-schema.md §2.9 ai_financial_extraction_task_state_log](./调研/database-schema.md#29-ai_financial_extraction_task_state_log2026-05-06-新增)
 
 ---
 
@@ -136,12 +136,12 @@
 | R-2.6 记忆处理日志 | 🔵 | ✅ 已实现（双层：决策日志 + 变更明细 + 进度回传） | `system-architecture.md` §0.4 |
 | R-3.1 4 步流程抽象 | 🟢 | ✅ 已实现 | `system-architecture.md` §0.0 |
 | R-3.2 各步职责 | 🟢 | ✅ 已实现 | `system-architecture.md` §0.0 表格 |
-| R-3.3 校验前后留 log | 🔵 | ⚠️ **设计已优化**：不冗余存 snapshot JSONB，改为通过 `mapping_snapshot_hash` 关联到原表（`ai_ocr_extracted_row` + `ai_ocr_mapping_result.original_ai_suggestion`）按需还原（多 agent 共识，详见 §6 Q-4） | `system-architecture.md` §0.6 + `database-schema.md` §2.9 |
-| R-3.4 全流程状态 log | 🔵 | ✅ 已实现 | `database-schema.md` §2.9 ai_ocr_task_state_log |
+| R-3.3 校验前后留 log | 🔵 | ⚠️ **设计已优化**：不冗余存 snapshot JSONB，改为通过 `mapping_snapshot_hash` 关联到原表（`ai_financial_extraction_extracted_row` + `ai_financial_extraction_mapping_result.original_ai_suggestion`）按需还原（多 agent 共识，详见 §6 Q-4） | `system-architecture.md` §0.6 + `database-schema.md` §2.9 |
+| R-3.4 全流程状态 log | 🔵 | ✅ 已实现 | `database-schema.md` §2.9 ai_financial_extraction_task_state_log |
 | R-4.1 用户输入独立成文 | 🔵 | ✅ 当前文档 | 本文档 |
 | R-4.2 多 agent 头脑风暴 | 🔵 | ✅ 4 视角已完成（PM / Java / Python / 简化评审）| 详见 §6 共识矩阵 |
 | R-4.3 优化技术方案 | 🔵 | ✅ 已执行（system-architecture / database-schema 已落地清理） | 详见 §6 共识矩阵 |
-| R-4.4 删除无意义变更 | 🔵 | ✅ 已执行：删 `ocr-remap-queue` / 删 `snapshot_data` / 删 `ai_ocr_extraction_skip_log` / 删 `ai_ocr_notification` | `system-architecture.md` v1.5 + `database-schema.md` §6 |
+| R-4.4 删除无意义变更 | 🔵 | ✅ 已执行：删 `ocr-remap-queue` / 删 `snapshot_data` / 删 `ai_financial_extraction_extraction_skip_log` / 删 `ai_financial_extraction_notification` | `system-architecture.md` v1.5 + `database-schema.md` §6 |
 | R-4.5 接口/消费者显式 | 🔵 | 🟡 进行中（派 agent 更新 java-design.md + python-design.md） | `java-design.md` + `python-design.md` |
 
 ---
@@ -177,15 +177,15 @@
 
 ### Q-3: state_log 是否过度设计？
 
-R-3.4 说"所有状态记录 log"。我加了 `ai_ocr_task_state_log` 总日志表 + 25+ event_type 枚举。但已存在的 `ai_ocr_notification`、`ai_ocr_commit_audit`、`ai_ocr_memory_learn_log`、`ai_ocr_mapping_change_log`、`ai_ocr_extraction_skip_log` 已分别覆盖部分日志需求。
+R-3.4 说"所有状态记录 log"。我加了 `ai_financial_extraction_task_state_log` 总日志表 + 25+ event_type 枚举。但已存在的 `ai_financial_extraction_notification`、`ai_financial_extraction_commit_audit`、`ai_financial_extraction_memory_learn_log`、`ai_financial_extraction_mapping_change_log`、`ai_financial_extraction_extraction_skip_log` 已分别覆盖部分日志需求。
 
 **疑点**: 是用户真的需要一张"总日志表"，还是多个分专项日志表已够？
 
 ### Q-4: snapshot_data JSONB 字段是否过度设计？
 
-R-3.3 要求"校验前后数据要留 log"。我用 `ai_ocr_task_state_log.snapshot_data` JSONB 存这些快照。但：
-- 校验前的数据已经在 `ai_ocr_extracted_*` + `ai_ocr_mapping_result.original_ai_suggestion` 中
-- 校验后的数据是 `ai_ocr_extracted_*` 当前值 + `ai_ocr_mapping_result.lg_category`
+R-3.3 要求"校验前后数据要留 log"。我用 `ai_financial_extraction_task_state_log.snapshot_data` JSONB 存这些快照。但：
+- 校验前的数据已经在 `ai_financial_extraction_extracted_*` + `ai_financial_extraction_mapping_result.original_ai_suggestion` 中
+- 校验后的数据是 `ai_financial_extraction_extracted_*` 当前值 + `ai_financial_extraction_mapping_result.lg_category`
 
 **疑点**: 是否只需要在 state_log 里记录"事件发生 + 时间 + 触发者"，而把 before/after 数据放在原始表 + `original_*` 字段中即可？避免双倍存储 + 同步麻烦。
 

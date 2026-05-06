@@ -1772,7 +1772,7 @@ status API 响应示例:
 | `REVIEW_READY` | 处理完成 | 100% | — |
 
 **设计要点**:
-- 每个 stage 和 progressPct 都持久化到 DB（`ai_ocr_file.processing_stage`）
+- 每个 stage 和 progressPct 都持久化到 DB（`ai_financial_extraction_file.processing_stage`）
 - 前端轮询拿到最新状态后直接展示，Python 崩溃重启也能继续
 - stageDetail 是可选附加信息（JSON），前端渲染时用 `Tooltip` 悬浮展示避免主列表过挤
 
@@ -2209,7 +2209,7 @@ const RevisionButton: React.FC<{ task: Task; currentUser: User }> = ({ task, cur
 **交互要点**:
 - "继承的文件" 区块有明确视觉分组（浅灰背景 + "Inherited" 徽章）
 - 删除继承文件时弹出确认："此操作将使 {filename} 的数据不在修订版中，原任务的数据仍保留在 LG 中。确定删除?"
-- "修订原因" 是必填字段（`revision_reason`），对应 `ai_ocr_task.revision_reason`，最少 10 字符
+- "修订原因" 是必填字段（`revision_reason`），对应 `ai_financial_extraction_task.revision_reason`，最少 10 字符
 - 修订原因会在 `SuccessPage` 和 `Financial Entry` 历史列表中展示（用户可回溯）
 
 ### 12.4 ConfirmPage 的修订态 UI
@@ -2280,10 +2280,10 @@ interface FinancialUploadModelState {
 
 ### 13.1 通知系统的简化
 
-**Q16 决策（2026-04-20）**: 系统**不主动推送通知**（不发邮件、不发站内信、不推 WebSocket）。`ai_ocr_notification` 表只作为"事件日志"记录任务状态变化，用户通过以下方式自行发现：
+**Q16 决策（2026-04-20）**: 系统**不主动推送通知**（不发邮件、不发站内信、不推 WebSocket）。`ai_financial_extraction_notification` 表只作为"事件日志"记录任务状态变化，用户通过以下方式自行发现：
 
-1. **LG Dashboard "待处理任务" 模块**：查 `ai_ocr_task.status IN ('REVIEWING', 'VERIFYING', 'CONFLICT_RESOLUTION', 'MEMORY_LEARN_PENDING')` 的任务列表，用户登录就能看到
-2. **NotificationIndicator 🔔 徽章**（仍保留）：读 `ai_ocr_notification` 事件日志，展示"你上次登录以来发生的事件"
+1. **LG Dashboard "待处理任务" 模块**：查 `ai_financial_extraction_task.status IN ('REVIEWING', 'VERIFYING', 'CONFLICT_RESOLUTION', 'MEMORY_LEARN_PENDING')` 的任务列表，用户登录就能看到
+2. **NotificationIndicator 🔔 徽章**（仍保留）：读 `ai_financial_extraction_notification` 事件日志，展示"你上次登录以来发生的事件"
 
 **状态推进**:
 ```
@@ -2292,7 +2292,7 @@ PROCESSING → SIMILARITY_CHECKING → SIMILARITY_CHECKED → REVIEWING
               （仅写一条事件日志）
 ```
 
-`SIMILARITY_CHECKING` 和 `SIMILARITY_CHECKED` 是**瞬态**（毫秒级），因为没有真的发送流程，只是写一条 `ai_ocr_notification` 行就推进。
+`SIMILARITY_CHECKING` 和 `SIMILARITY_CHECKED` 是**瞬态**（毫秒级），因为没有真的发送流程，只是写一条 `ai_financial_extraction_notification` 行就推进。
 
 ### 13.2 ProcessingPage 状态展示（无通知等待）
 
@@ -2312,7 +2312,7 @@ PROCESSING → SIMILARITY_CHECKING → SIMILARITY_CHECKED → REVIEWING
 
 ### 13.3 NotificationIndicator（全局事件徽章，App 头部）
 
-作为"事件查看器"而非"推送通知器"。读 `ai_ocr_notification` 表展示事件：
+作为"事件查看器"而非"推送通知器"。读 `ai_financial_extraction_notification` 表展示事件：
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -2339,7 +2339,7 @@ PROCESSING → SIMILARITY_CHECKING → SIMILARITY_CHECKED → REVIEWING
 - 用户关闭浏览器再回来，事件列表还在（永久保留）
 - "已查看"仅是 UI 标记（存 localStorage），不影响 DB 记录
 
-**数据源**: `GET /api/v1/docparse/tasks/events?companyId=...&since=...` 返回最近 30 天的 `ai_ocr_notification` 事件。
+**数据源**: `GET /api/v1/docparse/tasks/events?companyId=...&since=...` 返回最近 30 天的 `ai_financial_extraction_notification` 事件。
 
 ### 13.4 记忆学习悬浮条（SuccessPage）
 
@@ -2375,13 +2375,13 @@ SuccessPage
 ```
 用户点击 [重试] 按钮
   → POST /api/v1/docparse/tasks/{taskId}/memory-learn/retry
-  → Java 校验 attempt_number < 3（读 ai_ocr_memory_learn_log 计数）
+  → Java 校验 attempt_number < 3（读 ai_financial_extraction_memory_learn_log 计数）
   → Java 重新向 ocr-memory-learn-queue 发送消息
-  → ai_ocr_task.status 从 MEMORY_LEARN_FAILED 回到 MEMORY_LEARN_PENDING
+  → ai_financial_extraction_task.status 从 MEMORY_LEARN_FAILED 回到 MEMORY_LEARN_PENDING
   → 悬浮条切回 "记忆学习排队中..."
 ```
 
-**限制**: 最多重试 3 次（`ai_ocr_memory_learn_log` 的 `attempt_number <= 3`）。3 次全失败后 API 返回 400 `RETRY_LIMIT_EXCEEDED`，前端显示"已达重试上限"。
+**限制**: 最多重试 3 次（`ai_financial_extraction_memory_learn_log` 的 `attempt_number <= 3`）。3 次全失败后 API 返回 400 `RETRY_LIMIT_EXCEEDED`，前端显示"已达重试上限"。
 
 **重要**：记忆学习失败**不影响**财务数据（`fi_*` 已写入）。任务本身可视为完成，只是少了这次积累的记忆规则。
 
@@ -2469,7 +2469,7 @@ AI 提取出的 `account_label` 可能因拼写/措辞差异而被误判为不�
              "Total Revenues"    ← 重复行（AI 没合并）
 ```
 
-Phase 2.5 后 Python 把这些"高相似度对"写入 `ai_ocr_similarity_hint` 表，前端在 ReviewPage 顶部展示横幅，让用户决策。
+Phase 2.5 后 Python 把这些"高相似度对"写入 `ai_financial_extraction_similarity_hint` 表，前端在 ReviewPage 顶部展示横幅，让用户决策。
 
 ### 14.2 SimilarityHintBanner 组件
 

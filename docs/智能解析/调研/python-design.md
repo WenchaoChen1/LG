@@ -158,7 +158,7 @@
 | AI 提取（Vision LLM、周期推断、可提取性判定） | ✅ §8 | LangGraph Extract 节点 |
 | 三层映射（规则 / 公司记忆 / 行业 / LLM） | ✅ §9 | LangGraph Map 节点 |
 | Validate 节点（OCR 内部一致性） | ✅ §10 | 与 Java 跨期间冲突边界见 §5 |
-| 相似度检测引擎（embedding + KNN） | ✅ §11 | 跨域 INSERT `ai_ocr_similarity_hint` |
+| 相似度检测引擎（embedding + KNN） | ✅ §11 | 跨域 INSERT `ai_financial_extraction_similarity_hint` |
 | 记忆学习与版本管理 | ✅ §12 | 记忆学习 SQS 触发 |
 | LangGraph Pipeline 编排 | ✅ §13 | 含节点装配、checkpoint |
 | SQS 消费者与生产者（含内部 REMAP_ONLY producer） | ✅ §14 | 3 入站 + 1 出站 + 1 内部 producer |
@@ -189,7 +189,7 @@
 | 8 | `/files/{fileId}/download-url` | POST | Java | 辅助 | ReviewPage 渲染 PDF/Excel 时申请 5 min S3 presigned GET URL | [→ java-design.md](./java-design.md#28--postfilesfileiddownload-url) |
 | **9** | `/ocr/tasks/{id}/state` | GET | **Python** | 步骤 3/5 | 综合状态聚合（task + 文件进度 + 提取数据 + 映射 + 相似度提示 + 记忆学习状态 + 历史链 + Mapping Summary + verifyState） | [→ §2.1 / §3](#21-端点-1--ocrtasksidstate-get) |
 | **10** | `/ocr/tasks/{id}/review` | PATCH | **Python** | 步骤 4 | 客户变更：编辑 row/mapping + note + mapping 变更检测自动触发 REMAP SQS + 接受相似度决策 | [→ §2.2 / §4](#22-端点-2--ocrtasksidreview-patch) |
-| **11** | `/ocr/tasks/{id}/verify` | POST | **Python** | 步骤 6 | 启动验证：跑冲突检测（读 fi_*）→ 写 `ai_ocr_conflict_record` → 进度通过 `/state` 轮询 | [→ §2.3 / §5](#23-端点-3--ocrtasksidverify-post) |
+| **11** | `/ocr/tasks/{id}/verify` | POST | **Python** | 步骤 6 | 启动验证：跑冲突检测（读 fi_*）→ 写 `ai_financial_extraction_conflict_record` → 进度通过 `/state` 轮询 | [→ §2.3 / §5](#23-端点-3--ocrtasksidverify-post) |
 | **12** | `/ocr/conflicts/{id}/resolve` | POST | **Python** | 步骤 6 | 单冲突解决（note 必填，自动写 conflict thread + Save & Next 导航） | [→ §2.4 / §6](#24-端点-4--ocrconflictsidresolve-post) |
 
 > Python 端通用约定：路径前缀 `/ocr`；JWT 中间件 + `company_id` 归属校验（§1.3-1.5）；返回 `Result<T>` 信封（§1.6）。
@@ -238,7 +238,7 @@
 ```text
 ┌─ 步骤 1：用户上传文件 ────────────────────────────────────────────────────────┐
 │                                                                              │
-│ Frontend ──POST /tasks/upload-init──▶ Java ──INSERT ai_ocr_task─▶ DB        │
+│ Frontend ──POST /tasks/upload-init──▶ Java ──INSERT ai_financial_extraction_task─▶ DB        │
 │         ◀──{taskId, presignedUrls[]}── Java                                  │
 │         ──PUT s3://...─────────────────────────────────▶ S3                  │
 │         ──POST /tasks/{id}/upload-complete──▶ Java                           │
@@ -409,7 +409,7 @@ v2 边界下 Python 必须暴露 4 个 HTTP 端点供**前端直接调用**（�
   ▼
 [4] Company Authorization Middleware  ★ v2 关键
   │  ── 路由含 {task_id} / {conflict_id} 时：
-  │  ──   SELECT t.company_id FROM ai_ocr_task t [... JOIN by conflict] WHERE t.id = ?
+  │  ──   SELECT t.company_id FROM ai_financial_extraction_task t [... JOIN by conflict] WHERE t.id = ?
   │  ──   若 task.company_id NOT IN principal.company_id_set → 403
   │  ── （隐式跨公司隔离，业务代码不必再判 company_id）
   ▼
@@ -445,10 +445,10 @@ v2 边界下 Python 必须暴露 4 个 HTTP 端点供**前端直接调用**（�
 
 | 路由模式 | 校验 SQL | 失败响应 |
 |----------|---------|---------|
-| `/ocr/tasks/{id}/state` | `SELECT company_id FROM ai_ocr_task WHERE id = ?` | 404 task 不存在 / 403 跨公司 |
+| `/ocr/tasks/{id}/state` | `SELECT company_id FROM ai_financial_extraction_task WHERE id = ?` | 404 task 不存在 / 403 跨公司 |
 | `/ocr/tasks/{id}/review` | 同上 + `task.status IN (REVIEWING, CONFLICT_RESOLUTION)` | 404 / 403 / 409 状态非法 |
 | `/ocr/tasks/{id}/verify` | 同上 + `task.status = REVIEWING` | 404 / 403 / 409 |
-| `/ocr/conflicts/{id}/resolve` | `SELECT t.company_id FROM ai_ocr_conflict_record c JOIN ai_ocr_task t ON c.task_id = t.id WHERE c.id = ?` | 404 / 403 / 409 |
+| `/ocr/conflicts/{id}/resolve` | `SELECT t.company_id FROM ai_financial_extraction_conflict_record c JOIN ai_financial_extraction_task t ON c.task_id = t.id WHERE c.id = ?` | 404 / 403 / 409 |
 
 **性能**：单次 PK 查询 < 5ms；命中连接池 + prepared statement，可忽略。结果缓存到 `request.state.task_company_id`，业务层不必重查。
 
@@ -557,14 +557,14 @@ Frontend (1-2s 轮询)
 
 | # | 表 / 表组 | Owner | 用途 / 字段 |
 |---:|----------|-------|------------|
-| 1 | `ai_ocr_task` | Java | SELECT id, status, mapping_changed_at, has_extractable_data, parent_task_id, created_at, updated_at, verify_progress_pct |
-| 2 | `ai_ocr_file` | Java | SELECT id, filename, status, processing_stage, progress_pct, stage_detail, error |
-| 3 | `ai_ocr_extracted_table` + `ai_ocr_extracted_row` | Python | SELECT 表元数据 + 行数据（cell_values, deleted, user_edited） |
-| 4 | `ai_ocr_mapping_result` | Python | SELECT row_id, lg_category, confidence, source, user_override, user_note, original_ai_suggestion |
-| 5 | `ai_ocr_similarity_hint` | Java | SELECT id, rowIdA, rowIdB, similarity, user_decision, decided_at |
-| 6 | `ai_ocr_memory_learn_log` | Java | SELECT 最近 5 条 attempt 历史 |
-| 7 | `ai_ocr_task_state_log` | Java | SELECT 最近 50 条 event_type / created_at / triggered_by |
-| 8 | `ai_ocr_conflict_record` + `ai_ocr_conflict_note` | Python (record) / Java (note) | SELECT 冲突 + thread notes |
+| 1 | `ai_financial_extraction_task` | Java | SELECT id, status, mapping_changed_at, has_extractable_data, parent_task_id, created_at, updated_at, verify_progress_pct |
+| 2 | `ai_financial_extraction_file` | Java | SELECT id, filename, status, processing_stage, progress_pct, stage_detail, error |
+| 3 | `ai_financial_extraction_extracted_table` + `ai_financial_extraction_extracted_row` | Python | SELECT 表元数据 + 行数据（cell_values, deleted, user_edited） |
+| 4 | `ai_financial_extraction_mapping_result` | Python | SELECT row_id, lg_category, confidence, source, user_override, user_note, original_ai_suggestion |
+| 5 | `ai_financial_extraction_similarity_hint` | Java | SELECT id, rowIdA, rowIdB, similarity, user_decision, decided_at |
+| 6 | `ai_financial_extraction_memory_learn_log` | Java | SELECT 最近 5 条 attempt 历史 |
+| 7 | `ai_financial_extraction_task_state_log` | Java | SELECT 最近 50 条 event_type / created_at / triggered_by |
+| 8 | `ai_financial_extraction_conflict_record` + `ai_financial_extraction_conflict_note` | Python (record) / Java (note) | SELECT 冲突 + thread notes |
 | 9 | `fi_*`（19 张）| LG | **跨域 SELECT 只读**；仅当 task.status ∈ (CONFLICT_RESOLUTION, READY_TO_COMMIT) 时执行 |
 
 **接口契约**：
@@ -632,10 +632,10 @@ Frontend
    │ 校验 task.status ∈ (REVIEWING, CONFLICT_RESOLUTION) 否则 409
    │
    ├─ Step 3: 计算 old_hash = SHA256(sorted mapping snapshot)
-   ├─ Step 4: UPDATE ai_ocr_extracted_row × N
-   ├─ Step 5: UPDATE ai_ocr_mapping_result × N
-   ├─ Step 6: UPDATE ai_ocr_similarity_hint × N
-   ├─ Step 7: INSERT ai_ocr_conflict_note × N  (跨域 INSERT)
+   ├─ Step 4: UPDATE ai_financial_extraction_extracted_row × N
+   ├─ Step 5: UPDATE ai_financial_extraction_mapping_result × N
+   ├─ Step 6: UPDATE ai_financial_extraction_similarity_hint × N
+   ├─ Step 7: INSERT ai_financial_extraction_conflict_note × N  (跨域 INSERT)
    ├─ Step 8: 计算 new_hash
    ├─ Step 9: 比较 old_hash != new_hash
    │     │
@@ -645,7 +645,7 @@ Frontend
    │                            │
    │                            ▼
    │                    SQS ocr-extract-queue (mode=REMAP_ONLY)
-   ├─ Step 11: INSERT ai_ocr_task_state_log (MAPPING_EDITED)
+   ├─ Step 11: INSERT ai_financial_extraction_task_state_log (MAPPING_EDITED)
    └─ Step 12: COMMIT;
         │
         ▼ {updatedRowCount, updatedMappingCount, remapTriggered: bool}
@@ -655,13 +655,13 @@ Frontend
 
 | 表 | 动作 | 条件 | 跨域 |
 |----|-----|------|:---:|
-| `ai_ocr_task` | SELECT FOR UPDATE → UPDATE `mapping_changed_at` / `mapping_snapshot_hash` | 锁 task；仅 mappingEdits 非空时 UPDATE | 否（Java 拥有但 Python 有 UPDATE 部分字段权限）|
-| `ai_ocr_extracted_row` | UPDATE `account_label` / `cell_values` / `deleted` / `user_edited=true` | rowEdits 每条一次 | 否（Python 拥有）|
-| `ai_ocr_mapping_result` | UPDATE `lg_category` / `confidence='HIGH'` / `source='USER'` / `user_note` / `user_override=true` | mappingEdits 每条一次 | 否（Python 拥有）|
-| `ai_ocr_similarity_hint` | UPDATE `user_decision` / `decided_at` / `decided_by` | similarityDecisions 每条一次 | **是**（Java 拥有，Python GRANT UPDATE）|
-| `ai_ocr_conflict_note` | INSERT（thread reply）| conflictNotes 每条一次 | **是**（Java 拥有，Python GRANT INSERT）|
-| `ai_ocr_task_state_log` | INSERT `event_type='MAPPING_EDITED'` + snapshot_data 含 diff 摘要 | 一次（聚合事件）| **是**（Java 拥有，Python GRANT INSERT）|
-| `ai_ocr_conflict_record` | UPDATE `status='PENDING'`（清除已解决冲突）| 仅 mapping 变更时 | 是（Python 拥有 + 跨域 UPDATE 部分字段）|
+| `ai_financial_extraction_task` | SELECT FOR UPDATE → UPDATE `mapping_changed_at` / `mapping_snapshot_hash` | 锁 task；仅 mappingEdits 非空时 UPDATE | 否（Java 拥有但 Python 有 UPDATE 部分字段权限）|
+| `ai_financial_extraction_extracted_row` | UPDATE `account_label` / `cell_values` / `deleted` / `user_edited=true` | rowEdits 每条一次 | 否（Python 拥有）|
+| `ai_financial_extraction_mapping_result` | UPDATE `lg_category` / `confidence='HIGH'` / `source='USER'` / `user_note` / `user_override=true` | mappingEdits 每条一次 | 否（Python 拥有）|
+| `ai_financial_extraction_similarity_hint` | UPDATE `user_decision` / `decided_at` / `decided_by` | similarityDecisions 每条一次 | **是**（Java 拥有，Python GRANT UPDATE）|
+| `ai_financial_extraction_conflict_note` | INSERT（thread reply）| conflictNotes 每条一次 | **是**（Java 拥有，Python GRANT INSERT）|
+| `ai_financial_extraction_task_state_log` | INSERT `event_type='MAPPING_EDITED'` + snapshot_data 含 diff 摘要 | 一次（聚合事件）| **是**（Java 拥有，Python GRANT INSERT）|
+| `ai_financial_extraction_conflict_record` | UPDATE `status='PENDING'`（清除已解决冲突）| 仅 mapping 变更时 | 是（Python 拥有 + 跨域 UPDATE 部分字段）|
 
 **SQS 触发**（仅当 mapping snapshot hash 变化）：
 - 队列：`ocr-extract-queue`；`messageType=OcrExtract`；`mode=REMAP_ONLY`
@@ -700,7 +700,7 @@ Frontend
 - 与 Validate 节点的边界（§5.1）：
   - Validate 节点 = OCR **内部**一致性（pipeline 内自动跑，写 INTERNAL_INCONSISTENCY）
   - VerifyService = **跨期间**冲突（用户触发，对比 fi_* 历史，写 CROSS_PERIOD_OVERWRITE）
-  - 同一张 `ai_ocr_conflict_record` 表，`conflict_type` 字段区分主体
+  - 同一张 `ai_financial_extraction_conflict_record` 表，`conflict_type` 字段区分主体
 - 启动条件硬校验：所有 file `REVIEW_READY` + 无 `UNMAPPED` 残留
 - 异步执行 + 同步 202 响应；前端通过 `/state` 轮询 `verifyState.percent`
 - 19 表批量 SELECT 优化（仅查 task 涉及的 LG category，asyncpg `gather()` 并行）
@@ -741,7 +741,7 @@ Frontend
    ├─ detect_conflicts(rows, existing) → list[Conflict]
    │       条件: existing_row_count > 0 AND existing_value ≠ new_value (容忍 0.01%)
    │
-   ├─ 批量 INSERT ai_ocr_conflict_record (CROSS_PERIOD_OVERWRITE) ON CONFLICT DO NOTHING
+   ├─ 批量 INSERT ai_financial_extraction_conflict_record (CROSS_PERIOD_OVERWRITE) ON CONFLICT DO NOTHING
    ├─ INSERT state_log (CONFLICT_DETECTED) for each metric
    └─ UPDATE task SET status = 'CONFLICT_RESOLUTION' if conflicts else 'READY_TO_COMMIT'
                        verify_completed_at = now()
@@ -751,13 +751,13 @@ Frontend
 
 | 表 | 动作 | 阶段 | 跨域 |
 |----|-----|------|:---:|
-| `ai_ocr_task` | UPDATE `status='VERIFYING'`, `verify_started_at=now()` | 同步 | 否（Python 有 UPDATE 部分字段权限）|
-| `ai_ocr_task_state_log` | INSERT `event_type='VERIFICATION_TRIGGERED'` | 同步 | **是**（GRANT INSERT）|
-| `ai_ocr_mapping_result` | SELECT row_id, lg_category, period | 异步 | 否（Python 拥有）|
+| `ai_financial_extraction_task` | UPDATE `status='VERIFYING'`, `verify_started_at=now()` | 同步 | 否（Python 有 UPDATE 部分字段权限）|
+| `ai_financial_extraction_task_state_log` | INSERT `event_type='VERIFICATION_TRIGGERED'` | 同步 | **是**（GRANT INSERT）|
+| `ai_financial_extraction_mapping_result` | SELECT row_id, lg_category, period | 异步 | 否（Python 拥有）|
 | `fi_*`（19 张：fi_revenue / fi_cogs / fi_sm_expenses / fi_rd_expenses / fi_ga_expenses / fi_sm_payroll / fi_rd_payroll / fi_ga_payroll / fi_other_income_expense / fi_cash / fi_accounts_receivable / fi_rd_capitalized / fi_other_assets / fi_accounts_payable / fi_short_term_debt / fi_long_term_debt / fi_other_liabilities / fi_equity / fi_payroll_unmapped）| **SELECT 只读**（按 company_id + period 聚合 SUM(amount)）| 异步 | **是**（v2 新增 GRANT SELECT）|
-| `ai_ocr_conflict_record` | INSERT 每条冲突 `status='PENDING'`, `conflict_type='CROSS_PERIOD_OVERWRITE'` | 异步 | 否（Python 拥有）|
-| `ai_ocr_task_state_log` | INSERT `event_type='CONFLICT_DETECTED'`（每 metric 一次）| 异步 | 是 |
-| `ai_ocr_task` | UPDATE `status='CONFLICT_RESOLUTION'` 或 `'READY_TO_COMMIT'`, `verify_completed_at=now()` | 异步任务结束 | 否 |
+| `ai_financial_extraction_conflict_record` | INSERT 每条冲突 `status='PENDING'`, `conflict_type='CROSS_PERIOD_OVERWRITE'` | 异步 | 否（Python 拥有）|
+| `ai_financial_extraction_task_state_log` | INSERT `event_type='CONFLICT_DETECTED'`（每 metric 一次）| 异步 | 是 |
+| `ai_financial_extraction_task` | UPDATE `status='CONFLICT_RESOLUTION'` 或 `'READY_TO_COMMIT'`, `verify_completed_at=now()` | 异步任务结束 | 否 |
 
 **SQS 触发**：无（同步 SELECT + INSERT，无需异步消息）。
 
@@ -780,7 +780,7 @@ Frontend
 **支持的业务逻辑**：
 
 - 用户在 ConflictPage 对单个冲突的决策：`OVERWRITE`（覆盖现存值）或 `SKIP`（跳过本次提交）
-- **note 必填硬校验**（长度 > 0，trim 后非空）— note 是 commit 后审计追溯的核心证据；`ai_ocr_commit_audit.conflict_note_id` 引用本 note
+- **note 必填硬校验**（长度 > 0，trim 后非空）— note 是 commit 后审计追溯的核心证据；`ai_financial_extraction_commit_audit.conflict_note_id` 引用本 note
 - 双层防护：service 层校验 + DB CHECK constraint (`ck_note_not_empty`)
 - **Save & Next 自动导航**（§6.3）：返回 `nextConflictId`，前端无需额外查询
 - 排序规则：同 metric 内按 period 早到晚；跨 metric 按 19 类 enum 顺序
@@ -795,20 +795,20 @@ Frontend
    ▼ POST /ocr/conflicts/{id}/resolve {action, note}
 [FastAPI Route: routes.py#resolve_conflict]
    │
-   ▼ JWT + company_auth (JOIN ai_ocr_task 校验归属)
+   ▼ JWT + company_auth (JOIN ai_financial_extraction_task 校验归属)
    ▼ note 非空硬校验 (length(trim) > 0)
 [Service: conflict_service.py#resolve_one]
    │
    ▼ BEGIN; SELECT conflict FOR UPDATE WHERE id=? AND status='PENDING';
    │  拿不到锁 → 409 INVALID_CONFLICT_STATE
    │
-   ├─ Step 4: UPDATE ai_ocr_conflict_record
+   ├─ Step 4: UPDATE ai_financial_extraction_conflict_record
    │            SET resolution=action, resolved_at=now(),
    │                resolved_by=user_id, status='RESOLVED'
-   ├─ Step 5: INSERT ai_ocr_conflict_note
+   ├─ Step 5: INSERT ai_financial_extraction_conflict_note
    │            (auto_generated=false, parent_note_id=NULL,
    │             content=note, created_by=user_id)         (跨域 INSERT)
-   ├─ Step 6: INSERT ai_ocr_task_state_log
+   ├─ Step 6: INSERT ai_financial_extraction_task_state_log
    │            (event_type='CONFLICT_RESOLVED',
    │             snapshot_data={conflict_id, action})       (跨域 INSERT)
    ├─ Step 7: 计算 next_conflict_id (Save & Next 排序 SQL)
@@ -828,10 +828,10 @@ Frontend
 
 | 表 | 动作 | 跨域 |
 |----|-----|:---:|
-| `ai_ocr_conflict_record` | SELECT FOR UPDATE → UPDATE `resolution` / `resolved_at` / `resolved_by` / `status='RESOLVED'` | 否（Python 拥有；v2 新增 UPDATE 部分字段范围）|
-| `ai_ocr_conflict_note` | INSERT `auto_generated=false` / `content=note` / `parent_note_id=NULL` / `created_by=user_id` | **是**（Java 拥有，Python GRANT INSERT，v2 新增）|
-| `ai_ocr_task_state_log` | INSERT `event_type='CONFLICT_RESOLVED'` + snapshot_data | **是**（GRANT INSERT）|
-| `ai_ocr_task` | UPDATE `status='READY_TO_COMMIT'`（仅当本次解决后无 PENDING 冲突）| 否（Python 有 UPDATE 部分字段权限）|
+| `ai_financial_extraction_conflict_record` | SELECT FOR UPDATE → UPDATE `resolution` / `resolved_at` / `resolved_by` / `status='RESOLVED'` | 否（Python 拥有；v2 新增 UPDATE 部分字段范围）|
+| `ai_financial_extraction_conflict_note` | INSERT `auto_generated=false` / `content=note` / `parent_note_id=NULL` / `created_by=user_id` | **是**（Java 拥有，Python GRANT INSERT，v2 新增）|
+| `ai_financial_extraction_task_state_log` | INSERT `event_type='CONFLICT_RESOLVED'` + snapshot_data | **是**（GRANT INSERT）|
+| `ai_financial_extraction_task` | UPDATE `status='READY_TO_COMMIT'`（仅当本次解决后无 PENDING 冲突）| 否（Python 有 UPDATE 部分字段权限）|
 
 **SQS 触发**：无。
 
@@ -850,7 +850,7 @@ Frontend
   ```json
   {"nextConflictId": "<uuid> | null"}
   ```
-- **DB 约束**：`ALTER TABLE ai_ocr_conflict_note ADD CONSTRAINT ck_note_not_empty CHECK (length(trim(content)) > 0)`
+- **DB 约束**：`ALTER TABLE ai_financial_extraction_conflict_note ADD CONSTRAINT ck_note_not_empty CHECK (length(trim(content)) > 0)`
 - **错误码**：400 `NOTE_REQUIRED` / 404 `CONFLICT_NOT_FOUND` / 409 `INVALID_CONFLICT_STATE` / 403 `FORBIDDEN_COMPANY`
 
 ---
@@ -863,17 +863,17 @@ Frontend
 
 | # | 数据源（表 / 表组） | Owner | 字段（响应中位置） |
 |---:|--------------------|-------|------------------|
-| 1 | `ai_ocr_task` | Java | `task: {id, status, mapping_changed_at, has_extractable_data, created_at, updated_at}` |
-| 2 | `ai_ocr_file` | Java | `files[]: {id, filename, status, processing_stage, progress_pct, stage_detail, error}` |
-| 3 | `ai_ocr_extracted_table` + `ai_ocr_extracted_row` | Python | `extractedData[]: {tableId, fileId, document_type, currency, reporting_periods, rows[]}` |
-| 4 | `ai_ocr_mapping_result` | Python | `mappingResults[]: {rowId, lg_category, confidence, source, user_override, user_note, original_ai_suggestion}` |
-| 5 | `ai_ocr_similarity_hint` | Java（Python 跨域 UPDATE） | `similarityHints[]: {id, rowIdA, rowIdB, similarity, user_decision}` |
-| 6 | `ai_ocr_memory_learn_log`（最新一条） | Java（Python 跨域 INSERT） | `memoryLearn: {stage, lastResult, retryCount, canRetry, attempt_history[]}` |
-| 7 | `ai_ocr_task_state_log` | Java（Python 跨域 INSERT） | `history.stateLog[]: {event_type, created_at, triggered_by, error_detail}` |
-| 8 | `ai_ocr_conflict_record` + `ai_ocr_conflict_note` | Java（Python 跨域 UPDATE/INSERT） | `verifyState.conflicts[]: {id, status, metric, period, ai_value, fi_value, resolution, notes[]}` |
+| 1 | `ai_financial_extraction_task` | Java | `task: {id, status, mapping_changed_at, has_extractable_data, created_at, updated_at}` |
+| 2 | `ai_financial_extraction_file` | Java | `files[]: {id, filename, status, processing_stage, progress_pct, stage_detail, error}` |
+| 3 | `ai_financial_extraction_extracted_table` + `ai_financial_extraction_extracted_row` | Python | `extractedData[]: {tableId, fileId, document_type, currency, reporting_periods, rows[]}` |
+| 4 | `ai_financial_extraction_mapping_result` | Python | `mappingResults[]: {rowId, lg_category, confidence, source, user_override, user_note, original_ai_suggestion}` |
+| 5 | `ai_financial_extraction_similarity_hint` | Java（Python 跨域 UPDATE） | `similarityHints[]: {id, rowIdA, rowIdB, similarity, user_decision}` |
+| 6 | `ai_financial_extraction_memory_learn_log`（最新一条） | Java（Python 跨域 INSERT） | `memoryLearn: {stage, lastResult, retryCount, canRetry, attempt_history[]}` |
+| 7 | `ai_financial_extraction_task_state_log` | Java（Python 跨域 INSERT） | `history.stateLog[]: {event_type, created_at, triggered_by, error_detail}` |
+| 8 | `ai_financial_extraction_conflict_record` + `ai_financial_extraction_conflict_note` | Java（Python 跨域 UPDATE/INSERT） | `verifyState.conflicts[]: {id, status, metric, period, ai_value, fi_value, resolution, notes[]}` |
 | 9 | `fi_*` 摘要（仅 verify 后） | LG（Python 跨域 SELECT） | `mappingSummary.committedSnapshots[]: {company_id, lg_category, period, value}` |
 
-**额外**：从 `ai_ocr_task` 表派生的 `history.versionChain[]: {taskId, version, status, completedAt}`（通过 self-join `parent_task_id`）。
+**额外**：从 `ai_financial_extraction_task` 表派生的 `history.versionChain[]: {taskId, version, status, completedAt}`（通过 self-join `parent_task_id`）。
 
 ### 3.2 单次聚合 SQL 策略
 
@@ -881,12 +881,12 @@ Frontend
 
 | 数据源 | 策略 |
 |-------|------|
-| 1 + 2 | 单 query：`ai_ocr_task LEFT JOIN ai_ocr_file` |
-| 3 + 4 | 单 query：`ai_ocr_extracted_table JOIN extracted_row LEFT JOIN mapping_result`，按 file_id 聚合 |
-| 5 | 单 query：`ai_ocr_similarity_hint WHERE task_id = ?` |
+| 1 + 2 | 单 query：`ai_financial_extraction_task LEFT JOIN ai_financial_extraction_file` |
+| 3 + 4 | 单 query：`ai_financial_extraction_extracted_table JOIN extracted_row LEFT JOIN mapping_result`，按 file_id 聚合 |
+| 5 | 单 query：`ai_financial_extraction_similarity_hint WHERE task_id = ?` |
 | 6 | 单 query：`ORDER BY attempt_number DESC LIMIT 5`（attempt history 最近 5 条）|
 | 7 | 单 query：`ORDER BY created_at DESC LIMIT 50`（state log 最近 50 条，分页处理 §3.4） |
-| 8 | 单 query：`ai_ocr_conflict_record LEFT JOIN ai_ocr_conflict_note ORDER BY conflict_id, note_seq`，按 conflict 聚合 notes |
+| 8 | 单 query：`ai_financial_extraction_conflict_record LEFT JOIN ai_financial_extraction_conflict_note ORDER BY conflict_id, note_seq`，按 conflict 聚合 notes |
 | 9 | 跳过策略：仅当 `task.status IN (CONFLICT_RESOLUTION, READY_TO_COMMIT)` 时执行；否则 `null` |
 
 **总查询数**：6-7 次（asyncpg `gather()` 并行执行，整体延迟 ≈ 最慢一次的耗时）。
@@ -965,17 +965,17 @@ source/ocr_agent/services/review_service.py
 
 | Step | 行为 | 关键约束 |
 |------|------|---------|
-| 1 | `BEGIN` + 行级锁 task：`SELECT id FROM ai_ocr_task WHERE id=? FOR UPDATE`（避免 review 与 verify 并发） |
+| 1 | `BEGIN` + 行级锁 task：`SELECT id FROM ai_financial_extraction_task WHERE id=? FOR UPDATE`（避免 review 与 verify 并发） |
 | 2 | 校验 `task.status IN (REVIEWING, CONFLICT_RESOLUTION)`，否则 409 |
 | 3 | 计算**编辑前** mapping snapshot hash（`old_hash`）：见 §4.3 |
-| 4 | 写入 `ai_ocr_extracted_row` 编辑（rowEdits） |
-| 5 | 写入 `ai_ocr_mapping_result` 编辑（mappingEdits） |
-| 6 | 写入 `ai_ocr_similarity_hint` 决策（similarityDecisions） |
-| 7 | INSERT `ai_ocr_conflict_note`（conflictNotes，跨域 INSERT） |
+| 4 | 写入 `ai_financial_extraction_extracted_row` 编辑（rowEdits） |
+| 5 | 写入 `ai_financial_extraction_mapping_result` 编辑（mappingEdits） |
+| 6 | 写入 `ai_financial_extraction_similarity_hint` 决策（similarityDecisions） |
+| 7 | INSERT `ai_financial_extraction_conflict_note`（conflictNotes，跨域 INSERT） |
 | 8 | 计算**编辑后** mapping snapshot hash（`new_hash`） |
 | 9 | 比较 `old_hash != new_hash`：见 §4.3 |
 | 10 | 若变更 → §4.4 触发 REMAP；UPDATE `task.mapping_changed_at = now()` |
-| 11 | INSERT `ai_ocr_task_state_log` event_type=`MAPPING_EDITED`，snapshot_data 含 `{rowEditCount, mappingEditCount, remapTriggered}` |
+| 11 | INSERT `ai_financial_extraction_task_state_log` event_type=`MAPPING_EDITED`，snapshot_data 含 `{rowEditCount, mappingEditCount, remapTriggered}` |
 | 12 | `COMMIT` |
 | 13 | 返回 `{updatedRowCount, updatedMappingCount, remapTriggered}` |
 
@@ -1003,7 +1003,7 @@ mapping_snapshot_hash = SHA256(
 | 排除 `deleted=true` 行 | 删行视同 mapping 变更（hash 自然不同） |
 | 排除 `confidence = 'LOW'` 且 `lg_category = 'UNMAPPED'` 的行？ | **不排除**——UNMAPPED 状态变化也是有效变更 |
 | 按 `row_id` 排序后拼接 | 保证幂等：相同状态产生相同 hash |
-| 写入 `ai_ocr_task.mapping_snapshot_hash`（v2 新增字段） | 后续 verify 端点取该 hash 检测"自上次 verify 后是否又改过" |
+| 写入 `ai_financial_extraction_task.mapping_snapshot_hash`（v2 新增字段） | 后续 verify 端点取该 hash 检测"自上次 verify 后是否又改过" |
 
 **实现位置**：`services/review_service.py#_compute_mapping_hash(task_id)`，单 SQL 查询 + Python `hashlib.sha256`。耗时 < 5ms。
 
@@ -1044,7 +1044,7 @@ v1 中 Java 有一个独立 `/navigate-back` 端点，由前端在用户点 Prev
 入队的消息由 `consumers/extract_consumer.py#handle_extract_message` 消费（详见 §14.1），按 `mode=REMAP_ONLY` 分支：
 
 1. 行级锁（FOR UPDATE SKIP LOCKED）拿 file_id 锁
-2. 清 mapping：`changed_row_ids` 非空 → `DELETE FROM ai_ocr_mapping_result WHERE row_id = ANY(:ids)`；空 → 清整个 file 的 mapping
+2. 清 mapping：`changed_row_ids` 非空 → `DELETE FROM ai_financial_extraction_mapping_result WHERE row_id = ANY(:ids)`；空 → 清整个 file 的 mapping
 3. 仅跑 Map 节点（跳过 Preprocess / Extract / Classify / Validate）
 4. 写新 mapping_result + 通过 `ocr-result-queue` 回传 `OcrResult{status='remap_completed'}`
 5. Java 收到后清空已解决冲突 + 重置 `task.status = REVIEWING`
@@ -1064,11 +1064,11 @@ v1 中 Java 有一个独立 `/navigate-back` 端点，由前端在用户点 Prev
 | 触发时机 | 提取后自动跑（pipeline 内）| 用户点 Start Verification（步骤 6） | 用户点 Submit（步骤 7） |
 | 数据源 | 仅本次提取数据 | 本次数据 vs `fi_*` 历史 | 本次数据 + 已解决冲突 |
 | 检查类型 | OCR 内部一致性（行加总、BS 平衡）| 跨期间冲突（同 company+period+lg_category 是否已存在） | 最终落地 + 审计 |
-| 写哪些表 | `ai_ocr_conflict_record{INTERNAL_INCONSISTENCY}` | `ai_ocr_conflict_record{CROSS_PERIOD_OVERWRITE}` | `fi_*` + `ai_ocr_commit_audit` |
+| 写哪些表 | `ai_financial_extraction_conflict_record{INTERNAL_INCONSISTENCY}` | `ai_financial_extraction_conflict_record{CROSS_PERIOD_OVERWRITE}` | `fi_*` + `ai_financial_extraction_commit_audit` |
 | 是否阻断 | 不阻断 | 不阻断（但要求逐个解决才能 commit）| 强制 hard gate |
 | Owner | Python | Python（v2 新增） | Java |
 
-> **同一张 `ai_ocr_conflict_record` 表，`conflict_type` 字段区分写入主体**——Python 写 INTERNAL / CROSS_PERIOD，Java 仅消费（不再写）。
+> **同一张 `ai_financial_extraction_conflict_record` 表，`conflict_type` 字段区分写入主体**——Python 写 INTERNAL / CROSS_PERIOD，Java 仅消费（不再写）。
 
 ### 5.2 跨域 SELECT 查询设计
 
@@ -1096,7 +1096,7 @@ GROUP BY company_id, period;
 |------|-----|
 | `existing_row_count = 0` | 无冲突（首次落地） |
 | `existing_row_count > 0` AND `existing_value ≈ new_value`（容忍 0.01%）| 无冲突（重复提交） |
-| `existing_row_count > 0` AND `existing_value ≠ new_value` | **冲突**：写 `ai_ocr_conflict_record` |
+| `existing_row_count > 0` AND `existing_value ≠ new_value` | **冲突**：写 `ai_financial_extraction_conflict_record` |
 
 ### 5.3 19 表批量 SELECT 优化
 
@@ -1130,7 +1130,7 @@ async def _verify_async(task_id):
         existing = await gather(*[query_fi_table(cat, periods) for cat in cats])
         conflicts = detect_conflicts(rows, existing)
         # 批量插入冲突
-        INSERT ai_ocr_conflict_record (...) VALUES (...) ON CONFLICT DO NOTHING
+        INSERT ai_financial_extraction_conflict_record (...) VALUES (...) ON CONFLICT DO NOTHING
         INSERT state_log (CONFLICT_DETECTED) for each conflict
         new_status = 'CONFLICT_RESOLUTION' if conflicts else 'READY_TO_COMMIT'
         UPDATE task SET status=new_status, verify_completed_at=now()
@@ -1154,7 +1154,7 @@ async def _verify_async(task_id):
 
 ### 5.6 冲突记录写入
 
-每条冲突写一行 `ai_ocr_conflict_record`：
+每条冲突写一行 `ai_financial_extraction_conflict_record`：
 
 | 字段 | 值 |
 |------|---|
@@ -1211,7 +1211,7 @@ source/ocr_agent/services/conflict_service.py
 
 ```sql
 SELECT id
-FROM ai_ocr_conflict_record
+FROM ai_financial_extraction_conflict_record
 WHERE task_id = :task_id
   AND status = 'PENDING'
   AND id != :current_conflict_id
@@ -1225,12 +1225,12 @@ LIMIT 1;
 
 ### 6.4 Note 必填的业务理由
 
-> Note 是 **commit 后审计追溯的核心证据**。`ai_ocr_commit_audit.conflict_note_id` 字段引用本 note；任何"我覆盖了为什么覆盖"的事后追问都需要 note 文本。
+> Note 是 **commit 后审计追溯的核心证据**。`ai_financial_extraction_commit_audit.conflict_note_id` 字段引用本 note；任何"我覆盖了为什么覆盖"的事后追问都需要 note 文本。
 
 强校验在 service 层 + 数据库 CHECK 约束双层防护：
 
 ```sql
-ALTER TABLE ai_ocr_conflict_note
+ALTER TABLE ai_financial_extraction_conflict_note
 ADD CONSTRAINT ck_note_not_empty CHECK (length(trim(content)) > 0);
 ```
 
@@ -1238,10 +1238,10 @@ ADD CONSTRAINT ck_note_not_empty CHECK (length(trim(content)) > 0);
 
 | 表 | 权限 | v2 是否新增 |
 |----|------|------------|
-| `ai_ocr_conflict_record` | UPDATE（仅 `resolution` / `resolved_at` / `resolved_by` / `status` 字段）| **✅ v2 新增** |
-| `ai_ocr_conflict_note` | INSERT | **✅ v2 新增** |
-| `ai_ocr_task_state_log` | INSERT | **✅ v2 新增** |
-| `ai_ocr_task` | UPDATE（`status` / `mapping_snapshot_hash` 等）| 已有 |
+| `ai_financial_extraction_conflict_record` | UPDATE（仅 `resolution` / `resolved_at` / `resolved_by` / `status` 字段）| **✅ v2 新增** |
+| `ai_financial_extraction_conflict_note` | INSERT | **✅ v2 新增** |
+| `ai_financial_extraction_task_state_log` | INSERT | **✅ v2 新增** |
+| `ai_financial_extraction_task` | UPDATE（`status` / `mapping_snapshot_hash` 等）| 已有 |
 
 GRANT 详见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。
 
@@ -1559,7 +1559,7 @@ Priority 5 (BS 兜底): Cash
 
 ```sql
 SELECT *, similarity(source_term, :label) AS sim
-FROM ai_ocr_mapping_memory
+FROM ai_financial_extraction_mapping_memory
 WHERE company_id = :company_id
   AND similarity(source_term, :label) > 0.6
   AND is_trusted = TRUE
@@ -1576,7 +1576,7 @@ LIMIT 1;
 SELECT m.normalized_category,
        COUNT(DISTINCT m.company_id) AS company_count,
        SUM(m.hit_count) AS total_freq
-FROM ai_ocr_mapping_memory m
+FROM ai_financial_extraction_mapping_memory m
 JOIN company c ON m.company_id = c.id
 WHERE c.industry = :industry
   AND m.hit_count >= 3
@@ -1675,10 +1675,10 @@ System Prompt (固定，含 19 类定义)
 
 | 表 | 何时写 |
 |----|-------|
-| `ai_ocr_conflict_record` | 仅当**内部一致性**失败；`conflict_type='INTERNAL_INCONSISTENCY'` |
+| `ai_financial_extraction_conflict_record` | 仅当**内部一致性**失败；`conflict_type='INTERNAL_INCONSISTENCY'` |
 | `validation_warnings`（state） | 三要素警告 + 非阻断警告；通过 `OcrResult` 字段返回 Java，**不直接写 DB** |
 
-> **不写**：`ai_ocr_extraction_skip_log`（已删除）/ `ai_ocr_conflict_resolution`（属用户解决，由 Java 写）
+> **不写**：`ai_financial_extraction_extraction_skip_log`（已删除）/ `ai_financial_extraction_conflict_resolution`（属用户解决，由 Java 写）
 
 ### 10.4 与 §5 VerifyService 的协同时序
 
@@ -1688,14 +1688,14 @@ LangGraph 内（自动）          用户审核中（HTTP）        v2 Python /v
 Validate 节点                                            VerifyService
   ├─ 三要素 → warnings        用户编辑 →                   ├─ 读 fi_* 跨域
   ├─ 内部一致性 →              /review                     ├─ 计算 (cat, period) 冲突
-  │   ai_ocr_conflict_record    ↓                          ├─ 写 conflict_record
+  │   ai_financial_extraction_conflict_record    ↓                          ├─ 写 conflict_record
   │   {INTERNAL_INCONSISTENCY}  ↓ (无 mapping 变更)        │   {CROSS_PERIOD_OVERWRITE}
   └─ status=REVIEW_READY       ↓                          └─ status=CONFLICT_RESOLUTION
                               ↓                                   或 READY_TO_COMMIT
                             用户点 Start Verification ──→
 ```
 
-**关键边界**：同一张 `ai_ocr_conflict_record` 表，`conflict_type` 字段区分主体——`INTERNAL_INCONSISTENCY` 由 Validate 节点写，`CROSS_PERIOD_OVERWRITE` 由 VerifyService 写。
+**关键边界**：同一张 `ai_financial_extraction_conflict_record` 表，`conflict_type` 字段区分主体——`INTERNAL_INCONSISTENCY` 由 Validate 节点写，`CROSS_PERIOD_OVERWRITE` 由 VerifyService 写。
 
 ### 10.5 报告周期识别 (Period Inference)
 
@@ -1743,11 +1743,11 @@ Validate 节点                                            VerifyService
 
 | Step | 行为 |
 |------|------|
-| 1 | JOIN extracted_row → extracted_table → ai_ocr_file WHERE task_id, deleted=false, is_header=false, is_total=false |
+| 1 | JOIN extracted_row → extracted_table → ai_financial_extraction_file WHERE task_id, deleted=false, is_header=false, is_total=false |
 | 2 | `label_embedding IS NULL` 的行批量调 OpenAI 生成 embedding，UPDATE 后 commit |
 | 3 | 每个 row 用 pgvector HNSW KNN 查 top-5 邻居 |
 | 4 | 过滤 `similarity ≥ THRESHOLD`；强制 `row_id_a < row_id_b` 去重 |
-| 5 | 批量 INSERT `ai_ocr_similarity_hint` ON CONFLICT DO NOTHING（幂等） |
+| 5 | 批量 INSERT `ai_financial_extraction_similarity_hint` ON CONFLICT DO NOTHING（幂等） |
 
 **性能**：100-500 rows → embedding ~1-5s；HNSW KNN < 10ms × 2500 次 ≈ 5s（并发）。总耗时 5-15s。
 
@@ -1761,7 +1761,7 @@ Validate 节点                                            VerifyService
 
 ### 11.5 跨域写权限
 
-`ai_ocr_similarity_hint` 由 Java 拥有，Python 通过 GRANT INSERT 跨域写。仅写 detection 字段，不能改 `user_decision`（user_decision 由 Python `/review` 端点写）。
+`ai_financial_extraction_similarity_hint` 由 Java 拥有，Python 通过 GRANT INSERT 跨域写。仅写 detection 字段，不能改 `user_decision`（user_decision 由 Python `/review` 端点写）。
 
 ---
 
@@ -1771,7 +1771,7 @@ Validate 节点                                            VerifyService
 
 ```text
 ┌──────────────────────────────────────────────┐
-│           ai_ocr_mapping_memory 表            │
+│           ai_financial_extraction_mapping_memory 表            │
 │  ┌─────────────────────────────────────────┐ │
 │  │ Tier 1: 通用层 (company_id = NULL)       │ │
 │  │ ~500 条种子 + 管理员维护                  │ │
@@ -1790,7 +1790,7 @@ Validate 节点                                            VerifyService
 ```sql
 SELECT DISTINCT ON (source_term)
     source_term, normalized_category, confidence, is_trusted, source
-FROM ai_ocr_mapping_memory
+FROM ai_financial_extraction_mapping_memory
 WHERE source_term = ANY(:terms)
   AND (company_id = :company_id OR company_id IS NULL)
   AND archived_at IS NULL
@@ -1847,7 +1847,7 @@ accounts receivable  → Accounts Receivable      1.0
 #### Layer A: Company-level Learning（实时）
 
 - 触发：每次 Java commit 后通过 SQS `ocr-memory-learn-queue`
-- 存储：`ai_ocr_mapping_memory WHERE company_id = :this_company`
+- 存储：`ai_financial_extraction_mapping_memory WHERE company_id = :this_company`
 - 生效：立即；该公司下次上传命中
 - 范围：仅本 company
 
@@ -1872,22 +1872,22 @@ accounts receivable  → Accounts Receivable      1.0
 2. 发 `OcrMemoryLearnProgress(MEMORY_LEARN_IN_PROGRESS)`
 3. **只处理 `wasOverridden=true`**（AI 猜对的不存）
 4. 对比 `originalAiCategory` vs `confirmedCategory`
-5. 写 `ai_ocr_mapping_memory`（company_id 隔离）
+5. 写 `ai_financial_extraction_mapping_memory`（company_id 隔离）
 6. 更新 `company_memory_version`
-7. 写 `ai_ocr_memory_learn_log{result=success}`
+7. 写 `ai_financial_extraction_memory_learn_log{result=success}`
 8. 发 `OcrMemoryLearnProgress(MEMORY_LEARN_COMPLETE)`
 
-**状态持久化**：每一步切换都持久化到 `ai_ocr_task.status` 与 `memory_learn_log`，Python 崩溃可恢复。
+**状态持久化**：每一步切换都持久化到 `ai_financial_extraction_task.status` 与 `memory_learn_log`，Python 崩溃可恢复。
 
 ### 12.9 幂等 upsert 设计
 
-`save_ai_ocr_mapping_memory` 返回 `Literal["new", "updated", "duplicate"]`：
+`save_ai_financial_extraction_mapping_memory` 返回 `Literal["new", "updated", "duplicate"]`：
 
 | Step | SQL |
 |------|-----|
-| 1 | `SELECT id FROM ai_ocr_mapping_memory_audit WHERE idempotency_key = :key`；命中返回 `duplicate` |
+| 1 | `SELECT id FROM ai_financial_extraction_mapping_memory_audit WHERE idempotency_key = :key`；命中返回 `duplicate` |
 | 2 | `INSERT ... ON CONFLICT (company_id, source_term) WHERE archived_at IS NULL DO UPDATE SET confirm_count=confirm_count+1, hit_count=hit_count+1, normalized_category=EXCLUDED.normalized_category, updated_at=now() RETURNING id, (created_at = updated_at) AS is_new` |
-| 3 | `INSERT INTO ai_ocr_mapping_memory_audit (mapping_id, idempotency_key, event_type='CONFIRM', ...)` |
+| 3 | `INSERT INTO ai_financial_extraction_mapping_memory_audit (mapping_id, idempotency_key, event_type='CONFIRM', ...)` |
 
 **关键点**：
 1. `idempotency_key = f"{task_id}:{row_id}"` 让同一修正只生效一次
@@ -2030,7 +2030,7 @@ LangGraph PostgreSQL checkpoint：
 
 | 表 | 动作 | 用途 |
 |----|-----|------|
-| 无 | — | 节点本身不直接读写 DB；输出 state 由后续节点持久化（NODE-2 写 `ai_ocr_extracted_table.provider_metadata` 含 `provider_request_id`）|
+| 无 | — | 节点本身不直接读写 DB；输出 state 由后续节点持久化（NODE-2 写 `ai_financial_extraction_extracted_table.provider_metadata` 含 `provider_request_id`）|
 
 **接口契约**：
 
@@ -2089,8 +2089,8 @@ LangGraph PostgreSQL checkpoint：
 
 | 表 | 动作 | 时机 |
 |----|-----|------|
-| `ai_ocr_extracted_table` | INSERT 元数据（document_type, currency, reporting_periods, provider_metadata={provider_request_id, page_count}）| 节点后由 persistence 层写 |
-| `ai_ocr_extracted_row` | INSERT 行数据（account_label, cell_values, is_header, is_total, source_reference={bbox, page}）| 同上 |
+| `ai_financial_extraction_extracted_table` | INSERT 元数据（document_type, currency, reporting_periods, provider_metadata={provider_request_id, page_count}）| 节点后由 persistence 层写 |
+| `ai_financial_extraction_extracted_row` | INSERT 行数据（account_label, cell_values, is_header, is_total, source_reference={bbox, page}）| 同上 |
 
 **接口契约**：
 
@@ -2142,7 +2142,7 @@ LangGraph PostgreSQL checkpoint：
 
 | 表 | 动作 |
 |----|-----|
-| `ai_ocr_extracted_table` | UPDATE `document_type` / `classification_confidence`（节点后由 persistence 层写）|
+| `ai_financial_extraction_extracted_table` | UPDATE `document_type` / `classification_confidence`（节点后由 persistence 层写）|
 
 **接口契约**：
 
@@ -2202,8 +2202,8 @@ LangGraph PostgreSQL checkpoint：
 
 | 表 | 动作 |
 |----|-----|
-| `ai_ocr_mapping_memory` | SELECT（Layer 2 公司记忆 + Layer 3 行业高频）|
-| `ai_ocr_mapping_result` | INSERT 每行映射结果（lg_category, confidence, source, reasoning, original_ai_suggestion）|
+| `ai_financial_extraction_mapping_memory` | SELECT（Layer 2 公司记忆 + Layer 3 行业高频）|
+| `ai_financial_extraction_mapping_result` | INSERT 每行映射结果（lg_category, confidence, source, reasoning, original_ai_suggestion）|
 | `lg_category_definition` | SELECT（启动时加载到运行期缓存）|
 | `company` | SELECT industry（Layer 3 用）|
 
@@ -2232,7 +2232,7 @@ LangGraph PostgreSQL checkpoint：
   - 行加总 = 合计行（容忍相对 < 1% 或绝对 < 1.0）
   - Assets ≈ Liabilities + Equity（BS 表，相对 < 1%）
   - 期间值 sign 一致（仅 warning）
-- 失败时写 `ai_ocr_conflict_record{conflict_type='INTERNAL_INCONSISTENCY'}`
+- 失败时写 `ai_financial_extraction_conflict_record{conflict_type='INTERNAL_INCONSISTENCY'}`
 - 三要素警告通过 `OcrResult` 字段返回 Java，**不直接写 DB**
 - **不阻断 pipeline**（与 Java 跨期间冲突检测互不重叠）
 
@@ -2250,7 +2250,7 @@ LangGraph PostgreSQL checkpoint：
     │   ├─ 行加总 = 合计行? (容忍 1%)
     │   ├─ BS: Assets ≈ Liabilities + Equity? (容忍 1%)
     │   └─ 期间值 sign 一致? (仅 warning)
-    │   失败 → INSERT ai_ocr_conflict_record (INTERNAL_INCONSISTENCY)
+    │   失败 → INSERT ai_financial_extraction_conflict_record (INTERNAL_INCONSISTENCY)
     │
     ▼
 [State 输出: validation_warnings[], internal_conflicts[],
@@ -2261,8 +2261,8 @@ LangGraph PostgreSQL checkpoint：
 
 | 表 | 动作 | 时机 |
 |----|-----|------|
-| `ai_ocr_conflict_record` | INSERT `conflict_type='INTERNAL_INCONSISTENCY'` | 仅当内部一致性失败 |
-| 不写 | `ai_ocr_extraction_skip_log`（已删除）/ `ai_ocr_conflict_resolution`（属用户解决，由 Java 写）| — |
+| `ai_financial_extraction_conflict_record` | INSERT `conflict_type='INTERNAL_INCONSISTENCY'` | 仅当内部一致性失败 |
+| 不写 | `ai_financial_extraction_extraction_skip_log`（已删除）/ `ai_financial_extraction_conflict_resolution`（属用户解决，由 Java 写）| — |
 
 **接口契约**：
 
@@ -2271,7 +2271,7 @@ LangGraph PostgreSQL checkpoint：
 - **输出 state**: `validation_warnings: list[dict]`, `internal_conflicts: list[dict]`, `pipeline_status: Literal["REVIEW_READY", "FAILED", "NO_DATA"]`, `error_detail: str | None`
 - **AI 服务**: 不调 AI（纯算法 + SQL 内部一致性）
 - **失败处理**: 三要素硬验证失败 → 写 warnings 但不阻断
-- **边界澄清**: 与 §5 VerifyService 协同（§10.4）— 同一张 `ai_ocr_conflict_record` 表，`conflict_type` 字段区分主体（INTERNAL_INCONSISTENCY by Validate / CROSS_PERIOD_OVERWRITE by VerifyService）
+- **边界澄清**: 与 §5 VerifyService 协同（§10.4）— 同一张 `ai_financial_extraction_conflict_record` 表，`conflict_type` 字段区分主体（INTERNAL_INCONSISTENCY by Validate / CROSS_PERIOD_OVERWRITE by VerifyService）
 
 ---
 
@@ -2293,11 +2293,11 @@ LangGraph PostgreSQL checkpoint：
 
 | `mode` | 触发场景 | 处理流程 | 删除范围 | 跑节点 | 时长 |
 |--------|---------|---------|---------|--------|------|
-| `FULL_EXTRACT` | (a) Java `/start-processing` 入队 | 完整 Pipeline | DELETE `ai_ocr_extracted_table` CASCADE | Preprocess→Extract→Classify→Map→Validate | ~30-60s |
+| `FULL_EXTRACT` | (a) Java `/start-processing` 入队 | 完整 Pipeline | DELETE `ai_financial_extraction_extracted_table` CASCADE | Preprocess→Extract→Classify→Map→Validate | ~30-60s |
 | `REMAP_ONLY` | (b) Python `/review` 端点检测到 mapping 变更内部入队（v2）| 仅 Map | DELETE `mapping_result` WHERE row_id ∈ changedRowIds（空则清整 file） | 仅 Map | ~1-10s |
 
-- 并发互斥：`SELECT ... FROM ai_ocr_file FOR UPDATE SKIP LOCKED`（§14.8）
-- 结果写 `ai_ocr_*` 表 + 通过 `ocr-result-queue` 回传 `OcrProgress` × 多次 + 终态 `OcrResult`
+- 并发互斥：`SELECT ... FROM ai_financial_extraction_file FOR UPDATE SKIP LOCKED`（§14.8）
+- 结果写 `ai_financial_extraction_*` 表 + 通过 `ocr-result-queue` 回传 `OcrProgress` × 多次 + 终态 `OcrResult`
 
 **逻辑图**：
 
@@ -2312,7 +2312,7 @@ SQS ocr-extract-queue (mode=FULL_EXTRACT 或 REMAP_ONLY)
     │
     ▼ 按 mode 路由
     ├─ FULL_EXTRACT:
-    │   DELETE ai_ocr_extracted_table CASCADE
+    │   DELETE ai_financial_extraction_extracted_table CASCADE
     │   run_full_pipeline(state)
     │       ├─ NODE-1 Preprocess  → progress_producer.send(PREPROCESSING)
     │       ├─ NODE-2 Extract     → progress_producer.send(EXTRACTING)
@@ -2334,11 +2334,11 @@ result_producer.send(OcrResult{status=completed|completed_no_data|failed|remap_c
 
 | 表 | 动作 |
 |----|-----|
-| `ai_ocr_file` | SELECT FOR UPDATE SKIP LOCKED → UPDATE `processing_stage` / `progress_pct`（间接通过 OcrProgress 回传 Java）|
-| `ai_ocr_extracted_table` | DELETE (FULL_EXTRACT) → INSERT 新 |
-| `ai_ocr_extracted_row` | CASCADE 删 → INSERT 新 |
-| `ai_ocr_mapping_result` | DELETE (REMAP_ONLY 按 row_id 集合) → INSERT 新 |
-| `ai_ocr_conflict_record` | INSERT (Validate 节点写 INTERNAL_INCONSISTENCY) |
+| `ai_financial_extraction_file` | SELECT FOR UPDATE SKIP LOCKED → UPDATE `processing_stage` / `progress_pct`（间接通过 OcrProgress 回传 Java）|
+| `ai_financial_extraction_extracted_table` | DELETE (FULL_EXTRACT) → INSERT 新 |
+| `ai_financial_extraction_extracted_row` | CASCADE 删 → INSERT 新 |
+| `ai_financial_extraction_mapping_result` | DELETE (REMAP_ONLY 按 row_id 集合) → INSERT 新 |
+| `ai_financial_extraction_conflict_record` | INSERT (Validate 节点写 INTERNAL_INCONSISTENCY) |
 
 **接口契约**：
 
@@ -2371,7 +2371,7 @@ result_producer.send(OcrResult{status=completed|completed_no_data|failed|remap_c
 
 - Java commit 后 AFTER_COMMIT 触发；学习 user override 修正 AI 映射
 - **只处理 `wasOverridden=true`**（AI 猜对的不存）
-- 对比 `originalAiCategory` vs `confirmedCategory`，写 `ai_ocr_mapping_memory`（company_id 隔离）
+- 对比 `originalAiCategory` vs `confirmedCategory`，写 `ai_financial_extraction_mapping_memory`（company_id 隔离）
 - 状态机持久化：`MEMORY_LEARN_PENDING → IN_PROGRESS → COMPLETED / FAILED`
 - 幂等 upsert（`idempotency_key = f"{task_id}:{row_id}"`，§12.9）
 - 失败 → 写 log{failed} + 发 FAILED + 抛出重试（**永不回滚 fi_***）
@@ -2392,12 +2392,12 @@ SQS ocr-memory-learn-queue
     ├─ 对每条:
     │   ├─ idempotency_key = f"{task_id}:{row_id}"
     │   ├─ SELECT memory_audit WHERE idempotency_key = ?  → 已存在则 skip
-    │   └─ INSERT ai_ocr_mapping_memory ON CONFLICT DO UPDATE
+    │   └─ INSERT ai_financial_extraction_mapping_memory ON CONFLICT DO UPDATE
     │       confirm_count += 1, hit_count += 1
-    │       INSERT ai_ocr_mapping_memory_audit (event_type='CONFIRM')
+    │       INSERT ai_financial_extraction_mapping_memory_audit (event_type='CONFIRM')
     │
     ├─ 更新 company_memory_version (SHA256 全部 memory)
-    ├─ INSERT ai_ocr_memory_learn_log {result=success}
+    ├─ INSERT ai_financial_extraction_memory_learn_log {result=success}
     └─ result_producer.send(OcrMemoryLearnProgress, learnStage=COMPLETE)
 ```
 
@@ -2405,10 +2405,10 @@ SQS ocr-memory-learn-queue
 
 | 表 | 动作 |
 |----|-----|
-| `ai_ocr_mapping_memory` | INSERT ON CONFLICT (company_id, source_term) DO UPDATE confirm_count / hit_count |
-| `ai_ocr_mapping_memory_audit` | INSERT `idempotency_key` / `event_type='CONFIRM'` |
-| `ai_ocr_memory_learn_log` | INSERT `result=success|failed` (跨域 INSERT，Java 拥有) |
-| `ai_ocr_task` | UPDATE `company_memory_version` |
+| `ai_financial_extraction_mapping_memory` | INSERT ON CONFLICT (company_id, source_term) DO UPDATE confirm_count / hit_count |
+| `ai_financial_extraction_mapping_memory_audit` | INSERT `idempotency_key` / `event_type='CONFIRM'` |
+| `ai_financial_extraction_memory_learn_log` | INSERT `result=success|failed` (跨域 INSERT，Java 拥有) |
+| `ai_financial_extraction_task` | UPDATE `company_memory_version` |
 
 **接口契约**：
 
@@ -2452,19 +2452,19 @@ SQS ocr-similarity-check-queue
     ▼
 [Consumer: consumers/similarity_check_consumer.py#handle_similarity_check]
     │
-    ▼ JOIN extracted_row → extracted_table → ai_ocr_file
+    ▼ JOIN extracted_row → extracted_table → ai_financial_extraction_file
     │  WHERE task_id = ? AND deleted=false AND is_header=false AND is_total=false
     │
     ▼ 对 label_embedding IS NULL 的行批量调 OpenAI
     │  text-embedding-3-small (batch_size=100)
-    │  UPDATE ai_ocr_extracted_row SET label_embedding = vector
+    │  UPDATE ai_financial_extraction_extracted_row SET label_embedding = vector
     │
     ▼ 对每个 row 用 pgvector HNSW KNN 查 top-5
     │  cosine similarity ≥ 0.9
     │
     ▼ 过滤 row_id_a < row_id_b 去重
     │
-    ▼ 批量 INSERT ai_ocr_similarity_hint ON CONFLICT DO NOTHING
+    ▼ 批量 INSERT ai_financial_extraction_similarity_hint ON CONFLICT DO NOTHING
     │
     ▼ result_producer.send(OcrSimilarityCheckResult)
 ```
@@ -2473,10 +2473,10 @@ SQS ocr-similarity-check-queue
 
 | 表 | 动作 |
 |----|-----|
-| `ai_ocr_extracted_row` | SELECT label / SELECT/UPDATE `label_embedding VECTOR(1536)` (HNSW 索引) |
-| `ai_ocr_similarity_hint` | INSERT detection 字段（rowIdA, rowIdB, similarity） — Java 拥有，跨域 INSERT |
-| `ai_ocr_extracted_table` | SELECT JOIN |
-| `ai_ocr_file` | SELECT JOIN |
+| `ai_financial_extraction_extracted_row` | SELECT label / SELECT/UPDATE `label_embedding VECTOR(1536)` (HNSW 索引) |
+| `ai_financial_extraction_similarity_hint` | INSERT detection 字段（rowIdA, rowIdB, similarity） — Java 拥有，跨域 INSERT |
+| `ai_financial_extraction_extracted_table` | SELECT JOIN |
+| `ai_financial_extraction_file` | SELECT JOIN |
 
 **接口契约**：
 
@@ -2554,16 +2554,16 @@ SQS ocr-similarity-check-queue
     ▼
 [Java Handler: OcrResultSqsProcessor#handleProgress]
     │
-    ├─ UPDATE ai_ocr_file SET processing_stage, progress_pct, stage_detail
-    └─ CAS UPDATE ai_ocr_task.status = PROCESSING (首次到达时)
+    ├─ UPDATE ai_financial_extraction_file SET processing_stage, progress_pct, stage_detail
+    └─ CAS UPDATE ai_financial_extraction_task.status = PROCESSING (首次到达时)
 ```
 
 **关联的表**（Java 端写）：
 
 | 表 | 动作 |
 |----|-----|
-| `ai_ocr_file` | UPDATE `processing_stage` / `progress_pct` / `stage_detail` JSONB |
-| `ai_ocr_task` | UPDATE `status: UPLOAD_COMPLETE → PROCESSING` (CAS 首次) |
+| `ai_financial_extraction_file` | UPDATE `processing_stage` / `progress_pct` / `stage_detail` JSONB |
+| `ai_financial_extraction_task` | UPDATE `status: UPLOAD_COMPLETE → PROCESSING` (CAS 首次) |
 
 **接口契约**：
 
@@ -2614,7 +2614,7 @@ SQS ocr-similarity-check-queue
 [Java Handler: OcrResultSqsProcessor#handleResult]
     │
     ├─ FOR UPDATE 锁 task
-    ├─ UPDATE ai_ocr_file.status = REVIEW_READY | FILE_FAILED
+    ├─ UPDATE ai_financial_extraction_file.status = REVIEW_READY | FILE_FAILED
     ├─ INSERT state_log (event_type)
     └─ 计数: 全部完成?
             YES → 入队 ocr-similarity-check-queue
@@ -2625,9 +2625,9 @@ SQS ocr-similarity-check-queue
 
 | 表 | 动作 |
 |----|-----|
-| `ai_ocr_file` | FOR UPDATE → UPDATE `status` |
-| `ai_ocr_task` | FOR UPDATE → UPDATE `status` 计数推进 |
-| `ai_ocr_task_state_log` | INSERT |
+| `ai_financial_extraction_file` | FOR UPDATE → UPDATE `status` |
+| `ai_financial_extraction_task` | FOR UPDATE → UPDATE `status` 计数推进 |
+| `ai_financial_extraction_task_state_log` | INSERT |
 
 **接口契约**：
 
@@ -2678,8 +2678,8 @@ SQS ocr-similarity-check-queue
 
 | 表 | 动作 |
 |----|-----|
-| `ai_ocr_task` | UPDATE `status` |
-| `ai_ocr_task_state_log` | INSERT |
+| `ai_financial_extraction_task` | UPDATE `status` |
+| `ai_financial_extraction_task_state_log` | INSERT |
 
 **接口契约**：
 
@@ -2732,8 +2732,8 @@ SQS ocr-similarity-check-queue
 
 | 表 | 动作 |
 |----|-----|
-| `ai_ocr_task` | UPDATE `status` |
-| `ai_ocr_task_state_log` | INSERT |
+| `ai_financial_extraction_task` | UPDATE `status` |
+| `ai_financial_extraction_task_state_log` | INSERT |
 
 **接口契约**：
 
@@ -2778,8 +2778,8 @@ Java Jackson camelCase vs Python Pydantic snake_case 必须显式配置：
 
 **方案**：
 
-1. **拿锁**：`SELECT ... FROM ai_ocr_file WHERE id = :file_id AND status IN (...) FOR UPDATE SKIP LOCKED`；拿不到立即返回
-2. **幂等清理**：`DELETE FROM ai_ocr_extracted_table WHERE file_id = :file_id`（CASCADE）
+1. **拿锁**：`SELECT ... FROM ai_financial_extraction_file WHERE id = :file_id AND status IN (...) FOR UPDATE SKIP LOCKED`；拿不到立即返回
+2. **幂等清理**：`DELETE FROM ai_financial_extraction_extracted_table WHERE file_id = :file_id`（CASCADE）
 3. **正式 pipeline**：`run_ocr_pipeline()` → `db.commit()` 释放锁
 
 **释放时机**：事务提交时；崩溃时连接断开释放，SQS visibility 超时后另一 worker 接管。
@@ -2823,7 +2823,7 @@ Java Jackson camelCase vs Python Pydantic snake_case 必须显式配置：
 | 超时 | `httpx.AsyncClient(timeout=120s)` |
 | 重试 | `httpx.AsyncHTTPTransport(retries=3)` 指数退避 |
 | 多页 | 服务端原生支持，响应 `pages: [{page_index, text, confidence, bounding_boxes}]` |
-| 审计追踪 | `provider_request_id` → `ai_ocr_extracted_table.provider_metadata` |
+| 审计追踪 | `provider_request_id` → `ai_financial_extraction_extracted_table.provider_metadata` |
 
 ### 15.3 多页文档处理流程
 
@@ -2919,7 +2919,7 @@ tests/fixtures/ai_provider/
 
 19 个 LG 分类硬编码在三处：
 1. `LGCategory` Python enum（`schemas/mapping.py`）
-2. 数据库 `ai_ocr_mapping_result.lg_category` CHECK 约束
+2. 数据库 `ai_financial_extraction_mapping_result.lg_category` CHECK 约束
 3. `prompts/mapping_system.md` 文本
 
 新增分类需同改 3 处 + 重新部署。
@@ -2972,7 +2972,7 @@ CREATE TABLE lg_category_definition (
 
 ### 17.5 与记忆系统的关系
 
-`ai_ocr_mapping_memory.normalized_category` 也引用 `lg_category_definition.code`。新增子分类时旧记忆继续指向父分类，不强制升级；后台 job 可基于 keywords 推荐升级，由管理员审核。
+`ai_financial_extraction_mapping_memory.normalized_category` 也引用 `lg_category_definition.code`。新增子分类时旧记忆继续指向父分类，不强制升级；后台 job 可基于 keywords 推荐升级，由管理员审核。
 
 ---
 
@@ -2984,17 +2984,17 @@ CREATE TABLE lg_category_definition (
 
 | 表 | 所有者 | Python 权限 | 用途 |
 |----|-------|------------|------|
-| `ai_ocr_extracted_table` | Python | 完整 | AI 提取的表格元数据 |
-| `ai_ocr_extracted_row` | Python | 完整 | 提取的行数据 + `label_embedding VECTOR(1536)` |
-| `ai_ocr_mapping_result` | Python | 完整 | AI 映射结果（三层产出 + user_override） |
-| `ai_ocr_conflict_record` | Python | 完整（外加跨域 UPDATE 见下）| 冲突检测结果 |
-| `ai_ocr_mapping_memory` | Python | 完整 | 两层记忆 |
-| `ai_ocr_mapping_memory_audit` | Python | 完整（含 idempotency_key） | 记忆变更审计 |
-| `ai_ocr_memory_learn_log` | Java | INSERT | 记忆学习审计 |
-| `ai_ocr_similarity_hint` | Java | INSERT / UPDATE（仅 detection 字段）| 相似度结果 |
-| **`ai_ocr_task_state_log`** | Java | **INSERT（v2 新增）** | Python 端点写状态变更 |
-| **`ai_ocr_conflict_record` 字段补**| Python | **UPDATE（resolution / resolved_at / resolved_by / status，v2 新增范围）** | `/conflicts/{id}/resolve` |
-| **`ai_ocr_conflict_note`** | Java | **INSERT（v2 新增）**| `/review` + `/resolve` 写 thread |
+| `ai_financial_extraction_extracted_table` | Python | 完整 | AI 提取的表格元数据 |
+| `ai_financial_extraction_extracted_row` | Python | 完整 | 提取的行数据 + `label_embedding VECTOR(1536)` |
+| `ai_financial_extraction_mapping_result` | Python | 完整 | AI 映射结果（三层产出 + user_override） |
+| `ai_financial_extraction_conflict_record` | Python | 完整（外加跨域 UPDATE 见下）| 冲突检测结果 |
+| `ai_financial_extraction_mapping_memory` | Python | 完整 | 两层记忆 |
+| `ai_financial_extraction_mapping_memory_audit` | Python | 完整（含 idempotency_key） | 记忆变更审计 |
+| `ai_financial_extraction_memory_learn_log` | Java | INSERT | 记忆学习审计 |
+| `ai_financial_extraction_similarity_hint` | Java | INSERT / UPDATE（仅 detection 字段）| 相似度结果 |
+| **`ai_financial_extraction_task_state_log`** | Java | **INSERT（v2 新增）** | Python 端点写状态变更 |
+| **`ai_financial_extraction_conflict_record` 字段补**| Python | **UPDATE（resolution / resolved_at / resolved_by / status，v2 新增范围）** | `/conflicts/{id}/resolve` |
+| **`ai_financial_extraction_conflict_note`** | Java | **INSERT（v2 新增）**| `/review` + `/resolve` 写 thread |
 | **`fi_*` 财务表** | LG | **SELECT 只读（v2 新增）** | `/verify` 跑冲突检测 |
 
 > **严禁**：`fi_*` INSERT/UPDATE/DELETE（最终写仍由 Java commit）。
@@ -3004,16 +3004,16 @@ CREATE TABLE lg_category_definition (
 #### SQS at-least-once 幂等约束
 
 所有 Python 拥有的表加 UNIQUE 防重复：
-- `ai_ocr_extracted_table`: `UNIQUE (file_id, table_index)`
-- `ai_ocr_extracted_row`: `UNIQUE (table_id, row_index)`
-- `ai_ocr_mapping_result`: `UNIQUE (row_id)`
-- `ai_ocr_mapping_memory_audit`: `UNIQUE (idempotency_key)` where `idempotency_key = f"{task_id}:{row_id}"`
+- `ai_financial_extraction_extracted_table`: `UNIQUE (file_id, table_index)`
+- `ai_financial_extraction_extracted_row`: `UNIQUE (table_id, row_index)`
+- `ai_financial_extraction_mapping_result`: `UNIQUE (row_id)`
+- `ai_financial_extraction_mapping_memory_audit`: `UNIQUE (idempotency_key)` where `idempotency_key = f"{task_id}:{row_id}"`
 
 **重试行为**：consumer 入口先 `DELETE` 再 INSERT，消息重复消费不产生数据重复。
 
 #### label_embedding VECTOR(1536)
 
-存储 `account_label` 的 OpenAI embedding。HNSW 索引 `idx_ai_ocr_row_embedding_hnsw` 加速 KNN 查询（每次 < 10ms）。
+存储 `account_label` 的 OpenAI embedding。HNSW 索引 `idx_ai_financial_extraction_row_embedding_hnsw` 加速 KNN 查询（每次 < 10ms）。
 
 #### LG Category CHECK / FK 约束
 
@@ -3023,19 +3023,19 @@ CREATE TABLE lg_category_definition (
 
 | 维度 | v1 范围 | v2 扩展 |
 |------|--------|---------|
-| `ai_ocr_memory_learn_log` | INSERT | INSERT |
-| `ai_ocr_similarity_hint` | INSERT/UPDATE 部分 | 同 |
-| `ai_ocr_task_state_log` | — | **INSERT** |
-| `ai_ocr_conflict_record` | INSERT（own） | + **UPDATE 部分字段** |
-| `ai_ocr_conflict_note` | — | **INSERT** |
+| `ai_financial_extraction_memory_learn_log` | INSERT | INSERT |
+| `ai_financial_extraction_similarity_hint` | INSERT/UPDATE 部分 | 同 |
+| `ai_financial_extraction_task_state_log` | — | **INSERT** |
+| `ai_financial_extraction_conflict_record` | INSERT（own） | + **UPDATE 部分字段** |
+| `ai_financial_extraction_conflict_note` | — | **INSERT** |
 | `fi_*` | — | **SELECT 只读** |
 
 详见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。
 
 ### 18.3 数据库角色
 
-- `java_app`：完整 `ai_ocr_*` + `fi_*`；**无权** `ai_ocr_mapping_memory*`
-- `python_worker`：完整 `ai_ocr_extracted_*` / `ai_ocr_mapping_*` / `ai_ocr_conflict_record`；INSERT `ai_ocr_memory_learn_log` / `ai_ocr_similarity_hint` / `ai_ocr_task_state_log` / `ai_ocr_conflict_note`；UPDATE `ai_ocr_conflict_record` 部分字段；**SELECT** `fi_*`；**严禁** `fi_*` 写入
+- `java_app`：完整 `ai_financial_extraction_*` + `fi_*`；**无权** `ai_financial_extraction_mapping_memory*`
+- `python_worker`：完整 `ai_financial_extraction_extracted_*` / `ai_financial_extraction_mapping_*` / `ai_financial_extraction_conflict_record`；INSERT `ai_financial_extraction_memory_learn_log` / `ai_financial_extraction_similarity_hint` / `ai_financial_extraction_task_state_log` / `ai_financial_extraction_conflict_note`；UPDATE `ai_financial_extraction_conflict_record` 部分字段；**SELECT** `fi_*`；**严禁** `fi_*` 写入
 
 ---
 

@@ -88,7 +88,7 @@
 | 8 | `/files/{fileId}/download-url` | POST | Java | 辅助 | ReviewPage 渲染 PDF/Excel 时申请 5 min S3 presigned GET URL | [→](#28--postfilesfileiddownload-url) |
 | 9 | `/ocr/tasks/{id}/state` | GET | Python | 步骤 3/5 | 综合状态聚合（task + 文件 + 数据 + 映射 + 相似度 + 记忆 + 历史 + summary） | [→ python-design.md](./python-design.md#21-端点-1--ocrtasksidstate-get) |
 | 10 | `/ocr/tasks/{id}/review` | PATCH | Python | 步骤 4 | 客户变更：编辑 row/mapping + note + 自动 mapping 变更检测 + 相似度决策 | [→ python-design.md](./python-design.md#22-端点-2--ocrtasksidreview-patch) |
-| 11 | `/ocr/tasks/{id}/verify` | POST | Python | 步骤 6 | 启动验证：跨域读 fi_* 跑冲突检测 → 写 `ai_ocr_conflict_record` | [→ python-design.md](./python-design.md#23-端点-3--ocrtasksidverify-post) |
+| 11 | `/ocr/tasks/{id}/verify` | POST | Python | 步骤 6 | 启动验证：跨域读 fi_* 跑冲突检测 → 写 `ai_financial_extraction_conflict_record` | [→ python-design.md](./python-design.md#23-端点-3--ocrtasksidverify-post) |
 | 12 | `/ocr/conflicts/{id}/resolve` | POST | Python | 步骤 6 | 单冲突解决（note 必填，自动写 thread） | [→ python-design.md](./python-design.md#24-端点-4--ocrconflictsidresolve-post) |
 
 ### 1.3 SQS 出口生产者（Java → Python）
@@ -130,31 +130,31 @@ sequenceDiagram
 
     Note over FE,DB: 步骤 1：文件上传 — Java 主导
     FE->>J: ① POST /tasks/upload-init {files[]}
-    J->>DB: INSERT ai_ocr_task (DRAFT)
-    J->>DB: INSERT ai_ocr_file × N (PENDING)
+    J->>DB: INSERT ai_financial_extraction_task (DRAFT)
+    J->>DB: INSERT ai_financial_extraction_file × N (PENDING)
     J->>DB: INSERT ImportedStatements 占位行 (visible=false)
     J->>S3: 生成 presigned PUT URL × N
     J-->>FE: {taskId, uploads[], companyDocFolderId}
     FE->>S3: 直接 PUT 文件
     FE->>J: ② POST /tasks/{id}/upload-complete {fileId, etag, actualSize}
     J->>S3: HeadObject + 读首 2KB 做 magic bytes 校验
-    J->>DB: UPDATE ai_ocr_file (UPLOADED) + state_log
+    J->>DB: UPDATE ai_financial_extraction_file (UPLOADED) + state_log
     J-->>FE: {status: ok}
 
     Note over FE,DB: 步骤 2：用户点 Next → 触发解析
     FE->>J: ③ POST /tasks/{id}/start-processing
-    J->>DB: SELECT FOR UPDATE ai_ocr_task + 批量扫描 UPLOADED 文件
-    J->>DB: UPDATE ai_ocr_file (QUEUED) + UPDATE task (PROCESSING)
+    J->>DB: SELECT FOR UPDATE ai_financial_extraction_task + 批量扫描 UPLOADED 文件
+    J->>DB: UPDATE ai_financial_extraction_file (QUEUED) + UPDATE task (PROCESSING)
     J->>SQS: send ocr-extract-queue × N (mode=FULL_EXTRACT)
     J-->>FE: {queuedCount, skippedCount}
 
     Note over FE,DB: 步骤 3：解析 + 进度查询
     SQS->>PY: 消费 ocr-extract-queue
     PY->>S3: GetObject 文件
-    PY->>DB: 写 ai_ocr_extracted_table/row + mapping_result
+    PY->>DB: 写 ai_financial_extraction_extracted_table/row + mapping_result
     PY->>SQS: send ocr-result-queue (OcrProgress × N + OcrResult)
     SQS->>J: 消费 ocr-result-queue → OcrResultSqsProcessor
-    J->>DB: UPDATE ai_ocr_file.processing_stage / progress_pct
+    J->>DB: UPDATE ai_financial_extraction_file.processing_stage / progress_pct
     FE->>PY: GET /ocr/tasks/{id}/state (轮询)
     PY-->>FE: 综合状态 (task + files + 数据 + 映射 + 历史 + summary)
 
@@ -162,19 +162,19 @@ sequenceDiagram
     FE->>PY: PATCH /ocr/tasks/{id}/review (编辑 + similarity 决策)
     PY->>SQS: send ocr-extract-queue (mode=REMAP_ONLY) — 若 mapping 变更
     FE->>PY: POST /ocr/tasks/{id}/verify
-    PY->>DB: SELECT fi_* 跑冲突检测 + 写 ai_ocr_conflict_record
+    PY->>DB: SELECT fi_* 跑冲突检测 + 写 ai_financial_extraction_conflict_record
     FE->>PY: POST /ocr/conflicts/{id}/resolve
 
     Note over FE,DB: 步骤 7：最终提交 — Java 主导
     FE->>J: ④ POST /tasks/{id}/commit
     J->>DB: SELECT FOR UPDATE task + Hard Gate 校验
     J->>DB: 写 fi_* (Actuals) + ProformaForecastService.appendVersion()
-    J->>DB: INSERT ai_ocr_commit_audit + UPDATE task (COMMITTED)
+    J->>DB: INSERT ai_financial_extraction_commit_audit + UPDATE task (COMMITTED)
     J-->>FE: {writtenAccounts, writtenPeriods[], importedStatementsFolderId, benchmarkRedirectUrl}
     Note over J,SQS: AFTER_COMMIT 阶段
     J->>DB: ImportedStatements finalize (visible=true)
     J->>SQS: send ocr-memory-learn-queue
-    SQS->>PY: 消费 → 更新 ai_ocr_mapping_memory + 双重日志
+    SQS->>PY: 消费 → 更新 ai_financial_extraction_mapping_memory + 双重日志
     PY->>SQS: send ocr-result-queue (OcrMemoryLearnProgress)
     SQS->>J: 消费 → UPDATE task.status (MEMORY_LEARN_*)
 
@@ -199,14 +199,14 @@ sequenceDiagram
 
 **支持的业务逻辑**：
 - JWT + company 归属校验
-- 创建 `ai_ocr_task`（status=DRAFT，24h 后过期）
+- 创建 `ai_financial_extraction_task`（status=DRAFT，24h 后过期）
 - 对每个 file 逐项预校验（部分失败不阻断其余文件）：
   - 单文件大小 ≤ 20MB；批次累计 ≤ 100MB
   - 扩展名 + Content-Type 白名单（PDF / XLSX / CSV / JPG / PNG / TIFF）
   - SHA-256 hash 重名查询：UNIQUE `(company_id, file_hash) WHERE deleted=false AND status!='FILE_FAILED'`
-- 合法文件 → 创建 `ai_ocr_file`（status=PENDING）+ 生成 S3 presigned PUT URL（15 min 有效）
+- 合法文件 → 创建 `ai_financial_extraction_file`（status=PENDING）+ 生成 S3 presigned PUT URL（15 min 有效）
 - **预关联公司文件表（v2 新增）**：在 Documents 服务的 "Imported Statements/{taskUuid}/" 文件夹下创建占位行（visible=false），供用户在上传过程中即可在 Documents 视图看到"导入中"批次
-- 写 `ai_ocr_task_state_log` (event_type=`UPLOAD_INITIATED`)
+- 写 `ai_financial_extraction_task_state_log` (event_type=`UPLOAD_INITIATED`)
 
 **逻辑图**：
 
@@ -218,22 +218,22 @@ sequenceDiagram
    │ JWT + company 归属校验
    ▼
 [UploadInitService] (@Transactional)
-   ├──→ [DocParseTaskRepository] INSERT ai_ocr_task (DRAFT)
+   ├──→ [DocParseTaskRepository] INSERT ai_financial_extraction_task (DRAFT)
    ├──→ FOR EACH file:
    │    ├─ 校验 size / 扩展名 / Content-Type / hash
-   │    ├──→ [DocParseFileRepository] INSERT ai_ocr_file (PENDING)
+   │    ├──→ [DocParseFileRepository] INSERT ai_financial_extraction_file (PENDING)
    │    └──→ [S3PresignedUrlClient] generate PUT URL (15 min)
    ├──→ [ImportedStatementsService#createPlaceholder]
    │    └──→ [CompanyDocService] 创建占位文件夹 + 占位文件行 (visible=false)
-   ├──→ INSERT ai_ocr_task_state_log (UPLOAD_INITIATED)
+   ├──→ INSERT ai_financial_extraction_task_state_log (UPLOAD_INITIATED)
    ▼
 {taskId, uploads[], companyDocFolderId}
 ```
 
 **关联的表**：
-- `ai_ocr_task` — INSERT：`id`, `company_id`, `uploaded_by`, `status=DRAFT`, `expires_at=NOW()+24h`
-- `ai_ocr_file` — INSERT × N：`id`, `task_id`, `filename`, `file_size`, `content_type`, `file_hash`, `s3_key`, `status=PENDING`
-- `ai_ocr_task_state_log` — INSERT：`event_type=UPLOAD_INITIATED`, `payload={fileCount, totalSize}`
+- `ai_financial_extraction_task` — INSERT：`id`, `company_id`, `uploaded_by`, `status=DRAFT`, `expires_at=NOW()+24h`
+- `ai_financial_extraction_file` — INSERT × N：`id`, `task_id`, `filename`, `file_size`, `content_type`, `file_hash`, `s3_key`, `status=PENDING`
+- `ai_financial_extraction_task_state_log` — INSERT：`event_type=UPLOAD_INITIATED`, `payload={fileCount, totalSize}`
 - 公司文件表（`documents` 模块）— INSERT：占位文件夹 + 占位文件行（visible=false）
 
 **接口契约**：
@@ -250,11 +250,11 @@ sequenceDiagram
 
 **支持的业务逻辑**：
 - JWT + task.company_id 归属校验
-- ⚠️ 安全：从 `ai_ocr_file` 表查 s3Key，**不信任前端传入**（防伪造）
+- ⚠️ 安全：从 `ai_financial_extraction_file` 表查 s3Key，**不信任前端传入**（防伪造）
 - `s3:HeadObject` 验证对象存在 + ETag/actualSize 一致
 - 读取首 2KB 做 MIME + magic bytes 双重校验（防扩展名伪装攻击）
-- 通过 → `ai_ocr_file.status=UPLOADED` + 更新 ImportedStatements 占位行的真实 s3_key
-- 失败 → `s3:DeleteObject` 清理 + `ai_ocr_file.status=FILE_FAILED` + 错误码（详见错误码表）
+- 通过 → `ai_financial_extraction_file.status=UPLOADED` + 更新 ImportedStatements 占位行的真实 s3_key
+- 失败 → `s3:DeleteObject` 清理 + `ai_financial_extraction_file.status=FILE_FAILED` + 错误码（详见错误码表）
 - ⚠️ 关键变更（v2）：**不入队** `ocr-extract-queue`，入队动作由 §2.3 `/start-processing` 端点统一触发
 
 **逻辑图**：
@@ -272,20 +272,20 @@ sequenceDiagram
    ├──→ [S3PresignedUrlClient] HeadObject (验证 ETag + actualSize)
    ├──→ 读首 2KB → magic bytes 校验
    ├─ 通过：
-   │    ├──→ UPDATE ai_ocr_file (status=UPLOADED)
-   │    ├──→ INSERT ai_ocr_task_state_log (UPLOAD_S3_PERSISTED)
+   │    ├──→ UPDATE ai_financial_extraction_file (status=UPLOADED)
+   │    ├──→ INSERT ai_financial_extraction_task_state_log (UPLOAD_S3_PERSISTED)
    │    └──→ [ImportedStatementsService#bindActualS3Key] 更新占位行
    └─ 失败：
         ├──→ [S3PresignedUrlClient] DeleteObject (清理 S3)
-        ├──→ UPDATE ai_ocr_file (status=FILE_FAILED, error_code)
-        └──→ INSERT ai_ocr_task_state_log (UPLOAD_REJECTED)
+        ├──→ UPDATE ai_financial_extraction_file (status=FILE_FAILED, error_code)
+        └──→ INSERT ai_financial_extraction_task_state_log (UPLOAD_REJECTED)
    ▼
 {status: "ok" | "rejected", error?: {code, message}}
 ```
 
 **关联的表**：
-- `ai_ocr_file` — SELECT (s3_key) / UPDATE：`status` (UPLOADED 或 FILE_FAILED), `etag`, `actual_size`, `error_code?`
-- `ai_ocr_task_state_log` — INSERT：`event_type=UPLOAD_S3_PERSISTED` 或 `UPLOAD_REJECTED`
+- `ai_financial_extraction_file` — SELECT (s3_key) / UPDATE：`status` (UPLOADED 或 FILE_FAILED), `etag`, `actual_size`, `error_code?`
+- `ai_financial_extraction_task_state_log` — INSERT：`event_type=UPLOAD_S3_PERSISTED` 或 `UPLOAD_REJECTED`
 - 公司文件表 — UPDATE：占位行的真实 `s3_key`（成功时）
 
 **接口契约**：
@@ -314,20 +314,20 @@ sequenceDiagram
    │ JWT 验证 + companyId 归属校验
    ▼
 [DocParseFileService#listByTaskId]
-   │ SELECT * FROM ai_ocr_file WHERE task_id=? ORDER BY created_at
+   │ SELECT * FROM ai_financial_extraction_file WHERE task_id=? ORDER BY created_at
    ▼
 [DocParseFileRepository]
    │ JPA 查询
    ▼
-[ai_ocr_file 表]
+[ai_financial_extraction_file 表]
    │ 含 deleted/replaced_by_file_id/imported_statements_synced 等
    ▼
 [Response: TaskFilesRespVo {files[], total, replacedCount}]
 ```
 
 **关联的表**：
-- `ai_ocr_file` — SELECT 全字段（id, filename, file_type, file_size, file_hash, status, processing_stage, progress_pct, stage_detail, upload_error, error_message, deleted, replaced_by_file_id, imported_statements_synced, synced_at, created_at, updated_at）
-- `ai_ocr_task` — SELECT（仅校验 company_id 归属，不返回）
+- `ai_financial_extraction_file` — SELECT 全字段（id, filename, file_type, file_size, file_hash, status, processing_stage, progress_pct, stage_detail, upload_error, error_message, deleted, replaced_by_file_id, imported_statements_synced, synced_at, created_at, updated_at）
+- `ai_financial_extraction_task` — SELECT（仅校验 company_id 归属，不返回）
 
 **接口契约**：
 - **Controller**: `FileListController#listFiles`
@@ -393,9 +393,9 @@ sequenceDiagram
    │ ③ 预校验新文件（大小 / 扩展名 / SHA-256 唯一性）
    ▼
 [事务开始]
-   │ ④ INSERT new ai_ocr_file (PENDING)
-   │ ⑤ UPDATE old ai_ocr_file SET deleted=true, replaced_by_file_id=newId
-   │ ⑥ INSERT ai_ocr_task_state_log (event_type=FILE_REPLACED, snapshot{oldFileId, newFileId})
+   │ ④ INSERT new ai_financial_extraction_file (PENDING)
+   │ ⑤ UPDATE old ai_financial_extraction_file SET deleted=true, replaced_by_file_id=newId
+   │ ⑥ INSERT ai_financial_extraction_task_state_log (event_type=FILE_REPLACED, snapshot{oldFileId, newFileId})
 [事务结束]
    ▼
 [S3PresignedUrlClient#generatePutUrl]
@@ -407,9 +407,9 @@ sequenceDiagram
 ```
 
 **关联的表**：
-- `ai_ocr_file` — SELECT FOR UPDATE old; INSERT new (PENDING); UPDATE old.deleted=true + old.replaced_by_file_id
-- `ai_ocr_task` — SELECT（校验 company_id + status 允许替换）
-- `ai_ocr_task_state_log` — INSERT (event_type=FILE_REPLACED)
+- `ai_financial_extraction_file` — SELECT FOR UPDATE old; INSERT new (PENDING); UPDATE old.deleted=true + old.replaced_by_file_id
+- `ai_financial_extraction_task` — SELECT（校验 company_id + status 允许替换）
+- `ai_financial_extraction_task_state_log` — INSERT (event_type=FILE_REPLACED)
 
 **接口契约**：
 - **Controller**: `FileReplaceController#replaceFile`
@@ -444,13 +444,13 @@ sequenceDiagram
 
 **支持的业务逻辑**：
 - JWT + task.company_id 归属校验
-- `SELECT ... FOR UPDATE` 锁 `ai_ocr_task` 行 → 防止用户重复点 Next 并发触发
+- `SELECT ... FOR UPDATE` 锁 `ai_financial_extraction_task` 行 → 防止用户重复点 Next 并发触发
 - CAS 校验：`task.status IN (DRAFT, UPLOAD_COMPLETE) → PROCESSING`；非法状态抛 `INVALID_STATUS_FOR_PROCESSING`
-- 批量扫描所有 `ai_ocr_file.status=UPLOADED` 的文件
+- 批量扫描所有 `ai_financial_extraction_file.status=UPLOADED` 的文件
 - 每个文件入队 `ocr-extract-queue`（`mode=FULL_EXTRACT`，每文件 1 条消息）
 - SQS 入队**在事务内**（不 AFTER_COMMIT）—— 失败则整个事务回滚，保证"看到 file.status=QUEUED 时一定已经入队"
-- 幂等保护：CAS 推进 task.status；即使重复入队，Python extract_consumer 也通过 `ai_ocr_file.status=PROCESSING/REVIEW_READY` 判定丢弃
-- 写 `ai_ocr_task_state_log` (event_type=`START_PROCESSING`, payload={queuedCount, skippedCount})
+- 幂等保护：CAS 推进 task.status；即使重复入队，Python extract_consumer 也通过 `ai_financial_extraction_file.status=PROCESSING/REVIEW_READY` 判定丢弃
+- 写 `ai_financial_extraction_task_state_log` (event_type=`START_PROCESSING`, payload={queuedCount, skippedCount})
 
 **逻辑图**：
 
@@ -463,24 +463,24 @@ sequenceDiagram
    │ JWT + task.company_id 归属校验
    ▼
 [StartProcessingService] (@Transactional + FOR UPDATE)
-   ├──→ SELECT FOR UPDATE ai_ocr_task
+   ├──→ SELECT FOR UPDATE ai_financial_extraction_task
    ├──→ CAS：status IN (DRAFT, UPLOAD_COMPLETE) → PROCESSING
-   ├──→ SELECT ai_ocr_file WHERE task_id=? AND status='UPLOADED'
+   ├──→ SELECT ai_financial_extraction_file WHERE task_id=? AND status='UPLOADED'
    ├──→ FOR EACH UPLOADED file:
-   │    ├──→ UPDATE ai_ocr_file (status=QUEUED)
+   │    ├──→ UPDATE ai_financial_extraction_file (status=QUEUED)
    │    ├──→ [OcrExtractSqsProducer#send] (taskId, fileId, mode=FULL_EXTRACT)
    │    │       ↓
    │    │   [SQS: ocr-extract-queue]
-   │    └──→ INSERT ai_ocr_task_state_log (EXTRACT_QUEUED)
-   ├──→ INSERT ai_ocr_task_state_log (START_PROCESSING, payload)
+   │    └──→ INSERT ai_financial_extraction_task_state_log (EXTRACT_QUEUED)
+   ├──→ INSERT ai_financial_extraction_task_state_log (START_PROCESSING, payload)
    ▼
 {queuedCount, skippedCount}
 ```
 
 **关联的表**：
-- `ai_ocr_task` — SELECT FOR UPDATE / UPDATE：`status` (DRAFT/UPLOAD_COMPLETE → PROCESSING)
-- `ai_ocr_file` — SELECT (WHERE status=UPLOADED) / UPDATE × N：`status` (UPLOADED → QUEUED)
-- `ai_ocr_task_state_log` — INSERT × (N+1)：每文件一条 `EXTRACT_QUEUED` + 一条 `START_PROCESSING`
+- `ai_financial_extraction_task` — SELECT FOR UPDATE / UPDATE：`status` (DRAFT/UPLOAD_COMPLETE → PROCESSING)
+- `ai_financial_extraction_file` — SELECT (WHERE status=UPLOADED) / UPDATE × N：`status` (UPLOADED → QUEUED)
+- `ai_financial_extraction_task_state_log` — INSERT × (N+1)：每文件一条 `EXTRACT_QUEUED` + 一条 `START_PROCESSING`
 
 **接口契约**：
 - Controller: `UploadController#startProcessing`
@@ -495,15 +495,15 @@ sequenceDiagram
 > 步骤 7 终结点：写 fi_* 财务表 + AFTER_COMMIT 触发记忆 SQS + 最终化 Imported Statements + 返回 Benchmark 跳转 URL。
 
 **支持的业务逻辑**：
-- `SELECT ... FOR UPDATE` 锁 `ai_ocr_task` 行 → 防并发 Commit
+- `SELECT ... FOR UPDATE` 锁 `ai_financial_extraction_task` 行 → 防并发 Commit
 - CAS 校验：`status IN (REVIEWING, CONFLICT_RESOLUTION, READY_TO_COMMIT) → COMMITTING`
 - **Hard Gate 二次校验**（防绕过）：
   - Python `/verify` 已跑且无 PENDING 冲突
   - 所有 row 都有 lg_category（unmapped 拒绝）
   - 任一失败 → 抛 `HARD_GATE_FAILED` + 回滚
-- 读 `ai_ocr_extracted_row` + `ai_ocr_mapping_result`（跨 schema SELECT，Java 对 Python 拥有的表只读）
+- 读 `ai_financial_extraction_extracted_row` + `ai_financial_extraction_mapping_result`（跨 schema SELECT，Java 对 Python 拥有的表只读）
 - 按 resolution 策略写 `fi_*` 财务表（Actuals）+ 调 `ProformaForecastService.appendVersion()`（Proforma）
-- 写 `ai_ocr_commit_audit`（written/overwritten/skipped + 关联 conflict_note_id）
+- 写 `ai_financial_extraction_commit_audit`（written/overwritten/skipped + 关联 conflict_note_id）
 - task.status=COMMITTED；files.status=FILE_COMMITTED
 - 若是 revision：parent.status=SUPERSEDED + parent.superseded_by=self.id
 - 构建 `benchmarkRedirectUrl`（前端直接跳转用，不再有独立 `/commit/result` 端点）
@@ -525,13 +525,13 @@ sequenceDiagram
    │ JWT + task.company_id 归属校验
    ▼
 [CommitService] (@Transactional + FOR UPDATE)
-   ├──→ SELECT FOR UPDATE ai_ocr_task
+   ├──→ SELECT FOR UPDATE ai_financial_extraction_task
    ├──→ CAS → status=COMMITTING
    ├──→ Hard Gate 校验（无 PENDING 冲突 + 全部 mapped）
-   ├──→ SELECT ai_ocr_extracted_row + ai_ocr_mapping_result
+   ├──→ SELECT ai_financial_extraction_extracted_row + ai_financial_extraction_mapping_result
    ├──→ 写 fi_* (Actuals) + [ProformaForecastService#appendVersion]
-   ├──→ INSERT ai_ocr_commit_audit
-   ├──→ UPDATE ai_ocr_task (COMMITTED) + UPDATE ai_ocr_file × N (FILE_COMMITTED)
+   ├──→ INSERT ai_financial_extraction_commit_audit
+   ├──→ UPDATE ai_financial_extraction_task (COMMITTED) + UPDATE ai_financial_extraction_file × N (FILE_COMMITTED)
    ├──→ [BenchmarkRedirectService#buildUrl]
    ├──→ publishEvent(CommitSuccessEvent)
    ▼
@@ -541,19 +541,19 @@ sequenceDiagram
    ├──→ [ImportedStatementsService#finalize] visible=true
    ├──→ [ClosedMonthMailService#notify] (新 closed month)
    ├──→ [OcrMemoryLearnSqsProducer#send] → [SQS: ocr-memory-learn-queue]
-   ├──→ UPDATE ai_ocr_task (MEMORY_LEARN_PENDING)
-   └──→ INSERT ai_ocr_task_state_log (COMMIT_COMPLETE)
+   ├──→ UPDATE ai_financial_extraction_task (MEMORY_LEARN_PENDING)
+   └──→ INSERT ai_financial_extraction_task_state_log (COMMIT_COMPLETE)
 ```
 
 **关联的表**：
-- `ai_ocr_task` — SELECT FOR UPDATE / UPDATE：`status` (REVIEWING/CONFLICT_RESOLUTION/READY_TO_COMMIT → COMMITTING → COMMITTED → MEMORY_LEARN_PENDING)
-- `ai_ocr_file` — UPDATE × N：`status=FILE_COMMITTED`
-- `ai_ocr_extracted_row` — SELECT（跨域只读）
-- `ai_ocr_mapping_result` — SELECT（跨域只读）
-- `ai_ocr_conflict_record` — SELECT（验证无 PENDING 冲突）
-- `ai_ocr_commit_audit` — INSERT：`written / overwritten / skipped` + `conflict_note_id` 关联
+- `ai_financial_extraction_task` — SELECT FOR UPDATE / UPDATE：`status` (REVIEWING/CONFLICT_RESOLUTION/READY_TO_COMMIT → COMMITTING → COMMITTED → MEMORY_LEARN_PENDING)
+- `ai_financial_extraction_file` — UPDATE × N：`status=FILE_COMMITTED`
+- `ai_financial_extraction_extracted_row` — SELECT（跨域只读）
+- `ai_financial_extraction_mapping_result` — SELECT（跨域只读）
+- `ai_financial_extraction_conflict_record` — SELECT（验证无 PENDING 冲突）
+- `ai_financial_extraction_commit_audit` — INSERT：`written / overwritten / skipped` + `conflict_note_id` 关联
 - `fi_*` 财务表 — INSERT/UPDATE（Actuals）；通过 `ProformaForecastService.appendVersion()` 间接处理 Proforma
-- `ai_ocr_task_state_log` — INSERT：`COMMIT_COMPLETE` / `NEW_CLOSED_MONTH`
+- `ai_financial_extraction_task_state_log` — INSERT：`COMMIT_COMPLETE` / `NEW_CLOSED_MONTH`
 - 公司文件表 — UPDATE：占位行 `visible=true`（AFTER_COMMIT）
 
 **接口契约**：
@@ -571,14 +571,14 @@ sequenceDiagram
 **支持的业务逻辑**：
 - JWT + company 归属校验
 - 校验 parent task.status ∈ {COMPLETED, SUPERSEDED}
-- 新 task 沿用 parent 的 `s3_key`（不重新上传文件，仅 COPY `ai_ocr_file` 行）
+- 新 task 沿用 parent 的 `s3_key`（不重新上传文件，仅 COPY `ai_financial_extraction_file` 行）
 - copy-on-write 继承：
-  - `ai_ocr_extracted_table/row` 由 Java 直接 COPY（v2：Java 写入 Python 拥有的表的单向例外，仅 revise 场景）
-  - `ai_ocr_mapping_result` 由 Java 直接 INSERT
+  - `ai_financial_extraction_extracted_table/row` 由 Java 直接 COPY（v2：Java 写入 Python 拥有的表的单向例外，仅 revise 场景）
+  - `ai_financial_extraction_mapping_result` 由 Java 直接 INSERT
 - `revision_number = parent.revision_number + 1`，受 UNIQUE `(parent_task_id, revision_number)` 约束保护并发
 - 新 task.status=DRAFT；用户在新批次中重新走 4 步流程
 - Commit 成功后置 parent.status=SUPERSEDED + parent.superseded_by=self.id（在 commit 事务步骤处理）
-- 修订原因记录到 `ai_ocr_task.revision_reason`
+- 修订原因记录到 `ai_financial_extraction_task.revision_reason`
 - Cancel 选项已移除（Asana 2026-04-19）—— 用户若放弃直接退出页面，Sweeper 24h 后清 DRAFT
 
 **逻辑图**：
@@ -591,22 +591,22 @@ sequenceDiagram
    │ JWT + parent task.company_id 归属校验
    ▼
 [ReviseService] (@Transactional)
-   ├──→ SELECT parent ai_ocr_task (status IN COMPLETED/SUPERSEDED)
-   ├──→ INSERT ai_ocr_task (parent_task_id, revision_number+1, status=DRAFT, revision_reason)
-   ├──→ COPY ai_ocr_file × N (沿用 s3_key)
-   ├──→ COPY ai_ocr_extracted_table/row × N
-   ├──→ COPY ai_ocr_mapping_result × N
-   ├──→ INSERT ai_ocr_task_state_log (REVISION_CREATED)
+   ├──→ SELECT parent ai_financial_extraction_task (status IN COMPLETED/SUPERSEDED)
+   ├──→ INSERT ai_financial_extraction_task (parent_task_id, revision_number+1, status=DRAFT, revision_reason)
+   ├──→ COPY ai_financial_extraction_file × N (沿用 s3_key)
+   ├──→ COPY ai_financial_extraction_extracted_table/row × N
+   ├──→ COPY ai_financial_extraction_mapping_result × N
+   ├──→ INSERT ai_financial_extraction_task_state_log (REVISION_CREATED)
    ▼
 {newTaskId}
 ```
 
 **关联的表**：
-- `ai_ocr_task` — SELECT (parent) / INSERT (new revision)：`parent_task_id`, `revision_number`, `revision_reason`, `status=DRAFT`
-- `ai_ocr_file` — COPY × N：沿用 `s3_key`，新 `task_id`
-- `ai_ocr_extracted_table` / `ai_ocr_extracted_row` — COPY × N（跨域 INSERT 例外）
-- `ai_ocr_mapping_result` — INSERT × N（跨域 INSERT 例外）
-- `ai_ocr_task_state_log` — INSERT：`REVISION_CREATED`
+- `ai_financial_extraction_task` — SELECT (parent) / INSERT (new revision)：`parent_task_id`, `revision_number`, `revision_reason`, `status=DRAFT`
+- `ai_financial_extraction_file` — COPY × N：沿用 `s3_key`，新 `task_id`
+- `ai_financial_extraction_extracted_table` / `ai_financial_extraction_extracted_row` — COPY × N（跨域 INSERT 例外）
+- `ai_financial_extraction_mapping_result` — INSERT × N（跨域 INSERT 例外）
+- `ai_financial_extraction_task_state_log` — INSERT：`REVISION_CREATED`
 
 **接口契约**：
 - Controller: `ReviseController#reviseTask`
@@ -622,7 +622,7 @@ sequenceDiagram
 
 **支持的业务逻辑**：
 - JWT + company 归属校验
-- 校验 `ai_ocr_file.deleted=false` AND `status NOT IN (FILE_FAILED, PENDING)`
+- 校验 `ai_financial_extraction_file.deleted=false` AND `status NOT IN (FILE_FAILED, PENDING)`
 - 生成 S3 presigned GET URL（生存期 **5 分钟**，比 PUT 的 15 min 更短，安全收紧）
 - **不附加** `Content-Disposition: attachment` —— 让浏览器直接预览
 - 前端用此 URL：PDF/图片直接 `<iframe>` 或 `<img>` 渲染；Excel 由前端用 SheetJS 拉取后解析
@@ -638,14 +638,14 @@ sequenceDiagram
    │ JWT + company 归属校验
    ▼
 [Service]
-   ├──→ SELECT ai_ocr_file (校验 status + deleted)
+   ├──→ SELECT ai_financial_extraction_file (校验 status + deleted)
    ├──→ [S3PresignedUrlClient] generate GET URL (5 min, signatureDuration)
    ▼
 {url, expiresAt}
 ```
 
 **关联的表**：
-- `ai_ocr_file` — SELECT：`s3_key`, `status`, `deleted`, `company_id`（用于归属校验）
+- `ai_financial_extraction_file` — SELECT：`s3_key`, `status`, `deleted`, `company_id`（用于归属校验）
 
 **接口契约**：
 - Controller: `FileViewController#getDownloadUrl`
@@ -681,8 +681,8 @@ sequenceDiagram
 ```
 
 **关联的表**：
-- 触发前：`ai_ocr_file` (SELECT WHERE status=UPLOADED)
-- 触发同事务内：`ai_ocr_file` UPDATE (status=QUEUED) + `ai_ocr_task_state_log` INSERT (EXTRACT_QUEUED)
+- 触发前：`ai_financial_extraction_file` (SELECT WHERE status=UPLOADED)
+- 触发同事务内：`ai_financial_extraction_file` UPDATE (status=QUEUED) + `ai_financial_extraction_task_state_log` INSERT (EXTRACT_QUEUED)
 
 **接口契约**：
 - Producer 类: `OcrExtractSqsProducer`
@@ -720,12 +720,12 @@ sequenceDiagram
    ▼
 [Python similarity_check_consumer.py#handle_similarity_check]
    ├──→ embedding + pgvector HNSW KNN
-   └──→ INSERT ai_ocr_similarity_hint
+   └──→ INSERT ai_financial_extraction_similarity_hint
 ```
 
 **关联的表**：
-- 触发前：`ai_ocr_mapping_result` (SELECT account_label)；`ai_ocr_task` UPDATE (status=SIMILARITY_CHECKING)
-- Python 消费后写：`ai_ocr_similarity_hint` (INSERT，跨域写入例外)
+- 触发前：`ai_financial_extraction_mapping_result` (SELECT account_label)；`ai_financial_extraction_task` UPDATE (status=SIMILARITY_CHECKING)
+- Python 消费后写：`ai_financial_extraction_similarity_hint` (INSERT，跨域写入例外)
 
 **接口契约**：
 - Producer 类: `OcrSimilarityCheckSqsProducer`
@@ -753,7 +753,7 @@ sequenceDiagram
 [CommitService] @Transactional 提交后
    ▼
 [@TransactionalEventListener(phase=AFTER_COMMIT)]
-   ├──→ SELECT ai_ocr_extracted_row + ai_ocr_mapping_result
+   ├──→ SELECT ai_financial_extraction_extracted_row + ai_financial_extraction_mapping_result
    ├──→ 构建 mappingComparisons[] (含 wasOverridden 标记)
    ▼
 [OcrMemoryLearnSqsProducer#send]
@@ -761,15 +761,15 @@ sequenceDiagram
    ▼
 [Python memory_learn_consumer.py#handle_memory_learn]
    ├──→ 仅学习 wasOverridden=true 条目
-   ├──→ INSERT/UPDATE ai_ocr_mapping_memory
-   ├──→ INSERT ai_ocr_mapping_memory_audit (变更明细)
-   └──→ INSERT ai_ocr_memory_learn_log (决策日志)
+   ├──→ INSERT/UPDATE ai_financial_extraction_mapping_memory
+   ├──→ INSERT ai_financial_extraction_mapping_memory_audit (变更明细)
+   └──→ INSERT ai_financial_extraction_memory_learn_log (决策日志)
 ```
 
 **关联的表**：
-- 触发前：`ai_ocr_extracted_row` + `ai_ocr_mapping_result` (SELECT)
-- Java 端 AFTER_COMMIT：`ai_ocr_task` UPDATE (status=MEMORY_LEARN_PENDING)
-- Python 消费后写：`ai_ocr_mapping_memory` (RWUD)、`ai_ocr_mapping_memory_audit` (INSERT)、`ai_ocr_memory_learn_log` (INSERT)
+- 触发前：`ai_financial_extraction_extracted_row` + `ai_financial_extraction_mapping_result` (SELECT)
+- Java 端 AFTER_COMMIT：`ai_financial_extraction_task` UPDATE (status=MEMORY_LEARN_PENDING)
+- Python 消费后写：`ai_financial_extraction_mapping_memory` (RWUD)、`ai_financial_extraction_mapping_memory_audit` (INSERT)、`ai_financial_extraction_memory_learn_log` (INSERT)
 
 **接口契约**：
 - Producer 类: `OcrMemoryLearnSqsProducer`
@@ -792,7 +792,7 @@ sequenceDiagram
 **支持的业务逻辑**：
 - 文件级精细进度上报（每个 stage 一条）
 - 幂等去重：用 `processing_stage` 的 ordinal 比较丢弃过期消息（避免乱序覆盖更新后的阶段）
-- FOR UPDATE 锁 `ai_ocr_file` 行后再判定阶段
+- FOR UPDATE 锁 `ai_financial_extraction_file` 行后再判定阶段
 - `stage_detail JSONB` 透传：必须原样写入 DB，前端从 Python `/state` 端点读取
 - 状态推进：首次到达时推进 `file.status: QUEUED → PROCESSING` + `task.status: UPLOAD_COMPLETE → PROCESSING`（CAS 防止覆盖更后状态）
 - 不触发终态：仅 OcrResult handler 才触发 `task.status` 终态转换
@@ -805,19 +805,19 @@ sequenceDiagram
    ▼
 [OcrResultSqsProcessor#handleProgress] (@Transactional)
    ├──→ HMAC + companyId 校验
-   ├──→ SELECT FOR UPDATE ai_ocr_file
+   ├──→ SELECT FOR UPDATE ai_financial_extraction_file
    ├──→ 比较 processing_stage ordinal
    │    ├─ 过期 → 丢弃
-   │    └─ 新阶段：UPDATE ai_ocr_file (processing_stage, progress_pct, stage_detail)
+   │    └─ 新阶段：UPDATE ai_financial_extraction_file (processing_stage, progress_pct, stage_detail)
    ├──→ CAS：file.status QUEUED → PROCESSING (首次到达)
    ├──→ CAS：task.status UPLOAD_COMPLETE → PROCESSING (首次到达)
-   └──→ INSERT ai_ocr_task_state_log (FILE_PROGRESS)
+   └──→ INSERT ai_financial_extraction_task_state_log (FILE_PROGRESS)
 ```
 
 **关联的表**：
-- `ai_ocr_file` — SELECT FOR UPDATE / UPDATE：`processing_stage`, `progress_pct`, `stage_detail JSONB`, `status`
-- `ai_ocr_task` — UPDATE (CAS)：`status` (UPLOAD_COMPLETE → PROCESSING)
-- `ai_ocr_task_state_log` — INSERT：`FILE_PROGRESS`
+- `ai_financial_extraction_file` — SELECT FOR UPDATE / UPDATE：`processing_stage`, `progress_pct`, `stage_detail JSONB`, `status`
+- `ai_financial_extraction_task` — UPDATE (CAS)：`status` (UPLOAD_COMPLETE → PROCESSING)
+- `ai_financial_extraction_task_state_log` — INSERT：`FILE_PROGRESS`
 
 **`processingStage` 12 个枚举值**：
 
@@ -857,23 +857,23 @@ sequenceDiagram
    ▼
 [OcrResultSqsProcessor#handleResult] (@Transactional)
    ├──→ HMAC + companyId 校验
-   ├──→ SELECT FOR UPDATE ai_ocr_task
-   ├──→ CAS UPDATE ai_ocr_file (PROCESSING → REVIEW_READY/FILE_FAILED)
+   ├──→ SELECT FOR UPDATE ai_financial_extraction_task
+   ├──→ CAS UPDATE ai_financial_extraction_file (PROCESSING → REVIEW_READY/FILE_FAILED)
    ├──→ 锁内计数：聚合 task 内所有 file.status
    │    ├─ 全部 REVIEW_READY → task.status=SIMILARITY_CHECKING + publishEvent(TaskReadyForReviewEvent)
    │    ├─ 全部 FILE_FAILED → task.status=FAILED
    │    ├─ 全部 has_extractable_data=false → task.status=NO_DATA_BYPASS
    │    └─ 混合 → 保持 PROCESSING
-   └──→ INSERT ai_ocr_task_state_log (EXTRACT_COMPLETE / EXTRACT_NO_DATA / EXTRACT_FAILED)
+   └──→ INSERT ai_financial_extraction_task_state_log (EXTRACT_COMPLETE / EXTRACT_NO_DATA / EXTRACT_FAILED)
 
 [AFTER_COMMIT @TransactionalEventListener]
    ├──→ [OcrSimilarityCheckSqsProducer#send] → [SQS: ocr-similarity-check-queue]
 ```
 
 **关联的表**：
-- `ai_ocr_task` — SELECT FOR UPDATE / UPDATE：`status`
-- `ai_ocr_file` — UPDATE (CAS)：`status` (PROCESSING → REVIEW_READY 或 FILE_FAILED)、`has_extractable_data`
-- `ai_ocr_task_state_log` — INSERT：`EXTRACT_COMPLETE` / `EXTRACT_NO_DATA`（含 skipReason）/ `EXTRACT_FAILED`
+- `ai_financial_extraction_task` — SELECT FOR UPDATE / UPDATE：`status`
+- `ai_financial_extraction_file` — UPDATE (CAS)：`status` (PROCESSING → REVIEW_READY 或 FILE_FAILED)、`has_extractable_data`
+- `ai_financial_extraction_task_state_log` — INSERT：`EXTRACT_COMPLETE` / `EXTRACT_NO_DATA`（含 skipReason）/ `EXTRACT_FAILED`
 
 **`status` 三个终态**：
 
@@ -888,7 +888,7 @@ sequenceDiagram
 #### 3.4.3 handleSimilarityCheckResult（messageType=OcrSimilarityCheckResult）
 
 **支持的业务逻辑**：
-- 跨域 INSERT 例外：`ai_ocr_similarity_hint` 由 Python 直接 INSERT；Java handler **只做状态推进 + state_log 写入**
+- 跨域 INSERT 例外：`ai_financial_extraction_similarity_hint` 由 Python 直接 INSERT；Java handler **只做状态推进 + state_log 写入**
 - 跨公司归属校验：比对 `task.company_id == msg.companyId`，不一致直接丢弃（防伪造）
 - CAS 推进状态：仅 `SIMILARITY_CHECKING → REVIEWING`；过期消息丢弃
 - 失败态语义：`SIMILARITY_CHECK_FAILED` 不阻塞用户，前端在 Python `/state` 端点检测到该状态后提供"跳过相似度提示"按钮
@@ -902,13 +902,13 @@ sequenceDiagram
 [OcrResultSqsProcessor#handleSimilarityCheckResult] (@Transactional)
    ├──→ HMAC + 跨公司归属校验
    ├──→ CAS：task.status SIMILARITY_CHECKING → REVIEWING (或 SIMILARITY_CHECK_FAILED)
-   └──→ INSERT ai_ocr_task_state_log (SIMILARITY_CHECK_DONE / FAILED)
+   └──→ INSERT ai_financial_extraction_task_state_log (SIMILARITY_CHECK_DONE / FAILED)
 ```
 
 **关联的表**：
-- `ai_ocr_task` — UPDATE (CAS)：`status`
-- `ai_ocr_similarity_hint` — Python 已 INSERT（Java 不写）
-- `ai_ocr_task_state_log` — INSERT：`SIMILARITY_CHECK_DONE` / `SIMILARITY_CHECK_FAILED`
+- `ai_financial_extraction_task` — UPDATE (CAS)：`status`
+- `ai_financial_extraction_similarity_hint` — Python 已 INSERT（Java 不写）
+- `ai_financial_extraction_task_state_log` — INSERT：`SIMILARITY_CHECK_DONE` / `SIMILARITY_CHECK_FAILED`
 
 #### 3.4.4 handleMemoryLearnProgress（messageType=OcrMemoryLearnProgress）
 
@@ -920,7 +920,7 @@ sequenceDiagram
 |--------------|-------------|
 | `IN_PROGRESS` | CAS：`MEMORY_LEARN_PENDING → MEMORY_LEARN_IN_PROGRESS` |
 | `COMPLETE` | CAS：`MEMORY_LEARN_IN_PROGRESS → COMPLETED` + 写 state_log `MEMORY_LEARN_COMPLETE` |
-| `FAILED` | 读 `ai_ocr_memory_learn_log` 计数：`<3` 回 PENDING 等重试；`≥3` 进 MEMORY_LEARN_FAILED 终态 |
+| `FAILED` | 读 `ai_financial_extraction_memory_learn_log` 计数：`<3` 回 PENDING 等重试；`≥3` 进 MEMORY_LEARN_FAILED 终态 |
 
 **逻辑图**：
 
@@ -930,15 +930,15 @@ sequenceDiagram
    ▼
 [OcrResultSqsProcessor#handleMemoryLearnProgress] (@Transactional)
    ├──→ HMAC + companyId 校验
-   ├──→ CAS UPDATE ai_ocr_task (status 按 learnStage 推进)
-   │    └─ FAILED 分支：SELECT ai_ocr_memory_learn_log COUNT
-   └──→ INSERT ai_ocr_task_state_log (MEMORY_LEARN_*)
+   ├──→ CAS UPDATE ai_financial_extraction_task (status 按 learnStage 推进)
+   │    └─ FAILED 分支：SELECT ai_financial_extraction_memory_learn_log COUNT
+   └──→ INSERT ai_financial_extraction_task_state_log (MEMORY_LEARN_*)
 ```
 
 **关联的表**：
-- `ai_ocr_task` — UPDATE (CAS)：`status` (MEMORY_LEARN_PENDING/IN_PROGRESS/COMPLETED/FAILED)
-- `ai_ocr_memory_learn_log` — SELECT (COUNT，FAILED 分支判定重试次数)
-- `ai_ocr_task_state_log` — INSERT：`MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`
+- `ai_financial_extraction_task` — UPDATE (CAS)：`status` (MEMORY_LEARN_PENDING/IN_PROGRESS/COMPLETED/FAILED)
+- `ai_financial_extraction_memory_learn_log` — SELECT (COUNT，FAILED 分支判定重试次数)
+- `ai_financial_extraction_task_state_log` — INSERT：`MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`
 
 **`learnStage` 4 个枚举**：
 
@@ -969,7 +969,7 @@ sequenceDiagram
 | 扫描分支 | 阈值 | 动作 |
 |---------|------|------|
 | `sweepDraftExpired` | DRAFT > 24h | 删 S3 对象 + `status=EXPIRED` + 清理 Imported Statements 占位行 |
-| `sweepZombieProcessing` | file.PROCESSING > 20min | 跨 schema 检查 Python 是否已写 `ai_ocr_extracted_table`：有 → 推进 REVIEW_READY；无 → FILE_FAILED |
+| `sweepZombieProcessing` | file.PROCESSING > 20min | 跨 schema 检查 Python 是否已写 `ai_financial_extraction_extracted_table`：有 → 推进 REVIEW_READY；无 → FILE_FAILED |
 | `sweepStuckMemoryLearn` | MEMORY_LEARN_IN_PROGRESS > 10min | `status=MEMORY_LEARN_FAILED`（fi_* 不回滚） |
 
 **v2 不再扫描的状态**:
@@ -1034,8 +1034,8 @@ com.gstdev.cioaas.web.docparse/
 │
 ├── domain/                        ← 领域层（Domain Layer）
 │   ├── entity/
-│   │   ├── DocParseTask.java               # JPA Entity: ai_ocr_task
-│   │   └── DocParseFile.java               # JPA Entity: ai_ocr_file（含 file_hash 重名校验）
+│   │   ├── DocParseTask.java               # JPA Entity: ai_financial_extraction_task
+│   │   └── DocParseFile.java               # JPA Entity: ai_financial_extraction_file（含 file_hash 重名校验）
 │   ├── repository/
 │   │   ├── DocParseTaskRepository.java
 │   │   └── DocParseFileRepository.java
@@ -1083,14 +1083,14 @@ com.gstdev.cioaas.web.docparse/
 
 | 表 | 用途 | DDL 引用 |
 |----|------|---------|
-| `ai_ocr_task` | Task 生命周期（批次级状态 + 版本化字段 + summary_cache + mapping_snapshot_hash） | [§2.1](./database-schema.md#21-ai_ocr_task) |
-| `ai_ocr_file` | 单个文件的上传 + 处理状态（12 子阶段 + stage_detail JSONB + has_extractable_data） | [§2.2](./database-schema.md#22-ai_ocr_file) |
-| `ai_ocr_task_state_log` | **总状态日志表**（覆盖 4 步流程所有状态变更，落地 R-3.4） | [§2.9](./database-schema.md#29-ai_ocr_task_state_log) |
-| `ai_ocr_conflict_note` | 冲突解决 note（thread 支持，Java + Python 共写） | [§2.4](./database-schema.md#24-ai_ocr_conflict_note) |
-| `ai_ocr_memory_learn_log` | 记忆学习审计（Python 跨域 INSERT） | [§2.5](./database-schema.md#25-ai_ocr_memory_learn_log) |
-| `ai_ocr_commit_audit` | fi_* 写入审计（written/overwritten/skipped） | [§2.6](./database-schema.md#26-ai_ocr_commit_audit) |
-| `ai_ocr_erasure_log` | GDPR 擦除审计 | [§2.7](./database-schema.md#27-ai_ocr_erasure_log) |
-| `ai_ocr_similarity_hint` | 相似度检测结果（Python 跨域 INSERT；Python 也可 UPDATE detection 字段） | [§2.8](./database-schema.md#28-ai_ocr_similarity_hint) |
+| `ai_financial_extraction_task` | Task 生命周期（批次级状态 + 版本化字段 + summary_cache + mapping_snapshot_hash） | [§2.1](./database-schema.md#21-ai_financial_extraction_task) |
+| `ai_financial_extraction_file` | 单个文件的上传 + 处理状态（12 子阶段 + stage_detail JSONB + has_extractable_data） | [§2.2](./database-schema.md#22-ai_financial_extraction_file) |
+| `ai_financial_extraction_task_state_log` | **总状态日志表**（覆盖 4 步流程所有状态变更，落地 R-3.4） | [§2.9](./database-schema.md#29-ai_financial_extraction_task_state_log) |
+| `ai_financial_extraction_conflict_note` | 冲突解决 note（thread 支持，Java + Python 共写） | [§2.4](./database-schema.md#24-ai_financial_extraction_conflict_note) |
+| `ai_financial_extraction_memory_learn_log` | 记忆学习审计（Python 跨域 INSERT） | [§2.5](./database-schema.md#25-ai_financial_extraction_memory_learn_log) |
+| `ai_financial_extraction_commit_audit` | fi_* 写入审计（written/overwritten/skipped） | [§2.6](./database-schema.md#26-ai_financial_extraction_commit_audit) |
+| `ai_financial_extraction_erasure_log` | GDPR 擦除审计 | [§2.7](./database-schema.md#27-ai_financial_extraction_erasure_log) |
+| `ai_financial_extraction_similarity_hint` | 相似度检测结果（Python 跨域 INSERT；Python 也可 UPDATE detection 字段） | [§2.8](./database-schema.md#28-ai_financial_extraction_similarity_hint) |
 
 ### 5.2 关键设计决策（v2 保留）
 
@@ -1104,7 +1104,7 @@ com.gstdev.cioaas.web.docparse/
 `UNIQUE (company_id, file_hash) WHERE deleted = false AND status != 'FILE_FAILED'` —— 只对"活跃"记录生效。`FILE_FAILED` 状态的文件允许用户重新上传同名文件。
 
 #### v2 简化：通知机制
-**不主动推送邮件/push**，用户通过 LG Dashboard "待处理任务" 列表自行发现。所有事件统一写入 `ai_ocr_task_state_log`。
+**不主动推送邮件/push**，用户通过 LG Dashboard "待处理任务" 列表自行发现。所有事件统一写入 `ai_financial_extraction_task_state_log`。
 
 #### 公司文件表预占位（v2 新增）
 `/tasks/upload-init` 创建 task 时同步在 Documents 服务的 "Imported Statements" 文件夹下创建占位条目（`visible=false`），用户在上传过程中即可在 Documents 视图看到"进行中"批次。`/commit` 成功后由 `ImportedStatementsService.finalize()` 把 `visible=true` 标记为可见。详见 §6.5。
@@ -1114,11 +1114,11 @@ Python 在 v2 后获得对 4 张 Java 拥有的表的写权限：
 
 | 表 | Python 权限 | 用途 |
 |----|------------|------|
-| `ai_ocr_memory_learn_log` | INSERT | 记忆学习审计 |
-| `ai_ocr_similarity_hint` | INSERT + UPDATE（仅 detection 字段） | 相似度检测结果 |
-| `ai_ocr_task_state_log` | INSERT | Python 面向用户端点写状态变更日志 |
-| `ai_ocr_conflict_record` | UPDATE（resolution 字段） | `/ocr/conflicts/{id}/resolve` 更新解决决定 |
-| `ai_ocr_conflict_note` | INSERT | 解决冲突时自动追加 note |
+| `ai_financial_extraction_memory_learn_log` | INSERT | 记忆学习审计 |
+| `ai_financial_extraction_similarity_hint` | INSERT + UPDATE（仅 detection 字段） | 相似度检测结果 |
+| `ai_financial_extraction_task_state_log` | INSERT | Python 面向用户端点写状态变更日志 |
+| `ai_financial_extraction_conflict_record` | UPDATE（resolution 字段） | `/ocr/conflicts/{id}/resolve` 更新解决决定 |
+| `ai_financial_extraction_conflict_note` | INSERT | 解决冲突时自动追加 note |
 
 GRANT 语句详见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。
 
@@ -1130,11 +1130,11 @@ GRANT 语句详见 [database-schema.md §4](./database-schema.md#4-数据库角�
 
 | 表归属 | `java_app` 角色 | `python_worker` 角色 |
 |-------|-----------------|---------------------|
-| Java 拥有的 `ai_ocr_*`（task / file / state_log / conflict_note / commit_audit）| RWUD | SELECT |
+| Java 拥有的 `ai_financial_extraction_*`（task / file / state_log / conflict_note / commit_audit）| RWUD | SELECT |
 | 跨域例外 INSERT（memory_learn_log / similarity_hint / task_state_log / conflict_note）| RWUD | INSERT only |
 | 跨域例外 UPDATE（conflict_record / similarity_hint detection）| RWUD | UPDATE 部分字段 |
-| Python 拥有的 `ai_ocr_*`（extracted_table / row / mapping_result / conflict_record）| SELECT | RWUD |
-| Python 私有：`ai_ocr_mapping_memory*` | 无权限 | RWUD |
+| Python 拥有的 `ai_financial_extraction_*`（extracted_table / row / mapping_result / conflict_record）| SELECT | RWUD |
+| Python 私有：`ai_financial_extraction_mapping_memory*` | 无权限 | RWUD |
 | 财务表 `fi_*` | RWU | **v2 新增 SELECT**（用于 Python `/verify` 端点跑冲突检测） |
 
 ---
@@ -1157,15 +1157,15 @@ v1 行为 → v2 简化：
 
 ```
 事务内（@Transactional(propagation=REQUIRED, rollbackFor=Exception.class)）:
-  ① FOR UPDATE 锁 ai_ocr_task 行（防并发 Commit）
+  ① FOR UPDATE 锁 ai_financial_extraction_task 行（防并发 Commit）
   ② CAS 校验：status IN (REVIEWING, CONFLICT_RESOLUTION, READY_TO_COMMIT) → COMMITTING
   ③ Hard gate 二次校验：
      ├─ Python `/verify` 已跑且无 PENDING 冲突
      ├─ 所有 row 都有 lg_category（unmapped 拒绝）
      └─ 任一失败 → 抛 HARD_GATE_FAILED + 回滚
-  ④ 读 ai_ocr_extracted_row + ai_ocr_mapping_result（跨 schema SELECT）
+  ④ 读 ai_financial_extraction_extracted_row + ai_financial_extraction_mapping_result（跨 schema SELECT）
   ⑤ 按 resolution 策略写 fi_* 财务表（Actuals）+ 调 ProformaForecastService.appendVersion()
-  ⑥ 写 ai_ocr_commit_audit（written/overwritten/skipped + 关联 conflict_note_id）
+  ⑥ 写 ai_financial_extraction_commit_audit（written/overwritten/skipped + 关联 conflict_note_id）
   ⑦ task.status=COMMITTED；files.status=FILE_COMMITTED
   ⑧ 若 revision：parent.status=SUPERSEDED + parent.superseded_by=self.id
   ⑨ 构建 benchmarkRedirectUrl（BenchmarkRedirectService.buildUrl(taskId, writtenPeriods)）
@@ -1235,13 +1235,13 @@ Commit 失败**不置 task.status=FAILED**。事务 rollback 后 task.status 自
 
 **Java 实现层关键决策**（事务内）:
 - 校验 parent task.status ∈ {COMPLETED, SUPERSEDED}
-- 新 task 沿用 parent 的 `s3_key`（不重新上传文件，仅 COPY `ai_ocr_file` 行）
+- 新 task 沿用 parent 的 `s3_key`（不重新上传文件，仅 COPY `ai_financial_extraction_file` 行）
 - copy-on-write 继承：
-  - `ai_ocr_extracted_table/row` 由 Java 直接 COPY（v2：Java 写入 Python 拥有的表是单向例外，仅 revise 场景）—— 或改由 Python 通过 SQS 异步复制（推荐，避免跨域写）
-  - `ai_ocr_mapping_result` 由 Java 直接 INSERT（v1 行为不变）
+  - `ai_financial_extraction_extracted_table/row` 由 Java 直接 COPY（v2：Java 写入 Python 拥有的表是单向例外，仅 revise 场景）—— 或改由 Python 通过 SQS 异步复制（推荐，避免跨域写）
+  - `ai_financial_extraction_mapping_result` 由 Java 直接 INSERT（v1 行为不变）
 - `revision_number = parent.revision_number + 1`（受 UNIQUE 约束保护并发）
 - Commit 成功后置 parent.status=SUPERSEDED + parent.superseded_by=self.id（在 §6.2 commit 事务步骤 ⑧ 处理）
-- 修订原因记录到 `ai_ocr_task.revision_reason`
+- 修订原因记录到 `ai_financial_extraction_task.revision_reason`
 
 **Cancel 选项已移除**（Asana 2026-04-19）。用户若要放弃提交直接退出页面，task 状态保持 REVIEWING；Sweeper 24h 后清 DRAFT。
 
@@ -1290,7 +1290,7 @@ Commit 失败**不置 task.status=FAILED**。事务 rollback 后 task.status 自
 
 ### 8.5 SQS 消费时跨公司归属校验
 
-`OcrResultSqsProcessor` 消费结果消息时，必须校验 `fileId` 对应的 `ai_ocr_file.task_id → ai_ocr_task.company_id` 与消息中的 `companyId` 一致，防止跨公司数据越权。
+`OcrResultSqsProcessor` 消费结果消息时，必须校验 `fileId` 对应的 `ai_financial_extraction_file.task_id → ai_financial_extraction_task.company_id` 与消息中的 `companyId` 一致，防止跨公司数据越权。
 
 ### 8.6 S3 Bucket CORS（生产必需）
 
@@ -1310,7 +1310,7 @@ Presigned URL 直传要求 S3 Bucket 配置 CORS 允许前端 origin。**严禁�
 |---|------|---------|
 | 1 | Presigned PUT 必须加 `content-length-range` 条件 | `PutObjectRequest.builder().contentLength(fileSize)` —— 防止绕过 20MB 限制 |
 | 2 | Presigned GET 生存期 **5 分钟**（不是 15 分钟） | `signatureDuration(Duration.ofMinutes(5))` |
-| 3 | `/upload-complete` 端点严禁信任前端传入的 s3Key | 必须从 `ai_ocr_file` 表查 s3Key，再调 `s3:HeadObject`（防伪造）|
+| 3 | `/upload-complete` 端点严禁信任前端传入的 s3Key | 必须从 `ai_financial_extraction_file` 表查 s3Key，再调 `s3:HeadObject`（防伪造）|
 | 4 | `file_hash` 格式强校验 | DTO 字段加 `@Pattern(regexp = "^[a-f0-9]{64}$")` 防注入 |
 | 5 | CloudTrail S3 Data Events 启用 | 生产 Bucket 启用 PutObject/GetObject/DeleteObject 日志 |
 
