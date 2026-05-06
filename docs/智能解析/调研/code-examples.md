@@ -5,6 +5,46 @@
 
 ---
 
+## 目录
+
+- [1. 数据模型 DDL](#1-数据模型-ddl)
+- [2. Pydantic 输出模型](#2-pydantic-输出模型)
+- [3. Instructor + OpenRouter 提取调用](#3-instructor--openrouter-提取调用)
+- [4. 规则引擎](#4-规则引擎)
+- [5. 公司记忆匹配](#5-公司记忆匹配)
+- [6. 同行业高频映射查询](#6-同行业高频映射查询)
+- [7. 三层映射协调](#7-三层映射协调)
+- [8. LangGraph Pipeline](#8-langgraph-pipeline)
+- [9. LLM 提示词](#9-llm-提示词)
+  - [9.1 提取 System Prompt](#91-提取-system-prompt)
+  - [9.2 映射 System Prompt](#92-映射-system-prompt)
+  - [9.3 映射 User Prompt Template](#93-映射-user-prompt-template)
+- [10. 文档类型评分算法](#10-文档类型评分算法)
+- [11. 文件安全校验](#11-文件安全校验)
+- [12. 前端状态管理 (dva model)](#12-前端状态管理-dva-model)
+- [13. 记忆保存（持续学习）](#13-记忆保存持续学习)
+- [14. RAG 召回示例（未来阶段）](#14-rag-召回示例未来阶段)
+- [15. S3 Presigned URL 实操（2026-04-20 新增）](#15-s3-presigned-url-实操2026-04-20-新增)
+  - [15.1 S3 Bucket CORS 配置（Terraform）](#151-s3-bucket-cors-配置terraform)
+  - [15.2 Java 生成 Presigned PUT URL（含 content-length-range 限制）](#152-java-生成-presigned-put-url含-content-length-range-限制)
+  - [15.3 Java `/upload/complete` 端点（不信任前端 s3Key）](#153-java-uploadcomplete-端点不信任前端-s3key)
+  - [15.4 前端分块 SHA-256（hash-wasm 示例）](#154-前端分块-sha-256hash-wasm-示例)
+  - [15.5 前端 XHR 直传 S3（含 progress）](#155-前端-xhr-直传-s3含-progress)
+  - [15.6 前端 Presigned GET URL 自动续签](#156-前端-presigned-get-url-自动续签)
+  - [15.7 Pydantic 消息 camelCase alias](#157-pydantic-消息-camelcase-alias)
+- [16. Step 5 拆分实现示例（2026-05-06 新增）](#16-step-5-拆分实现示例2026-05-06-新增)
+  - [16.1 Java — Mapping Summary Controller（§4.9）](#161-java--mapping-summary-controller49)
+  - [16.2 Java — Conflict Resolution（§4.10：Note 必填 + 动态按钮）](#162-java--conflict-resolution410note-必填--动态按钮)
+  - [16.3 Java — Commit Service 整批事务（§4.11）](#163-java--commit-service-整批事务411)
+  - [16.4 Java — 变更检测算法（§4.13 步骤导航）](#164-java--变更检测算法413-步骤导航)
+  - [16.5 DDL 字段补丁（与 database-schema.md 同步）](#165-ddl-字段补丁与-database-schemamd-同步)
+  - [16.6 Python — 提取契约扩展（§4.12 无可提取数据）](#166-python--提取契约扩展412-无可提取数据)
+  - [16.7 前端 — dva Model 变更检测与清空逻辑（§4.13）](#167-前端--dva-model-变更检测与清空逻辑413)
+  - [16.8 前端 — ConflictDialog 组件骨架（§4.10）](#168-前端--conflictdialog-组件骨架410)
+  - [16.9 前端 — 变更检测 hook（§4.13）](#169-前端--变更检测-hook413)
+
+---
+
 ## 1. 数据模型 DDL
 
 > **DDL 已全部迁移到 [database-schema.md](./database-schema.md)**（唯一权威定义）。本文件不再重复 DDL，避免双份维护导致漂移。
@@ -1497,12 +1537,3 @@ export function useMappingChangeDetector() {
   }, [mappingHash, prevMappingHash, mappingDirty, dispatch]);
 }
 ```
-
----
-
-## 变更日志
-
-| 日期 | 变更 |
-|------|------|
-| 2026-04-20 | 新增 §15 S3 Presigned URL 实操（CORS / Java 双端点 / 前端分块 SHA-256 / 续签 / Pydantic camelCase）。 |
-| 2026-05-06 | 新增 §16 Step 5 拆分实现示例（响应 [requirement-analysis.md §4.9-4.14](./requirement-analysis.md)）：<br/>• §16.1 MappingSummaryController（5a 三接口）<br/>• §16.2 ConflictResolutionController（5b Note 必填、动态按钮）<br/>• §16.3 CommitService 整批事务（5c fi_* 写入 + Imported Statements + email + Proforma 新版本）<br/>• §16.4 MappingChangeDetector（4.13 SHA-256 + 清空 resolutions）<br/>• §16.5 DDL 补丁（ai_ocr_task 5 个新字段 + 2 张新表）<br/>• §16.6 Python ExtractionResult 扩展（4.12 has_extractable_data / skip_reason）<br/>• §16.7 dva Model 快照与清空<br/>• §16.8 ConflictDialog（Note 必填 / Save vs Save & Next）<br/>• §16.9 useMappingChangeDetector hook |

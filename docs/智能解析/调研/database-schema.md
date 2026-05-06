@@ -8,6 +8,44 @@
 
 ---
 
+## 目录
+
+- [表清单总览（Schema Overview）](#表清单总览schema-overview)
+  - [设计原则](#设计原则)
+  - [一、任务编排（4 张，Java 拥有）](#一任务编排4-张java-拥有)
+  - [二、AI 解析产物（4 张，Python 拥有）](#二ai-解析产物4-张python-拥有)
+  - [三、用户交互与提交审计（3 张，Java 拥有）](#三用户交互与提交审计3-张java-拥有)
+  - [四、记忆与跨域审计（4 张，混合所有权）](#四记忆与跨域审计4-张混合所有权)
+  - [关系图（核心引用链）](#关系图核心引用链)
+- [0. 物理部署模型](#0-物理部署模型)
+- [1. 扩展与枚举](#1-扩展与枚举)
+  - [1.1 PostgreSQL 扩展](#11-postgresql-扩展)
+  - [1.2 枚举值清单（与代码 enum 严格对应）](#12-枚举值清单与代码-enum-严格对应)
+- [2. Java 拥有的表（`ai_ocr_*` Java owned）](#2-java-拥有的表ai_ocr_-java-owned)
+  - [2.1 ai_ocr_task](#21-ai_ocr_task)
+  - [2.2 ai_ocr_file](#22-ai_ocr_file)
+  - [2.4 ai_ocr_conflict_note](#24-ai_ocr_conflict_note)
+  - [2.5 ai_ocr_memory_learn_log](#25-ai_ocr_memory_learn_log)
+  - [2.6 ai_ocr_commit_audit](#26-ai_ocr_commit_audit)
+  - [2.7 ai_ocr_erasure_log](#27-ai_ocr_erasure_log)
+  - [2.8 ai_ocr_similarity_hint（新增：相似度检测结果）](#28-ai_ocr_similarity_hint新增相似度检测结果)
+  - [2.9 ai_ocr_task_state_log（2026-05-06 新增）](#29-ai_ocr_task_state_log2026-05-06-新增)
+- [3. Python 拥有的表（`ai_ocr_*` Python owned）](#3-python-拥有的表ai_ocr_-python-owned)
+  - [3.1 ai_ocr_extracted_table](#31-ai_ocr_extracted_table)
+  - [3.2 ai_ocr_extracted_row（新增 label_embedding 列）](#32-ai_ocr_extracted_row新增-label_embedding-列)
+  - [3.3 ai_ocr_mapping_result](#33-ai_ocr_mapping_result)
+  - [3.4 ai_ocr_conflict_record](#34-ai_ocr_conflict_record)
+  - [3.5 ai_ocr_mapping_memory（两层架构：通用 + 公司）](#35-ai_ocr_mapping_memory两层架构通用--公司)
+  - [3.6 ai_ocr_mapping_memory_audit](#36-ai_ocr_mapping_memory_audit)
+  - [3.8 ai_ocr_mapping_change_log（2026-05-06 新增）](#38-ai_ocr_mapping_change_log2026-05-06-新增)
+- [4. 数据库角色与权限](#4-数据库角色与权限)
+- [5. 数据生命周期](#5-数据生命周期)
+  - [5.1 文件保留策略（S3）](#51-文件保留策略s3)
+  - [5.2 DB 记录清理](#52-db-记录清理)
+  - [5.3 GDPR 擦除流程](#53-gdpr-擦除流程)
+
+---
+
 ## 表清单总览（Schema Overview）
 
 OCR Agent 包含 **15 张表**，**全部使用 `ai_ocr_` 前缀**。按职责分为四组：任务编排（4）、AI 解析产物（4）、用户交互审计（3）、记忆与跨域审计（4）。
@@ -886,14 +924,21 @@ GRANT SELECT ON ai_ocr_mapping_change_log TO python_worker;
 -- 不需要 GRANT，默认 DENY
 
 -- =================================================================
--- fi_* 财务表（Java 写，Python 零权限）
+-- fi_* 财务表（Java 完全访问，Python 仅 SELECT — v2 新边界）
 -- =================================================================
 
 GRANT SELECT, INSERT, UPDATE ON fi_* TO java_app;
--- Python 零权限，显式 REVOKE 所有 fi_* 表（防止误授予）
-REVOKE ALL ON fi_financial_data FROM python_worker;
-REVOKE ALL ON fi_metrics FROM python_worker;
--- 其他 fi_* 表同理
+
+-- Python 仅 SELECT（v2 新增）：用于 /ocr/tasks/{id}/verify 端点的冲突检测
+-- 严禁 INSERT/UPDATE/DELETE：最终写入仍由 Java commit 接口的事务承载
+GRANT SELECT ON fi_financial_data TO python_worker;
+GRANT SELECT ON fi_metrics TO python_worker;
+-- 其他 fi_* 表同理（仅 SELECT）
+
+-- v2 新增：Python 跨域写权限例外（前端面向端点所需）
+GRANT INSERT ON ai_ocr_task_state_log TO python_worker;          -- /ocr/* 端点写状态变更日志
+GRANT UPDATE (resolution, resolved_at, resolved_by, note) ON ai_ocr_conflict_record TO python_worker;  -- /ocr/conflicts/{id}/resolve
+GRANT INSERT ON ai_ocr_conflict_note TO python_worker;           -- 解决冲突时自动写 note thread
 ```
 
 ---
@@ -941,17 +986,3 @@ REVOKE ALL ON fi_metrics FROM python_worker;
    g. 如有 ai_ocr_mapping_memory 条目 company_id = target → 归档（archived_at=now）
 3. 更新 erasure_log.status=COMPLETED, s3_objects_deleted, db_records_deleted
 ```
-
----
-
-## 6. 变更历史
-
-| 日期 | 摘要 |
-|------|------|
-| 2026-04-16 | 初版：Java + Python OCR 基础表（原 `doc_parse_*` + `mapping_memory*` 双前缀） |
-| 2026-04-17 | Asana Story 同步：currency_warning / unresolved_period_count 等字段 |
-| 2026-04-19 | 新增 `ai_ocr_conflict_note`（Story #7）；Cancel 选项移除 |
-| 2026-04-20 | 多个增量：修订字段、记忆学习审计、commit_audit、erasure_log、SQS 幂等约束、label_embedding + HNSW 索引、similarity_hint 表、Task 状态重命名（NOTIFYING→SIMILARITY_CHECKING） |
-| 2026-05-06 | Step 5 拆分（§4.9-4.14）：Task 状态加 MAPPING_SUMMARY / VERIFY_PENDING；`ai_ocr_task` 扩展 7 字段；`ai_ocr_conflict_record` Note 改必填 |
-| 2026-05-06 | 统一表名前缀：`doc_parse_*` + `mapping_memory*` → `ai_ocr_*`（10 张表统一）；新增"表清单总览"和 §2.9 `ai_ocr_task_state_log` 总日志表 |
-| 2026-05-06 | 多 agent 头脑风暴清理：删 `ai_ocr_notification` + `ai_ocr_extraction_skip_log` 两张表（合并至 state_log）+ 删 `state_log.snapshot_data` JSONB；Schema 从 17 表降至 15 表，Python 跨域写从 3 张降至 2 张 |

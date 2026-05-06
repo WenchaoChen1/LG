@@ -2,7 +2,78 @@
 
 > **关联文档**: [数据库 Schema](./database-schema.md) · [设计理念](./design-philosophy.md) · [需求分析](./requirement-analysis.md) · [Java 端设计](./java-design.md) · [Python 端设计](./python-design.md) · [前端设计](./frontend-design.md) · [代码示例](./code-examples.md)
 
-> **本文档已与 Asana EPIC 于 2026-05-06 同步**：Step 5 拆为 5a/5b/5c，新增 6 个 subtask（Mapping Summary、Conflict Resolution、Commit & Display Results、No-Extractable-Data 边界、Steps Navigation 边界、Backend Infrastructure）。详细需求见 [requirement-analysis.md §4.9-4.14](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)。变更详情见本文档末尾「变更日志」。
+> **本文档已与 Asana EPIC 于 2026-05-06 同步**：Step 5 拆为 5a/5b/5c，新增 6 个 subtask（Mapping Summary、Conflict Resolution、Commit & Display Results、No-Extractable-Data 边界、Steps Navigation 边界、Backend Infrastructure）。详细需求见 [requirement-analysis.md §4.9-4.14](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)。
+
+---
+
+## 目录
+
+- [0. 职责边界声明（顶层规则）](#0-职责边界声明顶层规则)
+  - [0.0 项目核心流程（4 步抽象）](#00-项目核心流程4-步抽象)
+  - [0.1 边界划分（**2026-05-06 v2 重大重构**）](#01-边界划分2026-05-06-v2-重大重构)
+  - [0.2 Java ↔ Python 通信：仅通过 SQS 队列](#02-java--python-通信仅通过-sqs-队列)
+  - [0.3 关键规则：报错只走 Java](#03-关键规则报错只走-java)
+  - [0.4 关键规则：记忆处理必须有日志](#04-关键规则记忆处理必须有日志)
+  - [0.5 关键规则：Python 跨域权限清单（v2 扩展）](#05-关键规则python-跨域权限清单v2-扩展)
+  - [0.6 关键规则：全流程状态必须留 log](#06-关键规则全流程状态必须留-log)
+- [1. 需求概述](#1-需求概述)
+  - [1.1 一句话描述](#11-一句话描述)
+  - [1.2 业务目标](#12-业务目标)
+  - [1.3 核心工作流](#13-核心工作流)
+  - [1.4 子任务清单](#14-子任务清单)
+- [2. 架构定位：Multi-Agent 体系中的 OCR Agent](#2-架构定位multi-agent-体系中的-ocr-agent)
+  - [2.1 核心定位](#21-核心定位)
+  - [2.2 Agent 自治边界](#22-agent-自治边界)
+  - [2.3 Agent Tool 接口定义](#23-agent-tool-接口定义)
+  - [2.4 设计原则](#24-设计原则)
+- [3. 技术选型](#3-技术选型)
+  - [3.1 整体技术栈](#31-整体技术栈)
+  - [3.2 AI 框架选型决策](#32-ai-框架选型决策)
+  - [3.3 模型路由策略](#33-模型路由策略)
+- [4. 整体数据流与职责边界](#4-整体数据流与职责边界)
+  - [4.1 数据流图（完整版，三泳道 × 六阶段）](#41-数据流图完整版三泳道--六阶段)
+  - [4.2 职责边界表](#42-职责边界表)
+  - [4.3 总体架构图](#43-总体架构图)
+  - [4.4 Pipeline 状态机](#44-pipeline-状态机)
+  - [4.5 Step 5 子流程架构（5a → 5b → 5c）](#45-step-5-子流程架构5a--5b--5c)
+  - [4.6 步骤导航变更检测机制（Steps Navigation）](#46-步骤导航变更检测机制steps-navigation)
+  - [4.7 No-Extractable-Data 流程分支](#47-no-extractable-data-流程分支)
+  - [4.8 Imported Statements S3 路径与文件夹设计](#48-imported-statements-s3-路径与文件夹设计)
+- [5. SQS 消息设计](#5-sqs-消息设计)
+  - [5.1 队列拓扑](#51-队列拓扑)
+  - [5.2 消息 Schema](#52-消息-schema)
+  - [5.3 队列配置](#53-队列配置)
+  - [5.4 错误处理](#54-错误处理)
+- [6. API 设计](#6-api-设计)
+  - [6.1 接口列表](#61-接口列表)
+  - [6.2 Gateway 路由](#62-gateway-路由)
+- [7. 数据模型与表归属](#7-数据模型与表归属)
+  - [7.1 表归属总览](#71-表归属总览)
+  - [7.2 数据库隔离（物理部署：同一 PostgreSQL 实例 + 同一 schema）](#72-数据库隔离物理部署同一-postgresql-实例--同一-schema)
+  - [7.3 详细 DDL](#73-详细-ddl)
+- [8. 安全设计](#8-安全设计)
+  - [8.1 现有代码中发现的安全问题（必须修复）](#81-现有代码中发现的安全问题必须修复)
+  - [8.2 S3 权限划分](#82-s3-权限划分)
+  - [8.3 各层安全措施](#83-各层安全措施)
+  - [8.4 文件留存策略](#84-文件留存策略)
+  - [8.5 跨公司数据访问控制（Row-Level Security）](#85-跨公司数据访问控制row-level-security)
+  - [8.6 Note 字段 XSS 防御](#86-note-字段-xss-防御)
+  - [8.7 LLM 输入消毒（防 Prompt Injection）](#87-llm-输入消毒防-prompt-injection)
+  - [8.8 GDPR 数据擦除（Right to be Forgotten）](#88-gdpr-数据擦除right-to-be-forgotten)
+  - [8.9 S3 上传孤儿对象清理](#89-s3-上传孤儿对象清理)
+- [9. 状态通知与并发](#9-状态通知与并发)
+  - [9.1 状态通知方案](#91-状态通知方案)
+  - [9.2 并发与扩展](#92-并发与扩展)
+- [10. 边界情况](#10-边界情况)
+- [11. 性能优化](#11-性能优化)
+- [12. 待确认问题](#12-待确认问题)
+- [13. 开发分期](#13-开发分期)
+- [14. Multi-Agent 演进路线](#14-multi-agent-演进路线)
+  - [14.1 三阶段演进](#141-三阶段演进)
+  - [14.2 各阶段复用关系](#142-各阶段复用关系)
+  - [14.3 Agent 间通信模式](#143-agent-间通信模式)
+  - [14.4 共享基础设施](#144-共享基础设施)
+- [15. 依赖清单](#15-依赖清单)
 
 ---
 
@@ -40,13 +111,36 @@
 - **Python 是异步引擎**：仅通过 SQS 被动响应，处理结果回传 Java 后由 Java 决定下一步
 - **每一步都有 log**（详见 §0.6）：4 个步骤的每一次状态变更、每一个错误、每一次校验前后的数据快照都必须有持久化日志
 
-### 0.1 边界划分
+### 0.1 边界划分（**2026-05-06 v2 重大重构**）
 
-| 服务 | 职责 |
-|------|------|
-| **Java（CIOaas-api）** | 文件上传、文件校验、**所有面向用户的报错**、任务编排、状态机、数据库写入（fi_* / ai_ocr_*）、邮件通知、Imported Statements 同步。**用户的请求、错误、最终决定都只与 Java 交互。** |
-| **Python（CIOaas-python）** | 文件解析（OCR / Excel / AI 映射）、相似度检测、**记忆学习**。**Python 不直接面向用户，所有错误必须回传 Java，由 Java 决定如何向用户呈现。** |
-| **Frontend（CIOaas-web）** | UI、用户交互、轮询 Java 获取状态。**Frontend 永远不直接调 Python。** |
+> **原边界**（v1）："前端永远不直接调 Python；Python 不暴露 HTTP" — 已废弃。
+> **新边界**（v2）：前端**同时**与 Java（上传/提交相关）+ Python（查询/编辑/验证）直接交互。
+
+| 服务 | 职责 | 前端是否直接调用 |
+|------|------|:---:|
+| **Java（CIOaas-api）** | **文件上传 + 最终提交**：S3 presigned URL 申请、文件校验、上传完成、**点 Next 触发 SQS**、最终 commit 写 fi_*、闭月 email、Imported Statements 同步、任务修订（revise） | ✅ 是（`/api/v1/docparse/*`，6 个端点） |
+| **Python（CIOaas-python）** | **AI 处理 + 用户面向查询/编辑/验证**：OCR / Excel / AI 映射、相似度检测、记忆学习、**前端综合状态聚合**、**用户编辑**、**冲突验证**（读 fi_*）、单冲突解决 | ✅ **是（新边界）**（`/ocr/*`，4 个端点） |
+| **Frontend（CIOaas-web）** | UI、用户交互、按需调用 Java 或 Python；步骤 1-2 / 7 调 Java；步骤 3-6 调 Python | — |
+
+**Python 端必备基础设施（v2 新增）**：
+
+- FastAPI HTTP 服务器（`/ocr/*` 路由，已有占位）
+- JWT 中间件（与 Java 共享 secret，统一签发 / 验证）
+- `company_id` 归属校验中间件（与 Java 一致）
+- 错误响应规范（与 Java 统一格式：`{success, data, error}`）
+- 标准日志 / 链路追踪（与 Java 共享 trace_id）
+
+**4 步流程的 Java/Python 调用归属**：
+
+| 步骤 | 调用方 | 端点位置 |
+|------|-------|---------|
+| 1. 文件上传 | Frontend → **Java** | `/tasks/upload-init` + `/tasks/{id}/upload-complete` |
+| 2. 点 Next 触发 SQS | Frontend → **Java** | `/tasks/{id}/start-processing` |
+| 3. SQS 解析 + 状态查询 | SQS Producer：Java；HTTP 查询：Frontend → **Python** | SQS + `/ocr/tasks/{id}/state` |
+| 4. 客户变更 | Frontend → **Python** | `/ocr/tasks/{id}/review` |
+| 5. 综合状态/数据查询 | Frontend → **Python** | `/ocr/tasks/{id}/state` |
+| 6. 验证 + 冲突解决 | Frontend → **Python** | `/ocr/tasks/{id}/verify` + `/ocr/conflicts/{id}/resolve` |
+| 7. 最终保存 + 记忆 SQS | Frontend → **Java**；SQS Producer: Java | `/tasks/{id}/commit` |
 
 ### 0.2 Java ↔ Python 通信：仅通过 SQS 队列
 
@@ -79,12 +173,18 @@ Java 调用 Python 的**唯一方式**是 SQS 消息。严格对应用户需求 
 
 任务级记忆学习状态由 `ai_ocr_task.status`（`MEMORY_LEARN_PENDING` / `MEMORY_LEARN_IN_PROGRESS` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`）反映，详见 [database-schema.md §1.2 Task 状态](./database-schema.md)。
 
-### 0.5 关键规则：Python 跨域写权限例外清单（仅 2 张表）
+### 0.5 关键规则：Python 跨域权限清单（v2 扩展）
+
+**v2 重要变更**：因 Python 现承担前端面向的 verify/review 端点，跨域权限清单扩展。
 
 | 表 | Python 权限 | 用途 |
 |----|------------|------|
-| `ai_ocr_memory_learn_log` | INSERT | 记忆学习审计（§0.4 上文） |
+| `ai_ocr_memory_learn_log` | INSERT | 记忆学习审计（§0.4） |
 | `ai_ocr_similarity_hint` | INSERT / UPDATE（仅 detection 字段，不能改 user_decision） | 相似度检测结果回写 |
+| `ai_ocr_task_state_log` | INSERT | **v2 新增**：Python 面向用户的端点写状态变更日志（与 Java AOP 统一写入并存） |
+| `ai_ocr_conflict_record` | UPDATE（resolution / resolved_at / resolved_by 字段）| **v2 新增**：`/ocr/conflicts/{id}/resolve` 端点更新解决决定 |
+| `ai_ocr_conflict_note` | INSERT | **v2 新增**：解决冲突时自动追加 note 到 thread |
+| `fi_*` 财务表 | **SELECT 只读** | **v2 新增**：`/ocr/tasks/{id}/verify` 跑冲突检测时对比现有数据；**严禁 INSERT/UPDATE/DELETE**（最终写入仍由 Java commit 接口） |
 
 > 原 `ai_ocr_extraction_skip_log` 已并入 `ai_ocr_task_state_log`，由 Java 在收到 Python 的 `OcrResult{status: NO_DATA}` 后写入 `EXTRACT_NO_DATA` 事件，无需 Python 跨域写入。
 
@@ -1976,19 +2076,3 @@ defusedxml>=0.7.1
 # openai>=1.50.0                                 # text-embedding-3-small（RAG embedding 用）
 # 自定义检索 pipeline: chunking → embedding → recall → re-ranking
 ```
-
----
-
-## 16. 变更日志
-
-| 版本 | 日期 | 变更摘要 | 来源 |
-|------|------|---------|------|
-| v1.0 | 2026-04-16 | 初版：OCR Agent 架构、6 步工作流、SQS 消息、API 设计 | 调研阶段 |
-| v1.1 | 2026-04-20 | 项目内部补丁：Task 修订（version chain）、Presigned URL 直传 S3、记忆学习 3 子状态、Note Thread RESTful 化 | requirement-analysis §11 |
-| **v1.2** | **2026-05-06** | **Asana EPIC 同步：Step 5 拆分 + 6 个新 subtask** | **requirement-analysis §4.9-4.14** |
-| **v1.3** | **2026-05-06** | **新增 §0 职责边界声明（顶层架构契约）：明确 Java/Python 分工、3 个 SQS 出口队列、记忆处理三层日志要求、Python 跨域写权限例外清单** | **用户口头确认（架构边界澄清）** |
-| **v1.4** | **2026-05-06** | **新增 §0.0 项目核心流程（4 步抽象）+ §0.6 全流程状态日志强制要求 + 新表 `ai_ocr_task_state_log`** | **用户口头确认（4 步流程定义 + 校验前后留 log）** |
-| **v1.5** | **2026-05-06** | **多 agent 头脑风暴后的简化清理：删 `ocr-remap-queue`（合并到 `ocr-extract-queue` 用 `mode` 字段）+ 加 `ocr-similarity-check-queue` 登记 + 删 `state_log.snapshot_data` JSONB（改用原表 + hash 关联）+ 删 `ai_ocr_extraction_skip_log` 与 `ai_ocr_notification` 两张表（合并到 state_log）** | **用户口头确认（删除无意义变更）+ [user-input-requirements.md](./../user-input-requirements.md) 头脑风暴共识** |
-| v1.6 | 2026-05-06 | 文档简化（删除冗余）：抽取接口文档到独立 [api-doc.md](./api-doc.md) + 合并 v1.2/v1.3 详细变更子章节 + 删除其他无用变更 | 用户指令"删除无用的变更" |
-
-> 完整变更详情见 [user-input-requirements.md §6 共识矩阵](./../user-input-requirements.md#6-待澄清可能误解的点)。各文档自身的实现层变更见各 design 文档末尾的变更日志。

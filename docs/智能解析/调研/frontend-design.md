@@ -3,6 +3,67 @@
 > **技术栈**: React 16 + Ant Design Pro v4 + UmiJS 3 + dva + TypeScript
 > **关联文档**: [数据库 Schema](./database-schema.md) · [设计理念](./design-philosophy.md) · [需求分析](./requirement-analysis.md) · [系统架构](./system-architecture.md) · [Java 端设计](./java-design.md) · [Python 端设计](./python-design.md) · [代码示例](./code-examples.md)
 
+## 目录
+
+- [与后端交互](#与后端交互)
+- [1. 页面路由](#1-页面路由)
+- [2. 组件层级](#2-组件层级)
+- [3. dva Model 设计](#3-dva-model-设计)
+- [4. 关键交互流程](#4-关键交互流程)
+- [5. 轮询状态管理（2026-04-20 重写：对齐两级状态模型）](#5-轮询状态管理2026-04-20-重写对齐两级状态模型)
+  - [5.1 状态 → 页面映射](#51-状态--页面映射)
+  - [5.2 文件级进度展示（task.status=PROCESSING 时）](#52-文件级进度展示taskstatusprocessing-时)
+  - [5.3 轮询生命周期](#53-轮询生命周期)
+  - [5.4 批次完成判定（重要）](#54-批次完成判定重要)
+  - [5.5 LangGraph Checkpoint 恢复 UX](#55-langgraph-checkpoint-恢复-ux)
+- [6. 大表格性能](#6-大表格性能)
+- [7. 自动保存](#7-自动保存)
+- [8. Mobile 策略](#8-mobile-策略)
+- [9. 硬验证规则（ReviewPage -> ConfirmPage 前置条件）](#9-硬验证规则reviewpage---confirmpage-前置条件)
+- [10. 未映射账户处理 UX](#10-未映射账户处理-ux)
+  - [10.1 场景](#101-场景)
+  - [10.2 集中展示设计](#102-集中展示设计)
+  - [10.3 组件结构](#103-组件结构)
+  - [10.4 交互细节](#104-交互细节)
+  - [10.5 dva model 调整](#105-dva-model-调整)
+- [11. 货币不一致提示](#11-货币不一致提示)
+  - [11.1 业务规则](#111-业务规则)
+  - [11.2 触发条件](#112-触发条件)
+  - [11.3 UI 展示](#113-ui-展示)
+  - [11.4 组件结构](#114-组件结构)
+  - [11.5 dva model 调整](#115-dva-model-调整)
+- [12. Task 修订（Revision）UI](#12-task-修订revision-ui)
+  - [12.1 业务场景](#121-业务场景)
+  - [12.2 入口与页面流转（Q5 方案 A：仅原上传者）](#122-入口与页面流转q5-方案-a仅原上传者)
+  - [12.3 UploadPage 的修订态 UI](#123-uploadpage-的修订态-ui)
+  - [12.4 ConfirmPage 的修订态 UI](#124-confirmpage-的修订态-ui)
+  - [12.5 SuccessPage 的修订链显示](#125-successpage-的修订链显示)
+  - [12.6 SUPERSEDED 状态的任务展示](#126-superseded-状态的任务展示)
+  - [12.7 dva model 调整](#127-dva-model-调整)
+- [13. 通知与记忆学习状态 UI（Q16 简化版）](#13-通知与记忆学习状态-uiq16-简化版)
+  - [13.1 通知系统的简化](#131-通知系统的简化)
+  - [13.2 ProcessingPage 状态展示（无通知等待）](#132-processingpage-状态展示无通知等待)
+  - [13.3 NotificationIndicator（全局事件徽章，App 头部）](#133-notificationindicator全局事件徽章app-头部)
+  - [13.4 记忆学习悬浮条（SuccessPage）](#134-记忆学习悬浮条successpage)
+  - [13.5 记忆学习失败重试](#135-记忆学习失败重试)
+  - [13.6 轮询策略调整](#136-轮询策略调整)
+  - [13.7 dva model 调整](#137-dva-model-调整)
+- [14. 相似度提示 UI（Phase 2.5 产出）](#14-相似度提示-uiphase-25-产出)
+  - [14.1 场景](#141-场景)
+  - [14.2 SimilarityHintBanner 组件](#142-similarityhintbanner-组件)
+  - [14.3 用户决策处理](#143-用户决策处理)
+  - [14.4 HintItem 视觉细节](#144-hintitem-视觉细节)
+  - [14.5 dva effect](#145-dva-effect)
+  - [14.6 失败容忍](#146-失败容忍)
+- [15. Steps Navigation 与变更检测（§4.13 — 2026-05-06 新增）](#15-steps-navigation-与变更检测413--2026-05-06-新增)
+  - [15.1 设计目标](#151-设计目标)
+  - [15.2 变更点识别策略：mapping snapshot hash](#152-变更点识别策略mapping-snapshot-hash)
+  - [15.3 状态保留语义](#153-状态保留语义)
+  - [15.4 UX 文案与视觉](#154-ux-文案与视觉)
+  - [15.5 Previous 按钮的全局规则](#155-previous-按钮的全局规则)
+
+---
+
 ## 与后端交互
 
 前端调用的 Java API 一览（完整清单，与 java-design.md §2 对齐）：
@@ -2620,14 +2681,3 @@ const FileIndicator: React.FC<{ fileId: string }> = ({ fileId }) => {
 **通用约束**:
 - Previous 按钮永远显示在页面左下，主操作按钮（Next/Save/Commit）在右下
 - 全程使用 `Prompt` 提示未保存的修改（已在 §7 自动保存中实现）
-
----
-
-## 16. 变更日志
-
-| 日期 | 变更摘要 |
-|------|---------|
-| 2026-04-19 | ReviewPage 重构（左右联动 + Source Tracing）、ConfirmPage 加 Verify Data Summary + Note Field |
-| 2026-04-20 | S3 Presigned URL 上传/查看、Task 修订 UI（§12）、Q16 通知简化（§13）、相似度提示 UI（§14） |
-| 2026-05-06 | **Step 5 拆 5a/5b/5c 三个独立路由 + 页面 + dva 状态**（来源 [requirement-analysis §4.9-4.14](./requirement-analysis.md)）<br>• 新增路由: `/upload/:taskId/summary`、`/upload/:taskId/conflicts`、`/upload/:taskId/commit`、`/upload/:taskId/empty`<br>• 新增组件: `MappingSummaryPage`、`ConflictResolutionPage`（含 `ConflictDialog` + `NextConflictResolver`）、`CommitPage`（Loading / SuccessBanner / ErrorView）、`EmptyMappingPage`、`SkippedFilesBanner`<br>• dva model 扩展: `mappingSummary` / `verificationProgress` / `conflictResolutions` (Map) / `mappingSnapshotHash` / `mappingDirty` / `showRefreshNotice` / `allFilesNoExtractable` / `skippedFiles`；`ConflictItem` 增加 `metric` / `resolvedAt` 字段<br>• 新增 effects: `enterMappingSummary` / `startVerification` / `cancelVerification` / `fetchConflicts` / `resolveConflict` / `commitFromConflicts` / `markMappingDirty` / `proceedFromReview`<br>• 新增 §15 Steps Navigation 与变更检测（§4.13 落地方案，含 mapping snapshot hash 算法）<br>• 5b 动态按钮文案（Save / Save & Next）+ Note 必填禁用规则<br>• 5b 自动跳下一冲突算法（同 metric 月份从左到右 → 跨 metric 按 19 类顺序）<br>• 5c 错误消息具体可操作要求（禁止泛化错误）<br>• ReviewPage ActionBar "Next: Confirm" 改为 "Next: Verify Mapping" |
-```

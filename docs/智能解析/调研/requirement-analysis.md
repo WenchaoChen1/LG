@@ -13,6 +13,53 @@
 
 ---
 
+## 目录
+
+- [1. EPIC 概述](#1-epic-概述)
+  - [1.1 一句话描述](#11-一句话描述)
+  - [1.2 EPIC 原始描述](#12-epic-原始描述)
+- [2. 业务目标](#2-业务目标)
+- [3. 核心工作流（6 步 Pipeline，Step 5 拆 3 子步）](#3-核心工作流6-步-pipelinestep-5-拆-3-子步)
+  - [3.1 流程详解（2026-05-06 更新）](#31-流程详解2026-05-06-更新)
+- [4. 子任务详情](#4-子任务详情)
+  - [4.1 Story #1: Allow Users to upload a financial document (PDF/XLSX)](#41-story-1-allow-users-to-upload-a-financial-document-pdfxlsx)
+  - [4.2 Story #2: Extraction of Financial Data - AI + OCR](#42-story-2-extraction-of-financial-data---ai--ocr)
+  - [4.3 Story #3: Extraction of Financial Data - Excel](#43-story-3-extraction-of-financial-data---excel)
+  - [4.4 Story #4: Add AI-Assisted Account Mapping Suggestions](#44-story-4-add-ai-assisted-account-mapping-suggestions)
+  - [4.5 Story #5: Side-by-Side Review & Inline Editing (OCR + Excel)](#45-story-5-side-by-side-review--inline-editing-ocr--excel)
+  - [4.6 Story #6: Write data to LG Schema  ⚠️ **已被 5a/5b/5c 拆分（2026-05-06）**](#46-story-6-write-data-to-lg-schema--️-已被-5a5b5c-拆分2026-05-06)
+  - [4.7 Story #7: Add Note Field to Importing During Data Validation](#47-story-7-add-note-field-to-importing-during-data-validation)
+  - [4.8 Story #8: System Learning and Continuous Improvement](#48-story-8-system-learning-and-continuous-improvement)
+  - [4.9 Step 5a — Mapping Summary Page（2026-05-06 新增）](#49-step-5a--mapping-summary-page2026-05-06-新增)
+  - [4.10 Step 5b — Conflict Resolution of Manual Uploads（2026-05-06 新增）](#410-step-5b--conflict-resolution-of-manual-uploads2026-05-06-新增)
+  - [4.11 Step 5c — Commit Uploaded Data to LG & Display Results（2026-05-06 新增）](#411-step-5c--commit-uploaded-data-to-lg--display-results2026-05-06-新增)
+  - [4.12 Edge Case — Documents Without Extractable Data（2026-05-06 新增）](#412-edge-case--documents-without-extractable-data2026-05-06-新增)
+  - [4.13 Edge Case — Steps Navigation（2026-05-06 新增）](#413-edge-case--steps-navigation2026-05-06-新增)
+  - [4.14 Backend Infrastructure & Framework Setup（2026-05-06 新增 — 技术 Story）](#414-backend-infrastructure--framework-setup2026-05-06-新增--技术-story)
+- [5. 关键评论与讨论摘要](#5-关键评论与讨论摘要)
+  - [5.1 Lovable 原型审核](#51-lovable-原型审核)
+  - [5.2 OCR 提取规则讨论](#52-ocr-提取规则讨论)
+  - [5.3 文档类型识别规则讨论](#53-文档类型识别规则讨论)
+  - [5.4 AI 映射规则 — 财务 SME 确认](#54-ai-映射规则--财务-sme-确认)
+  - [5.5 OOE 映射矛盾（已解决）](#55-ooe-映射矛盾已解决)
+  - [5.6 AI 模型版本管理讨论](#56-ai-模型版本管理讨论)
+  - [5.7 硬验证规则讨论](#57-硬验证规则讨论)
+- [6. 需求合理性分析](#6-需求合理性分析)
+  - [6.1 合理的部分](#61-合理的部分)
+  - [6.2 有问题的地方](#62-有问题的地方)
+- [7. 待确认问题清单](#7-待确认问题清单)
+- [8. 团队成员与角色](#8-团队成员与角色)
+- [9. 时间线](#9-时间线)
+- [10. 相关文档](#10-相关文档)
+- [11. 2026-04-20 项目内部补丁（Asana EPIC 外新增）](#11-2026-04-20-项目内部补丁asana-epic-外新增)
+  - [11.1 Task 修订（Revision）](#111-task-修订revision)
+  - [11.2 REVIEWING 前的事件持久化（Q16 简化：不主动推送）](#112-reviewing-前的事件持久化q16-简化不主动推送)
+  - [11.3 文件记忆处理 3 子状态 + 任务级记忆学习状态](#113-文件记忆处理-3-子状态--任务级记忆学习状态)
+  - [11.4 S3 Presigned URL 上传/查看](#114-s3-presigned-url-上传查看)
+- [12. Proforma 文档类型处理规则（2026-04-20 补充）](#12-proforma-文档类型处理规则2026-04-20-补充)
+
+---
+
 ## 1. EPIC 概述
 
 ### 1.1 一句话描述
