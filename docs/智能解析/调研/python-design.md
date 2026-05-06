@@ -8,59 +8,23 @@
 
 ---
 
-## 0. 接口职责总览（R-4.5）
+## 0. 接口清单（→ 见独立接口文档）
 
-> **本节是 Python 端所有 SQS 消费者与 LangGraph 节点的**契约清单**。详细实现见 §1（消费/生产）/ §2（提取）/ §3（映射）/ §5（Pipeline）/ §6（数据表）。
+Python 端的所有外部契约（SQS 消费者 + LangGraph Pipeline 节点）已抽取到独立接口文档：
+
+📘 **[OCR Agent 接口文档](./api-doc.md)** — 先看 §1 总览（一行一个接口），需要细节时跳转 §3-§4 详细章节
+
+| 接口类别 | 数量 | 索引位置 |
+|---------|:---:|---------|
+| SQS 消费者（Java → Python，3 条入站队列）| 3（含 `ocr-extract-queue` 的 FULL_EXTRACT / REMAP_ONLY 两种 mode）| [api-doc.md §1.2.1 + §3.1](./api-doc.md#121-java--python出口队列) |
+| SQS 生产者（Python → Java，单一出口 `ocr-result-queue`，4 种 messageType 多路复用） | 4 | [api-doc.md §1.2.2 + §3.2](./api-doc.md#122-python--java回传队列按-messagetype-多路复用) |
+| LangGraph Pipeline 节点 | 5 | [api-doc.md §1.3 + §4](./api-doc.md#13-langgraph-pipeline-节点python-内部) |
+
+> **设计前提**: Python 端**没有任何 HTTP 端点暴露给 Java**（架构契约 §0.2）。FastAPI 路由 `/ocr/*` 仅服务于内部 healthcheck，不参与业务流程。
 >
-> **设计前提**:
-> - Python 端**没有任何 HTTP 端点暴露给 Java**（架构契约 §0.2）。FastAPI 路由 `/ocr/*` 仅服务于内部 healthcheck 与（如启用）前端轮询占位，不参与业务流程。
-> - 共有 **3 条入站 SQS 队列**（Java → Python）+ **1 条出站 SQS 队列**（Python → Java，按 `messageType` 多路复用）。
-> - LangGraph Pipeline 共 **5 个核心节点**（Preprocess / Extract / Classify / Map / Validate）+ 周期推断子节点（归属 Extract 尾部，详见 §0.3）。
+> 本文档 §1-§N 描述 Python 端**实现层**（consumer 内部流程、LangGraph state 字段、AI provider 集成、错误处理细节等）。如需查看具体接口职责清单，请直接跳转 [api-doc.md](./api-doc.md)。
 
-### 0.1 SQS 消费者总览（Java → Python）
-
-> Python 端共消费 3 条入站队列；`ocr-extract-queue` 通过消息 `mode` 字段区分 FULL_EXTRACT 与 REMAP_ONLY 两种处理路径（不再有独立的 `ocr-remap-queue`，已与 system-architecture.md §0.2 同步）。
-
-| 队列 | 消费者文件 / 类 | 触发条件 | 处理流程概要 | 写哪些表 | 上报哪些消息回 Java | 失败处理 | 一句话职责 |
-|------|---------------|---------|------------|---------|------------------|---------|----------|
-| `ocr-extract-queue` (mode=`FULL_EXTRACT`) | `consumers/extract_consumer.py` → `handle_extract_message` | Java 在文件上传完成、`ai_ocr_file.status=QUEUED` 后入队（4 步流程第 2 步首段） | ① `FOR UPDATE SKIP LOCKED` 拿行锁 → ② 幂等清理旧 ai_ocr_* 数据 → ③ S3 下载文件 → ④ 跑完整 LangGraph Pipeline（Preprocess→Extract→Classify→Map→Validate）→ ⑤ 持久化结果 | 写：`ai_ocr_extracted_table` / `ai_ocr_extracted_row`（含 `label_embedding`）/ `ai_ocr_mapping_result` / `ai_ocr_conflict_record`（仅内部一致性冲突，§B-4 所述边界） | 节点切换时发 `OcrProgress`（含 `processingStage` + `progressPct` + `stageDetail`）；完成发 `OcrResult{status=completed\|completed_no_data\|failed, hasExtractableData, extractionSkipReason, ...}` | 业务异常 → 发 `OcrResult{status=failed, error}` 并 ack；瞬态异常（S3/网络）→ 抛出让 SQS 自动重试，3 次后入共享 DLQ，Java 通过 `QueueMessageLog.isDlq` 追踪并 fallback 到 Sweeper 兜底 | 把**一个文件**从 S3 字节流转为可供 Java 审核的 `ai_ocr_extracted_*` + `ai_ocr_mapping_result`，并通过 `OcrProgress`/`OcrResult` 把每次状态变化告诉 Java |
-| `ocr-extract-queue` (mode=`REMAP_ONLY`) | `consumers/extract_consumer.py` → `handle_extract_message`（mode 分支） | Java 在用户通过 Steps Navigation Previous→Edit→Next 修改了 extracted data 后入队（仅当确实有变化；§4.13 EC2） | ① 拿行锁 → ② 仅 DELETE 受影响 row 的 `ai_ocr_mapping_result`（`changedRowIds` 为空则清整个 file 的 mapping）→ ③ 仅跑 LangGraph 的 `Map` 节点（**跳过 Preprocess/Extract/Classify**）→ ④ 持久化新 mapping | 写：`ai_ocr_mapping_result`（INSERT 替换）；**不写** `ai_ocr_extracted_*`（保持原值） | 节点切换发 `OcrProgress`（仅 MAPPING_* 阶段）；完成发 `OcrResult{status=remap_completed}`，Java 据此**清空旧 conflict resolutions**并重跑 §4.10 冲突检测 | 同 FULL_EXTRACT；幂等通过"先 DELETE 再 INSERT" + `(row_id) UNIQUE` 保证 | 仅重算映射，不重跑 OCR/提取/分类，把"用户改了之后从 Step 2 起"耗时从 ~60s 降到 1-10s |
-| `ocr-memory-learn-queue` | `consumers/memory_learn_consumer.py` → `handle_memory_learn` | Java 整批 fi_* 写入成功（`@AfterCommit`）后入队（4 步流程第 4 步） | ① 发 `OcrMemoryLearnProgress(IN_PROGRESS)` → ② 过滤出 `wasOverridden=true` 的 comparison → ③ 逐条 `INSERT ... ON CONFLICT DO UPDATE` 到 `ai_ocr_mapping_memory`（按 `idempotency_key=task_id:row_id` 去重）→ ④ 写审计 → ⑤ 发 COMPLETE | 写：`ai_ocr_mapping_memory` / `ai_ocr_mapping_memory_audit`；跨域 INSERT：`ai_ocr_memory_learn_log`（架构契约 §0.5 例外清单） | `OcrMemoryLearnProgress{learnStage: IN_PROGRESS\|COMPLETE\|FAILED, stageDetail.{newMemoryCount, updatedMemoryCount, ...}}` | 业务异常 → 发 FAILED + 写 `ai_ocr_memory_learn_log{result=failed}` + 抛出让 SQS 重试（3 次）；耗尽进 DLQ，Java 把 `ai_ocr_task.status` 回到 `MEMORY_LEARN_PENDING` 等用户重试。**失败永不回滚 fi\_\***（Phase 5.5 已提交） | 把"用户最终修正过的 mapping"沉淀为该 company 的下一次 Layer 2 命中数据，并双重日志（决策 + 行级变更）保证可追溯 |
-| `ocr-similarity-check-queue` | `consumers/similarity_check_consumer.py` → `handle_similarity_check` | Java 检测到 task 内所有非 FAILED 文件都 `processing_stage=REVIEW_READY` 时入队（4 步流程第 2 步尾段，进入 Phase 2.5） | ① 查询本 task 内全部 `ai_ocr_extracted_row`（排除 header/total/deleted）→ ② 对未算 embedding 的批量调 OpenAI `text-embedding-3-small` → ③ 对每行用 pgvector HNSW KNN 取 top-5 → ④ 过滤 cosine > 0.9 的对（强制 `row_id_a < row_id_b` 去重）→ ⑤ 批量 INSERT hint | 写：`ai_ocr_extracted_row.label_embedding`（UPDATE）；跨域 INSERT：`ai_ocr_similarity_hint`（架构契约 §0.5 例外清单） | `OcrSimilarityCheckResult{status: completed\|failed, hintCount, embeddingsComputed, processingTimeMs, error?}` | embedding API 故障 → 部分覆盖（仅用已有 embedding）继续；DB 异常 → 抛出让 SQS 重试（3 次）；耗尽进 DLQ，Java Sweeper 10 min 兜底直接把 task 推进到 `REVIEWING`（不阻塞用户） | 在所有文件解析完后做"任务级跨文件账户标签相似度扫描"，给前端 Side-by-Side Review 提供"这两行可能是同一账户"的 hint |
-
-> 出站队列 `ocr-result-queue` 由 `producers/progress_producer.py` 与 `producers/result_producer.py` 写入，按 `messageType` 字段（`OcrProgress` / `OcrResult` / `OcrSimilarityCheckResult` / `OcrMemoryLearnProgress`）多路复用（详见 §1.3）。
-
-### 0.2 LangGraph Pipeline 节点总览
-
-> Pipeline 共 5 个核心节点；周期推断（Period Inference）作为 **Extract 节点的尾部**子步骤，不是独立节点（详见 §0.3）。`OCRPipelineState` TypedDict 是节点间共享契约，字段定义见 §0.4。
-
-| 节点 | 文件 | 输入 state 字段 | 输出 state 字段 | 调用的 AI 服务 | 失败处理 | 一句话职责 |
-|------|------|----------------|----------------|--------------|---------|----------|
-| **Preprocess** | `workflow/nodes/preprocess.py` | `file_id, file_bytes, content_type, filename` | `processed_pages: list[bytes\|dict]`（PDF/图片→Base64 PNG；Excel/CSV→dict）, `page_count, ocr_text, has_text_layer` | eSapiens OCR（仅当扫描件/图片型 PDF 且无文本层）；Excel 走 openpyxl/pandas，无 AI 调用 | eSapiens 503 → 重试 3 次（httpx exponential backoff）；超时 → 抛出让 SQS 重试；MIME 不允许 → 直接 `OcrResult{status=failed, error="unsupported_mime"}` | 把 PDF/图片/Excel 转成下游统一可消费的 page list + 提取出可用 OCR 文本，按 MIME 分支决定是否调 eSapiens |
-| **Extract** | `workflow/nodes/extract.py` | `processed_pages, page_count, ocr_text, document_type_hint?` | `tables: list[ExtractedTable]`（含 `rows / reporting_periods / currency / has_extractable_data / extraction_skip_reason / unresolved_period_count`）, `skip_downstream: bool` | OpenRouter `google/gemini-2.5-flash`（Vision + Instructor 结构化输出，max_retries=3）；复杂场景升级 `anthropic/claude-sonnet-4` | LLM 超时/解析失败 → Instructor 自动重试 3 次，仍失败抛出让 SQS 重试；输出无表格但有 OCR 文本 → 走 §2.6 `classify_extractability` 判定 skip_reason | 调用 Vision LLM 把每页转成统一的 `ExtractedTable` Pydantic 模型，并显式判定文档是否含可继续走下游的财务数据（§2.6） |
-| **Classify** | `workflow/nodes/classify.py` | `tables` | `tables[*].document_type`（PNL/BALANCE_SHEET/CASH_FLOW/PROFORMA/MISC）, `classification_confidence` | 不调 AI（纯本地评分算法：sheet name + row label + 结构线索三路加权） | 评分 < 2 → 标记 `MISC` + LOW confidence，**不阻断**下游（用户可在 Review 阶段手动修正） | 用规则评分给每张表打 `document_type` 标签，让 Map 节点能用 document_type 上下文做更准确的映射 |
-| **Map** | `workflow/nodes/map.py` | `tables, company_id, industry, document_type` | `mapping_results: list[MappingResult]`（含 `lg_category / confidence / source / reasoning / core_engine_version / company_memory_version`）, `unresolved_rows` | Layer 1 规则引擎（无 AI）→ Layer 2 公司记忆（PostgreSQL pg_trgm，无 AI）→ Layer 3 行业高频（无 AI）→ Layer 4 OpenRouter `anthropic/claude-sonnet-4`（仅未命中的批量送入） | LLM 超时 → Instructor 重试 3 次后剩余行项标记 `UNMAPPED + LOW`（不阻断 pipeline，让用户审核）；DB 故障 → 抛出 SQS 重试 | 用三层（规则→记忆→LLM）级联把每行 `account_label` 映射到 19 个 LG 分类之一，并附 `reasoning` 供 Review 阶段审计 |
-| **Validate** | `workflow/nodes/validate.py` | `tables, mapping_results` | `validation_warnings: list[ValidationWarning]`, `internal_conflicts: list[InternalConflict]`, `pipeline_status: REVIEW_READY\|FAILED` | 不调 AI（纯算法 + SQL 内部一致性检查） | 三要素硬验证失败（期间/货币/类别完整性缺失） → 写 `validation_warnings` 但**不阻断**（让 Java 在 Step 3 校验时呈现给用户决定）；行加总不等于合计 → 写 `ai_ocr_conflict_record{conflict_type=INTERNAL_INCONSISTENCY}` | 做"OCR 提取数据**自身**的内部一致性"硬验证（详见 §0.5 与 Java §4.10 的边界），并把警告/内部冲突落库供 Review 阶段决策 |
-
-### 0.3 Period Inference 节点归属
-
-**结论**: Period Inference 是 **Extract 节点的尾部子步骤**，不是独立 LangGraph 节点。
-
-**理由**:
-- 周期推断的 4 个信号（列头 / Sheet 名 / 表格标题 / 文件名）在 Extract 节点完成后**全部就绪**，独立成节点会让 state 多一次 IO
-- 失败时 fallback 是"按列单独标记 UNKNOWN_<idx>"（§5.3），不需要 LangGraph 级别的条件路由
-- `engines/period_inferrer.py` 仍作为独立可单测的引擎模块，由 `extract.py` 在产出 `ExtractedTable` 之前调用一次
-
-**调用时序**:
-```
-extract.py:
-  pages → run_extraction(LLM) → tables (raw)
-       → period_inferrer.infer(tables, sheet_name, title, filename) → tables (with reporting_periods)
-       → classify_extractability(tables, ocr_text, page_count) → has_extractable_data
-       → state["tables"] = tables
-```
-
-### 0.4 OCRPipelineState TypedDict 完整字段定义
+### 0.1 OCRPipelineState TypedDict 完整字段定义
 
 > 这是 LangGraph 各节点之间共享的状态契约。任何节点新增字段必须更新这里。
 
@@ -118,7 +82,7 @@ class OCRPipelineState(TypedDict, total=False):
     last_progress_stage: str               # 用于 producers/progress_producer.py 去重
 ```
 
-### 0.5 Validate 节点与 Java §4.10 冲突检测的边界
+### 0.2 Validate 节点与 Java §4.10 冲突检测的边界
 
 | 维度 | Python `nodes/validate.py`（OCR 内部一致性） | Java §4.10 Conflict Resolution（跨期间业务冲突） |
 |------|---------------------------------------------|-----------------------------------------------|
@@ -130,7 +94,7 @@ class OCRPipelineState(TypedDict, total=False):
 
 > 简而言之：**Python validate 看一份数据是不是"自洽"，Java §4.10 看这份数据和"历史数据"打不打架**。两者写的是同一张 `ai_ocr_conflict_record` 表，但 `conflict_type` 不同；前者由 Python 直接写，后者由 Java 写。
 
-### 0.6 文件夹结构规范
+### 0.3 文件夹结构规范
 
 OCR Agent 在 `CIOaas-python/source/ocr_agent/` 下，作为独立子模块（与现有 `financial/`、`forecast/`、`lg/` 平级）。
 

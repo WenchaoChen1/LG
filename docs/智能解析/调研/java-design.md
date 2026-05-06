@@ -5,64 +5,19 @@
 
 ---
 
-## 0. 接口职责总览
+## 0. 接口清单（→ 见独立接口文档）
 
-> **本章定位**: 落地 [user-input-requirements.md R-4.5](../user-input-requirements.md#4-当前迭代要求2026-05-06本次对话) — "Java/Python 每个接口/消费者必须显式列出做什么"。
-> **架构契约来源**: [system-architecture.md §0.1-§0.6](./system-architecture.md#0-职责边界声明顶层规则)。
-> **使用方式**: 总览表先看；需要细节时跳转对应 §1-§7 章节。
+Java 端对外接口（REST 端点 + SQS 生产者 + SQS 回传消费者）的**完整清单 + 详细职责**已抽取到独立接口文档：
 
-### 0.1 表 1：REST 端点总览（Java 对外暴露）
+📘 **[OCR Agent 接口文档](./api-doc.md)** — 先看 §1 总览（一行一个接口），需要细节时跳转 §2-§3 详细章节
 
-> 所有端点位于 `/api/v1/docparse` 前缀下；所有端点需 JWT + `company_id` 归属校验。
+| 接口类别 | 数量 | 索引位置 |
+|---------|:---:|---------|
+| REST 端点（Java 对外，前端调用）| 25 | [api-doc.md §1.1](./api-doc.md#11-rest-端点java-对外前端调用) |
+| SQS 生产者（Java → Python，3 个出口队列）| 3 | [api-doc.md §1.2.1](./api-doc.md#121-java--python出口队列) |
+| SQS 消费者 handler（Python → Java，4 种 messageType）| 4 | [api-doc.md §1.2.2](./api-doc.md#122-python--java回传队列按-messagetype-多路复用) |
 
-| URL | HTTP | Controller#method | 请求 DTO | 响应 DTO | 一句话职责 |
-|-----|------|------------------|---------|---------|----------|
-| `/tasks` | POST | `DocParseController#createTask` | `DocParseCreateTaskReqVo`(可空) | `DocParseUploadRespVo` | 创建一个新的 OCR Task（status=DRAFT），返回 taskId 用于后续上传 |
-| `/tasks/{id}/revise` | POST | `DocParseController#reviseTask` | `DocParseReviseReqVo`(reason) | `{newTaskId}` | 基于历史已 COMPLETED/SUPERSEDED 的 task 创建修订版（copy-on-write 继承文件 + 提取数据 + 映射），新 task.status=DRAFT |
-| `/tasks/{id}/status` | GET | `DocParseController#getStatus` | — | `DocParseStatusRespVo` | 前端 2s 轮询：返回 task.status + files[].status + processing_stage + progress_pct + stage_detail，用于驱动 UI 进度条 |
-| `/tasks/{id}/result` | GET | `DocParseController#getResult` | — | `DocParseResultRespVo` | 取所有 file 的提取结果（extracted_table/row + mapping_result），供 ReviewPage 渲染 |
-| `/tasks/{id}/history` | GET | `DocParseController#getHistory` | — | `DocParseHistoryRespVo` | 沿 parent_task_id 链回溯，返回此 task 的所有版本（v1→v2→v3）+ 每版本的 commit 时间 / 操作者 / revision_reason |
-| `/upload/request-urls` | POST | `UploadController#requestPresignedUrls` | `DocParseUploadReqVo`(taskId, files[]) | `DocParseUploadRespVo`(uploads[]) | 每个文件预校验（大小/扩展名/SHA-256 重名）→ 创建 ai_ocr_file(PENDING) → 生成 S3 presigned PUT URL（15min）；重名/超限文件返回 error |
-| `/upload/complete` | POST | `UploadController#completeUpload` | `DocParseUploadCompleteReqVo`(fileId, etag, actualSize) | `{status, error}` | s3:HeadObject 验证对象存在 + magic bytes 校验 → file.status=UPLOADED + 入队 ocr-extract-queue（mode=FULL_EXTRACT）；失败则 s3:DeleteObject + FILE_FAILED |
-| `/upload/abort` | POST | `UploadController#abortUpload` | `DocParseUploadAbortReqVo`(taskId, fileIds[]) | `{abortedCount}` | 用户取消上传：批量删 S3 对象 + 标记 ai_ocr_file.deleted=true；task 仍保持 DRAFT 等待重传或过期 |
-| `/files/{fileId}/download-url` | POST | `FileViewController#getDownloadUrl` | — | `{url, expiresAt}` | ReviewPage 加载 PDF/Excel/图片时调用：生成 S3 presigned GET URL（5min），前端用此 URL 直接渲染 |
-| `/tasks/{id}/review` | PATCH | `ReviewController#saveReview` | `DocParseReviewReqVo`(rows[], mappings[]) | `{updatedRowCount, updatedMappingCount}` | 保存用户对 extracted_row / mapping_result 的修改；副作用：清空 task.summary_cache + 更新 mapping_changed_at（触发 5a 重新聚合）|
-| `/tasks/{id}/mapping-summary` | GET | `MappingSummaryController#getSummary` | — | `DocParseMappingSummaryRespVo` | Step 5a 进入：返回文件总数 / 映射类型数 / 映射账户数 + hardGateErrors[]（unmapped/unreviewed/missing-metadata），命中 summary_cache 直接返回 |
-| `/tasks/{id}/verify/start` | POST | `MappingSummaryController#startVerification` | — | `DocParseVerifyStartRespVo` | Step 5a 用户点 "Start Verification"：FOR UPDATE 锁 task → hard gate 检查 → 推进 status=VERIFYING → 异步启动冲突检测 Job |
-| `/tasks/{id}/verify/progress` | GET | `MappingSummaryController#getProgress` | — | `DocParseVerifyProgressRespVo` | Step 5a 进度轮询：返回 stage(PENDING/RUNNING/COMPLETED/ABORTED) + percent + 已检测冲突数 |
-| `/tasks/{id}/conflicts` | GET | `ConflictResolutionController#listConflicts` | — | `DocParseConflictListRespVo` | Step 5b 入口：返回 Actuals 冲突列表（Proforma 整体豁免不入此列表），按 lg_metric, reporting_period 排序 |
-| `/tasks/{id}/conflicts/{conflictId}/resolve` | POST | `ConflictResolutionController#resolveOne` | `DocParseSingleConflictResolveReqVo`(action, note) | `DocParseConflictResolveRespVo` | Step 5b 单冲突解决：Note 必填硬校验 → 写 conflict_record.resolution + conflict_note → 计算下一冲突定位（Save & Next 导航）|
-| `/tasks/{taskId}/conflicts/{conflictId}/notes` | GET | `ConflictNoteController#getThread` | — | `DocParseNoteThreadRespVo` | 取冲突 note thread（含 parent_note_id 链），用于审计与多人协作历史展示 |
-| `/tasks/{taskId}/conflicts/{conflictId}/notes` | POST | `ConflictNoteController#appendNote` | `DocParseNoteReplyReqVo`(content, parentNoteId?) | `{noteId, createdAt}` | 追加一条 note 到 thread；auto_generated=false（系统自动生成的另走 §5.4）|
-| `/tasks/{id}/commit` | POST | `CommitController#commit` | — | `DocParseCommitRespVo` | Step 5c 整批写入：FOR UPDATE 锁 task → Actuals 写 fi_* / Proforma 调 appendVersion → ai_ocr_commit_audit 全量审计 → AFTER_COMMIT 触发 Documents 同步/闭月邮件/记忆学习 SQS |
-| `/tasks/{id}/commit/result` | GET | `CommitController#getResult` | — | `DocParseCommitResultRespVo` | Step 5c 完成后跳 Benchmark 前端拉摘要：账户数 / 写入周期 / 文档类型 / Imported Statements 文件夹 ID / Benchmark 跳转 URL |
-| `/tasks/{id}/navigate-back` | POST | `NavigationController#navigateBack` | `DocParseNavigateBackReqVo`(targetStep) | `DocParseNavigateBackRespVo` | §4.13 Previous 回退：重算 mapping_snapshot_hash 对比 → 未变保留下游结果；变了则清空 conflict resolution + summary_cache + 入队 `ocr-extract-queue`(mode=REMAP_ONLY) |
-| `/tasks/{id}/similarity-hints` | GET | `SimilarityHintController#listHints` | — | `DocParseSimilarityHintListRespVo` | 查询 task 的相似度提示（`ai_ocr_similarity_hint` 由 Python 跨域 INSERT），区分 PENDING / MERGED / IGNORED 三态 |
-| `/similarity-hints/{hintId}` | PATCH | `SimilarityHintController#updateDecision` | `SimilarityHintDecisionReqVo`(decision) | `{updatedAt}` | 用户对相似度提示做决策：MERGED（合并到现有账户）/ IGNORED（忽略），UPDATE `ai_ocr_similarity_hint.user_decision` |
-| `/tasks/{id}/memory-learn` | GET | `MemoryLearnController#getStatus` | — | `MemoryLearnStatusRespVo` | 返回最新一次记忆学习尝试的 stage(PENDING/IN_PROGRESS/COMPLETE/FAILED) + 统计（newCount/updatedCount） |
-| `/tasks/{id}/memory-learn/history` | GET | `MemoryLearnController#getHistory` | — | `MemoryLearnHistoryRespVo` | 查询所有历史尝试（`ai_ocr_memory_learn_log`），含每次的 attempt_number / 错误信息 / 触发者 |
-| `/tasks/{id}/memory-learn/retry` | POST | `MemoryLearnController#retry` | — | `{newAttemptNumber}` | 手动重试：前置条件 attempt_number<3 → 推进 status=MEMORY_LEARN_PENDING → 重发 ocr-memory-learn-queue 消息（不重写 fi_*） |
-
-### 0.2 表 2：SQS 生产者总览（Java → Python）
-
-> 队列由 [system-architecture.md §0.2](./system-architecture.md#02-java--python-通信仅通过-sqs-队列) 定义为 3 个出口队列。所有消息必须带 HMAC-SHA256 签名（§6.3）。
-
-| 队列 | 触发时机 | Producer 类 | 消息 DTO | 消息关键字段 | 一句话职责 |
-|------|---------|------------|---------|------------|----------|
-| `ocr-extract-queue` | (1) `/upload/complete` 单文件上传完成且 magic bytes 通过；(2) `/tasks/{id}/navigate-back` 检测到 mapping 变更需 REMAP | `OcrExtractSqsProducer` | `DocParseExtractMessageDto` | `messageType=OcrExtract` / `mode`(FULL_EXTRACT\|REMAP_ONLY) / `taskId` / `fileId` / `companyId` / `s3Bucket` / `s3Key` / `filename` / `contentType` / `fileSize` / `uploadedBy` / `callbackMeta` | 触发 Python 消费做 OCR + AI 提取 + AI 映射；`FULL_EXTRACT`（默认）= 全量走完 OCR/Extract/Map；`REMAP_ONLY`（§4.13 触发）= 跳过 OCR/Extract，仅重跑 Map 节点用最新 mapping_memory |
-| `ocr-similarity-check-queue` | task 内所有非 FAILED 文件 file.status=REVIEW_READY 时（在 `OcrResultSqsProcessor.handleResult()` 计数完成判定后），AFTER_COMMIT 入队 | `OcrSimilarityCheckSqsProducer` | `OcrSimilarityCheckRequest` | `messageType=OcrSimilarityCheck` / `taskId` / `companyId` / `accountLabels[]`（聚合 task 下所有 mapping_result 的 account_label） | 触发 Python 做 embedding + pgvector KNN 相似度检测；Python 消费后将候选项 INSERT `ai_ocr_similarity_hint`，并通过 `ocr-result-queue` 回报 `OcrSimilarityCheckResult` |
-| `ocr-memory-learn-queue` | `/tasks/{id}/commit` 事务 AFTER_COMMIT 阶段，fi_* 写入成功后入队（§5.4）| `OcrMemoryLearnSqsProducer` | `DocParseMemoryLearnMessageDto` | `messageType=OcrMemoryLearn` / `taskId` / `fileId` / `companyId` / `mappingComparisons[]`(accountLabel/originalAiCategory/confirmedCategory/wasOverridden) / `attemptNumber` | 触发 Python 基于"AI 原始建议 vs 用户最终确认"差分做记忆学习；只学习 wasOverridden=true 的条目，写 `ai_ocr_mapping_memory` + 双重日志 |
-
-### 0.3 表 3：SQS 消费者总览（Python → Java，从 `ocr-result-queue`）
-
-> Java 端只有**一个** `@SqsListener` 绑定 `ocr-result-queue`（`OcrResultSqsProcessor` implements `MessageProcessor`），按 `messageType` 字段分发到 4 个 handler 方法。Python 端不消费 Java 的任何队列消息以外的内容。
-
-| 消息类型 | 消费 Handler | 写哪些表 | 状态变更 | 一句话职责 |
-|---------|------------|---------|---------|----------|
-| `OcrProgress` | `OcrResultSqsProcessor#handleProgress` | UPDATE `ai_ocr_file`(processing_stage / progress_pct / stage_detail JSONB) | `file.status: QUEUED → PROCESSING`（首次到达时）；`task.status: UPLOAD_COMPLETE → PROCESSING`（首次到达时，CAS）| 文件级精细进度上报，每个 Python 子阶段切换时一条；幂等去重靠 `processing_stage` ordinal 比较丢弃过期消息；不触发 task 终态转换 |
-| `OcrResult` | `OcrResultSqsProcessor#handleResult` | UPDATE `ai_ocr_file`(status / extracted_table_count / total_rows / has_extractable_data) + INSERT `ai_ocr_task_state_log`(EXTRACT_COMPLETE 或 EXTRACT_NO_DATA 或 EXTRACT_FAILED) | `file.status: PROCESSING → REVIEW_READY\|FILE_FAILED`（CAS）；当 task 内所有非 FAILED 文件 REVIEW_READY 时 → `task.status: PROCESSING → SIMILARITY_CHECKING`（FOR UPDATE + 计数）+ AFTER_COMMIT 入队 `ocr-similarity-check-queue` | 单文件最终结果上报；FOR UPDATE 锁 task 行做计数，全部失败 → task.status=FAILED；任一成功且全部完成 → 进入相似度检测阶段 |
-| `OcrSimilarityCheckResult` | `OcrResultSqsProcessor#handleSimilarityCheckResult` | INSERT `ai_ocr_task_state_log`(SIMILARITY_CHECK_COMPLETE / SIMILARITY_CHECK_FAILED)；不写 `ai_ocr_similarity_hint`（已由 Python 跨域 INSERT） | `task.status: SIMILARITY_CHECKING → REVIEWING`（成功）/ `SIMILARITY_CHECKING → SIMILARITY_CHECK_FAILED`（失败，预留给将来邮件通道，目前实质不触发用户阻塞）| 相似度检测完成回执；用于推进 task 进入用户审核阶段，让前端轮询发现状态变化 |
-| `OcrMemoryLearnProgress` | `OcrResultSqsProcessor#handleMemoryLearnProgress` | INSERT `ai_ocr_memory_learn_log`(已由 Python 跨域 INSERT，Java 不重复写) + INSERT `ai_ocr_task_state_log`(MEMORY_LEARN_*) | `task.status: MEMORY_LEARN_PENDING → MEMORY_LEARN_IN_PROGRESS → COMPLETED`（成功路径）；失败且 attempt<3 → 回 PENDING 等待重试；attempt≥3 → MEMORY_LEARN_FAILED（fi_* 不回滚）| 记忆学习阶段进度回报（IN_PROGRESS/COMPLETE/FAILED 三态），驱动 task 终态切换 |
+> 本文档 §1-§7 描述 Java 端**实现层**（包结构、Service 层、事务边界、AOP 切面、错误处理等）。如需查看具体 endpoint 的 URL/DTO/职责，请直接跳转 [api-doc.md](./api-doc.md)。
 
 ---
 
