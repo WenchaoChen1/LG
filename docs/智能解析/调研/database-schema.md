@@ -10,7 +10,9 @@
 
 ## 表清单总览（Schema Overview）
 
-OCR Agent 包含 **17 张表**，**全部使用 `ai_ocr_` 前缀**。按职责分为四组：任务编排（6）、AI 解析产物（4）、用户交互审计（3）、记忆与跨域审计（4）。
+OCR Agent 包含 **15 张表**，**全部使用 `ai_ocr_` 前缀**。按职责分为四组：任务编排（4）、AI 解析产物（4）、用户交互审计（3）、记忆与跨域审计（4）。
+
+> **2026-05-06 头脑风暴清理**: 原 17 张表中删除 2 张冗余表（`ai_ocr_notification` 已并入 `ai_ocr_task_state_log`；`ai_ocr_extraction_skip_log` 已并入 `ai_ocr_task_state_log` 的 `EXTRACT_NO_DATA` 事件）。详见 §6 变更历史。
 
 ### 设计原则
 
@@ -18,16 +20,14 @@ OCR Agent 包含 **17 张表**，**全部使用 `ai_ocr_` 前缀**。按职责�
 - **所有权隔离**: Java 端（`CIOaas-api/docparse`）和 Python 端（`CIOaas-python/ocr_agent`）共享 schema，但通过 PostgreSQL 角色（`java_app` / `python_worker`）控制写权限（详见 §4）
 - **审计优先**: 所有用户决策、记忆变更、commit 写入都有专门的审计日志表，永久保留
 
-### 一、任务编排（6 张，Java 拥有）
+### 一、任务编排（4 张，Java 拥有）
 
 | 表名 | 用途 | 写主 | 读方 |
 |------|------|------|------|
-| `ai_ocr_task` | OCR 解析任务主表，记录每次上传/修订的整体生命周期，含 22 个状态枚举、修订链、`mapping_snapshot_hash`（变更检测）、`summary_cache`（5a 摘要） | Java | Python (SELECT) |
+| `ai_ocr_task` | OCR 解析任务主表，记录每次上传/修订的整体生命周期，含 22 个状态枚举、修订链、`mapping_snapshot_hash`（变更检测）、`has_extractable_data` / `extraction_skip_reason`（无数据标记） | Java | Python (SELECT) |
 | `ai_ocr_file` | 单文件元数据（filename / S3 key / hash / status / processing_stage / progress），与 `ai_ocr_task` 1:N | Java | Python (SELECT) |
-| `ai_ocr_notification` | 任务关键节点事件日志（PARSE_COMPLETE / COMMIT_COMPLETE / NEW_CLOSED_MONTH 等），**不主动推送**，用户主动查询 | Java | Python (SELECT) |
 | `ai_ocr_similarity_hint` | Python 相似度检测器输出的"高相似度 account_label 对"，供前端审核页顶部横幅展示，含用户合并/忽略决策 | Python (INSERT/UPDATE) + Java (UPDATE user_decision) | 共享 |
-| `ai_ocr_extraction_skip_log` | §4.12 边界用例审计：当文档无可提取财务数据时，记录跳过原因（NO_TABLES / NARRATIVE_ONLY / IMAGE_NO_DATA） | Java | Python |
-| 🔴 **`ai_ocr_task_state_log`**（**2026-05-06 新增**）| **全流程状态变更总日志**（架构边界 §0.6 强制要求）：每次 `ai_ocr_task.status` 变更 + 第 3 步"数据校验"前后的数据快照 | Java（AOP 切面统一写入） | Python (SELECT) |
+| 🔴 **`ai_ocr_task_state_log`**（覆盖原 `ai_ocr_notification` + `ai_ocr_extraction_skip_log` 全部职责）| **全流程状态变更总日志**（架构边界 §0.6 强制要求）：每次 `ai_ocr_task.status` 变更，含 4 步流程所有事件（上传/解析/校验/保存）+ 终态事件 | Java（AOP 切面统一写入） | Python (SELECT) |
 
 ### 二、AI 解析产物（4 张，Python 拥有）
 
@@ -59,14 +59,12 @@ OCR Agent 包含 **17 张表**，**全部使用 `ai_ocr_` 前缀**。按职责�
 
 ```
 ai_ocr_task ─┬─< ai_ocr_file ─< ai_ocr_extracted_table ─< ai_ocr_extracted_row ─< ai_ocr_mapping_result
-             ├─< ai_ocr_notification
              ├─< ai_ocr_conflict_record ─< ai_ocr_conflict_note
              ├─< ai_ocr_commit_audit
              ├─< ai_ocr_memory_learn_log
              ├─< ai_ocr_similarity_hint
-             ├─< ai_ocr_extraction_skip_log
              ├─< ai_ocr_mapping_change_log
-             └─< ai_ocr_task_state_log    🔴 全流程状态主线日志
+             └─< ai_ocr_task_state_log    🔴 全流程状态主线日志（含原 notification + extraction_skip 职责）
 
 ai_ocr_mapping_memory ─< ai_ocr_mapping_memory_audit  (独立，不依赖 task)
 ai_ocr_erasure_log                                     (独立审计)
@@ -200,16 +198,18 @@ Balance Sheet:       Cash / Accounts Receivable / R&D Capitalized / Other Assets
 | `BATCH_TOO_LARGE` | 批量总大小超限 |
 | `DUPLICATE_NAME` | 同 company_id + file_hash 已存在（活跃状态） |
 
-#### Notification Event Type（6 个，Q16 简化版：事件日志，不发送）
+#### ~~Notification Event Type~~（**2026-05-06 删除，合并至 `ai_ocr_task_state_log.event_type`**）
 
-| 值 | 含义 |
-|------|------|
-| `PARSE_COMPLETE` | 所有文件处理 + 相似度检测完成 |
-| `COMMIT_COMPLETE` | fi_* 写入成功 |
-| `COMMIT_FAILED` | commit 事务失败（不进 FAILED，仅记录供运维分析） |
-| `MEMORY_LEARN_COMPLETE` | 记忆学习完成 |
-| `MEMORY_LEARN_FAILED` | 记忆学习 3 次重试失败 |
-| `NEW_CLOSED_MONTH` | commit 引入新期间（触发 Benchmark 数据更新） |
+> 原 6 个事件类型已被 `ai_ocr_task_state_log.event_type` 完整覆盖：
+>
+> | 旧 Notification Event Type | 新 `ai_ocr_task_state_log.event_type` |
+> |---------------------------|--------------------------------------|
+> | `PARSE_COMPLETE` | `EXTRACT_COMPLETED`（最后一个文件完成时）|
+> | `COMMIT_COMPLETE` | `COMMIT_SUCCESS` |
+> | `COMMIT_FAILED` | `COMMIT_FAILED` |
+> | `MEMORY_LEARN_COMPLETE` | `MEMORY_LEARN_COMPLETE` |
+> | `MEMORY_LEARN_FAILED` | `MEMORY_LEARN_FAILED` |
+> | `NEW_CLOSED_MONTH` | `COMMIT_SUCCESS`（携带 `correlation_id` 关联到 Benchmark 触发逻辑）|
 
 ---
 
@@ -352,31 +352,11 @@ CREATE INDEX idx_ai_ocr_file_pending_sync
       AND deleted = FALSE;
 ```
 
-### 2.3 ai_ocr_notification（事件日志，Q16 简化版）
+### ~~2.3 ai_ocr_notification~~（**2026-05-06 删除，已合并至 `ai_ocr_task_state_log`**）
 
-**用途**: 仅作为"任务状态变化事件"的审计日志，**不主动推送**（不发邮件/push/站内信）。用户通过 LG Dashboard 的"待处理任务"列表自行发现。
-
-```sql
-CREATE TABLE ai_ocr_notification (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id         UUID NOT NULL REFERENCES ai_ocr_task(id),
-    company_id      BIGINT NOT NULL,
-    event_type      VARCHAR(30) NOT NULL,                            -- 见 §1.2 Notification Event Type
-    payload         JSONB,                                           -- 事件快照数据
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-    -- 注意：无 recipient_id / channel / status / retry_count
-    -- 不发送给任何人，用户自己来看
-);
-```
-
-**索引**:
-```sql
-CREATE INDEX idx_ai_ocr_notification_task
-    ON ai_ocr_notification (task_id, event_type, created_at DESC);
-
-CREATE INDEX idx_ai_ocr_notification_company_recent
-    ON ai_ocr_notification (company_id, created_at DESC);
-```
+> **删除理由**: 与 `ai_ocr_task_state_log` 职责重叠（都是任务事件日志），且 6 个事件类型（`PARSE_COMPLETE` / `COMMIT_COMPLETE` / `MEMORY_LEARN_COMPLETE` 等）已被 state_log 的 `event_type` 枚举覆盖。前端通过 `ai_ocr_task.status` + `ai_ocr_task_state_log` 查询等效信息。
+>
+> **迁移**: `payload` JSONB 字段对应数据通过 `ai_ocr_task_state_log.error_detail` 或事件本身的语义承载；不再有 `Notification Event Type` 枚举（详见 §1.2 已移除该枚举）。
 
 ### 2.4 ai_ocr_conflict_note
 
@@ -536,16 +516,17 @@ CREATE INDEX idx_ai_ocr_similarity_hint_task
 
 ### 2.9 ai_ocr_task_state_log（2026-05-06 新增）
 
-**用途**: 全流程状态变更总日志（**架构边界 [system-architecture.md §0.6](./system-architecture.md#06-关键规则全流程状态必须留-log) 强制要求**）— `ai_ocr_task.status` 每次变更必须写一行；同时承载第 3 步"数据校验"前后的数据快照（在 `VALIDATION_START` / `VALIDATION_END` / `COMMIT_START` 三个关键事件填充 `snapshot_data` JSONB）。
+**用途**: 全流程状态变更总日志（**架构边界 [system-architecture.md §0.6](./system-architecture.md#06-关键规则全流程状态必须留-log) 强制要求**）— `ai_ocr_task.status` 每次变更必须写一行。承载 4 步流程的全部生命周期事件，作为 [user-input-requirements.md R-3.4](../user-input-requirements.md#3-4-步流程定义2026-05-06) "整个流程所有状态记录 log" 的唯一落地点。
 
-**与其他 4 张审计表的分工**:
+> **2026-05-06 简化**：原设计含 `snapshot_data` JSONB 字段用于存储校验前后数据快照，经多 agent 头脑风暴判定为过度设计（数据已存在 `ai_ocr_extracted_row` + `ai_ocr_mapping_result.original_ai_suggestion` 等原表），删除该字段，改为通过 `mapping_snapshot_hash` 关联到原表当时的状态。详见 [system-architecture.md §0.6 校验前后数据如何留存](./system-architecture.md#06-关键规则全流程状态必须留-log)。
+
+**与其他 3 张审计表的分工**（原 5 张已合并为 4 张）：
 
 | 表 | 粒度 | 职责 |
 |----|------|------|
-| **`ai_ocr_task_state_log`** | **任务状态主线** | 每次 status 变更 + 关键节点数据快照 |
-| `ai_ocr_extraction_skip_log` | 文件级 | 仅记录"无可提取数据"跳过事件 |
-| `ai_ocr_mapping_change_log` | 任务级 | 仅记录 mapping 变更触发的下游清空 |
-| `ai_ocr_commit_audit` | row 级 | fi_* 写入操作明细（written/overwritten/skipped） |
+| **`ai_ocr_task_state_log`** | **任务状态主线** | 每次 status 变更 + 4 步流程的所有事件（含原 notification 事件 + 原 extraction_skip 事件）|
+| `ai_ocr_mapping_change_log` | 任务级 | mapping 变更的统计明细（`downstream_invalidated_count` 是 state_log 无法推导的） |
+| `ai_ocr_commit_audit` | row 级 | fi_* 写入操作明细（written/overwritten/skipped + old/new value） |
 | `ai_ocr_memory_learn_log` | 任务级 | 记忆学习决策（最多 3 次重试） |
 
 ```sql
@@ -556,21 +537,18 @@ CREATE TABLE ai_ocr_task_state_log (
     new_status      VARCHAR(30) NOT NULL,
     event_type      VARCHAR(50) NOT NULL,
         -- Phase 1 上传: UPLOAD_INITIATED / UPLOAD_FILE_VALIDATED / UPLOAD_S3_PERSISTED / UPLOAD_REJECTED
-        -- Phase 2 解析: EXTRACT_QUEUED / EXTRACT_STARTED / EXTRACT_PROGRESS / EXTRACT_COMPLETED / EXTRACT_FAILED / EXTRACT_NO_DATA
-        -- Phase 3 校验: VALIDATION_START / MAPPING_EDITED / SUMMARY_VIEWED / VERIFICATION_TRIGGERED
-        --              / CONFLICT_DETECTED / CONFLICT_RESOLVED / NAVIGATION_BACK / REMAP_TRIGGERED / VALIDATION_END
+        -- Phase 2 解析: EXTRACT_QUEUED / EXTRACT_STARTED / EXTRACT_COMPLETED / EXTRACT_FAILED / EXTRACT_NO_DATA
+        --              （注：EXTRACT_PROGRESS 高频细粒度事件改为只更新 ai_ocr_file.processing_stage，不写 state_log，避免日志膨胀）
+        -- Phase 3 校验: VALIDATION_START / VERIFICATION_TRIGGERED / CONFLICT_DETECTED / CONFLICT_RESOLVED
+        --              / NAVIGATION_BACK / REMAP_TRIGGERED / VALIDATION_END
+        --              （注：MAPPING_EDITED / SUMMARY_VIEWED 等用户行为事件由前端记录在埋点系统，不进 state_log）
         -- Phase 4 保存: COMMIT_START / COMMIT_SUCCESS / COMMIT_FAILED
-        --              / MEMORY_LEARN_TRIGGERED / MEMORY_LEARN_PROGRESS / MEMORY_LEARN_COMPLETE / MEMORY_LEARN_FAILED
+        --              / MEMORY_LEARN_TRIGGERED / MEMORY_LEARN_COMPLETE / MEMORY_LEARN_FAILED
+        --              （注：MEMORY_LEARN_PROGRESS 不进 state_log，仅在 OcrResultSqsProcessor 中处理）
         -- 终态:        TASK_COMPLETED / TASK_FAILED / TASK_SUPERSEDED / TASK_EXPIRED
     triggered_by    VARCHAR(100) NOT NULL,
         -- 'user:{userId}' / 'sqs:{queueName}:{msgId}' / 'system:{component}' / 'aspect:TaskStateAuditAspect'
-    snapshot_data   JSONB,
-        -- 关键事件填充：
-        -- VALIDATION_START: { mapping_snapshot_hash, original_extracted_rows: [...], original_ai_suggestions: [...] }
-        -- VALIDATION_END: { final_account_labels: [...], final_lg_categories: [...], user_edits_count, validation_duration_ms }
-        -- COMMIT_START: { mapped_rows_count, conflicts_resolved_count, files_count }
-        -- 其他事件可为 NULL（节约空间）
-    error_detail    TEXT,                                               -- 仅 *_FAILED 事件填充
+    error_detail    TEXT,                                               -- *_FAILED 事件填充错误信息；EXTRACT_NO_DATA 填充 file_id + skip_reason
     correlation_id  UUID,                                               -- 关联同一外部触发（如 SQS msg）下的多条事件
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -588,18 +566,14 @@ CREATE INDEX idx_ai_ocr_task_state_log_event
 CREATE INDEX idx_ai_ocr_task_state_log_failed
     ON ai_ocr_task_state_log (created_at DESC)
     WHERE error_detail IS NOT NULL;
-
--- 校验前后快照对比：按 task + event_type 快速取 START/END 对
-CREATE INDEX idx_ai_ocr_task_state_log_validation
-    ON ai_ocr_task_state_log (task_id, event_type, created_at)
-    WHERE event_type IN ('VALIDATION_START', 'VALIDATION_END', 'COMMIT_START');
 ```
 
 **关键设计**:
 - **不可篡改**: 表结构无 UPDATE 字段，仅 `INSERT`，保证审计完整性
 - **AOP 切面注入**: Java 端通过 `TaskStateAuditAspect` 拦截 `ai_ocr_task.status` 更新，自动写日志（避免业务代码遗漏）
 - **Python 不直接写**: Python 通过 `ocr-result-queue` 上报状态后，Java 在消费时统一写日志（保持单一写入点）
-- **snapshot_data 仅关键事件填充**: 默认 NULL，仅 `VALIDATION_START/END` 与 `COMMIT_START` 填充，避免日志膨胀
+- **不存数据快照**: 校验前后的数据通过 `mapping_snapshot_hash` 关联到 `ai_ocr_extracted_row` + `ai_ocr_mapping_result.original_ai_suggestion` 等原表（避免双倍存储）
+- **行为事件外置**: 用户在前端的轻量行为（点开 Summary、查看冲突列表等）由前端埋点处理，state_log 只记录有"状态语义"的事件
 
 ---
 
@@ -812,33 +786,11 @@ CREATE TABLE ai_ocr_mapping_memory_audit (
 );
 ```
 
-### 3.7 ai_ocr_extraction_skip_log（2026-05-06 新增）
+### ~~3.7 ai_ocr_extraction_skip_log~~（**2026-05-06 删除，已合并至 `ai_ocr_task_state_log`**）
 
-**用途**: §4.12 边界用例审计 — 记录哪些文件因"无可提取数据"被跳过 mapping/conflict/write 流程。混合批次时也用此表区分"哪些文件走完整流程、哪些只入 Imported Statements"。
-
-```sql
-CREATE TABLE ai_ocr_extraction_skip_log (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id     UUID NOT NULL REFERENCES ai_ocr_task(id),
-    file_id     UUID NOT NULL REFERENCES ai_ocr_file(id),
-    skip_reason VARCHAR(50) NOT NULL,                                -- NO_TABLES / NARRATIVE_ONLY / IMAGE_NO_DATA
-    detail      JSONB,                                               -- 可选：模型给出的判定依据（页面截图、文本片段统计等）
-    detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    CONSTRAINT chk_skip_reason CHECK (skip_reason IN ('NO_TABLES', 'NARRATIVE_ONLY', 'IMAGE_NO_DATA')),
-    UNIQUE (task_id, file_id)                                        -- SQS at-least-once 幂等
-);
-```
-
-**索引**:
-```sql
-CREATE INDEX idx_ai_ocr_extraction_skip_log_task
-    ON ai_ocr_extraction_skip_log (task_id, detected_at DESC);
-
--- 审计/统计：按 reason 聚合
-CREATE INDEX idx_ai_ocr_extraction_skip_log_reason
-    ON ai_ocr_extraction_skip_log (skip_reason, detected_at DESC);
-```
+> **删除理由**: 该表的事件（每个文件因无可提取数据被跳过）已被 `ai_ocr_task_state_log` 的 `EXTRACT_NO_DATA` 事件类型完整覆盖。`skip_reason` 信息存在 `ai_ocr_task.extraction_skip_reason` 字段（值: `NO_TABLES` / `NARRATIVE_ONLY` / `IMAGE_NO_DATA`），无需独立审计表。
+>
+> **迁移**: Java 收到 Python 的 `OcrResult{status: NO_DATA, skipReason: ...}` 后写 `ai_ocr_task_state_log` 行（event_type=`EXTRACT_NO_DATA`，并通过 `error_detail` 字段关联 `file_id` 和 `skip_reason`），同时更新 `ai_ocr_task.has_extractable_data=FALSE` 和 `extraction_skip_reason=...`。
 
 ### 3.8 ai_ocr_mapping_change_log（2026-05-06 新增）
 
@@ -888,7 +840,6 @@ GRANT USAGE ON SCHEMA public TO java_app, python_worker;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
     ai_ocr_task,
     ai_ocr_file,
-    ai_ocr_notification,
     ai_ocr_conflict_note,
     ai_ocr_memory_learn_log,
     ai_ocr_commit_audit,
@@ -900,7 +851,6 @@ TO java_app;
 GRANT SELECT ON
     ai_ocr_task,
     ai_ocr_file,
-    ai_ocr_notification,
     ai_ocr_conflict_note,
     ai_ocr_commit_audit,
     ai_ocr_erasure_log
@@ -941,9 +891,7 @@ GRANT UPDATE ON ai_ocr_conflict_record TO java_app;
 -- 2026-05-06 新增表（Step 5a/5b/5c 边界用例支持）
 -- =================================================================
 
--- ai_ocr_extraction_skip_log：Python 写入（提取阶段判定），Java 读取（5a 决定是否跳过流程）
-GRANT INSERT, SELECT ON ai_ocr_extraction_skip_log TO python_worker;
-GRANT SELECT ON ai_ocr_extraction_skip_log TO java_app;
+-- ai_ocr_extraction_skip_log：已删除（合并至 ai_ocr_task_state_log），无需 GRANT
 
 -- ai_ocr_task_state_log（2026-05-06 新增）：Java 通过 AOP 切面统一写入（架构边界 §0.6），Python 仅读
 GRANT INSERT, SELECT ON ai_ocr_task_state_log TO java_app;
@@ -987,13 +935,11 @@ REVOKE ALL ON fi_metrics FROM python_worker;
 |----|---------|
 | `ai_ocr_task` | 永久（审计） |
 | `ai_ocr_file` | 180 天后 s3_key 清空（对象已删除），记录保留 |
-| `ai_ocr_notification` | 180 天（事件日志，按需查询） |
 | `ai_ocr_conflict_note` | 永久（审计） |
 | `ai_ocr_memory_learn_log` | 永久（审计） |
 | `ai_ocr_commit_audit` | 永久（fi_* 数据溯源关键） |
 | `ai_ocr_similarity_hint` | 与 task 同生命周期（180 天） |
 | `ai_ocr_*` | 180 天后清理原始数据，保留 aggregated 统计 |
-| `ai_ocr_extraction_skip_log` | 永久（审计：哪些上传无可提取数据） |
 | `ai_ocr_task_state_log` | 永久（全流程审计主线） |
 | `ai_ocr_mapping_change_log` | 与 task 同生命周期（180 天，调试用） |
 | `ai_ocr_mapping_memory` | 18 个月未命中的标记待审核（月度 cron） |
@@ -1047,3 +993,7 @@ REVOKE ALL ON fi_metrics FROM python_worker;
 | 2026-05-06 | 强化 §2.5 `ai_ocr_memory_learn_log` 与 §3.6 `ai_ocr_mapping_memory_audit` 的描述：明确两表分工（任务级决策日志 vs 行级变更明细）、跨域写入例外说明、关联 [system-architecture.md §0.4](./system-architecture.md#04-关键规则记忆处理必须有日志) 三层日志要求 |
 | 2026-05-06 | **新增 §2.9 `ai_ocr_task_state_log` 表**（架构边界 §0.6 强制要求）：全流程状态变更总日志，承载 4 步流程的每次 status 变更 + 第 3 步"数据校验"前后的数据快照（VALIDATION_START / VALIDATION_END / COMMIT_START 三个事件填充 snapshot_data JSONB）；Java 通过 AOP 切面统一写入，Python 仅 SELECT |
 | 2026-05-06 | Schema Overview 表数从 16 → 17（任务编排组从 5 → 6） |
+| 2026-05-06 | **多 agent 头脑风暴清理（用户指令 R-4.4）**：删除 §2.3 `ai_ocr_notification` 表（合并至 state_log）+ 删除 §3.7 `ai_ocr_extraction_skip_log` 表（合并至 state_log 的 `EXTRACT_NO_DATA` 事件）+ 删除 §2.9 `ai_ocr_task_state_log.snapshot_data` JSONB 字段（数据已在原表，避免双倍存储） |
+| 2026-05-06 | Schema Overview 表数从 17 → 15（任务编排组从 6 → 4） |
+| 2026-05-06 | 删除 `Notification Event Type` 枚举（§1.2）：6 个事件类型已被 state_log 的 `event_type` 枚举覆盖 |
+| 2026-05-06 | 调整 GRANT：移除 `ai_ocr_notification` / `ai_ocr_extraction_skip_log` 的权限授予；Python 跨域写权限例外从 3 张表降为 2 张 |

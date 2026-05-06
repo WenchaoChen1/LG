@@ -50,13 +50,13 @@
 
 ### 0.2 Java ↔ Python 通信：仅通过 SQS 队列
 
-Java 调用 Python 的**唯一方式**是 SQS 消息。当前定义**三个出口队列**和一个回传队列：
+Java 调用 Python 的**唯一方式**是 SQS 消息。严格对应用户需求 [R-2.5 两个 SQS 触发场景](../user-input-requirements.md#2-javapython-边界要求2026-05-06)：
 
 | 序号 | 队列 | 方向 | 触发场景 | 消息类型 | 关联表 |
 |------|------|------|---------|---------|--------|
-| 1️⃣ | `ocr-extract-queue` | **Java → Python** | **文件解析任务** — 文件上传完成后 Java 入队，Python 消费后执行 OCR/AI 提取/映射 | `OcrExtractRequest` | `ai_ocr_extracted_table` / `ai_ocr_extracted_row` / `ai_ocr_mapping_result` |
-| 2️⃣ | `ocr-memory-learn-queue` | **Java → Python** | **最后保存的记忆处理** — fi_* 写入成功（`@AfterCommit`）后 Java 入队，Python 消费后基于用户最终修正学习更新 mapping_memory | `OcrMemoryLearnRequest` | `ai_ocr_mapping_memory` / `ai_ocr_mapping_memory_audit` / **`ai_ocr_memory_learn_log`** |
-| 3️⃣ | `ocr-remap-queue` | **Java → Python** | **重新映射**（§4.13 Steps Navigation 边界）— 用户在 Previous 回退后**修改了 extracted data**，Java 比对快照确认有变化后入队，Python 仅重跑 Map 节点（不重做 OCR） | `OcrRemapRequest` | `ai_ocr_mapping_result`（覆盖更新） |
+| 1️⃣ | `ocr-extract-queue` | **Java → Python** | **场景 A：文件解析任务** — 文件上传完成后 Java 入队，Python 消费后执行 OCR/AI 提取/映射；通过消息 `mode` 字段区分两种处理路径：`FULL_EXTRACT`（全量：OCR + 映射）/ `REMAP_ONLY`（仅重跑 Map 节点，§4.13 Steps Navigation 用） | `OcrExtractRequest`（含 `mode` 字段） | `ai_ocr_extracted_table` / `ai_ocr_extracted_row` / `ai_ocr_mapping_result` |
+| 2️⃣ | `ocr-memory-learn-queue` | **Java → Python** | **场景 B：最后保存的记忆处理** — fi_* 写入成功（`@AfterCommit`）后 Java 入队，Python 消费后基于用户最终修正学习更新 mapping_memory | `OcrMemoryLearnRequest` | `ai_ocr_mapping_memory` / `ai_ocr_mapping_memory_audit` / **`ai_ocr_memory_learn_log`** |
+| ➕ | `ocr-similarity-check-queue` | **Java → Python**（内部辅助队列） | **辅助：相似度检测触发** — 当 task 的所有文件都达到 `REVIEW_READY` 时 Java 入队，Python 消费后做 embedding + pgvector KNN，写 `ai_ocr_similarity_hint` 供前端展示。**不属于用户原始 2 场景，但作为场景 A 的下游异步阶段保留** | `OcrSimilarityCheckRequest` | `ai_ocr_similarity_hint`（INSERT，跨域写入例外） |
 | ⏎ | `ocr-result-queue` | **Python → Java** | Python 上报进度/结果/相似度/记忆学习状态（按 `messageType` 字段分发） | `OcrProgress` / `OcrResult` / `OcrSimilarityCheckResult` / `OcrMemoryLearnProgress` | 更新 `ai_ocr_task` / `ai_ocr_file` |
 
 **严禁直接 HTTP 调用** Python 服务（包括同步/异步 RPC）。Python 端不暴露任何 HTTP 端点给 Java。
@@ -79,38 +79,40 @@ Java 调用 Python 的**唯一方式**是 SQS 消息。当前定义**三个出�
 
 任务级记忆学习状态由 `ai_ocr_task.status`（`MEMORY_LEARN_PENDING` / `MEMORY_LEARN_IN_PROGRESS` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`）反映，详见 [database-schema.md §1.2 Task 状态](./database-schema.md)。
 
-### 0.5 关键规则：Python 跨域写权限例外清单（仅 3 张表）
+### 0.5 关键规则：Python 跨域写权限例外清单（仅 2 张表）
 
 | 表 | Python 权限 | 用途 |
 |----|------------|------|
 | `ai_ocr_memory_learn_log` | INSERT | 记忆学习审计（§0.4 上文） |
 | `ai_ocr_similarity_hint` | INSERT / UPDATE（仅 detection 字段，不能改 user_decision） | 相似度检测结果回写 |
-| `ai_ocr_extraction_skip_log` | INSERT | §4.7 No-Extractable-Data 跳过审计 |
+
+> 原 `ai_ocr_extraction_skip_log` 已并入 `ai_ocr_task_state_log`，由 Java 在收到 Python 的 `OcrResult{status: NO_DATA}` 后写入 `EXTRACT_NO_DATA` 事件，无需 Python 跨域写入。
 
 详见 [database-schema.md §4 GRANT](./database-schema.md#4-数据库角色与权限)。
 
 ### 0.6 关键规则：全流程状态必须留 log
 
-**强制要求**：4 步流程中的**每一个状态变更**、**每一次外部交互**、**每一次错误**都必须有持久化日志。日志按职责拆分为 5 张表，互不重叠：
+**强制要求**：4 步流程中的**每一个状态变更**、**每一次外部交互**、**每一次错误**都必须有持久化日志。日志按职责拆分为 4 张表，互不重叠：
 
 | 日志表 | 触发时机 | 内容 |
 |--------|---------|------|
-| 🔴 **`ai_ocr_task_state_log`**（**新增 2026-05-06**，覆盖全流程主线）| `ai_ocr_task.status` 每次变更 | old_status / new_status / event_type / triggered_by（用户 / SQS msg ID / system）/ snapshot_data（关键节点数据快照，校验前后用）/ error_detail |
-| `ai_ocr_extraction_skip_log` | §4.7 解析后无可提取数据 | 跳过的 file_id + 原因 |
-| `ai_ocr_mapping_change_log` | §4.6 用户 Previous 修改 mapping | 老/新 hash + 失效的 conflict_resolutions 数 |
-| `ai_ocr_commit_audit` | 第 4 步 Java 写 fi_* 时 | 每个 row 的 written/overwritten/skipped + old_value/new_value + 关联 conflict_note_id |
+| 🔴 **`ai_ocr_task_state_log`**（覆盖全流程主线）| `ai_ocr_task.status` 每次变更 | old_status / new_status / event_type / triggered_by（用户 / SQS msg ID / system）/ error_detail。**含 `EXTRACT_NO_DATA` / `TASK_COMPLETED` / `COMMIT_COMPLETE` 等所有事件**，原 `ai_ocr_extraction_skip_log` 与 `ai_ocr_notification` 已合并到此表 |
+| `ai_ocr_mapping_change_log` | §4.6 用户 Previous 修改 mapping | 老/新 hash + 失效的 conflict_resolutions 数（专注 mapping diff 的统计，不只是事件） |
+| `ai_ocr_commit_audit` | 第 4 步 Java 写 fi_* 时 | 每个 row 的 written/overwritten/skipped + old_value/new_value + 关联 conflict_note_id（**唯一的财务数据溯源证据**） |
 | `ai_ocr_memory_learn_log` + `ai_ocr_mapping_memory_audit` | 第 4 步 Python 学习时（§0.4 已说明）| 任务级摘要 + 行级变更明细 |
 
-**第 3 步"数据校验"前后的数据快照要求**:
+**第 3 步"数据校验"前后的数据如何留存**:
 
-- **校验前快照**（写入 `ai_ocr_task_state_log`，event_type=`VALIDATION_START`）:
-  - AI 原始提取的 `account_label` / `cell_values`
-  - AI 原始映射建议（`original_ai_suggestion`）
-  - 进入审核时的整体快照 hash（`mapping_snapshot_hash`）
-- **校验后快照**（写入 `ai_ocr_task_state_log`，event_type=`VALIDATION_END` 或 `COMMIT_START`）:
-  - 用户最终确认的 `account_label` / `cell_values`（含 `user_edited` 标志）
-  - 用户最终确认的 `lg_category`（与 `original_ai_suggestion` 对比即可看出修正）
-  - 校验耗时（`VALIDATION_END.created_at - VALIDATION_START.created_at`）
+R-3.3 要求"校验前后数据要留 log"。设计上**不在 state_log 中冗余存储 JSONB 快照**，而是利用现有结构组合还原：
+
+| 数据 | 存储位置 | 还原方式 |
+|------|---------|---------|
+| **校验前数据** | `ai_ocr_extracted_row.account_label / cell_values`（提取后写入即固定）+ `ai_ocr_mapping_result.original_ai_suggestion` | 通过 `mapping_snapshot_hash` 在 `ai_ocr_task` / `ai_ocr_task_state_log` `VALIDATION_START` 事件中关联到当时的 mapping 状态 |
+| **校验后数据** | 上述同表的**当前值**（`user_edited` 标志区分是否被改过；`ai_ocr_mapping_result.lg_category` 当前值即用户最终选择） | 直接读当前值 |
+| **校验耗时** | `ai_ocr_task_state_log` 中 `VALIDATION_END.created_at - VALIDATION_START.created_at` | 计算差值 |
+| **每一步操作记录** | `ai_ocr_task_state_log` 的 `MAPPING_EDITED` / `CONFLICT_RESOLVED` / `NAVIGATION_BACK` 等事件 | 按 `created_at` 顺序排列 |
+
+**核心原则**: 日志只记录"事件 + 关联键 + 快照 hash"，数据本体存在原表（避免双倍存储和同步风险）。
 
 **事件类型清单（`ai_ocr_task_state_log.event_type`）**:
 
@@ -1986,6 +1988,7 @@ defusedxml>=0.7.1
 | **v1.2** | **2026-05-06** | **Asana EPIC 同步：Step 5 拆分 + 6 个新 subtask** | **requirement-analysis §4.9-4.14** |
 | **v1.3** | **2026-05-06** | **新增 §0 职责边界声明（顶层架构契约）：明确 Java/Python 分工、3 个 SQS 出口队列、记忆处理三层日志要求、Python 跨域写权限例外清单** | **用户口头确认（架构边界澄清）** |
 | **v1.4** | **2026-05-06** | **新增 §0.0 项目核心流程（4 步抽象）+ §0.6 全流程状态日志强制要求 + 新表 `ai_ocr_task_state_log`** | **用户口头确认（4 步流程定义 + 校验前后留 log）** |
+| **v1.5** | **2026-05-06** | **多 agent 头脑风暴后的简化清理：删 `ocr-remap-queue`（合并到 `ocr-extract-queue` 用 `mode` 字段）+ 加 `ocr-similarity-check-queue` 登记 + 删 `state_log.snapshot_data` JSONB（改用原表 + hash 关联）+ 删 `ai_ocr_extraction_skip_log` 与 `ai_ocr_notification` 两张表（合并到 state_log）** | **用户口头确认（删除无意义变更）+ [user-input-requirements.md](./../user-input-requirements.md) 头脑风暴共识** |
 
 ### v1.2 (2026-05-06) 详细变更
 
