@@ -110,7 +110,7 @@
 | `OcrProgress` | `OcrResultSqsProcessor#handleProgress` | 文件级精细进度上报（每个 stage 一条） |
 | `OcrResult` | `OcrResultSqsProcessor#handleResult` | 单文件最终结果上报 |
 | `OcrSimilarityCheckResult` | `OcrResultSqsProcessor#handleSimilarityCheckResult` | 相似度检测完成回执 |
-| `OcrMemoryLearnProgress` | `OcrResultSqsProcessor#handleMemoryLearnProgress` | 记忆学习进度回报 |
+| `OcrMemoryLearnProgress` | `OcrResultSqsProcessor#handleMemoryLearnProgress` | 记忆学习审计回报（v3：仅写 memory_learn_log，不更新 task.status） |
 
 ---
 
@@ -169,14 +169,12 @@ sequenceDiagram
     FE->>J: ④ POST /tasks/{id}/commit
     J->>DB: SELECT FOR UPDATE task + Hard Gate 校验
     J->>DB: 写 fi_* (Actuals) + ProformaForecastService.appendVersion()
-    J->>DB: INSERT ai_financial_extraction_commit_audit + UPDATE task (COMMITTED)
+    J->>DB: INSERT ai_financial_extraction_commit_audit + UPDATE task (COMMITTED → COMPLETED 同事务一次到位)
     J-->>FE: {writtenAccounts, writtenPeriods[], importedStatementsFolderId, benchmarkRedirectUrl}
-    Note over J,SQS: AFTER_COMMIT 阶段
+    Note over J,SQS: AFTER_COMMIT 阶段（fire-and-forget，不影响 task 终态）
     J->>DB: ImportedStatements finalize (visible=true)
-    J->>SQS: send ocr-memory-learn-queue
-    SQS->>PY: 消费 → 更新 ai_financial_extraction_mapping_memory + 双重日志
-    PY->>SQS: send ocr-result-queue (OcrMemoryLearnProgress)
-    SQS->>J: 消费 → UPDATE task.status (MEMORY_LEARN_*)
+    J->>SQS: send ocr-memory-learn-queue（异步触发记忆学习）
+    Note over PY,DB: 记忆学习异步进行：Python 消费 → 更新 mapping_memory + 写 memory_learn_log；不再回写 task.status
 
     Note over FE,DB: 辅助：ReviewPage 渲染文件
     FE->>J: ⑥ POST /files/{fileId}/download-url
@@ -504,16 +502,16 @@ sequenceDiagram
 - 读 `ai_financial_extraction_extracted_row` + `ai_financial_extraction_mapping_result`（跨 schema SELECT，Java 对 Python 拥有的表只读）
 - 按 resolution 策略写 `fi_*` 财务表（Actuals）+ 调 `ProformaForecastService.appendVersion()`（Proforma）
 - 写 `ai_financial_extraction_commit_audit`（written/overwritten/skipped + 关联 conflict_note_id）
-- task.status=COMMITTED；files.status=FILE_COMMITTED
+- **task.status: COMMITTED → COMPLETED 同事务内同步推进**（v3 解耦：不再走 `MEMORY_LEARN_*` 中间状态，commit 事务成功即终态）；files.status=FILE_COMMITTED
 - 若是 revision：parent.status=SUPERSEDED + parent.superseded_by=self.id
 - 构建 `benchmarkRedirectUrl`（前端直接跳转用，不再有独立 `/commit/result` 端点）
-- **AFTER_COMMIT 阶段**（@TransactionalEventListener(phase=AFTER_COMMIT)）：
+- **AFTER_COMMIT 阶段**（@TransactionalEventListener(phase=AFTER_COMMIT)，全部 fire-and-forget）：
   - `ImportedStatementsService.finalize(taskId)`：所有 visible=false 的占位行设为 visible=true
   - 触发下游 normalization 流程（@Async）
   - 检测新 closed month → `ClosedMonthMailService.notify()` + 写 state_log NEW_CLOSED_MONTH
-  - 构建 mappingComparisons → `OcrMemoryLearnSqsProducer.send(...)`
-  - task.status=MEMORY_LEARN_PENDING
+  - 构建 mappingComparisons → `OcrMemoryLearnSqsProducer.send(...)` 入队 `ocr-memory-learn-queue` 触发记忆学习
   - 写 state_log COMMIT_COMPLETE
+- **记忆学习与 task 终态解耦（v3）**：记忆学习是 fire-and-forget 后台流程，不影响 commit 端点响应、不影响 task 终态。task 在 commit 事务成功后即 `COMPLETED`，不等记忆学习。
 
 **逻辑图**：
 
@@ -531,22 +529,21 @@ sequenceDiagram
    ├──→ SELECT ai_financial_extraction_extracted_row + ai_financial_extraction_mapping_result
    ├──→ 写 fi_* (Actuals) + [ProformaForecastService#appendVersion]
    ├──→ INSERT ai_financial_extraction_commit_audit
-   ├──→ UPDATE ai_financial_extraction_task (COMMITTED) + UPDATE ai_financial_extraction_file × N (FILE_COMMITTED)
+   ├──→ UPDATE ai_financial_extraction_task (COMMITTED → COMPLETED，同事务一次到位) + UPDATE ai_financial_extraction_file × N (FILE_COMMITTED)
    ├──→ [BenchmarkRedirectService#buildUrl]
    ├──→ publishEvent(CommitSuccessEvent)
    ▼
 {writtenAccounts, writtenPeriods[], importedStatementsFolderId, benchmarkRedirectUrl}
 
-[AFTER_COMMIT @TransactionalEventListener]
+[AFTER_COMMIT @TransactionalEventListener]（fire-and-forget；不影响 task 终态、不影响响应）
    ├──→ [ImportedStatementsService#finalize] visible=true
    ├──→ [ClosedMonthMailService#notify] (新 closed month)
-   ├──→ [OcrMemoryLearnSqsProducer#send] → [SQS: ocr-memory-learn-queue]
-   ├──→ UPDATE ai_financial_extraction_task (MEMORY_LEARN_PENDING)
+   ├──→ [OcrMemoryLearnSqsProducer#send] → [SQS: ocr-memory-learn-queue]（异步记忆学习，不再回写 task.status）
    └──→ INSERT ai_financial_extraction_task_state_log (COMMIT_COMPLETE)
 ```
 
 **关联的表**：
-- `ai_financial_extraction_task` — SELECT FOR UPDATE / UPDATE：`status` (REVIEWING/CONFLICT_RESOLUTION/READY_TO_COMMIT → COMMITTING → COMMITTED → MEMORY_LEARN_PENDING)
+- `ai_financial_extraction_task` — SELECT FOR UPDATE / UPDATE：`status` (REVIEWING/CONFLICT_RESOLUTION/READY_TO_COMMIT → COMMITTING → COMMITTED → COMPLETED；事务内一次推进至终态)
 - `ai_financial_extraction_file` — UPDATE × N：`status=FILE_COMMITTED`
 - `ai_financial_extraction_extracted_row` — SELECT（跨域只读）
 - `ai_financial_extraction_mapping_result` — SELECT（跨域只读）
@@ -741,7 +738,7 @@ sequenceDiagram
 ### 3.3 OcrMemoryLearnSqsProducer（出口 3）
 
 **支持的业务逻辑**：
-- 触发时机：`/tasks/{id}/commit` 事务 **AFTER_COMMIT** 阶段（fi_* 写入成功后）
+- 触发时机：`/tasks/{id}/commit` 事务 **AFTER_COMMIT** 阶段（fi_* 写入成功后）；fire-and-forget，不影响 task 终态（task 已在事务内 → COMPLETED）
 - payload 构建：对每个 `extracted_row` 比对 `originalAiCategory` vs `confirmedCategory`，生成 `mappingComparisons[]` 数组
 - `wasOverridden` 计算：Java 端计算 `originalAiCategory != confirmedCategory`；Python 端只学习 `wasOverridden=true` 的条目
 - 重试支持：`attemptNumber` 字段；首次为 1。**v2 注意**：原 Java `/memory-learn/retry` 端点已删除；重试改由 Python 内部 cron 或 Python `/state` 端点暴露 retry 入口
@@ -768,7 +765,7 @@ sequenceDiagram
 
 **关联的表**：
 - 触发前：`ai_financial_extraction_extracted_row` + `ai_financial_extraction_mapping_result` (SELECT)
-- Java 端 AFTER_COMMIT：`ai_financial_extraction_task` UPDATE (status=MEMORY_LEARN_PENDING)
+- Java 端 AFTER_COMMIT：仅 SQS 入队，不再 UPDATE `ai_financial_extraction_task.status`（v3 解耦：task 已在 commit 事务内完成 → COMPLETED）
 - Python 消费后写：`ai_financial_extraction_mapping_memory` (RWUD)、`ai_financial_extraction_mapping_memory_audit` (INSERT)、`ai_financial_extraction_memory_learn_log` (INSERT)
 
 **接口契约**：
@@ -912,15 +909,11 @@ sequenceDiagram
 
 #### 3.4.4 handleMemoryLearnProgress（messageType=OcrMemoryLearnProgress）
 
-**支持的业务逻辑**：
-- 记忆学习阶段进度回报，驱动 task 终态切换
-- `MEMORY_LEARN_FAILED` 终态 **不回滚 fi_***（财务数据已 committed，不允许重做）
-
-| `learnStage` | Java 端动作 |
-|--------------|-------------|
-| `IN_PROGRESS` | CAS：`MEMORY_LEARN_PENDING → MEMORY_LEARN_IN_PROGRESS` |
-| `COMPLETE` | CAS：`MEMORY_LEARN_IN_PROGRESS → COMPLETED` + 写 state_log `MEMORY_LEARN_COMPLETE` |
-| `FAILED` | 读 `ai_financial_extraction_memory_learn_log` 计数：`<3` 回 PENDING 等重试；`≥3` 进 MEMORY_LEARN_FAILED 终态 |
+**支持的业务逻辑（v3 降级为审计）**：
+- 记忆学习已与 task 状态机解耦（v3）：task 在 commit 事务成功时即 `COMPLETED`，记忆学习是 fire-and-forget 后台流程
+- handler 仅消费回传消息用于审计，**不再更新 `task.status`**（不再驱动 `MEMORY_LEARN_PENDING → IN_PROGRESS → COMPLETED` 任何中间态）
+- 仅在需要时 INSERT `ai_financial_extraction_memory_learn_log` 用于 Java 侧审计；若 Python 已写则可省略 Java 重复写入
+- 财务数据 (fi_*) 已 committed，记忆学习失败任何情况下都不回滚 fi_*
 
 **逻辑图**：
 
@@ -930,24 +923,13 @@ sequenceDiagram
    ▼
 [OcrResultSqsProcessor#handleMemoryLearnProgress] (@Transactional)
    ├──→ HMAC + companyId 校验
-   ├──→ CAS UPDATE ai_financial_extraction_task (status 按 learnStage 推进)
-   │    └─ FAILED 分支：SELECT ai_financial_extraction_memory_learn_log COUNT
-   └──→ INSERT ai_financial_extraction_task_state_log (MEMORY_LEARN_*)
+   └──→ INSERT ai_financial_extraction_memory_learn_log（仅审计；不更新 task.status）
 ```
 
 **关联的表**：
-- `ai_financial_extraction_task` — UPDATE (CAS)：`status` (MEMORY_LEARN_PENDING/IN_PROGRESS/COMPLETED/FAILED)
-- `ai_financial_extraction_memory_learn_log` — SELECT (COUNT，FAILED 分支判定重试次数)
-- `ai_financial_extraction_task_state_log` — INSERT：`MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`
+- `ai_financial_extraction_memory_learn_log` — INSERT（审计；可选，与 Python 写入二选一或共存）
 
-**`learnStage` 4 个枚举**：
-
-| learnStage | 含义 | 前端显示 |
-|-----------|------|---------|
-| `PENDING` | 已入队等待 Python 消费 | "记忆学习排队中..." |
-| `IN_PROGRESS` | Python 已开始处理 | "正在学习用户修正..." |
-| `COMPLETE` | 学习成功完成 | "学习完成" |
-| `FAILED` | 本次尝试失败 | 静默或"学习失败但财务数据已提交" |
+**说明**：v3 之前驱动 task 状态推进的 CAS 路径已删除。前端不再通过 Java task.status 观察记忆学习进度，改由 Python `/state.memoryLearn.stage` 暴露。
 
 ---
 
@@ -970,7 +952,6 @@ sequenceDiagram
 |---------|------|------|
 | `sweepDraftExpired` | DRAFT > 24h | 删 S3 对象 + `status=EXPIRED` + 清理 Imported Statements 占位行 |
 | `sweepZombieProcessing` | file.PROCESSING > 20min | 跨 schema 检查 Python 是否已写 `ai_financial_extraction_extracted_table`：有 → 推进 REVIEW_READY；无 → FILE_FAILED |
-| `sweepStuckMemoryLearn` | MEMORY_LEARN_IN_PROGRESS > 10min | `status=MEMORY_LEARN_FAILED`（fi_* 不回滚） |
 
 **v2 不再扫描的状态**:
 - `VERIFYING` → 由 Python 自身管理（v2 边界变更）
@@ -1150,7 +1131,7 @@ v1 行为 → v2 简化：
 | v1 | v2 |
 |----|----|
 | `/commit` 同步执行；前端独立调 `/commit/result` 拿 Benchmark URL | `/commit` 响应**直接含** `benchmarkRedirectUrl`（合并 `/commit/result`） |
-| `/commit` 后前端轮询 Java `/tasks/{id}/status` 看 MEMORY_LEARN 进度 | 前端轮询 Python `/state.memoryLearn.stage` 看进度 |
+| `/commit` 后前端轮询 Java `/tasks/{id}/status` 看 MEMORY_LEARN 进度 | task 在 commit 完成时即 `COMPLETED`，记忆学习 fire-and-forget；前端如需观察记忆学习进度可轮询 Python `/state.memoryLearn.stage`（不再写 Java task.status） |
 | 前端在 commit 成功后另起逻辑跳 Benchmark | `/commit` 响应内 `benchmarkRedirectUrl` 直接前端 router push |
 
 ### 6.2 两阶段事务模型
@@ -1166,20 +1147,19 @@ v1 行为 → v2 简化：
   ④ 读 ai_financial_extraction_extracted_row + ai_financial_extraction_mapping_result（跨 schema SELECT）
   ⑤ 按 resolution 策略写 fi_* 财务表（Actuals）+ 调 ProformaForecastService.appendVersion()
   ⑥ 写 ai_financial_extraction_commit_audit（written/overwritten/skipped + 关联 conflict_note_id）
-  ⑦ task.status=COMMITTED；files.status=FILE_COMMITTED
+  ⑦ task.status: COMMITTED → COMPLETED（v3：同事务一次推进至终态）；files.status=FILE_COMMITTED
   ⑧ 若 revision：parent.status=SUPERSEDED + parent.superseded_by=self.id
   ⑨ 构建 benchmarkRedirectUrl（BenchmarkRedirectService.buildUrl(taskId, writtenPeriods)）
   ⑩ publishEvent(CommitSuccessEvent)（Spring 事件，不立即发 SQS）
   ⑪ 返回 CommitRespVo{writtenAccounts, writtenPeriods[], importedStatementsFolderId, benchmarkRedirectUrl}
 
-AFTER_COMMIT（@TransactionalEventListener(phase = AFTER_COMMIT)）:
+AFTER_COMMIT（@TransactionalEventListener(phase = AFTER_COMMIT)，fire-and-forget；以下三件事均不影响 task 终态或 commit 响应）:
   ⑫ ImportedStatementsService.finalize(taskId)
      └─ 把所有 visible=false 的占位行设为 visible=true（含 has_extractable_data=false 文件）
   ⑬ 触发下游 normalization 流程（@Async）
   ⑭ 检测新 closed month → ClosedMonthMailService.notify()（写 state_log NEW_CLOSED_MONTH）
-  ⑮ 构建 mappingComparisons → OcrMemoryLearnSqsProducer.send(...)（参见 §3.3）
-  ⑯ task.status=MEMORY_LEARN_PENDING
-  ⑰ 写 state_log COMMIT_COMPLETE
+  ⑮ 构建 mappingComparisons → OcrMemoryLearnSqsProducer.send(...)（参见 §3.3，异步记忆学习）
+  ⑯ 写 state_log COMMIT_COMPLETE
 ```
 
 ### 6.3 关键实现层约束
@@ -1221,7 +1201,7 @@ Commit 失败**不置 task.status=FAILED**。事务 rollback 后 task.status 自
 
 | 文件聚合结果 | task 状态推进 | 后续动作 |
 |-------------|--------------|---------|
-| 全部 `has_extractable_data=false` | `status=NO_DATA_BYPASS` → AFTER_COMMIT `ImportedStatementsService.finalize()` → `status=COMPLETED` | 跳过 MEMORY_LEARN（无需学习）；前端通过 Python `/state` 发现状态变化 |
+| 全部 `has_extractable_data=false` | `status=NO_DATA_BYPASS` → AFTER_COMMIT `ImportedStatementsService.finalize()` → `status=COMPLETED` | 不入队记忆学习（无可学习数据）；前端通过 Python `/state` 发现状态变化 |
 | 全部 true | 走正常流程（→ SIMILARITY_CHECKING → REVIEWING → 用户审核 → /verify → /commit） | — |
 | 混合 | 仅有数据文件参与 verify + commit | 无数据文件在 commit AFTER_COMMIT 时一并 finalize |
 

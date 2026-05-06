@@ -103,7 +103,7 @@
 | **1** | **文件上传** | **Java** | 校验文件类型/大小/格式/重名 → 写入 S3 → 创建 `ai_financial_extraction_task` + `ai_financial_extraction_file` 行 | Pipeline §1（上传） |
 | **2** | **文件解析** | **Java SQS → Python → Python DB** | Java 入队 `ocr-extract-queue` → Python 消费执行 OCR/AI 提取/AI 映射 → Python 直接写 `ai_financial_extraction_extracted_*` / `ai_financial_extraction_mapping_result` → 通过 `ocr-result-queue` 回传文件级进度给 Java 更新 `task/file.status` → 前端通过 Python `/ocr/tasks/{id}/state` 轮询 | Pipeline §2-§3（提取 + 映射） |
 | **3** | **数据校验** | **Python** | 用户通过 Python 端点审核/编辑/Mapping Summary/冲突解决；Python 写 `ai_financial_extraction_extracted_row` / `mapping_result` / `conflict_record` / `conflict_note` / `task_state_log` | Pipeline §4 + §5a + §5b（Review + Summary + Conflict） |
-| **4** | **数据保存** | **Java commit + Java SQS → Python** | Java 整批事务写入 `fi_*` + 同事务写 `commit_audit`（跨域 INSERT 例外）→ `@AfterCommit` 入队 `ocr-memory-learn-queue` → Python 消费执行记忆学习（更新 `ai_financial_extraction_mapping_memory`）→ 写 `memory_learn_log` 与 `mapping_memory_audit` 双重日志 | Pipeline §5c + §6（Commit + Learn） |
+| **4** | **数据保存** | **Java commit + Java SQS → Python** | Java 整批事务写入 `fi_*` + 同事务写 `commit_audit`（跨域 INSERT 例外）→ `task.status: COMMITTED → COMPLETED`（即时终态）→ `@AfterCommit` 入队 `ocr-memory-learn-queue`（fire-and-forget）→ Python 后台消费更新 `mapping_memory` + 写 `memory_learn_log` 与 `mapping_memory_audit`（不影响 task 状态） | Pipeline §5c + §6（Commit + Learn） |
 
 **关键约束**:
 
@@ -171,7 +171,14 @@ Java 调用 Python 的**唯一方式**是 SQS 消息。严格对应用户需求 
 | **变更明细** | `ai_financial_extraction_mapping_memory_audit`（Python 主导，§3.6）— 每条记忆变更一行，含 `idempotency_key` 防重 | event_type（CREATE/CONFIRM/REJECT/ARCHIVE）、old_category、new_category、actor、reason |
 | **进度回传** | `ocr-result-queue` 的 `OcrMemoryLearnProgress` 消息 | 阶段（START / IN_PROGRESS / COMPLETE / FAILED）、进度 %、当前处理的 row 数 |
 
-任务级记忆学习状态由 `ai_financial_extraction_task.status`（`MEMORY_LEARN_PENDING` / `MEMORY_LEARN_IN_PROGRESS` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`）反映，详见 [database-schema.md §1.2 Task 状态](./database-schema.md)。
+**v3 解耦：记忆学习与 task 生命周期完全解耦**
+
+- Task 在 commit 完成（fi_* 写入事务提交成功）即直接进入 `COMPLETED`，**不再有 `MEMORY_LEARN_PENDING` / `MEMORY_LEARN_IN_PROGRESS` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED` 等中间状态**
+- `@AfterCommit` 入队 `ocr-memory-learn-queue` 是 **fire-and-forget**：Java 不再等待 Python 完成、不再因记忆学习失败回退 task 状态
+- Python `memory_learn_consumer` 仍消费消息执行记忆学习；`OcrMemoryLearnProgress` 消息保留，但 Java handler **仅写入 `memory_learn_log` 审计**，**不再驱动 `task.status`**
+- 记忆学习失败 / SQS 重试 / DLQ 均不影响"用户已感知任务完成"
+- **用户体验**：commit 成功的瞬间前端显示"任务完成"，记忆学习作为后台异步审计流程独立推进
+- **可观测性**：查看记忆学习当前状态的唯一来源是 `ai_financial_extraction_memory_learn_log`（Python 主导，§3.10），不再通过 `task.status` 反映；详见 [database-schema.md](./database-schema.md)
 
 ### 0.5 关键规则：跨域权限清单（v2 收敛后）
 
@@ -232,8 +239,10 @@ R-3.3 要求"校验前后数据要留 log"。设计上**不在 state_log 中冗�
 | 上传 | `UPLOAD_INITIATED` / `UPLOAD_FILE_VALIDATED` / `UPLOAD_S3_PERSISTED` / `UPLOAD_REJECTED` | Java |
 | 解析 | `EXTRACT_QUEUED` / `EXTRACT_STARTED` / `EXTRACT_PROGRESS` / `EXTRACT_COMPLETED` / `EXTRACT_FAILED` / `EXTRACT_NO_DATA` | Java（前 1 个 + 后 1 个）+ Python（`ocr-result-queue` 回传） |
 | 校验 | `VALIDATION_START` / `MAPPING_EDITED` / `SUMMARY_VIEWED` / `VERIFICATION_TRIGGERED` / `CONFLICT_DETECTED` / `CONFLICT_RESOLVED` / `NAVIGATION_BACK` / `REMAP_TRIGGERED` / `VALIDATION_END` | Java |
-| 保存 | `COMMIT_START` / `COMMIT_SUCCESS` / `COMMIT_FAILED` / `MEMORY_LEARN_TRIGGERED` / `MEMORY_LEARN_PROGRESS` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED` | Java（前 4 个）+ Python（后 3 个，通过 `ocr-result-queue`） |
+| 保存 | `COMMIT_START` / `COMMIT_SUCCESS` / `COMMIT_FAILED` / `MEMORY_LEARN_TRIGGERED`（仅记录入队动作，fire-and-forget） | Java |
 | 终态 | `TASK_COMPLETED` / `TASK_FAILED` / `TASK_SUPERSEDED` / `TASK_EXPIRED` | Java |
+
+> v3 解耦：commit 成功后 `task.status = COMPLETED` 立即终态，不再有 `MEMORY_LEARN_*` 中间状态。记忆学习的执行进度与结果独立审计在 `ai_financial_extraction_memory_learn_log`（§3.10），不写入 `task_state_log`、不驱动 `task.status`。
 
 **实现要点**:
 
@@ -517,15 +526,15 @@ Embedding(RAG阶段) 任意       text-embedding-3-small  $0.02
             ↓
         COMMITTING           用户点 Commit，写入 fi_* 中
             ↓
-        COMMITTED            fi_* 写入成功（事务已提交）
+        COMMITTED            fi_* 写入成功（事务已提交，瞬态）
             ↓
-   MEMORY_LEARN_PENDING      记忆学习消息已发，Python 等待消费
-            ↓
- MEMORY_LEARN_IN_PROGRESS    Python 对比原始 vs 最终确认，学习中
-            ↓
-  MEMORY_LEARN_COMPLETE      记忆学习完成
-            ↓
-        COMPLETED            全流程结束（后置动作：邮件、Normalization 均完成）
+        COMPLETED            commit 成功即终态（v3 解耦：不再等待记忆学习）
+
+  ── 后台异步审计（不影响 task.status）──
+   @AfterCommit 入队 ocr-memory-learn-queue（fire-and-forget）
+   Python memory_learn_consumer 消费 → 更新 mapping_memory
+   → 写 memory_learn_log + mapping_memory_audit
+   失败 / 重试 / DLQ 均不回退 task.status
             ↓
         SUPERSEDED           被后续 revision task 取代（仅对 parent task）
 
@@ -605,15 +614,16 @@ Java 创建新 task（parent_task_id = ABC，revision_number = ABC.revision_numb
 
 命名相似容易混淆，但语义、发生阶段、数据方向完全不同：
 
-| 维度 | 文件级 MAPPING_MEMORY_* | 任务级 MEMORY_LEARN_* |
+| 维度 | 文件级 MAPPING_MEMORY_*（task 状态机内）| 后台记忆学习（v3 解耦，task 状态机外）|
 |------|------------------------|----------------------|
-| **存储字段** | `ai_financial_extraction_file.processing_stage` | `ai_financial_extraction_task.status` |
-| **发生阶段** | Phase 2 解析阶段（单文件处理中） | Phase 6 记忆学习阶段（commit 后） |
+| **存储字段** | `ai_financial_extraction_file.processing_stage` | `ai_financial_extraction_memory_learn_log`（Python 主导）|
+| **发生阶段** | Phase 2 解析阶段（单文件处理中） | Phase 6 记忆学习阶段（commit 后异步，task 已 COMPLETED）|
 | **数据方向** | **读** `ai_financial_extraction_mapping_memory` 表 | **写** `ai_financial_extraction_mapping_memory` 表 |
-| **触发者** | Python OCR pipeline（每个文件都经过） | Python memory_learn_consumer（Commit 后 Java 发 SQS 触发） |
-| **可能的值** | `MAPPING_MEMORY_LOOKUP` / `_APPLY` / `_COMPLETE` | `MEMORY_LEARN_PENDING` / `_IN_PROGRESS` / `_COMPLETE` / `_FAILED` |
-| **失败影响** | 单文件映射失败，可重试或降级 LLM | 财务数据已写入，学习失败不回滚 |
-| **UI 展示** | ProcessingPage 文件级进度条"记忆查询中..." | SuccessPage 悬浮条"记忆学习中 (2/3 文件)..." |
+| **触发者** | Python OCR pipeline（每个文件都经过） | Python memory_learn_consumer（Commit 后 Java fire-and-forget 入队触发）|
+| **可能的值** | `MAPPING_MEMORY_LOOKUP` / `_APPLY` / `_COMPLETE` | `memory_learn_log.status`：`STARTED` / `IN_PROGRESS` / `COMPLETED` / `FAILED`（独立审计字段，不写 `task.status`）|
+| **影响 task.status** | 是（PROCESSING 子阶段）| **否**（v3 起完全解耦）|
+| **失败影响** | 单文件映射失败，可重试或降级 LLM | 财务数据已写入且 task.status=COMPLETED，学习失败仅留审计、SQS 重试、不回滚 |
+| **UI 展示** | ProcessingPage 文件级进度条"记忆查询中..." | 用户已看到"任务完成"；记忆学习状态需主动查 `memory_learn_log`（不再有 SuccessPage 悬浮条）|
 
 **记忆一词的双重角色**: 同一张 `ai_financial_extraction_mapping_memory` 表，在解析时被读（Layer 2 匹配），在 commit 后被写（用户修正学习）。这是闭环——读历史记忆帮助映射，映射错了用户修正，修正写回成新记忆。
 
@@ -881,10 +891,12 @@ Phase 5：提交阶段（整体事务）
                                  事务提交后:
                                    ↓ 检查 task 所有文件:
                                      if (all files = FILE_COMMITTED)
-                                        [task.status=COMPLETED]  ← 批次完成标志
+                                        [task.status=COMMITTED → COMPLETED]
+                                        ← v3 解耦：commit 成功即终态
+                                          不再等待记忆学习
                                      else
                                         [task.status=FAILED]
-                                        
+
                                  返回 200 {success: true/false}
 
 
@@ -915,44 +927,39 @@ Phase 5.5：COMMITTED 后置动作（仅成功 commit 才触发）
                                        └─ parent.superseded_by = current_task.id
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Phase 6：记忆学习（独立阶段，通过 SQS 异步触发，前后有完整状态）
+Phase 6：记忆学习（v3 解耦：后台异步审计流程，不影响 task.status）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-                              ㉛ 构建 mappingComparisons:
-                                 对比 AI 原始建议 vs 用户最终确认
-                                 过滤出 wasOverridden=true 的条目
-                                 
-                              ㉜ [task.status=MEMORY_LEARN_PENDING]
-                                 发送 ocr-memory-learn-queue ──→ ocr-memory-learn-queue
-                                 （即使没有 overridden 条目也发，确保状态推进）
+   轮询发现 COMPLETED         ㉛ Java @AfterCommit 钩子（fire-and-forget）：
+   ↓ history.push('/success')    构建 mappingComparisons（AI 原始 vs 用户最终）
+   [COMPLETED]                   过滤 wasOverridden=true
+   显示成功页 + Benchmark Info   入队 ocr-memory-learn-queue
+                                 写 task_state_log: MEMORY_LEARN_TRIGGERED
+                                 不更新 task.status（保持 COMPLETED）
 
-                                                              ㉝ Python 消费消息
-                                                                 发 OcrMemoryLearnProgress ──→ ㉞ Java:
-                                                                   phase=STARTED                  [task.status=
-                                                                                                   MEMORY_LEARN_IN_PROGRESS]
-                                                              
-                                                              ㉟ 处理每条 override:
-                                                                 - 计算记忆项的 hash
-                                                                 - 查询 ai_financial_extraction_mapping_memory 冲突
+                                                              ㉜ Python memory_learn_consumer 消费：
+                                                                 写 memory_learn_log: STARTED
+                                                                 发 OcrMemoryLearnProgress ──→ ㉝ Java handler:
+                                                                   learnStage=IN_PROGRESS         仅写 memory_learn_log
+                                                                                                  审计；task.status 不变
+
+                                                              ㉞ 处理每条 override：
+                                                                 - 计算记忆项 hash
+                                                                 - 查询 mapping_memory 冲突
                                                                  - 写入 / 更新记忆
+                                                                 - 写 mapping_memory_audit
                                                                  - 累计 learned_count
-                                                              
-                                                              ㊱ 更新 company_memory_version:
-                                                                 new_version = SHA256(
-                                                                   all_memories_sorted_by_id
-                                                                 )
-                                                              
-                                                              ㊲ 发 OcrMemoryLearnResult ──→ ㊳ Java:
-                                                                 {learnedCount, skippedCount,      [task.status=
-                                                                  newMemoryVersion, error}          MEMORY_LEARN_COMPLETE]
 
-                              ㊴ Java 最终推进:
-                                 [task.status=COMPLETED]  ← 全流程结束标志
+                                                              ㉟ 完成 / 失败：
+                                                                 写 memory_learn_log: COMPLETED / FAILED
+                                                                 发 OcrMemoryLearnProgress ──→ ㊱ Java handler:
+                                                                   learnStage=COMPLETE/FAILED     仅 UPSERT
+                                                                                                  memory_learn_log；
+                                                                                                  task.status 保持
+                                                                                                  COMPLETED
 
-   轮询发现 COMPLETED
-   ↓ history.push('/success')
-   [COMPLETED]
-   显示成功页 + Benchmark Info
+   失败语义：用户已感知任务完成；记忆学习失败仅留审计记录，
+            SQS 重试 / DLQ，不阻塞、不报错给用户
 ```
 
 ---
@@ -978,12 +985,13 @@ Java 是 `ai_financial_extraction_*` 表的唯一 writer，避免跨服务写入
 
 在 PROCESSING 主状态下，Python 汇报 6 个细分阶段（EXTRACTING → MAPPING_RULE → MAPPING_MEMORY → MAPPING_LLM → VALIDATING → PERSISTING），前端 ProgressBar 精确显示"正在做什么"。
 
-**4. 记忆学习在 post-commit 触发**
+**4. 记忆学习在 post-commit fire-and-forget 触发（v3 解耦）**
 
-记忆学习发生在 task COMPLETED 后（不是审核时），对比 AI 原始建议 vs 用户最终确认，只存被修正的条目。这保证：
-- 只学习"用户真正修正过"的映射
-- 避免部分提交场景下学到错误的中间状态
-- 只有整批成功才学习，保证记忆质量
+记忆学习在 commit 事务提交后通过 `@AfterCommit` 入队 `ocr-memory-learn-queue`，**与 task 生命周期解耦**：
+- Task 在 commit 成功瞬间即 `COMPLETED`，不再有 `MEMORY_LEARN_*` 中间状态
+- 对比 AI 原始建议 vs 用户最终确认，只存被修正的条目，保证记忆质量
+- Python 消费失败 / SQS 重试 / DLQ 均不影响 task.status；用户已感知"任务完成"
+- 记忆学习状态独立审计在 `memory_learn_log`（§3.10），UI 不再展示学习进度悬浮条
 
 **5. OOE 不在 OCR Agent 计算**
 
@@ -1115,7 +1123,11 @@ FAILED      FAILED         FAILED   FAILED     FAILED     (用户编辑)  │
                             │  → 跳转 Benchmark Info Page             │
                             └────────────────────┬────────────────────┘
                                                  ▼
-                                            COMMITTED → MEMORY_LEARN → COMPLETED
+                                            COMMITTED → COMPLETED（v3：commit 成功即终态）
+                                                          │
+                                                          └─ 后台 fire-and-forget：
+                                                             ocr-memory-learn-queue
+                                                             → memory_learn_log（审计，不改状态）
 
                             旁路：无可提取数据 → 跳过 5a/5b/5c，文件直接保存（详见 §4.6）
                             旁路：用户 Previous 修改了上游 → 重跑并清空 5b 状态（详见 §4.5）
@@ -1505,6 +1517,8 @@ Java 收到 `status=completed` → `task.status = SIMILARITY_CHECKED` → 立即
 
 **Python → Java (ocr-result-queue) — OcrMemoryLearnProgress**
 
+> **v3 解耦语义**：本消息**仅用于审计**，Java handler 收到后**只 UPSERT `ai_financial_extraction_memory_learn_log`**，**不更新 `ai_financial_extraction_task.status`**。task 在 commit 成功时已直接进入 `COMPLETED`，记忆学习的成功 / 失败 / 重试均不回退或推进 task 状态。`learnStage` 仅作为 `memory_learn_log` 内部字段使用。
+
 ```json
 {
   "messageType": "OcrMemoryLearnProgress",
@@ -1513,7 +1527,7 @@ Java 收到 `status=completed` → `task.status = SIMILARITY_CHECKED` → 立即
   "sendTime": "2026-04-16T10:10:00Z",
   "taskId": "task-uuid",
   "companyId": "123",
-  "learnStage": "MEMORY_LEARN_IN_PROGRESS",
+  "learnStage": "IN_PROGRESS",
   "stageDetail": {
     "processedFileCount": 2,
     "totalFileCount": 3,

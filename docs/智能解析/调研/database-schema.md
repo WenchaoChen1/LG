@@ -62,7 +62,7 @@ OCR Agent 包含 **15 张表**，**全部使用 `ai_financial_extraction_` 前�
 
 | § | 表名（点击跳转详情） | 拥有方 | 用途/注释 | 写主 | 读方 |
 |---|------|:---:|---------|:---:|------|
-| [2.1](#21-ai_financial_extraction_task) | [`ai_financial_extraction_task`](#21-ai_financial_extraction_task) | Java | OCR 解析任务主表，记录每次上传/修订的整体生命周期；含 22 个状态枚举、修订链、`mapping_snapshot_hash`（变更检测）、`has_extractable_data` / `extraction_skip_reason`（无数据标记） | Java | Python (SELECT) |
+| [2.1](#21-ai_financial_extraction_task) | [`ai_financial_extraction_task`](#21-ai_financial_extraction_task) | Java | OCR 解析任务主表，记录每次上传/修订的整体生命周期；含 18 个状态枚举（v3 起记忆学习从 task 状态机解耦，commit 成功即 COMPLETED）、修订链、`mapping_snapshot_hash`（变更检测）、`has_extractable_data` / `extraction_skip_reason`（无数据标记） | Java | Python (SELECT) |
 | [2.2](#22-ai_financial_extraction_file) | [`ai_financial_extraction_file`](#22-ai_financial_extraction_file) | Java | 单文件元数据（filename / S3 key / hash / status / processing_stage / progress / `replaced_by_file_id` 替换链），与 `ai_financial_extraction_task` 1:N | Java | Python (SELECT) |
 | [3.1](#31-ai_financial_extraction_extracted_table) | [`ai_financial_extraction_extracted_table`](#31-ai_financial_extraction_extracted_table) | Python | OCR / Excel 提取出的表格（document_type / currency / source_page），与 `ai_financial_extraction_file` 1:N | Python | Java (SELECT) |
 | [3.2](#32-ai_financial_extraction_extracted_row新增-label_embedding-列) | [`ai_financial_extraction_extracted_row`](#32-ai_financial_extraction_extracted_row新增-label_embedding-列) | Python | 表格中的每一行（account_label / cell_values / `label_embedding` 用于相似度检测），与 `ai_financial_extraction_extracted_table` 1:N | Python | Java (SELECT) |
@@ -126,7 +126,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; -- UUID 生成
 
 ### 1.2 枚举值清单（与代码 enum 严格对应）
 
-#### Task 状态（22 个）
+#### Task 状态（18 个）
 
 应用层 enum: `com.gstdev.cioaas.web.docparse.domain.enums.DocParseStatus`
 
@@ -145,12 +145,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; -- UUID 生成
 | `VERIFYING` | **Step 5b** 冲突预检中 | VERIFY_PENDING 进入实际检测 | CONFLICT_RESOLUTION / REVIEWING（失败回退） |
 | `CONFLICT_RESOLUTION` | **Step 5b** 用户解决冲突中（§4.10） | verify 返回有冲突 | COMMITTING / REVIEWING |
 | `COMMITTING` | **Step 5c** 写入 fi_* 中（事务，§4.11） | POST /commit | COMMITTED / REVIEWING（失败回退，Q7 方案 B） |
-| `COMMITTED` | fi_* 写入成功（瞬态，等记忆学习） | commit 事务成功 | MEMORY_LEARN_PENDING |
-| `MEMORY_LEARN_PENDING` | 记忆学习排队 | AFTER_COMMIT 发 SQS | MEMORY_LEARN_IN_PROGRESS |
-| `MEMORY_LEARN_IN_PROGRESS` | Python 正在学习 | Python 消费消息 | MEMORY_LEARN_COMPLETE / MEMORY_LEARN_FAILED |
-| `MEMORY_LEARN_COMPLETE` | 学习完成（瞬态） | Python 学习成功 | COMPLETED |
-| `MEMORY_LEARN_FAILED` | 学习失败（3 次重试后） | Python 失败 3 次 | COMPLETED（财务数据已写入，学习是锦上添花） |
-| `COMPLETED` | 任务终态（成功） | 记忆学习完成或失败 | SUPERSEDED（被修订版替代） |
+| `COMMITTED` | fi_* 写入成功（瞬态，立即推进 COMPLETED） | commit 事务成功 | COMPLETED |
+| `COMPLETED` | commit 成功，task 终态。记忆学习独立异步进行，不影响 task 状态 | COMMITTED 后立即推进 | SUPERSEDED（被修订版替代） |
 | `SUPERSEDED` | 被修订版替代 | 修订版 COMPLETED 时 | 终态 |
 | `FAILED` | 任务失败（硬终态） | 全部文件 FILE_FAILED / Sweeper 超时 / VERIFYING 卡死 | 终态（只能 revise） |
 | `EXPIRED` | DRAFT 过期（24h 未操作） | Sweeper 清理 | 终态 |
@@ -240,7 +236,7 @@ Balance Sheet:       Cash / Accounts Receivable / R&D Capitalized / Other Assets
 
 ### 2.1 ai_financial_extraction_task
 
-**用途**: OCR 解析任务主表。每次用户发起一次"上传 + 解析 + 审核 + 提交"流程对应一行；修订（revise）会创建新行并通过 `parent_task_id` 链接到原任务。承载 22 个状态枚举（详见 §1.2 Task 状态）、修订链、Step 5a 摘要缓存、Step 5b 冲突变更检测、§4.12 无可提取数据标志等核心元数据。
+**用途**: OCR 解析任务主表。每次用户发起一次"上传 + 解析 + 审核 + 提交"流程对应一行；修订（revise）会创建新行并通过 `parent_task_id` 链接到原任务。承载 18 个状态枚举（详见 §1.2 Task 状态；**v3 起记忆学习从 task 状态机解耦，task 在 commit 成功后即 COMPLETED**，记忆学习独立异步进行、审计落 §3.10）、修订链、Step 5a 摘要缓存、Step 5b 冲突变更检测、§4.12 无可提取数据标志等核心元数据。
 
 ```sql
 CREATE TABLE ai_financial_extraction_task (
@@ -249,7 +245,7 @@ CREATE TABLE ai_financial_extraction_task (
     uploaded_by     BIGINT NOT NULL,
     session_id      UUID,                                            -- 批次分组
     status          VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
-        -- 20 个状态枚举，见 §1.2 Task 状态
+        -- 18 个状态枚举，见 §1.2 Task 状态
 
     -- 版本化字段（2026-04-20 新增）
     parent_task_id  UUID REFERENCES ai_financial_extraction_task(id),
@@ -672,6 +668,11 @@ CREATE INDEX idx_ai_financial_extraction_conflict_note_parent
 
 **用途**: 记忆学习决策日志（**架构边界 §0.4 强制要求**）— 每次 fi_* commit 成功后，Java 通过 `ocr-memory-learn-queue` 触发 Python 学习；Python 消费消息后，**每次尝试都必须写一行**到本表，记录是否成功、新增/更新了多少条记忆、失败原因等关键信息。
 
+**v3 解耦定位（独立审计来源）**:
+- **唯一审计来源**: 本表是记忆学习状态/进度/重试的**唯一**审计来源；运维/排查必须查本表，不再通过 `ai_financial_extraction_task.status` 反映记忆学习状态
+- **不影响 task 状态**: v3 起记忆学习从 task 状态机解耦，task 在 commit 成功后即 `COMPLETED`；记忆学习的成败完全不阻塞 task 终态，也不再写入 §3.14 `task_state_log`（无 `MEMORY_LEARN_*` 事件）
+- **失败重试隔离**: `attempt_number` 上限 3 的重试逻辑保留，但仅影响 SQS 消费侧（`memory_learn_consumer` 自身的重试与 DLQ）— 重试期间用户感知任务已完成，不会因学习失败而看到 task 退回非终态
+
 **关键设计**:
 - **Python 主导**: v2 起所有写入均来自 Python（学习是 Python 自治流程的一部分）
 - **不可篡改**: 表结构无 UPDATE 字段，日志一旦写入不可篡改
@@ -834,9 +835,10 @@ CREATE TABLE ai_financial_extraction_task_state_log (
         --              / NAVIGATION_BACK / REMAP_TRIGGERED / VALIDATION_END
         --              （注：MAPPING_EDITED / SUMMARY_VIEWED 等用户行为事件由前端记录在埋点系统，不进 state_log）
         -- Phase 4 保存: COMMIT_START / COMMIT_SUCCESS / COMMIT_FAILED
-        --              / MEMORY_LEARN_TRIGGERED / MEMORY_LEARN_COMPLETE / MEMORY_LEARN_FAILED
-        --              （注：MEMORY_LEARN_PROGRESS 不进 state_log，仅在 OcrResultSqsProcessor 中处理）
+        --              （注：v3 起记忆学习从 task 状态机解耦，不再有 MEMORY_LEARN_* 事件；
+        --               记忆学习的尝试/成功/失败仅记录在 §3.10 ai_financial_extraction_memory_learn_log，不进 state_log）
         -- 终态:        TASK_COMPLETED / TASK_FAILED / TASK_SUPERSEDED / TASK_EXPIRED
+        --              （注：COMMIT_SUCCESS 之后立即追加 TASK_COMPLETED 事件，task 即终态）
     triggered_by    VARCHAR(100) NOT NULL,
         -- 'user:{userId}' / 'sqs:{queueName}:{msgId}' / 'system:{component}' / 'aspect:TaskStateAuditAspect'
     error_detail    TEXT,                                               -- *_FAILED 事件填充错误信息；EXTRACT_NO_DATA 填充 file_id + skip_reason

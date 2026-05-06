@@ -202,7 +202,7 @@
 |------|---------|----------|:---:|
 | `ocr-extract-queue` | 步骤 3 Java `/start-processing` 批量入队 | OCR + AI 提取 + AI 映射；`mode=FULL_EXTRACT` / `REMAP_ONLY` | §14.1 |
 | `ocr-similarity-check-queue` | 所有文件 REVIEW_READY 后 | embedding + KNN 相似度检测 | §14.3 |
-| `ocr-memory-learn-queue` | Java commit AFTER_COMMIT | 记忆学习更新 mapping_memory | §14.2 |
+| `ocr-memory-learn-queue` | Java commit AFTER_COMMIT | 记忆学习更新 mapping_memory（v3：fire-and-forget，不影响 task.status） | §14.2 |
 
 **内部生产（Python → Python 自身入队，v2 新增，1 条）**
 
@@ -217,7 +217,7 @@
 | `OcrProgress` | `OcrResultSqsProcessor#handleProgress` | 文件级精细进度上报（每 stage 一条） | §14.5.1 |
 | `OcrResult` | `OcrResultSqsProcessor#handleResult` | 单文件最终结果上报 | §14.5.2 |
 | `OcrSimilarityCheckResult` | `OcrResultSqsProcessor#handleSimilarityCheckResult` | 相似度检测完成回执 | §14.5.3 |
-| `OcrMemoryLearnProgress` | `OcrResultSqsProcessor#handleMemoryLearnProgress` | 记忆学习状态切换 | §14.5.4 |
+| `OcrMemoryLearnProgress` | `OcrResultSqsProcessor#handleMemoryLearnProgress` | 记忆学习审计回传（v3：仅写 memory_learn_log，不改 task.status） | §14.5.4 |
 
 #### 0.1.3 LangGraph Pipeline 节点（5 个，Python 内部）
 
@@ -329,25 +329,28 @@
 │         ◀──{nextConflictId}── (Save & Next 自动导航)                         │
 └──────────────────────────────────────────────────────────────────────────────┘
 
-┌─ 步骤 7：用户最终提交 ──────────────────────────────────────────────────────┐
+┌─ 步骤 7：用户最终提交（v3：commit 完成即 COMPLETED） ──────────────────────┐
 │                                                                              │
 │ Frontend ──POST /tasks/{id}/commit──▶ Java                                   │
 │                                          │                                   │
 │                                          ▼                                   │
-│                                     INSERT fi_* + commit_audit               │
+│                                  INSERT fi_* + commit_audit                  │
+│                                  UPDATE task.status = COMPLETED              │
 │                                          │                                   │
-│                                          ▼ AFTER_COMMIT                      │
-│                                     SQS ocr-memory-learn-queue               │
+│         ◀──{benchmarkRedirectUrl}── Java │                                   │
+│                                          │ AFTER_COMMIT (fire-and-forget)    │
+│                                          ▼                                   │
+│                                  SQS ocr-memory-learn-queue                  │
 │                                          │                                   │
 │                                          ▼                                   │
-│                                Python memory_learn_consumer                  │
+│                          Python memory_learn_consumer (异步独立运行)         │
 │                                          │                                   │
 │                                          ▼                                   │
-│                                INSERT mapping_memory                         │
+│                          INSERT mapping_memory + memory_learn_log            │
 │                                          │                                   │
 │                                          ▼                                   │
-│                                OcrMemoryLearnProgress(COMPLETE) ──▶ Java     │
-│         ◀──{benchmarkRedirectUrl}── Java                                     │
+│             OcrMemoryLearnProgress(COMPLETE) ──▶ Java（仅审计 log，不改     │
+│                                                       task.status）          │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -518,7 +521,7 @@ source/ocr_agent/routes.py
 **支持的业务逻辑**：
 
 - **唯一聚合查询接口**：替代 v1 的 9 个独立查询端点（`/status` + `/result` + `/history` + `/mapping-summary` + `/verify/progress` + `/conflicts` + `/similarity-hints` + `/memory-learn` + `/memory-learn/history`）
-- **前端按 `task.status` 决定渲染哪个屏幕**：DRAFT → UploadPage；PROCESSING/SIMILARITY_CHECKING → ProgressPage；REVIEWING → ReviewPage；CONFLICT_RESOLUTION → ConflictPage；READY_TO_COMMIT → SummaryPage；MEMORY_LEARN_* → SuccessPage
+- **前端按 `task.status` 决定渲染哪个屏幕**：DRAFT → UploadPage；PROCESSING/SIMILARITY_CHECKING → ProgressPage；REVIEWING → ReviewPage；CONFLICT_RESOLUTION → ConflictPage；READY_TO_COMMIT → SummaryPage；COMPLETED → SuccessPage（v3：记忆学习状态由 `memoryLearn.stage` 字段独立呈现，不再影响 task.status）
 - 文件级精细进度展示（`processing_stage` 12 个枚举值，§14.5.1）
 - 前端 1-2 秒轮询；P50 ≤ 80ms / P95 ≤ 250ms（详见 §3.2 性能预算）
 - 状态高频变化（PROCESSING / REMAP / VERIFY 阶段）；不引入应用层缓存（§3.3）
@@ -926,8 +929,7 @@ Frontend
 | `VERIFYING` | VerifyProgressPage | `verifyState.percent` |
 | `CONFLICT_RESOLUTION` | ConflictPage | `verifyState.conflicts[]` |
 | `READY_TO_COMMIT` | SummaryPage | `mappingSummary` |
-| `MEMORY_LEARN_*` | SuccessPage | `memoryLearn` |
-| `COMPLETED` / `SUPERSEDED` | HistoryPage | `history.versionChain` |
+| `COMPLETED` / `SUPERSEDED` | HistoryPage / SuccessPage | `history.versionChain` / `memoryLearn`（v3：commit 完成即 COMPLETED；记忆学习异步独立运行，状态由 `memoryLearn.stage` 字段单独承载） |
 
 Service 层**不做**状态决策，仅返回当前数据；前端按 status 切换路由。
 
@@ -1846,7 +1848,7 @@ accounts receivable  → Accounts Receivable      1.0
 
 #### Layer A: Company-level Learning（实时）
 
-- 触发：每次 Java commit 后通过 SQS `ocr-memory-learn-queue`
+- 触发：每次 Java commit 后通过 SQS `ocr-memory-learn-queue`（v3：fire-and-forget，task 已在 commit 端点响应时切换为 `COMPLETED`，记忆学习异步独立运行，不再回压 task 状态机）
 - 存储：`ai_financial_extraction_mapping_memory WHERE company_id = :this_company`
 - 生效：立即；该公司下次上传命中
 - 范围：仅本 company
@@ -1877,7 +1879,7 @@ accounts receivable  → Accounts Receivable      1.0
 7. 写 `ai_financial_extraction_memory_learn_log{result=success}`
 8. 发 `OcrMemoryLearnProgress(MEMORY_LEARN_COMPLETE)`
 
-**状态持久化**：每一步切换都持久化到 `ai_financial_extraction_task.status` 与 `memory_learn_log`，Python 崩溃可恢复。
+**状态持久化（v3 调整）**：每一步切换持久化到 `memory_learn_log`（独立审计表），**不再写 `ai_financial_extraction_task.status`**。task 在 Java commit 端点响应时即 `COMPLETED`；Python 崩溃 / SQS 重试只会留下 `memory_learn_log` 多行轨迹，不会让 task 退回中间态。
 
 ### 12.9 幂等 upsert 设计
 
@@ -1896,7 +1898,7 @@ accounts receivable  → Accounts Receivable      1.0
 
 ### 12.10 失败与重试
 
-任意异常 → 写 `memory_learn_log{result=failed}` → 发 `MEMORY_LEARN_FAILED` → `raise` 让 SQS 重试 3 次。**永不回滚 fi_***（Phase 5.5 已提交）。Java 收到 FAILED 后允许前端手动重试。
+任意异常 → 写 `memory_learn_log{result=failed}` → 发 `OcrMemoryLearnProgress(FAILED)` → `raise` 让 SQS 重试 3 次。**永不回滚 fi_***（Phase 5.5 已提交）。**v3 重要边界**：失败 + 重试逻辑保留，但**不影响 task**（task 在 Java commit 端点响应时已 `COMPLETED`），仅影响 `memory_learn_log` 审计完整性；Java handler 收到 FAILED 仅写 audit log，前端通过 `memoryLearn.stage` 字段感知失败、可触发手动重试入口（不改 task.status）。
 
 ---
 
@@ -2367,15 +2369,17 @@ result_producer.send(OcrResult{status=completed|completed_no_data|failed|remap_c
 
 ### 14.2 消费 ocr-memory-learn-queue
 
+> **v3 解耦边界**：本 consumer 已从 task 状态机解耦。task 在 Java `/tasks/{id}/commit` 端点响应时即 `COMPLETED`，本 consumer 在 task 已 COMPLETED 之后台异步运行；处理逻辑、双重日志、出站消息**全部保留**，但 Java handler 不再用 `OcrMemoryLearnProgress` 推进 task.status，仅写 `memory_learn_log` 审计。
+
 **支持的业务逻辑**：
 
-- Java commit 后 AFTER_COMMIT 触发；学习 user override 修正 AI 映射
+- Java commit 后 AFTER_COMMIT 触发（fire-and-forget）；学习 user override 修正 AI 映射
 - **只处理 `wasOverridden=true`**（AI 猜对的不存）
 - 对比 `originalAiCategory` vs `confirmedCategory`，写 `ai_financial_extraction_mapping_memory`（company_id 隔离）
-- 状态机持久化：`MEMORY_LEARN_PENDING → IN_PROGRESS → COMPLETED / FAILED`
+- **独立审计**：每一步切换写 `ai_financial_extraction_memory_learn_log`，**不再驱动 `task.status`**（v3 解耦）
 - 幂等 upsert（`idempotency_key = f"{task_id}:{row_id}"`，§12.9）
-- 失败 → 写 log{failed} + 发 FAILED + 抛出重试（**永不回滚 fi_***）
-- 通过 `ocr-result-queue` 回传 `OcrMemoryLearnProgress` 4 个 stage
+- 失败 → 写 log{failed} + 发 `OcrMemoryLearnProgress(FAILED)` + 抛出重试（最多 3 次）；**不影响 task**（task 已 COMPLETED），仅影响 `memory_learn_log` 审计完整性；**永不回滚 fi_***
+- 通过 `ocr-result-queue` 回传 `OcrMemoryLearnProgress` 4 个 stage（保留消息 schema；v3 起 Java handler 仅写 audit log，不更新 task.status）
 
 **逻辑图**：
 
@@ -2430,7 +2434,7 @@ SQS ocr-memory-learn-queue
     "attemptNumber": 1
   }
   ```
-- **回传**: `OcrMemoryLearnProgress` 4 个 stage：`PENDING` / `IN_PROGRESS` / `COMPLETE` / `FAILED`
+- **回传**: `OcrMemoryLearnProgress` 4 个 stage：`PENDING` / `IN_PROGRESS` / `COMPLETE` / `FAILED`（v3：Java handler 仅记录 `memory_learn_log` 审计，**不再用此消息更新 `task.status`**）
 
 ### 14.3 消费 ocr-similarity-check-queue
 
@@ -2699,17 +2703,17 @@ SQS ocr-similarity-check-queue
 
 **支持的业务逻辑**：
 
-- 记忆学习阶段进度回报；驱动 task 终态切换
+- 记忆学习阶段审计回传（v3：**不再驱动 task 终态切换**；task 在 Java commit 端点响应时即 `COMPLETED`）
 - 4 个 learnStage 枚举：
 
-| learnStage | 含义 | 前端显示 |
+| learnStage | 含义 | 前端显示（来源：`memoryLearn.stage`，与 task.status 解耦） |
 |-----------|------|---------|
 | `PENDING` | 已入队等待 Python 消费 | "记忆学习排队中..." |
 | `IN_PROGRESS` | Python 已开始处理 | "正在学习用户修正..." |
 | `COMPLETE` | 学习成功完成 | "学习完成" |
 | `FAILED` | 本次尝试失败 | 静默或"学习失败但财务数据已提交" |
 
-- 状态变更：`MEMORY_LEARN_PENDING → IN_PROGRESS → COMPLETED / FAILED`
+- v3 状态语义：仅写 `memory_learn_log`（独立审计）；**不再 UPDATE `ai_financial_extraction_task.status`**
 
 **逻辑图**：
 
@@ -2725,15 +2729,15 @@ SQS ocr-similarity-check-queue
     ▼
 [Java Handler: OcrResultSqsProcessor#handleMemoryLearnProgress]
     │
-    └─ UPDATE task.status: MEMORY_LEARN_<learnStage>
+    └─ INSERT ai_financial_extraction_memory_learn_log（独立审计；不改 task.status）
 ```
 
-**关联的表**（Java 端写）：
+**关联的表**（Java 端写，v3）：
 
 | 表 | 动作 |
 |----|-----|
-| `ai_financial_extraction_task` | UPDATE `status` |
-| `ai_financial_extraction_task_state_log` | INSERT |
+| `ai_financial_extraction_memory_learn_log` | INSERT 单行审计（`stage` / `result` / `error_detail`） |
+| ~~`ai_financial_extraction_task`~~ | ~~UPDATE `status`~~（v3 移除：task 在 commit 端点响应即 COMPLETED） |
 
 **接口契约**：
 
