@@ -48,7 +48,7 @@
 
 ## 表清单总览（Schema Overview）
 
-OCR Agent 包含 **15 张表**，**全部使用 `ai_financial_extraction_` 前缀**。按职责分为四组：任务编排（4）、AI 解析产物（4）、用户交互审计（3）、记忆与跨域审计（4）。
+OCR Agent 包含 **15 张表**，**全部使用 `ai_financial_extraction_` 前缀**。下文给出统一总览（按 § 详情章节顺序排列）。
 
 > **2026-05-06 头脑风暴清理**: 原 17 张表中删除 2 张冗余表（`ai_financial_extraction_notification` 已并入 `ai_financial_extraction_task_state_log`；`ai_financial_extraction_extraction_skip_log` 已并入 `ai_financial_extraction_task_state_log` 的 `EXTRACT_NO_DATA` 事件）。详见 §6 变更历史。
 
@@ -58,40 +58,30 @@ OCR Agent 包含 **15 张表**，**全部使用 `ai_financial_extraction_` 前�
 - **所有权隔离**: Java 端（`CIOaas-api/docparse`）和 Python 端（`CIOaas-python/ocr_agent`）共享 schema，但通过 PostgreSQL 角色（`java_app` / `python_worker`）控制写权限（详见 §4）
 - **审计优先**: 所有用户决策、记忆变更、commit 写入都有专门的审计日志表，永久保留
 
-### 一、任务编排（4 张，Java 拥有）
+### 全部 15 张表统一总览
 
-| 表名 | 用途 | 写主 | 读方 |
-|------|------|------|------|
-| `ai_financial_extraction_task` | OCR 解析任务主表，记录每次上传/修订的整体生命周期，含 22 个状态枚举、修订链、`mapping_snapshot_hash`（变更检测）、`has_extractable_data` / `extraction_skip_reason`（无数据标记） | Java | Python (SELECT) |
-| `ai_financial_extraction_file` | 单文件元数据（filename / S3 key / hash / status / processing_stage / progress），与 `ai_financial_extraction_task` 1:N | Java | Python (SELECT) |
-| `ai_financial_extraction_similarity_hint` | Python 相似度检测器输出的"高相似度 account_label 对"，供前端审核页顶部横幅展示，含用户合并/忽略决策 | Python (INSERT/UPDATE) + Java (UPDATE user_decision) | 共享 |
-| 🔴 **`ai_financial_extraction_task_state_log`**（覆盖原 `ai_financial_extraction_notification` + `ai_financial_extraction_extraction_skip_log` 全部职责）| **全流程状态变更总日志**（架构边界 §0.6 强制要求）：每次 `ai_financial_extraction_task.status` 变更，含 4 步流程所有事件（上传/解析/校验/保存）+ 终态事件 | Java（AOP 切面统一写入） | Python (SELECT) |
+> 全部表使用 `ai_financial_extraction_` 前缀。下表按 **§ 详情章节顺序** 排列：§2.x 为 Java 拥有，§3.x 为 Python 拥有；写主/读方反映 PostgreSQL 角色权限（详见 §4 GRANT）。
 
-### 二、AI 解析产物（4 张，Python 拥有）
+| § | 表名 | 拥有方 | 用途/注释 | 写主 | 读方 |
+|---|------|:---:|---------|:---:|------|
+| 2.1 | `ai_financial_extraction_task` | Java | OCR 解析任务主表，记录每次上传/修订的整体生命周期；含 22 个状态枚举、修订链、`mapping_snapshot_hash`（变更检测）、`has_extractable_data` / `extraction_skip_reason`（无数据标记） | Java | Python (SELECT) |
+| 2.2 | `ai_financial_extraction_file` | Java | 单文件元数据（filename / S3 key / hash / status / processing_stage / progress / `replaced_by_file_id` 替换链），与 `ai_financial_extraction_task` 1:N | Java | Python (SELECT) |
+| 2.4 | `ai_financial_extraction_conflict_note` | Java | 冲突解决备注的 thread（多条回复，含 `auto_generated` 系统消息），与 `ai_financial_extraction_conflict_record` 1:N | Java（v2 后 Python 也 INSERT） | Python (SELECT/INSERT) |
+| 2.5 | `ai_financial_extraction_memory_learn_log` | Java | 系统学习审计（Story #8）：每次 commit 后记忆学习的尝试次数（最多 3 次）+ 新增/更新条目数 + 失败原因 | Python (INSERT，跨域例外) + Java | 共享 |
+| 2.6 | `ai_financial_extraction_commit_audit` | Java | 每次 commit 对 `fi_*` 写入操作的审计（action: written/overwritten/skipped + old_value/new_value），财务数据溯源关键，**永久保留** | Java | Python (SELECT) |
+| 2.7 | `ai_financial_extraction_erasure_log` | Java | GDPR "Right to be Forgotten" 擦除请求和执行审计（target_type / s3_objects_deleted / db_records_deleted） | Java | Python (SELECT) |
+| 2.8 | `ai_financial_extraction_similarity_hint` | Java | Python 相似度检测器输出的"高相似度 account_label 对"，供前端审核页顶部横幅展示；含用户合并/忽略决策 | Python (INSERT/UPDATE 检测字段) + Java (UPDATE user_decision) | 共享 |
+| 2.9 | 🔴 **`ai_financial_extraction_task_state_log`** | Java | **全流程状态变更总日志**（架构边界 §0.6 强制要求）：每次 `task.status` 变更必写一行；含 4 步流程所有事件（上传/解析/校验/保存）+ 终态事件；**已覆盖原 notification + extraction_skip 全部职责** | Java (AOP 切面 + v2 后 Python 也 INSERT) | Python (SELECT/INSERT) |
+| 3.1 | `ai_financial_extraction_extracted_table` | Python | OCR / Excel 提取出的表格（document_type / currency / source_page），与 `ai_financial_extraction_file` 1:N | Python | Java (SELECT) |
+| 3.2 | `ai_financial_extraction_extracted_row` | Python | 表格中的每一行（account_label / cell_values / `label_embedding` 用于相似度检测），与 `ai_financial_extraction_extracted_table` 1:N | Python | Java (SELECT) |
+| 3.3 | `ai_financial_extraction_mapping_result` | Python | AI 映射结果（lg_category / confidence / source / reasoning），1 行最多 1 条映射 | Python | Java (SELECT) |
+| 3.4 | `ai_financial_extraction_conflict_record` | Python | 冲突记录主体（lg_category / reporting_period / existing_value / mapped_value / **note 必填** / resolution / resolved_order） | Python (Java 也写 resolution) | 共享 |
+| 3.5 | `ai_financial_extraction_mapping_memory` | Python | 两层架构（通用层 + 公司层）的 account_label → lg_category 映射记忆库；含命中/确认/拒绝计数和 trust 标志 | Python | **仅 Python**（跨公司商业机密，Java 无权访问） |
+| 3.6 | `ai_financial_extraction_mapping_memory_audit` | Python | 记忆变更审计（CREATE/CONFIRM/REJECT/ARCHIVE），含 `idempotency_key` 防 SQS at-least-once 重复 | Python | **仅 Python** |
+| 3.8 | `ai_financial_extraction_mapping_change_log` | Python | 步骤导航变更追踪：用户回退后修改 mapping 触发的 hash 变更 + 下游清空 conflict_resolutions 的次数 | Java | Python (SELECT) |
 
-| 表名 | 用途 | 写主 | 读方 |
-|------|------|------|------|
-| `ai_financial_extraction_extracted_table` | OCR/Excel 提取出的表格（document_type / currency / source_page），与 `ai_financial_extraction_file` 1:N | Python | Java (SELECT) |
-| `ai_financial_extraction_extracted_row` | 表格中的每一行（account_label / cell_values / `label_embedding` for 相似度检测），与 `ai_financial_extraction_extracted_table` 1:N | Python | Java (SELECT) |
-| `ai_financial_extraction_mapping_result` | AI 映射结果（lg_category / confidence / source / reasoning），1 行最多 1 条映射 | Python | Java (SELECT) |
-| `ai_financial_extraction_conflict_record` | §4.10 冲突记录主体（lg_category / reporting_period / existing_value / mapped_value / **note 必填** / resolution / resolved_order） | Python (Java 也写 resolution) | 共享 |
+> **共 15 张表**：Java 拥有 8 张（§2.1-2.9，§2.3 已删除）+ Python 拥有 7 张（§3.1-3.8，§3.7 已删除）。原 `ai_financial_extraction_notification`（§2.3）和 `ai_financial_extraction_extraction_skip_log`（§3.7）已合并到 `ai_financial_extraction_task_state_log`（§2.9）。
 
-### 三、用户交互与提交审计（3 张，Java 拥有）
-
-| 表名 | 用途 | 写主 | 读方 |
-|------|------|------|------|
-| `ai_financial_extraction_conflict_note` | §4.10 冲突解决备注的 thread（多条回复，含 auto_generated 系统消息），与 `ai_financial_extraction_conflict_record` 1:N | Java | Python (SELECT) |
-| `ai_financial_extraction_commit_audit` | §4.11 每次 commit 对 fi_* 写入操作的审计（action: written/overwritten/skipped + old_value/new_value），fi_* 数据溯源关键，**永久保留** | Java | Python (SELECT) |
-| `ai_financial_extraction_mapping_change_log` | §4.13 步骤导航变更追踪：用户回退后修改 mapping 触发的 hash 变更 + 下游清空 conflict_resolutions 的次数 | Java | Python (SELECT) |
-
-### 四、记忆与跨域审计（4 张，混合所有权）
-
-| 表名 | 用途 | 写主 | 读方 |
-|------|------|------|------|
-| `ai_financial_extraction_mapping_memory` | 两层架构（通用层 + 公司层）的 account_label → lg_category 映射记忆库，含命中/确认/拒绝计数和 trust 标志 | Python | **仅 Python**（跨公司商业机密，Java 无权访问） |
-| `ai_financial_extraction_mapping_memory_audit` | 记忆变更审计（CREATE/CONFIRM/REJECT/ARCHIVE），含 `idempotency_key` 防 SQS at-least-once 重复 | Python | **仅 Python** |
-| `ai_financial_extraction_memory_learn_log` | §3 Story #8 系统学习审计：每次 commit 后记忆学习的尝试次数（最多 3 次）+ 新增/更新条目数 + 失败原因 | Python (INSERT 跨域例外) + Java | 共享 |
-| `ai_financial_extraction_erasure_log` | GDPR "Right to be Forgotten" 擦除请求和执行审计（target_type / s3_objects_deleted / db_records_deleted） | Java | Python (SELECT) |
 
 ### 关系图（核心引用链）
 
