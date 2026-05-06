@@ -277,6 +277,32 @@
   - `task.status: UPLOAD_COMPLETE → PROCESSING`（首次到达时，CAS）
 - **职责**: 文件级精细进度上报，每个 Python 子阶段切换时一条；幂等去重靠 `processing_stage` ordinal 比较丢弃过期消息；不触发 task 终态转换
 
+**`processingStage` 12 个枚举值**（按 ordinal 升序，旧 stage 消息会被 Java 丢弃）：
+
+| Stage | 进度区间 | 对应 LangGraph 节点 | 前端显示 | 持久化时机 |
+|-------|---------|------------------|---------|-----------|
+| `QUEUED` | 0% | — | "已入队" | Java 入队 ocr-extract-queue 时 |
+| `PREPROCESS_PENDING` | 1-5% | Preprocess（开始） | "准备解析" | Python 收到消息 |
+| `PREPROCESSING` | 6-15% | Preprocess（执行中） | "格式转换中" | 调 eSapiens 或 openpyxl 时 |
+| `EXTRACTING` | 16-50% | Extract | "AI 识别表格" | 进入 Vision LLM 调用 |
+| `MAPPING_RULE_LAYER` | 51-60% | Map（Layer 1） | "应用业务规则" | 规则引擎匹配中 |
+| `MAPPING_MEMORY_LOOKUP` | 61-70% | Map（Layer 2） | "查询历史记忆" | pg_trgm 模糊匹配中 |
+| `MAPPING_INDUSTRY_LAYER` | 71-78% | Map（Layer 3） | "应用行业模板" | 行业高频映射中 |
+| `MAPPING_LLM_FALLBACK` | 79-90% | Map（Layer 4） | "AI 智能映射" | 仅未命中行批量送 LLM |
+| `VALIDATING` | 91-95% | Validate | "校验数据一致性" | 内部一致性检查 |
+| `PERSISTING` | 96-99% | — | "保存结果" | 写 ai_ocr_extracted_* / ai_ocr_mapping_result |
+| `REVIEW_READY` | 100% | — | "可审核" | file.status 推进到 REVIEW_READY |
+| `FAILED` | — | — | 显示错误 | OcrResult{status=failed} 收到时 |
+
+**`stageDetail` JSONB 各阶段附带字段**：
+
+| Stage | stageDetail 字段示例 | 用途 |
+|-------|--------------------|------|
+| `EXTRACTING` | `{model: "gemini-2.5-flash", pageIdx: 3, totalPages: 5, retries: 0}` | 大文档时让前端展示"正在识别第 3/5 页" |
+| `MAPPING_MEMORY_LOOKUP` | `{queriedRows: 42, hitCount: 28, missCount: 14}` | 让用户感知记忆命中率 |
+| `MAPPING_LLM_FALLBACK` | `{batchedRows: 14, model: "claude-sonnet-4", attemptedAt: "2026-05-06T10:32:14Z"}` | LLM 兜底时的可观测性 |
+| 其他 | `null` 或省略 | — |
+
 #### MSG-2: OcrResult
 - **Java Handler**: `OcrResultSqsProcessor#handleResult`
 - **写哪些表**:
@@ -286,6 +312,16 @@
   - `file.status: PROCESSING → REVIEW_READY | FILE_FAILED`（CAS）
   - 当 task 内所有非 FAILED 文件 REVIEW_READY 时 → `task.status: PROCESSING → SIMILARITY_CHECKING`（FOR UPDATE + 计数）+ AFTER_COMMIT 入队 `ocr-similarity-check-queue`
 - **职责**: 单文件最终结果上报；FOR UPDATE 锁 task 行做计数，全部失败 → `task.status=FAILED`；任一成功且全部完成 → 进入相似度检测阶段
+
+**`status` 三个终态枚举值**：
+
+| status | 含义 | file 终态 | 写入 state_log event_type | 后续动作 |
+|--------|------|----------|------------------------|---------|
+| `completed` | 解析成功，含可提取财务数据 | `REVIEW_READY` | `EXTRACT_COMPLETE` | 等同 task 内其他文件，全部完成后进入相似度检测 |
+| `completed_no_data` | 解析成功，但无可提取财务数据（空文档/纯文字/封面）| `REVIEW_READY`（仍标已完成）| `EXTRACT_NO_DATA`（携带 `skipReason`）| **跳过** mapping/conflict/write，文件仍保存到 Imported Statements；混合批次时不阻塞其他文件 |
+| `failed` | 解析失败（OCR 异常 / LLM 超时 / 格式不支持）| `FILE_FAILED` | `EXTRACT_FAILED`（携带 `error`）| 全部失败 → `task.status=FAILED`；部分失败 → 该文件不参与下游 |
+
+**`completed_no_data` 时的 `skipReason` 5 类**: `NO_TABLES` / `NARRATIVE_ONLY` / `IMAGE_NO_DATA` / `EMPTY_TABLE` / `INDISTINGUISHABLE_NUMBERS`
 
 #### MSG-3: OcrSimilarityCheckResult
 - **Java Handler**: `OcrResultSqsProcessor#handleSimilarityCheckResult`
@@ -304,7 +340,16 @@
   - `task.status: MEMORY_LEARN_PENDING → MEMORY_LEARN_IN_PROGRESS → COMPLETED`（成功路径）
   - 失败且 `attempt<3` → 回 PENDING 等待重试
   - `attempt≥3` → MEMORY_LEARN_FAILED（fi_* 不回滚）
-- **职责**: 记忆学习阶段进度回报（IN_PROGRESS/COMPLETE/FAILED 三态），驱动 task 终态切换
+- **职责**: 记忆学习阶段进度回报（PENDING/IN_PROGRESS/COMPLETE/FAILED 四态），驱动 task 终态切换
+
+**`learnStage` 4 个枚举值**：
+
+| learnStage | 含义 | 前端显示 | 触发时机 |
+|-----------|------|---------|---------|
+| `PENDING` | 已入队等待 Python 消费 | "记忆学习排队中..." | Java AFTER_COMMIT 发 SQS 后立即写 state_log |
+| `IN_PROGRESS` | Python 已开始处理 | "正在学习用户修正..." | Python consumer 拉到消息时回报 |
+| `COMPLETE` | 学习成功完成 | "学习完成" | Python 写完 mapping_memory + audit log 后 |
+| `FAILED` | 本次尝试失败 | 静默（attempt<3 自动重试）/ "学习失败但财务数据已提交"（attempt≥3）| 业务异常或 DB 异常 |
 
 ---
 
@@ -390,3 +435,4 @@
 | 日期 | 变更 |
 |------|------|
 | 2026-05-06 | 初版：从 java-design.md §0 + python-design.md §0 抽取，独立成文（用户指令：接口文档单独列出） |
+| 2026-05-06 | 增强 MSG-1/2/4 详细枚举：`OcrProgress.processingStage` 12 阶段表 + `stageDetail` 字段约定、`OcrResult.status` 3 终态语义 + 5 类 skipReason、`OcrMemoryLearnProgress.learnStage` 4 枚举 |

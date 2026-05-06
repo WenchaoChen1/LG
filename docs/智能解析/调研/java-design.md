@@ -5,6 +5,19 @@
 
 ---
 
+## 0.5 文档定位说明
+
+本文档**主要描述 Java 端"文件上传"相关的实现层细节**（presigned URL 直传、magic bytes 校验、S3 集成、Imported Statements 同步、上传错误码等）—— 因为这是 Java 端面向用户的核心职责（参见 [user-input-requirements.md §2 R-2.1/R-2.2](../user-input-requirements.md#2-javapython-边界要求2026-05-06)）。
+
+其他 Java 端实现（commit / conflict resolution / note thread / memory learn producer / navigation 等）：
+- **接口职责定义** → 参见 [api-doc.md](./api-doc.md)（端点 URL、请求/响应字段、Controller 方法）
+- **业务规则与状态契约** → 参见 [system-architecture.md](./system-architecture.md)（4 步流程、状态机、跨域权限）
+- **AI 智能业务逻辑** → 参见 [python-design.md](./python-design.md)（Python 端为业务主导方）
+
+本文档相关章节（§5.4 之后）只保留 Java 端**实现层面的设计决策**：事务边界、AOP 切面、错误处理策略、状态机推进的并发防护等，不再重复接口签名。
+
+---
+
 ## 0. 接口清单（→ 见独立接口文档）
 
 Java 端对外接口（REST 端点 + SQS 生产者 + SQS 回传消费者）的**完整清单 + 详细职责**已抽取到独立接口文档：
@@ -147,178 +160,87 @@ com.gstdev.cioaas.web.docparse/
 
 ---
 
-## 2. API 端点
+## 2. 文件上传实现层（Java 核心职责）
+
+> **本章是 Java 端的核心职责章节**（参见 §0.5）。所有端点 URL / DTO / 响应字段定义在 [api-doc.md §2 端点 6-9](./api-doc.md#6-uploadrequest-urls-post)；本节聚焦实现层决策。
 
 **重要变更（2026-04-20）**:
 - 文件上传改为 **S3 Presigned URL 直传**（前端直传 S3，不经 Java）
 - 文件查看使用 **Presigned GET URL**（前端直查 S3）
-- 新增 Task 修订 / 通知查询 / 记忆学习进度端点
+
+### 2.1 S3 Presigned URL 上传流程（实现层时序）
+
+旧 multipart 经 Java 中转方案已废弃（Java 服务器带宽瓶颈）。新方案 3 次 HTTP 调用，Java 实现层关键决策如下：
+
+**步骤 1：前端调用 `POST /upload/request-urls`（参见 [api-doc.md #6](./api-doc.md#6-uploadrequest-urls-post)）**
 
 ```
-# ============ Task 生命周期 ============
-POST   /api/v1/docparse/tasks                        # 新建 task（DRAFT）
-POST   /api/v1/docparse/tasks/{id}/revise            # ★ 基于历史 task 创建修订版
-GET    /api/v1/docparse/tasks/{id}/status            # 轮询处理状态（task + files 聚合）
-GET    /api/v1/docparse/tasks/{id}/result            # 获取提取结果
-GET    /api/v1/docparse/tasks/{id}/history           # ★ 查看 task 版本链
-
-# ============ 上传（S3 Presigned URL 直传）★ ============
-POST   /api/v1/docparse/upload/request-urls          # ★ 请求 presigned PUT URLs
-POST   /api/v1/docparse/upload/complete              # ★ 通知 Java 单文件上传完成
-POST   /api/v1/docparse/upload/abort                 # 取消上传（删 S3 对象）
-
-# ============ 文件查看（Presigned GET URL）★ ============
-POST   /api/v1/docparse/files/{fileId}/download-url  # ★ 生成 presigned GET URL（15 min）
-
-# ============ 审核编辑 ============
-PATCH  /api/v1/docparse/tasks/{id}/review            # 保存用户编辑
-
-# ============ 提交流程（Step 5a / 5b / 5c，2026-05-06 拆分）============
-# 5a — Mapping Summary Page（[requirement-analysis §4.9](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)）
-GET    /api/v1/docparse/tasks/{id}/mapping-summary   # ★ 5a 页面摘要（文件/类型/账户数 + hard gate 检查结果）
-POST   /api/v1/docparse/tasks/{id}/verify/start      # ★ 5a 用户点击 "Start Verification" 触发后端冲突检测
-GET    /api/v1/docparse/tasks/{id}/verify/progress   # ★ 5a 实时进度指示器轮询端点（替代旧 verify/status）
-
-# 5b — Conflict Resolution（[requirement-analysis §4.10](./requirement-analysis.md#410-step-5b--conflict-resolution-of-manual-uploads2026-05-06-新增)）
-GET    /api/v1/docparse/tasks/{id}/conflicts         # 获取冲突列表（仅 Actuals 参与；Proforma 整体豁免）
-POST   /api/v1/docparse/tasks/{id}/conflicts/{conflictId}/resolve  # ★ 单冲突解决（Note 必填硬校验，返回下一冲突定位）
-
-# 5c — Commit & Display Results（[requirement-analysis §4.11](./requirement-analysis.md#411-step-5c--commit-uploaded-data-to-lg--display-results2026-05-06-新增)）
-POST   /api/v1/docparse/tasks/{id}/commit            # 整批写入 fi_*（@Transactional，含 Proforma 追加新版本）
-GET    /api/v1/docparse/tasks/{id}/commit/result     # ★ 5c 写入结果摘要（账户数、报告周期、文档类型、Imported Statements 文件夹定位、Benchmark 跳转参数）
-
-# 兼容保留（旧端点，逐步废弃）
-POST   /api/v1/docparse/tasks/{id}/verify            # 旧 verify 触发；已被 verify/start 替代
-POST   /api/v1/docparse/tasks/{id}/resolve           # 旧批量 resolve；§4.10 改为单冲突逐个解决
-
-# ============ Steps Navigation（[requirement-analysis §4.13](./requirement-analysis.md#413-edge-case--steps-navigation2026-05-06-新增)）============
-POST   /api/v1/docparse/tasks/{id}/navigate-back     # ★ Previous 回退；返回是否需要重跑下游 + 已清空的 conflict 数
-
-# ============ 任务事件日志（取自 ai_ocr_task_state_log）★ ============
-GET    /api/v1/docparse/tasks/{id}/notifications     # ★ 查询 task 事件日志（PARSE_COMPLETE / COMMIT_COMPLETE / NEW_CLOSED_MONTH 等）
-# 注：旧的 /notifications/{id}/retry 已删除（Q16 简化：不主动推送，无失败重试场景）
-
-# ============ 相似度检测结果（新增）★ ============
-GET    /api/v1/docparse/tasks/{id}/similarity-hints       # ★ 查询 task 的相似度提示（未处理 + 已处理）
-PATCH  /api/v1/docparse/similarity-hints/{hintId}         # ★ 用户决策（MERGED / IGNORED）
-
-# ============ 记忆学习进度（新增）★ ============
-GET    /api/v1/docparse/tasks/{id}/memory-learn          # ★ 查询记忆学习最新状态 + 统计
-GET    /api/v1/docparse/tasks/{id}/memory-learn/history  # ★ 查询记忆学习所有历史尝试记录
-POST   /api/v1/docparse/tasks/{id}/memory-learn/retry    # ★ 手动重试失败的记忆学习（前置条件 attempt_number < 3）
-
-# ============ Note Thread（Story #7）—— RESTful 嵌套 ============
-GET    /api/v1/docparse/tasks/{taskId}/conflicts/{conflictId}/notes    # 获取 note thread
-POST   /api/v1/docparse/tasks/{taskId}/conflicts/{conflictId}/notes    # 追加 note 到 thread
-```
-
-**路径嵌套原因**: Note 是 Conflict 的子资源，Conflict 是 Task 的子资源。嵌套路径天然支持 URL 级别的权限校验（通过 taskId → company_id 链路）。
-
-### 2.1 S3 Presigned URL 上传流程详细说明
-
-旧 multipart 经 Java 中转方案已废弃（Java 服务器带宽瓶颈）。新方案 3 次 HTTP 调用：
-
-**步骤 1：前端请求预签名 URL**
-
-```json
-POST /api/v1/docparse/upload/request-urls
-Request:
-{
-  "taskId": "uuid",
-  "files": [
-    {"name": "2024_PnL.pdf", "size": 2048576, "type": "application/pdf", "hash": "sha256..."}
-  ]
-}
-
-Java 处理:
+Java 处理 (UploadController#requestPresignedUrls):
   ├─ JWT + company 归属校验
-  ├─ 预校验：大小/扩展名/hash 重名（查 ai_ocr_file）
-  └─ 每个合法文件：
-      ├─ 建 ai_ocr_file [status=PENDING]
-      └─ 生成 S3 presigned PUT URL（15 min 有效）
-
-Response:
-{
-  "uploads": [
-    {
-      "fileId": "uuid",
-      "presignedUrl": "https://s3.amazonaws.com/bucket/key?X-Amz-Signature=...",
-      "s3Key": "ocr-uploads/{companyId}/{taskId}/{fileId}/{hash}.ext",
-      "expiresAt": "2026-04-20T10:15:00Z"
-    }
-    | {"filename": "xxx", "error": "DUPLICATE_NAME"}
-  ]
-}
+  ├─ 预校验（按文件逐项进行，部分失败不阻断其余）：
+  │   ├─ 文件大小校验（单文件 ≤20MB / 批次 ≤100MB）
+  │   ├─ 扩展名白名单（参见 §6.2）
+  │   └─ SHA-256 hash 重名查询（ai_ocr_file 唯一约束）
+  ├─ 合法文件 → 建 ai_ocr_file 记录 [status=PENDING] + 生成 S3 presigned PUT URL（15 min）
+  └─ 非法文件 → 在 uploads[] 数组中按位返回 error 项（不抛全局异常）
 ```
 
-**步骤 2：前端 PUT 直传 S3**
+**S3 Key 命名规范**: `ocr-uploads/{companyId}/{taskId}/{fileId}/{hash}.ext` —— 路径含 companyId 保证 IAM 策略可按 prefix 隔离权限。
 
-```javascript
-// 前端代码示例（不经 Java）
-const xhr = new XMLHttpRequest();
-xhr.upload.onprogress = (e) => setProgress(e.loaded / e.total * 100);
-xhr.open('PUT', presignedUrl);
-xhr.setRequestHeader('Content-Type', file.type);
-xhr.send(file);
+**步骤 2：前端 PUT 直传 S3（无 Java 参与）**
+
+前端使用 `XMLHttpRequest` 走 presigned URL 上传 + `progress` 事件追踪。S3 Bucket 必须先配置 CORS（参见 §5.4.2）。
+
+**步骤 3：前端调用 `POST /upload/complete`（参见 [api-doc.md #7](./api-doc.md#7-uploadcomplete-post)）**
+
+```
+Java 处理 (UploadController#completeUpload):
+  ├─ ⚠️ 安全：从 DB 查 s3Key（不信任前端传入，参见 §5.4.3）
+  ├─ s3:HeadObject 验证对象存在 + ETag/actualSize 一致
+  ├─ 读取首 2KB 做 MIME + magic bytes 双重校验（白名单见 §6.2）
+  ├─ 通过 → file.status=UPLOADED + 发 SQS ocr-extract-queue（mode=FULL_EXTRACT）
+  └─ 失败 → s3:DeleteObject 清理 + file.status=FILE_FAILED + 错误码（见 §2.4）
 ```
 
-**步骤 3：前端通知 Java 上传完成**
-
-```json
-POST /api/v1/docparse/upload/complete
-Request: { "fileId": "uuid", "etag": "...", "actualSize": 2048576 }
-
-Java 处理:
-  ├─ s3:HeadObject 验证对象存在
-  ├─ 验证 actualSize 和 etag
-  ├─ 读取首 2KB 做 MIME + magic bytes 校验
-  ├─ 通过 → file.status=UPLOADED + 发 SQS
-  └─ 失败 → s3:DeleteObject + file.status=FILE_FAILED
-
-Response: { "status": "UPLOADED" | "FILE_FAILED", "error": null | "..." }
-```
+**为什么必须做 magic bytes 校验**: 前端可能上传一个改了扩展名的恶意文件（如 `.exe` 改为 `.pdf`）。仅看扩展名/Content-Type 不安全，必须读首 2KB 验证 magic bytes。
 
 ### 2.2 Presigned GET URL（文件查看）
 
-ReviewPage 加载 PDF/Excel 时，前端向 Java 请求临时 URL：
+ReviewPage 加载 PDF/Excel 时，前端向 `POST /files/{fileId}/download-url`（参见 [api-doc.md #9](./api-doc.md#9-filesfileiddownload-url-post)）请求临时 URL。
 
-```json
-POST /api/v1/docparse/files/{fileId}/download-url
-Response: { "url": "https://s3.amazonaws.com/...", "expiresAt": "2026-04-20T10:15:00Z" }
-```
+**实现层决策**:
+- URL 生存期 **5 分钟**（不是 15 分钟，参见 §5.4.3 的安全收紧）
+- 生成前必须验证 JWT + company 归属 + `ai_ocr_file.deleted=false`
+- 不附加 `Content-Disposition: attachment` —— 让浏览器直接预览
 
-前端用此 URL：
-- PDF → `<iframe src={url}>` 或 react-pdf `Document file={url}`
-- 图片 → `<img src={url}>`
-- Excel → 前端用 SheetJS 从该 URL 下载解析
+前端用此 URL：PDF/图片直接 `<iframe>` 或 `<img>` 渲染；Excel 由前端用 SheetJS 从该 URL 拉取后解析。
 
-**安全**：URL 只在 15 分钟内有效，Java 生成前必须验证 JWT + company 归属 + `file.deleted=false`。
+### 2.3 Task 修订端点（实现层）
 
-### 2.3 Task 修订端点
+> 端点 URL / 请求字段参见 [api-doc.md #2](./api-doc.md#2-tasksidrevise-post)。
 
-```json
-POST /api/v1/docparse/tasks/{parentTaskId}/revise
-Request: { "reason": "客户更正了 Q1 数据" }
-
-Java 处理（事务）:
-  ├─ 校验 parent task.status IN (COMPLETED, SUPERSEDED)
-  ├─ 创建新 task:
-  │   ├─ parent_task_id = parentTaskId
-  │   ├─ revision_number = parent.revision_number + 1
-  │   ├─ revision_reason = request.reason
-  │   └─ status = DRAFT
-  ├─ copy-on-write 继承:
-  │   ├─ COPY parent 的 ai_ocr_file 记录（新 task_id，保留 s3_key 不重新上传）
-  │   ├─ COPY ai_ocr_extracted_table / row（由 Python 执行，Java 发 SQS 通知）
-  │   └─ COPY ai_ocr_mapping_result
-  └─ 返回 {newTaskId}
-
-用户进入新 task 的 ReviewPage 直接看到继承的数据，可编辑 → Commit
-Commit 成功 → 新 task.status=COMPLETED → parent task.superseded_by = 新 task.id
-                                         parent task.status=SUPERSEDED
-```
+**Java 实现层关键决策**（事务内）:
+- 校验 parent task.status ∈ {COMPLETED, SUPERSEDED}
+- 新 task 沿用 parent 的 `s3_key`（不重新上传文件，仅 COPY `ai_ocr_file` 行）
+- copy-on-write 继承：`ai_ocr_extracted_table/row` 由 Python 通过 SQS 异步复制；`ai_ocr_mapping_result` 由 Java 直接 INSERT
+- `revision_number = parent.revision_number + 1`（受 UNIQUE 约束保护并发，参见 §3.2）
+- Commit 成功后置 parent.status=SUPERSEDED + parent.superseded_by=self.id（在 §5.4 commit 事务中处理）
 
 **Cancel 选项已移除**（Asana 2026-04-19）。用户若要放弃提交直接退出页面，task 状态保持 REVIEWING。
+
+### 2.4 上传错误码
+
+| 错误码 | 触发场景 | HTTP 状态 |
+|-------|---------|----------|
+| `FILE_TOO_LARGE` | 单文件超 20MB | 400 |
+| `BATCH_TOO_LARGE` | 批次超 100MB | 400 |
+| `UNSUPPORTED_TYPE` | 扩展名/MIME 不在白名单 | 400 |
+| `MAGIC_BYTES_MISMATCH` | 扩展名与文件头不一致 | 400 |
+| `DUPLICATE_NAME` | 同 company + 同 hash 已存在活跃记录 | 409 |
+| `S3_OBJECT_NOT_FOUND` | `/upload/complete` 但 HeadObject 失败 | 404 |
+| `INVALID_HASH_FORMAT` | hash 不符合 `^[a-f0-9]{64}$` | 400 |
+
+错误信息均由 Java 生成（R-2.2 约束：用户可见错误必须由 Java 转换，Python 不直接面向用户）。
 
 ---
 
@@ -394,407 +316,89 @@ Python 有 INSERT 权限访问 `ai_ocr_memory_learn_log` 和 `ai_ocr_similarity_
 ---
 
 
-## 4. SQS 集成
+## 4. SQS 集成（实现层）
 
-### 4.1 发送提取消息 (infrastructure/processor/OcrExtractSqsProducer -> ocr-extract-queue)
+> **接口契约**: SQS 队列名 / messageType / 消息字段定义参见 [api-doc.md §3 SQS 接口详情](./api-doc.md#3-sqs-接口详情)。本节聚焦 Java 端实现层决策（事务边界、幂等、并发防护、Sweeper 自愈）。
 
-上传文件成功后，Java 向 `ocr-extract-queue` 发送一条消息，触发 Python 端 AI 提取。**一条消息对应一个文件**（不是一个 session），原因：独立重试、天然并发、部分失败隔离。
+### 4.1 OcrExtractSqsProducer 设计要点
 
-**`mode` 字段（2026-05-06 新增，删除 ocr-remap-queue 后合并入此队列）**:
+参见 [api-doc.md SQS-1 ocr-extract-queue](./api-doc.md#sqs-1-ocr-extract-queue) 的完整字段定义。Java 实现层关键决策：
 
-| `mode` 值 | 触发时机 | Python 处理路径 |
-|----------|---------|--------------|
-| `FULL_EXTRACT`（默认） | `/upload/complete` 单文件首次上传完成 | OCR + Extract + Map 全量节点 |
-| `REMAP_ONLY` | `/tasks/{id}/navigate-back` 检测 mapping_snapshot_hash 变化时 | 跳过 OCR/Extract，仅重跑 Map 节点（用最新 mapping_memory）|
+- **粒度**: 一条消息对应一个文件（不是一个 task），原因：独立重试、天然并发、部分失败隔离
+- **mode 字段路由**: `FULL_EXTRACT`（首次上传，默认）/ `REMAP_ONLY`（navigate-back 检测 mapping 变化触发，参见 §5.10）
+- **触发时机**: `/upload/complete` 通过校验后**同一事务内**发送（不延迟到 AFTER_COMMIT，因为本事务无回滚风险——只更新 file.status）
+- **HMAC-SHA256 签名**: 见 §6.3
 
-**消息 Schema (Java -> Python)**:
+### 4.2 OcrResultSqsProcessor 设计要点
 
-```json
-{
-  "messageType": "OcrExtract",
-  "queueName": "ocr-extract-queue",
-  "mode": "FULL_EXTRACT",
-  "batchId": "uuid",
-  "sendTime": "2026-04-16T10:00:00Z",
-  "uuid": "msg-uuid",
-  "sessionId": "session-uuid",
-  "fileId": "file-uuid",
-  "companyId": "123",
-  "s3Bucket": "lg-prod-files",
-  "s3Key": "ocr-uploads/123/session-uuid/file-uuid/2024_PnL.pdf",
-  "filename": "2024_PnL.pdf",
-  "contentType": "application/pdf",
-  "fileSize": 2048576,
-  "uploadedBy": "user-uuid",
-  "callbackMeta": {
-    "totalFiles": 3,
-    "fileIndex": 1
-  }
-}
-```
+`OcrResultSqsProcessor` implements `MessageProcessor`，按 `messageType` 多路分发到 4 个 handler。**接口契约见 [api-doc.md §3.2 MSG-1 ~ MSG-4](./api-doc.md#32-回传队列python--java)**；本节仅描述各 handler 的实现层决策。
 
-> **架构契约**: 见 [system-architecture.md §0.2 表格 1️⃣](./system-architecture.md#02-java--python-通信仅通过-sqs-队列)。`OcrRemapSqsProducer` 类已删除，路径合并到本 Producer。
+#### 4.2.1 OcrProgress handler 实现层决策
 
-### 4.2 消费结果消息 (infrastructure/processor/OcrResultSqsProcessor <- ocr-result-queue)
+> 字段定义见 [api-doc.md MSG-1 OcrProgress](./api-doc.md#msg-1-ocrprogress)。
 
-Python 端向 `ocr-result-queue` 发送**四种**消息：`OcrProgress`、`OcrResult`、`OcrSimilarityCheckResult`、`OcrMemoryLearnProgress`。Java 端 `OcrResultSqsProcessor`（implements `MessageProcessor`）按 `messageType` 字段分发到不同 handler：
+- **幂等去重**: 用 `processing_stage` 的 ordinal 比较丢弃过期消息（避免乱序覆盖更新后的阶段）
+- **FOR UPDATE 锁**: 锁 `ai_ocr_file` 行后再判定阶段，防并发 worker 同时处理两条 progress 消息
+- **`stage_detail` JSONB 透传**: 必须原样写入 DB，前端按 frontend-design §5.2 渲染细节文字
+- **状态推进**: 首次到达时推进 `file.status: QUEUED → PROCESSING` + `task.status: UPLOAD_COMPLETE → PROCESSING`（CAS 防止覆盖更后状态）
+- **不触发终态**: 仅 OcrResult handler 才触发 `task.status` 终态转换（→ SIMILARITY_CHECKING / REVIEWING）
 
-```java
-@Override
-public void process(SqsMessage message) {
-    switch (message.getMessageType()) {
-        case "OcrProgress":                handleProgress(message); break;
-        case "OcrResult":                  handleResult(message); break;
-        case "OcrSimilarityCheckResult":   handleSimilarityCheckResult(message); break;
-        case "OcrMemoryLearnProgress":     handleMemoryLearnProgress(message); break;
-        default: log.warn("Unknown messageType: {}", message.getMessageType());
-    }
-}
-```
+**`ai_ocr_file.stage_detail JSONB` 列**: DDL 见 [database-schema.md §2.2](./database-schema.md#22-ai_ocr_file)。前端 `GET /tasks/{id}/status` 读这张表时把 `stage_detail` 字段透传给前端，前端按 `frontend-design.md §5.2` 规则渲染细节文字（"第 3/8 页"、"已应用 8/47 条记忆"等）。
 
-#### 4.2.1 OcrProgress 消息（文件级进度上报，轻量，频繁）
+#### 4.2.2 OcrResult handler 实现层决策
 
-每当 Python 切换处理阶段时发送，让前端展示精确进度。
+> 字段定义见 [api-doc.md MSG-2 OcrResult](./api-doc.md#msg-2-ocrresult)。
 
-**消息 Schema (Python -> Java)**:
+- **`@Transactional` + FOR UPDATE 锁 task 行**: 防御场景 —— 两个 worker 同时处理 task 最后两个文件的 OcrResult，无锁会导致两条消息都把 task 推进到 SIMILARITY_CHECKING（重复触发）
+- **CAS 更新 file.status**: `expectedStatus=PROCESSING`；返回 0 行则视为重复消息丢弃（幂等）
+- **批次完成判定**（在锁内计数）:
+  - 全部 `REVIEW_READY`（至少一个成功）→ `task.status=SIMILARITY_CHECKING` + 发布 `TaskReadyForReviewEvent`
+  - 全部 `FILE_FAILED` → `task.status=FAILED`
+  - 否则保持 PROCESSING
+- **AFTER_COMMIT 入队**: `TaskReadyForReviewEvent` 由 `OcrSimilarityCheckSqsProducer` 在 AFTER_COMMIT 阶段消费 + 发 SQS（避免事务回滚后 Python 已收到悬空 task）—— 见 §4.2a
 
-```json
-{
-  "messageType": "OcrProgress",
-  "queueName": "ocr-result-queue",
-  "uuid": "msg-uuid",
-  "sendTime": "2026-04-16T10:00:05Z",
-  "taskId": "task-uuid",
-  "fileId": "file-uuid",
-  "companyId": "123",
-  "processingStage": "MAPPING_MEMORY_APPLY",
-  "progressPct": 55,
-  "stageDetail": {
-    "appliedMemoryCount": 8,
-    "totalRowCount": 47
-  }
-}
-```
+#### 4.2.3 OcrSimilarityCheckResult handler 实现层决策
 
-**Java 处理**:
-```java
-void handleProgress(OcrProgressMessage msg) {
-    // 1. 幂等去重：相同 (fileId, processingStage) 的重复消息合并
-    DocParseFile file = fileRepo.findByIdForUpdate(msg.getFileId());
-    if (file.getProcessingStage() != null
-        && ordinalOf(file.getProcessingStage()) > ordinalOf(msg.getProcessingStage())) {
-        return;  // 收到过期消息（已推进到更后阶段），丢弃
-    }
+> 字段定义见 [api-doc.md MSG-3 OcrSimilarityCheckResult](./api-doc.md#msg-3-ocrsimilaritycheckresult)。
 
-    // 2. 更新 file 字段 —— 原子更新
-    fileRepo.updateProgress(
-        msg.getFileId(),
-        msg.getProcessingStage(),
-        msg.getProgressPct(),
-        msg.getStageDetail()  // ⚠️ stageDetail 必须透传到 DB（JSONB 列），前端会用
-    );
+- **跨域 INSERT 例外**: `ai_ocr_similarity_hint` 由 Python 直接 INSERT（参见 §3.2 + database-schema.md §4 GRANT 配置）；Java handler **只做状态推进 + state_log 写入**
+- **跨公司归属校验**: 比对 `task.company_id == msg.companyId`，不一致直接丢弃（防伪造）
+- **CAS 推进状态**: 仅 `SIMILARITY_CHECKING` 才能转；过期消息丢弃
+- **失败态语义**: `SIMILARITY_CHECK_FAILED` 是**预留状态**（将来邮件通道可用），目前不阻塞用户：前端在该状态下仍提供"跳过相似度提示直接进入审核"按钮
+- **Sweeper 不扫描 `SIMILARITY_CHECKING`**: Python 崩溃会被 SQS 重试 3 次后进 DLQ；DLQ 监控触发人工介入即可
 
-    // 3. 首次收到 → 推进 file.status 和 task.status
-    if (file.getStatus() == DocParseFileStatus.QUEUED) {
-        fileRepo.updateStatus(msg.getFileId(), DocParseFileStatus.PROCESSING);
-        taskRepo.updateStatusIfCurrently(msg.getTaskId(),
-            DocParseStatus.UPLOAD_COMPLETE, DocParseStatus.PROCESSING);
-    }
-    // 不触发 task 级状态最终转换（仅 OcrResult 才触发 → REVIEWING）
-}
-```
+#### 4.2.4 OcrMemoryLearnProgress handler 实现层决策
 
-**`ai_ocr_file.stage_detail JSONB` 列**：
-```sql
-ALTER TABLE ai_ocr_file ADD COLUMN stage_detail JSONB;
-```
-前端 `GET /tasks/{id}/status` 读这张表时把 `stage_detail` 字段透传给前端，前端按 `frontend-design.md §5.2` 规则渲染细节文字（"第 3/8 页"、"已应用 8/47 条记忆"等）。
+> 字段定义见 [api-doc.md MSG-4 OcrMemoryLearnProgress](./api-doc.md#msg-4-ocrmemorylearnprogress)。
 
-#### 4.2.2 OcrResult 消息（文件级最终结果，每个文件一次）
+| `learnStage` | Java 端动作 |
+|--------------|-------------|
+| `MEMORY_LEARN_IN_PROGRESS` | CAS：`MEMORY_LEARN_PENDING → MEMORY_LEARN_IN_PROGRESS` |
+| `MEMORY_LEARN_COMPLETE` | CAS：`MEMORY_LEARN_IN_PROGRESS → COMPLETED` + 写 state_log `MEMORY_LEARN_COMPLETE` |
+| `MEMORY_LEARN_FAILED` | 读 `ai_ocr_memory_learn_log` 计数：`<3` 回 PENDING 等重试；`≥3` 进 MEMORY_LEARN_FAILED 终态 |
 
-Python 完成一个文件的全部处理后发送。
+**关键约束**: `MEMORY_LEARN_FAILED` 终态 **不回滚 fi_***（财务数据已 committed，不允许重做）。`ai_ocr_memory_learn_log` 由 Python 跨域 INSERT，Java 不重复写。
 
-**消息 Schema (Python -> Java)** —— 与 python-design.md §1.3.2 保持完全一致：
+### 4.2a OcrSimilarityCheckSqsProducer 设计要点
 
-```json
-{
-  "messageType": "OcrResult",
-  "queueName": "ocr-result-queue",
-  "batchId": "uuid",
-  "sendTime": "2026-04-16T10:00:15Z",
-  "uuid": "msg-uuid",
-  "taskId": "task-uuid",
-  "fileId": "file-uuid",
-  "companyId": "123",
-  "status": "completed",
-  "extractedTableCount": 2,
-  "totalRows": 47,
-  "processingTimeMs": 12340,
-  "unresolvedPeriodCount": 0,
-  "currencyWarning": false,
-  "detectedCurrencies": ["USD"],
-  "memoryHitCount": 8,
-  "llmMapCount": 15,
-  "error": null
-}
-```
+> 字段定义见 [api-doc.md SQS-2 ocr-similarity-check-queue](./api-doc.md#sqs-2-ocr-similarity-check-queue)。
 
-**Java 处理逻辑（事务 + FOR UPDATE 锁避免竞态）**:
+- **触发**: 由 `OcrResultSqsProcessor#handleResult` 通过 `publishEvent(TaskReadyForReviewEvent)` 派发
+- **消费**: `@TransactionalEventListener(phase = AFTER_COMMIT)` 才发送 SQS，**严禁**在 `BEFORE_COMMIT`（事务回滚时 Python 已收到悬空 task）
+- **聚合粒度**: 每个 task 入队**仅 1 条消息**（聚合所有 mapping_result.account_label）；不是 per-file
+- **HMAC-SHA256 签名**: 见 §6.3
 
-```java
-@Transactional
-void handleResult(OcrResultMessage msg) {
-    // 1. 先锁 task 行（并发防护：两个 worker 同时处理最后两个文件的结果）
-    DocParseTask task = taskRepo.findByIdForUpdate(msg.getTaskId());
+### 4.3 OcrMemoryLearnSqsProducer 设计要点
 
-    // 2. 更新单个 file 状态（使用 CAS 防止旧消息覆盖新状态）
-    int updated = fileRepo.compareAndSetStatus(
-        msg.getFileId(),
-        expectedStatus=PROCESSING,
-        newStatus= msg.getStatus().equals("completed") ? REVIEW_READY : FILE_FAILED,
-        additionalFields=msg
-    );
-    if (updated == 0) {
-        log.warn("File {} status already advanced, ignore duplicate result", msg.getFileId());
-        return;  // 幂等
-    }
+> 字段定义见 [api-doc.md SQS-3 ocr-memory-learn-queue](./api-doc.md#sqs-3-ocr-memory-learn-queue)。
 
-    // 3. 原子更新 task 统计字段
-    if (msg.getStatus().equals("failed")) {
-        task.setFailedFiles(task.getFailedFiles() + 1);
-    }
+Java 端实现层决策：
 
-    // 4. 检查批次是否完成（锁状态下计数）
-    long pendingFiles = fileRepo.countByTaskIdAndStatusNotIn(
-        msg.getTaskId(),
-        Set.of(DocParseFileStatus.REVIEW_READY, DocParseFileStatus.FILE_FAILED));
-
-    if (pendingFiles == 0 && task.getFailedFiles() < task.getTotalFiles()) {
-        // 所有非失败文件都已 REVIEW_READY，且至少有一个成功
-        task.setStatus(DocParseStatus.SIMILARITY_CHECKING);  // 进入通知阶段
-        eventPublisher.publishEvent(new TaskReadyForReviewEvent(msg.getTaskId()));
-    } else if (pendingFiles == 0) {
-        // 全部失败
-        task.setStatus(DocParseStatus.FAILED);
-    }
-
-    taskRepo.save(task);
-}
-```
-
-#### 4.2.3 OcrSimilarityCheckResult 消息（任务级相似度检测完成回执）
-
-Python 完成 task 范围的 embedding + pgvector KNN 后发送（不论是否检出候选项，最终一定要回报，否则 task 卡在 `SIMILARITY_CHECKING`）。`ai_ocr_similarity_hint` 已由 Python 跨域 INSERT，Java handler **只做状态推进 + state_log 写入**。
-
-**消息 Schema (Python -> Java)**:
-
-```json
-{
-  "messageType": "OcrSimilarityCheckResult",
-  "queueName": "ocr-result-queue",
-  "uuid": "msg-uuid",
-  "sendTime": "2026-04-16T10:00:30Z",
-  "taskId": "task-uuid",
-  "companyId": "123",
-  "status": "completed",
-  "candidateCount": 3,
-  "processingTimeMs": 850,
-  "error": null
-}
-```
-
-**Java 处理逻辑**:
-
-```java
-@Transactional
-void handleSimilarityCheckResult(OcrSimilarityCheckResultMessage msg) {
-    // 1. FOR UPDATE 锁 task 行
-    DocParseTask task = taskRepo.findByIdForUpdate(msg.getTaskId());
-
-    // 2. company_id 归属校验（防跨公司越权）
-    if (!task.getCompanyId().equals(msg.getCompanyId())) {
-        log.error("CompanyId mismatch on similarity result, drop msg {}", msg.getUuid());
-        return;
-    }
-
-    // 3. CAS 推进状态（仅 SIMILARITY_CHECKING 才能转）
-    DocParseStatus newStatus = msg.getStatus().equals("completed")
-        ? DocParseStatus.REVIEWING
-        : DocParseStatus.SIMILARITY_CHECK_FAILED;
-    int updated = taskRepo.compareAndSetStatus(
-        msg.getTaskId(), DocParseStatus.SIMILARITY_CHECKING, newStatus);
-    if (updated == 0) {
-        log.warn("Task {} not in SIMILARITY_CHECKING, drop duplicate", msg.getTaskId());
-        return;
-    }
-
-    // 4. 写 state_log（事件流，不写 ai_ocr_notification）
-    String eventType = msg.getStatus().equals("completed")
-        ? "SIMILARITY_CHECK_COMPLETE" : "SIMILARITY_CHECK_FAILED";
-    stateLogRepo.insert(msg.getTaskId(), eventType,
-        Map.of("candidateCount", msg.getCandidateCount(),
-               "processingTimeMs", msg.getProcessingTimeMs(),
-               "error", msg.getError()));
-
-    // 注：不创建 ai_ocr_similarity_hint —— Python 已直接 INSERT
-    // 注：不发送通知 —— 用户通过前端轮询 status 自然发现
-}
-```
-
-**关键点**:
-- `SIMILARITY_CHECK_FAILED` 是预留状态（将来邮件通道可用），目前**不阻塞**用户：前端在该状态下仍提供"跳过相似度提示直接进入审核"按钮（实际推进可由 Sweeper 兜底，但首选用户主动）
-- Sweeper 不扫描 `SIMILARITY_CHECKING`：Python 即使崩溃也会被 SQS 重试 3 次后进 DLQ；DLQ 监控触发人工介入
-
-#### 4.2.4 OcrMemoryLearnProgress 消息（任务级记忆学习进度）
-
-Python 记忆学习 consumer 在 3 个时机发送此消息（IN_PROGRESS / COMPLETE / FAILED），与 `ai_ocr_task.status` 中的 `MEMORY_LEARN_*` 子态对应。
-
-**消息 Schema (Python -> Java)**:
-
-```json
-{
-  "messageType": "OcrMemoryLearnProgress",
-  "queueName": "ocr-result-queue",
-  "uuid": "msg-uuid",
-  "sendTime": "2026-04-16T10:10:00Z",
-  "taskId": "task-uuid",
-  "companyId": "123",
-  "learnStage": "MEMORY_LEARN_IN_PROGRESS",
-  "stageDetail": {
-    "processedFileCount": 2,
-    "totalFileCount": 3,
-    "newMemoryCount": 5,
-    "updatedMemoryCount": 3
-  }
-}
-```
-
-**Java 处理逻辑**:
-
-```java
-void handleMemoryLearnProgress(OcrMemoryLearnProgressMessage msg) {
-    DocParseTask task = taskRepo.findByIdForUpdate(msg.getTaskId());
-    switch (msg.getLearnStage()) {
-        case "MEMORY_LEARN_IN_PROGRESS":
-            // 仅从 MEMORY_LEARN_PENDING 推进到 IN_PROGRESS
-            taskRepo.updateStatusIfCurrently(
-                msg.getTaskId(),
-                DocParseStatus.MEMORY_LEARN_PENDING,
-                DocParseStatus.MEMORY_LEARN_IN_PROGRESS);
-            break;
-        case "MEMORY_LEARN_COMPLETE":
-            // 推进到 COMPLETED 终态（含记忆学习）
-            taskRepo.updateStatusIfCurrently(
-                msg.getTaskId(),
-                DocParseStatus.MEMORY_LEARN_IN_PROGRESS,
-                DocParseStatus.COMPLETED);
-            // 创建 MEMORY_LEARN_COMPLETE 通知
-            notificationService.create(task, NotificationType.MEMORY_LEARN_COMPLETE);
-            break;
-        case "MEMORY_LEARN_FAILED":
-            // 检查 attempt_number，若 < 3 则回到 PENDING 等重试；否则终态 FAILED
-            long attempts = memoryLearnLogRepo.countByTaskId(msg.getTaskId());
-            if (attempts < 3) {
-                taskRepo.setStatus(msg.getTaskId(), DocParseStatus.MEMORY_LEARN_PENDING);
-            } else {
-                taskRepo.setStatus(msg.getTaskId(), DocParseStatus.MEMORY_LEARN_FAILED);
-                // ⚠️ 财务数据已写入 fi_*，不回滚
-            }
-            break;
-    }
-}
-```
-
-### 4.2a 发送相似度检测消息 (infrastructure/processor/OcrSimilarityCheckSqsProducer -> ocr-similarity-check-queue)
-
-> **架构契约**: 见 [system-architecture.md §0.2 表格 ➕](./system-architecture.md#02-java--python-通信仅通过-sqs-队列)。本队列是用户原始 2 场景之外的辅助队列，作为场景 A 的下游异步阶段保留。
-
-**触发时机**: 在 `OcrResultSqsProcessor#handleResult` 计数完成后，当 task 内所有非 FAILED 文件都进入 `REVIEW_READY` 状态时，**事务 AFTER_COMMIT** 阶段入队（防止事务回滚时 Python 已收到消息）。
-
-```java
-@Component
-public class OcrSimilarityCheckSqsProducer {
-
-    /**
-     * 由 OcrResultSqsProcessor 通过 publishEvent(TaskReadyForReviewEvent) 触发。
-     * 事务 AFTER_COMMIT 才发送，避免 Python 收到悬空 task。
-     */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void onTaskReadyForReview(TaskReadyForReviewEvent event) {
-        DocParseTask task = taskRepo.findById(event.getTaskId());
-        // 聚合 task 下所有 mapping_result.account_label
-        List<String> accountLabels = mappingResultRepo
-            .findDistinctAccountLabelByTaskId(event.getTaskId());
-        OcrSimilarityCheckRequest msg = OcrSimilarityCheckRequest.builder()
-            .messageType("OcrSimilarityCheck")
-            .queueName("ocr-similarity-check-queue")
-            .uuid(UUID.randomUUID().toString())
-            .sendTime(Instant.now())
-            .taskId(event.getTaskId())
-            .companyId(task.getCompanyId())
-            .accountLabels(accountLabels)
-            .build();
-        sqsTemplate.send("ocr-similarity-check-queue", msg);
-    }
-}
-```
-
-**消息 Schema (Java -> Python)**:
-
-```json
-{
-  "messageType": "OcrSimilarityCheck",
-  "queueName": "ocr-similarity-check-queue",
-  "uuid": "msg-uuid",
-  "sendTime": "2026-04-16T10:00:25Z",
-  "taskId": "task-uuid",
-  "companyId": "123",
-  "accountLabels": ["AWS Infrastructure", "Q1 Salaries", "Office Supplies"]
-}
-```
-
-**关键约束**:
-- 每个 task 入队**仅 1 条消息**（不是 per-file）
-- Python 端写 `ai_ocr_similarity_hint`（跨域 INSERT 例外）+ 通过 `ocr-result-queue` 发回 `OcrSimilarityCheckResult`
-- HMAC-SHA256 签名（同 §6.3）
-
-### 4.3 发送记忆学习消息 (infrastructure/processor/OcrMemoryLearnSqsProducer -> ocr-memory-learn-queue)
-
-用户确认提交后，Java 成功写入 `fi_*` 财务表，随即向 `ocr-memory-learn-queue` 发送记忆学习消息。Python 端对比 AI 原始建议 vs 用户最终确认，**只有被用户修正过的映射才存入记忆**。
-
-**消息 Schema (Java -> Python)**:
-
-```json
-{
-  "messageType": "OcrMemoryLearn",
-  "queueName": "ocr-memory-learn-queue",
-  "uuid": "msg-uuid",
-  "sendTime": "2026-04-16T10:05:00Z",
-  "taskId": "task-uuid",
-  "fileId": "file-uuid",
-  "companyId": "123",
-  "mappingComparisons": [
-    {
-      "accountLabel": "AWS Infrastructure",
-      "originalAiCategory": "R&D Expenses",
-      "confirmedCategory": "COGS",
-      "wasOverridden": true
-    },
-    {
-      "accountLabel": "Total Revenue",
-      "originalAiCategory": "Revenue",
-      "confirmedCategory": "Revenue",
-      "wasOverridden": false
-    }
-  ]
-}
-```
-
-**Python 记忆学习逻辑**:
-- 只处理 `wasOverridden: true` 的条目
-- `wasOverridden: false` 的忽略（AI 猜对了，不需要存记忆）
-- 对比 `originalAiCategory` vs `confirmedCategory`，将修正存入 `ai_ocr_mapping_memory`
-- 如果已有同公司同标签的记忆，更新 `confirm_count` + `normalized_category`
+- **触发时机**: `/tasks/{id}/commit` 事务 **AFTER_COMMIT** 阶段（fi_* 写入成功后）
+- **payload 构建**: 对每个 `extracted_row` 比对 `originalAiCategory`（AI 初始建议，存于 `ai_ocr_mapping_result.original_ai_category`）vs `confirmedCategory`（用户最终确认，存于 `ai_ocr_mapping_result.lg_category`），生成 `mappingComparisons[]` 数组
+- **`wasOverridden` 字段**: Java 端计算 `originalAiCategory != confirmedCategory`；Python 端只学习 `wasOverridden=true` 的条目（业务规则在 [python-design.md §X memory learn](./python-design.md)）
+- **重试支持**: `attemptNumber` 字段；首次为 1，`MemoryLearnController#retry` 时递增
+- **HMAC-SHA256 签名**: 见 §6.3
 
 ### 4.4 队列配置
 
@@ -819,123 +423,41 @@ public class OcrSimilarityCheckSqsProducer {
 
 ### 4.6 DocParseTaskSweeper 僵尸态自愈（@Scheduled）
 
-异步消息驱动的状态机存在"消息丢失"或"Python/Java 崩溃在中间态"导致任务永久停留的风险。通过定时扫描自愈：
+异步消息驱动的状态机存在"消息丢失"或"Python/Java 崩溃在中间态"导致任务永久停留的风险。通过 `@Scheduled(fixedDelay=120_000)` 每 2 分钟扫描自愈。
 
-```java
-@Component
-@Slf4j
-public class DocParseTaskSweeper {
+**扫描策略**:
 
-    @Scheduled(fixedDelay = 120_000)  // 每 2 分钟
-    @Transactional
-    public void sweep() {
-        Instant now = Instant.now();
+| 扫描分支 | 阈值 | 动作 |
+|---------|------|------|
+| `sweepDraftExpired` | DRAFT > 24h | 删 S3 对象 + `status=EXPIRED`（清理未完成任务）|
+| `sweepZombieProcessing` | file.PROCESSING > 20min | 跨 schema SELECT 检查 Python 是否已写 `ai_ocr_extracted_table`：有 → 强制推进 REVIEW_READY；无 → FILE_FAILED |
+| `sweepStuckVerifying` | task.VERIFYING > 10min | `status=FAILED`（verify 代码死循环或连接池耗尽） |
+| `sweepStuckMemoryLearn` | MEMORY_LEARN_IN_PROGRESS > 10min | `status=MEMORY_LEARN_FAILED`（fi_* 不回滚） |
 
-        // 1. DRAFT > 24h → EXPIRED（清理用户未完成的任务 + S3 对象）
-        sweepDraftExpired(now.minus(Duration.ofHours(24)));
+**不扫描的状态**（设计上无 TTL 风险）:
+- `SIMILARITY_CHECKING` —— Q16 简化为瞬态事件日志，Python 崩溃由 SQS DLQ 兜底
+- `COMMITTING` —— Q7 方案 B 下事务 rollback 时 `status` 自动回 REVIEWING
+- `SIMILARITY_CHECKED` —— 用户登录时从待审核列表自然发现
 
-        // 2. PROCESSING > 20min 且 Python 端已写数据 → 同步推进到 REVIEW_READY
-        sweepZombieProcessing(now.minus(Duration.ofMinutes(20)));
-
-        // 3. VERIFYING > 10min → FAILED（verify 代码死循环或 DB 连接池耗尽）
-        sweepStuckVerifying(now.minus(Duration.ofMinutes(10)));
-
-        // 4. MEMORY_LEARN_IN_PROGRESS > 10min（Python 崩溃）→ MEMORY_LEARN_FAILED
-        sweepStuckMemoryLearn(now.minus(Duration.ofMinutes(10)));
-
-        // 注：不扫描 SIMILARITY_CHECKING（Q16 简化为瞬态事件日志，不会卡住）
-        // 注：不扫描 COMMITTING（Q7 方案 B 下事务 rollback 时 status 自动回 REVIEWING）
-        // 注：不扫描 SIMILARITY_CHECKED（用户登录时从待审核列表自然发现，无 TTL）
-    }
-
-    private void sweepDraftExpired(Instant threshold) {
-        List<DocParseTask> drafts = taskRepo.findByStatusAndCreatedAtBefore(
-            DocParseStatus.DRAFT, threshold);
-        for (DocParseTask t : drafts) {
-            // 删除 S3 临时文件
-            t.getFiles().forEach(f -> s3Client.deleteObject(bucket, f.getS3Key()));
-            t.setStatus(DocParseStatus.EXPIRED);
-            taskRepo.save(t);
-            log.info("Expired DRAFT task {} (created_at={})", t.getId(), t.getCreatedAt());
-        }
-    }
-
-    private void sweepZombieProcessing(Instant threshold) {
-        // 找 PROCESSING 超过 20 分钟的 file
-        List<DocParseFile> zombies = fileRepo.findByStatusAndUpdatedAtBefore(
-            DocParseFileStatus.PROCESSING, threshold);
-        for (DocParseFile f : zombies) {
-            // 检查 Python 端是否已完成（通过 SELECT 跨 schema 只读）
-            boolean hasResult = extractedTableRepo.existsByFileId(f.getId());
-            if (hasResult) {
-                // Python 处理完了但 OcrResult 丢失 → 同步推进
-                f.setStatus(DocParseFileStatus.REVIEW_READY);
-                f.setProcessingStage(null);
-                f.setProgressPct(100);
-                fileRepo.save(f);
-                log.warn("Recovered zombie file {}: Python result missing, forced REVIEW_READY",
-                    f.getId());
-                // 触发 task 状态检查
-                statusService.checkAndAdvanceTask(f.getTaskId());
-            } else {
-                // Python 真的卡住了 → 失败
-                f.setStatus(DocParseFileStatus.FILE_FAILED);
-                f.setErrorMessage("Processing timeout after 20 minutes");
-                fileRepo.save(f);
-            }
-        }
-    }
-
-    // ... 其他 sweep 方法类似
-}
-```
-
-**关键设计**:
+**实现层关键决策**:
 - 使用 `@Scheduled(fixedDelay)` 而非 `fixedRate` — 确保前一次完成后才启动下一次
-- 每个 sweep 方法使用独立事务，失败不影响其他方法
-- 日志级别用 WARN / INFO，便于监控告警
-- 扫描结果要发 metric 到监控系统（如 Prometheus），僵尸任务数 > 0 时触发告警
+- 每个 sweep 分支使用**独立事务**，失败不影响其他分支
+- 日志级别 WARN / INFO，扫描结果发 metric 到 Prometheus，僵尸任务数 > 0 时触发告警
 
 ### 4.7 Java/Python 数据库物理部署模型
 
-**关键决策（2026-04-20）**: Java 和 Python 共用**同一个** PostgreSQL RDS 实例，**同一个 schema**（简化部署，避免跨库 JOIN）。通过数据库角色权限实现读写隔离：
+**关键决策（2026-04-20）**: Java 和 Python 共用**同一个** PostgreSQL RDS 实例 + **同一个 schema**（简化部署，避免跨库 JOIN）。通过数据库角色权限实现读写隔离 —— 完整 GRANT 语句见 [database-schema.md §4 数据库角色与权限](./database-schema.md#4-数据库角色与权限)。
 
-```sql
--- 创建角色
-CREATE ROLE java_app LOGIN PASSWORD '***';
-CREATE ROLE python_worker LOGIN PASSWORD '***';
+**角色权限矩阵（实现层概览）**:
 
--- Java 表（ai_ocr_*）— Java 拥有，Python 只读（少数例外）
-GRANT SELECT, INSERT, UPDATE, DELETE ON
-    ai_ocr_task, ai_ocr_file, ai_ocr_task_state_log,
-    ai_ocr_conflict_note, ai_ocr_commit_audit
-TO java_app;
-
-GRANT SELECT ON
-    ai_ocr_task, ai_ocr_file, ai_ocr_task_state_log,
-    ai_ocr_conflict_note, ai_ocr_commit_audit
-TO python_worker;
-
--- ⚠️ 例外：Python 对 ai_ocr_memory_learn_log 有 INSERT 权限
-GRANT INSERT ON ai_ocr_memory_learn_log TO python_worker;
--- 无 UPDATE / DELETE 权限，只能追加审计记录，不能篡改历史
-
--- Python 表（ai_ocr_* + ai_ocr_mapping_memory*）— Python 拥有，Java 只读
-GRANT SELECT, INSERT, UPDATE, DELETE ON
-    ai_ocr_extracted_table, ai_ocr_extracted_row, ai_ocr_mapping_result,
-    ai_ocr_conflict_record, ai_ocr_mapping_memory, ai_ocr_mapping_memory_audit
-TO python_worker;
-
-GRANT SELECT ON
-    ai_ocr_extracted_table, ai_ocr_extracted_row, ai_ocr_mapping_result,
-    ai_ocr_conflict_record
-TO java_app;
--- Java 无权查询 ai_ocr_mapping_memory（涉及跨公司商业机密）
-
--- fi_* 财务表 — 仅 Java 可写
-GRANT SELECT, INSERT, UPDATE ON fi_* TO java_app;
-REVOKE ALL ON fi_* FROM python_worker;
-```
+| 表归属 | `java_app` 角色 | `python_worker` 角色 |
+|-------|-----------------|---------------------|
+| Java 拥有的 `ai_ocr_*`（task / file / state_log / conflict_note / commit_audit）| RWUD | SELECT |
+| 跨域例外：`ai_ocr_memory_learn_log` | RWUD | INSERT only（不允许 UPDATE/DELETE，防篡改）|
+| 跨域例外：`ai_ocr_similarity_hint` | RWUD | INSERT only |
+| Python 拥有的 `ai_ocr_*`（extracted_table / row / mapping_result / conflict_record）| SELECT | RWUD |
+| Python 私有：`ai_ocr_mapping_memory*` | 无权限（跨公司商业机密）| RWUD |
+| 财务表 `fi_*` | RWU | REVOKE ALL |
 
 **为什么不分独立实例**:
 - 分实例需要 postgres_fdw 或跨库查询代理（复杂）
@@ -1008,127 +530,55 @@ REVOKE ALL ON fi_* FROM python_worker;
 | **不重算 `mapping_snapshot_hash`** | — | hash 仅在 `verify/start` 或 `navigate-back` 时计算（避免每次编辑都重算）|
 | 写 state_log | 每次 PATCH 成功 | `event_type=REVIEW_EDITED, payload={updatedRowCount, updatedMappingCount, actor}` |
 
-### 5.4 确认提交流程（Asana 2026-04-19 重构为两阶段）
+### 5.4 Commit 流程实现层（事务边界与并发防护）
 
-**阶段一：Verify Data Summary（冲突预检）**
+> **业务流程定义** → [system-architecture.md 4 步流程 第 4 步](./system-architecture.md)；**端点 URL/字段** → [api-doc.md #18 /commit](./api-doc.md#18-tasksidcommit-post) + [#19 /commit/result](./api-doc.md#19-tasksidcommitresult-get)；**Proforma/冲突业务规则** → [python-design.md](./python-design.md)。本节聚焦 Java 端事务边界与并发设计。
 
-```
-用户在 ReviewPage 点击 "Next"
-    → POST /api/v1/docparse/tasks/{id}/verify （异步）
-    → 后端执行:
-        ① 统计: 源文件总数 / 映射类型数 / 映射账户数
-        ② 与 fi_* 对比: 检测同 company + 同 metric + 同 reporting_period 的冲突
-        ③ 构建 DocParseVerifyRespVo 返回
-    
-前端显示 VerifyDataSummary 屏幕（摘要 + 进度条）
-用户点击 "Start Verification" → 触发异步 verify
-前端轮询 GET /api/v1/docparse/tasks/{id}/verify/status
-完成后 GET /api/v1/docparse/tasks/{id}/conflicts 获取冲突列表
-```
-
-**阶段二：Conflict Resolution + Commit**
+#### 5.4.1 两阶段事务模型
 
 ```
-用户针对每个冲突选择（Cancel 已移除，只剩 Overwrite/Skip）:
-    ○ Overwrite: 映射值覆盖 LG 现有值，旧值保留为历史记录
-    ○ Skip: 保留 LG 现有值，跳过该指标
+事务内（@Transactional(propagation=REQUIRED, rollbackFor=Exception.class)）:
+    ① FOR UPDATE 锁 ai_ocr_task 行（防并发 Commit）
+    ② CAS 校验：status IN (REVIEWING, CONFLICT_RESOLUTION) → COMMITTING
+    ③ 读 ai_ocr_extracted_row + ai_ocr_mapping_result
+    ④ 按 resolution 策略写 fi_* 财务表（Actuals）+ 调 ProformaForecastService.appendVersion()
+    ⑤ 写 ai_ocr_commit_audit（written/overwritten/skipped）
+    ⑥ task.status=COMMITTED；files.status=FILE_COMMITTED
+    ⑦ 若 revision：parent.status=SUPERSEDED + parent.superseded_by=self.id
+    ⑧ publishEvent(CommitSuccessEvent)（Spring 事件，不立即发 SQS）
 
-可选填写 Note（Story #7 2026-04-19 更新）:
-    - 手动输入 → 写入 ai_ocr_conflict_note
-    - 不填写 → 系统自动生成默认 note（auto_generated=true）
-    - 支持 note thread（parent_note_id）
-
-用户解决所有冲突后点击 Commit
-    → POST /api/v1/docparse/tasks/{id}/resolve （保存解决方案）
-    → POST /api/v1/docparse/tasks/{id}/commit
-    → 后端执行（两阶段：事务 + AFTER_COMMIT 事件）:
-        事务内（@Transactional）:
-          ① FOR UPDATE 锁 ai_ocr_task 行（防并发 Commit）
-          ② 检查 task.status IN (REVIEWING, CONFLICT_RESOLUTION)；否则抛异常
-          ③ 推进 task.status = COMMITTING
-          ④ 读取 ai_ocr_extracted_row + ai_ocr_mapping_result
-          ⑤ 按 resolution 策略写入 fi_* 财务表
-          ⑥ 记录 ai_ocr_commit_audit（written/overwritten/skipped）
-          ⑦ 推进 task.status = COMMITTED；file.status = FILE_COMMITTED
-          ⑧ 如果是 revision task：parent.status = SUPERSEDED, parent.superseded_by = self.id
-          ⑨ publishEvent(CommitSuccessEvent) —— Spring 事件，不立即发 SQS
-
-        AFTER_COMMIT（@TransactionalEventListener(phase = AFTER_COMMIT)）:
-          ⑩ 把源文件记录到 Company Documents（调用 CompanyDocService）
-          ⑪ 触发下游 Normalization 流程
-          ⑫ 如果存在新的 reporting period → 触发新闭月邮件通知
-          ⑬ 构建 mappingComparisons 发送 ocr-memory-learn-queue
-          ⑭ 推进 task.status = MEMORY_LEARN_PENDING
-          ⑮ 写 ai_ocr_task_state_log（event_type=COMMIT_COMPLETE / NEW_CLOSED_MONTH，仅事件流，不主动推送）
-
-    → 事务内任何一步失败 → ROLLBACK，task.status 回到 REVIEWING（依赖事件监听补偿，见下方）
-    → AFTER_COMMIT 阶段失败不回滚 fi_*（财务数据已提交），仅记录到 dlq，后续可重试
+AFTER_COMMIT（@TransactionalEventListener(phase = AFTER_COMMIT)）:
+    ⑨ ImportedStatementsService.syncAllFiles(taskId)（含无数据文件）
+    ⑩ 触发下游 normalization 流程
+    ⑪ 检测新 closed month → 调 ClosedMonthMailService.notify()（Java 职责，不是 Python）
+    ⑫ 构建 mappingComparisons → 发 ocr-memory-learn-queue（参见 §4.3）
+    ⑬ task.status=MEMORY_LEARN_PENDING
+    ⑭ 写 ai_ocr_task_state_log（COMMIT_COMPLETE / NEW_CLOSED_MONTH，仅事件流，不主动推送）
 ```
 
-**关键约束（2026-04-19 强化 + 2026-04-20 并发修正）**:
+#### 5.4.2 关键实现层约束
 
-- **并发互斥**: Commit 入口用 `@Lock(LockModeType.PESSIMISTIC_WRITE)` 或 `SELECT ... FOR UPDATE` 锁 `ai_ocr_task`，再用 CAS 更新 `status = COMMITTING WHERE status IN (REVIEWING, CONFLICT_RESOLUTION)`；受影响 0 行则抛异常（已被另一用户 commit）
-- **整体事务**: `@Transactional(propagation=REQUIRED, rollbackFor=Exception.class)` 包裹 fi_* 写入
-- **⚠️ SQS 必须在 AFTER_COMMIT 后发**: 使用 `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)` 监听 `CommitSuccessEvent`；否则事务回滚后 Python 已收到记忆学习消息，会写入脏记忆
-- **部分写入禁止**: 任何一个 metric 写入失败，整个 commit 回滚，`task.status` 自动回到 `REVIEWING`（通过事务回滚 + 异常处理器）
-- **Cancel 已移除**: 用户放弃提交 → 直接退出页面，task 状态保持 REVIEWING
-- **源文件始终记录**: 无论是否提取到账户，上传文件都出现在 Company Documents
-- **新闭月邮件**: Java 职责（不是 Python），写入成功后通过 EventBridge/邮件服务触发
-- **记忆学习触发**: 仅在 commit 成功后，只学习 `wasOverridden: true` 的条目
+| 约束 | 实现机制 |
+|------|---------|
+| 并发互斥 | `@Lock(LockModeType.PESSIMISTIC_WRITE)` 或 `SELECT ... FOR UPDATE` + CAS（受影响 0 行 → 抛 INVALID_STATUS_FOR_COMMIT） |
+| ⚠️ SQS 必须在 AFTER_COMMIT 发 | `@TransactionalEventListener(phase = AFTER_COMMIT)`，否则事务回滚后 Python 已收到记忆学习消息会写入脏记忆 |
+| 部分写入禁止 | 任一 metric 写入失败 → 整个 @Transactional 回滚，task.status 自动恢复到 REVIEWING/CONFLICT_RESOLUTION |
+| Cancel 已移除 | 用户放弃提交直接退出页面，task 状态保持 REVIEWING |
 
-**Commit 失败的恢复路径（Q7 方案 B：可恢复重试）**
+#### 5.4.3 Commit 失败的恢复路径（Q7 方案 B：可恢复重试）
 
-Commit 失败**不置 task.status=FAILED**。事务 rollback 后 task.status 自动回到 `REVIEWING`，用户可直接在 ConfirmPage 再点 "Commit" 重试（数据库已回滚，数据干净，幂等执行）。
+Commit 失败**不置 task.status=FAILED**。事务 rollback 后 task.status 自动回到 `REVIEWING`，用户可直接在 ConfirmPage 再点 "Commit" 重试（数据干净，幂等执行）。
 
-```java
-@Transactional
-public void commit(UUID taskId) {
-    try {
-        // 1. FOR UPDATE 锁 task 行
-        DocParseTask task = repo.findByIdForUpdate(taskId);
-        if (!Set.of(REVIEWING, CONFLICT_RESOLUTION).contains(task.getStatus())) {
-            throw new BusinessException("INVALID_STATUS_FOR_COMMIT");
-        }
-        task.setStatus(COMMITTING);
-        repo.save(task);
+**异常处理矩阵**:
 
-        // 2. 写 fi_* 财务表（核心事务）
-        financialDataService.writeBatch(taskId);
+| 异常类型 | 处理 | task.status 结果 |
+|---------|------|-----------------|
+| 业务异常（INVALID_STATUS_FOR_COMMIT 等）| 直接抛出，不回滚 | 保持原值 |
+| 技术异常（DB 死锁/字段约束/OOM/网络）| @Transactional 自动回滚 + 抛 `COMMIT_FAILED_RETRYABLE` | 自动恢复为进入方法前的值 |
 
-        // 3. 推进 task.status = COMMITTED；file.status = FILE_COMMITTED
-        task.setStatus(COMMITTED);
-        repo.save(task);
+**用户体验**: Java 返回 500 + errorCode=`COMMIT_FAILED_RETRYABLE` → 前端弹 Modal "数据未写入，请稍后重试 [重试] [取消]"；点重试再次 POST /commit 即可（task.status 还是 REVIEWING，幂等可接受）；24 小时内浏览器关闭也可恢复。
 
-        // 4. 发布事件（AFTER_COMMIT 才消费，见 @TransactionalEventListener）
-        eventPublisher.publishEvent(new CommitSuccessEvent(taskId));
-
-    } catch (BusinessException e) {
-        // 业务异常（如 INVALID_STATUS）直接抛出，task.status 保持
-        throw e;
-    } catch (Exception e) {
-        // 技术异常（DB 死锁/字段约束/OOM/网络）：
-        //   @Transactional 自动回滚 fi_* + task.status 字段更新
-        //   task.status 自动恢复为进入方法前的值（REVIEWING 或 CONFLICT_RESOLUTION）
-        // ⚠️ 绝对不把 task.status 置为 FAILED —— 这样用户可以直接重试
-        log.error("Commit failed for task {}, auto-reverted to REVIEWING. User can retry.", taskId, e);
-        throw new BusinessException("COMMIT_FAILED_RETRYABLE",
-            "Commit failed due to technical error, please retry", e);
-    }
-}
-```
-
-**用户体验**:
-
-```
-用户在 ConfirmPage 点击 Commit
-  → Java 返回 500 + errorCode=COMMIT_FAILED_RETRYABLE
-  → 前端弹 Modal: "提交失败：{errorMessage}。数据未写入，请稍后重试。[重试] [取消]"
-  → 点"重试" → 再次 POST /commit（task.status 还是 REVIEWING，可接受）
-  → 点"取消" → 返回 ConfirmPage，用户可以继续调整后再提交
-  → 即使关闭浏览器，DRAFT 态和 task 仍保留在 REVIEWING，24 小时内可恢复
-```
-
-**何时真正 task.status = FAILED**（只有以下 3 种）:
+**何时真正 `task.status = FAILED`**（只有 3 种）:
 1. 所有文件 FILE_FAILED（Phase 2 Python 处理全失败）
 2. VERIFYING 阶段异常（Phase 4 验证代码 bug）— 由 Sweeper 10min 超时推进
 3. DRAFT > 24 小时未操作 → EXPIRED（不是 FAILED，是单独的过期态）
@@ -1159,427 +609,122 @@ Commit 失败不进 FAILED，是 Q7 方案 B 的核心契约。
 
 Presigned URL 直传要求 S3 Bucket 配置 CORS 允许前端 origin。**严禁使用 `*` 或 localhost 作为 AllowedOrigins**。
 
-```json
-{
-  "CORSRules": [
-    {
-      "AllowedOrigins": ["https://portal.lookingglass.com"],
-      "AllowedMethods": ["PUT", "GET"],
-      "AllowedHeaders": ["Content-Type", "x-amz-*"],
-      "ExposeHeaders": ["ETag"],
-      "MaxAgeSeconds": 3000
-    }
-  ]
-}
-```
+| CORS 字段 | 生产值 | 开发环境 |
+|----------|-------|---------|
+| AllowedOrigins | `https://portal.lookingglass.com` | `http://localhost:8000`（独立 dev Bucket） |
+| AllowedMethods | `PUT, GET` | 同上 |
+| AllowedHeaders | `Content-Type, x-amz-*` | 同上 |
+| ExposeHeaders | `ETag` | 同上 |
+| MaxAgeSeconds | 3000 | 同上 |
 
-**开发环境**：使用独立的 dev Bucket（`AllowedOrigins: ["http://localhost:8000"]`），**严禁**在生产 Bucket 上允许 localhost。Terraform 配置通过环境变量区分。
+Terraform 配置通过环境变量区分；**严禁**在生产 Bucket 上允许 localhost。
 
-### 5.4.3 S3 Presigned URL 安全增强
+### 5.4.3 S3 Presigned URL 安全增强（实现层 5 项约束）
 
-1. **Presigned PUT 必须加 `content-length-range` 条件**（防止绕过 20MB 限制）:
-   ```java
-   PresignedPutObjectRequest req = S3Presigner.presignPutObject(r -> r
-       .signatureDuration(Duration.ofMinutes(15))
-       .putObjectRequest(PutObjectRequest.builder()
-           .bucket(bucket).key(s3Key)
-           .contentLength(fileSize)  // ⚠️ 强制
-           .build()));
-   ```
-
-2. **Presigned GET 生存期缩短到 5 分钟**（折中：大 PDF 加载需时间，但过期会自动续签）:
-   ```java
-   PresignedGetObjectRequest req = S3Presigner.presignGetObject(r -> r
-       .signatureDuration(Duration.ofMinutes(5))   // ← 不是 15 分钟
-       .getObjectRequest(GetObjectRequest.builder().bucket(bucket).key(s3Key).build()));
-   ```
-
-3. **`complete` 端点严禁信任前端传入的 s3Key**：
-   ```java
-   // ❌ 错误：信任前端传入的 s3Key
-   s3Client.headObject(b -> b.bucket(bucket).key(request.getS3Key()));
-
-   // ✅ 正确：从 DB 查 s3Key
-   DocParseFile file = fileRepo.findByIdAndCompanyId(fileId, jwtCompanyId);
-   s3Client.headObject(b -> b.bucket(bucket).key(file.getS3Key()));
-   ```
-
-4. **`file_hash` 格式强校验**（防注入）:
-   ```java
-   @Pattern(regexp = "^[a-f0-9]{64}$", message = "Invalid SHA-256 hash")
-   private String hash;
-   ```
-
-5. **CloudTrail S3 数据事件启用**：生产 Bucket 必须启用 CloudTrail Data Events（PutObject / GetObject / DeleteObject），日志存到独立的审计 Bucket（启用 MFA Delete）。
+| # | 约束 | 实现机制 |
+|---|------|---------|
+| 1 | Presigned PUT 必须加 `content-length-range` 条件 | `PutObjectRequest.builder().contentLength(fileSize)` —— 防止绕过 20MB 限制 |
+| 2 | Presigned GET 生存期缩短到 **5 分钟** | `signatureDuration(Duration.ofMinutes(5))`，不是 15 分钟（折中：大 PDF 加载需时间但过期可自动续签）|
+| 3 | `/complete` 端点严禁信任前端传入的 s3Key | 必须从 `ai_ocr_file` 表查 `s3Key`，再调 `s3:HeadObject`（防伪造）|
+| 4 | `file_hash` 格式强校验 | DTO 字段加 `@Pattern(regexp = "^[a-f0-9]{64}$")` 防注入 |
+| 5 | CloudTrail S3 Data Events 启用 | 生产 Bucket 启用 PutObject/GetObject/DeleteObject 日志，存独立审计 Bucket（启用 MFA Delete）|
 
 ### 5.4.4 URL 响应字段统一（`expiresAt` ISO 时间戳）
 
-全文统一使用 `expiresAt`（ISO 8601 时间戳）而非 `expiresIn`（秒数）。原因：前端直接用 `new Date(expiresAt) > Date.now()` 判断是否过期，无需额外保存"签发时刻"。
-
-```json
-{
-  "url": "https://s3.amazonaws.com/...",
-  "expiresAt": "2026-04-20T10:15:00Z"
-}
-```
+全文统一使用 `expiresAt`（ISO 8601 时间戳）而非 `expiresIn`（秒数）。原因：前端直接用 `new Date(expiresAt) > Date.now()` 判断是否过期，无需额外保存"签发时刻"。响应字段示例见 [api-doc.md #6 / #9](./api-doc.md#6-uploadrequest-urls-post)。
 
 ### 5.5 DTO / VO 契约
 
 DTO/VO 字段定义见 [api-doc.md §2 REST 端点详情](./api-doc.md#2-rest-端点详情)（每个端点列出请求 DTO + 响应 DTO 名称）。本章节不重复 DTO 字段定义。
 
 
-### 5.6 Step 5a — Mapping Summary 与 Verify 触发（2026-05-06 新增）
+### 5.6 Step 5a / 5b / 5c 实现层（接口对接说明）
 
-> 需求来源：[requirement-analysis §4.9](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)
+> **接口职责定义** → [api-doc.md](./api-doc.md)（端点 #11-#19）；**业务规则** → [system-architecture.md](./system-architecture.md) + [python-design.md](./python-design.md)。本节仅说明 Java 端实现层的事务边界与状态机推进。
+
+#### 5.6.1 Step 5a — Mapping Summary + Verify 触发（[api-doc.md #11-#13](./api-doc.md#11-tasksidmapping-summary-get)）
 
 **核心契约**: 用户主动点击 "Start Verification" 才触发冲突检测；后端必须先做 hard gate 校验，存在 unmapped/unreviewed/缺失元数据的行项时**直接拒绝**进入 verify。
 
-#### 5.6.1 端点设计
+| 实现层关注点 | 决策 |
+|------------|------|
+| `getSummary` 缓存策略 | 命中 `ai_ocr_task.summary_cache` 直接返回；`mapping_changed_at` 变化或 cache=null 时重算并写回 |
+| `startVerification` 事务 | FOR UPDATE 锁 task；CAS 推进 `REVIEWING → VERIFYING`；publishEvent 启动异步 ConflictDetectionJob |
+| Hard gate 检查 | 三类硬错误：`UNMAPPED_ROWS`（lg_category 为空）/ `UNREVIEWED_ROWS`（user_reviewed=false 的非 confidence-high 项）/ `MISSING_METADATA`（account_label / value / reporting_period 任一为空）；任一非空 → 抛 `HARD_GATE_FAILED` 拒绝进入 verify |
+| has_extractable_data=false 分支 | 跳到 §5.9 No-Data 分支（不进 verify）|
+| 用户中途 Previous | `abortVerification(taskId)` 异步 Job 收到 cancel 信号，回到 REVIEWING |
 
-```java
-@RestController
-@RequestMapping("/api/v1/docparse/tasks/{taskId}")
-@Validated
-public class MappingSummaryController {
+#### 5.6.2 Step 5b — 单冲突逐个解决（[api-doc.md #14-#15](./api-doc.md#14-tasksidconflicts-get)）
 
-    /** 5a 页面进入时调用：返回三组统计 + hard gate 错误清单 */
-    @GetMapping("/mapping-summary")
-    public DocParseMappingSummaryRespVo getSummary(@PathVariable UUID taskId) {
-        return mappingSummaryService.computeSummary(taskId);   // 命中 summary_cache 直接返回
-    }
+**重大变更**（相对原批量 resolve）: 改为**逐个冲突解决**，前端弹窗驱动；**Note 强制非空**（与原 "可选填写 Note" 不同）。
 
-    /** 5a 点击 "Start Verification" 触发，状态机推进 REVIEWING → VERIFYING */
-    @PostMapping("/verify/start")
-    public DocParseVerifyStartRespVo startVerification(@PathVariable UUID taskId) {
-        return verificationService.startVerification(taskId);  // hard gate 校验 + 异步入队
-    }
+| 实现层关注点 | 决策 |
+|------------|------|
+| 列表过滤 | 仅 Actuals 冲突参与；Proforma 整体豁免不入此列表（按 `lg_metric, reporting_period` 排序）|
+| Note 必填 | DTO 上 `@NotBlank @Size(max=2000)`；Service 二次防御校验 |
+| 状态校验 | `task.status IN (CONFLICT_RESOLUTION, VERIFYING)` 才允许 resolve |
+| 写表 | `ai_ocr_conflict_record.resolution` + `ai_ocr_conflict_note`（thread 支持） |
+| Save & Next 导航 | (1) 同 metric 下一未解决月 → (2) 跨 metric 第一未解决 → (3) 全部解决 → `isLast=true`（前端按钮变 "Save"，引导进入 5c）|
+| 状态保持 | 全部解决后 `task.status=CONFLICT_RESOLUTION`（保持，等用户主动点 Commit）|
 
-    /** 5a 进度轮询；返回 stage（PENDING/RUNNING/COMPLETED/ABORTED）+ percent + 已检测冲突数 */
-    @GetMapping("/verify/progress")
-    public DocParseVerifyProgressRespVo getProgress(@PathVariable UUID taskId) {
-        return verificationService.getProgress(taskId);
-    }
-}
-```
+#### 5.6.3 Step 5c — Commit / Proforma / Imported Statements（[api-doc.md #18-#19](./api-doc.md#18-tasksidcommit-post)）
 
-#### 5.6.2 Service 关键方法签名
+事务编排见 §5.4；本节列举 Java 端**新增的辅助 Service 职责**：
 
-```java
-public interface MappingSummaryService {
-    /**
-     * 聚合: 文件总数 / 映射类型数（Actuals + Proforma）/ 映射账户数 + hard gate 检查
-     * 命中 ai_ocr_task.summary_cache 直接返回；mapping_changed_at 变化或 cache 为 null 时重算并写回
-     */
-    DocParseMappingSummaryRespVo computeSummary(UUID taskId);
-}
+| Service 接口 | 职责 |
+|------------|------|
+| `ProformaForecastService.appendVersion()` | Proforma 追加新版本：找当前 active committed forecast（24 个月窗口最新版本）；上传月份 ∩ 现有月份 → 替换值；∉ 现有月份 → 追加月份；创建新 forecast_version 记录（user=上传者，supersedes=旧版本 ID）；旧版本保留为历史不删除（审计要求）|
+| `ImportedStatementsService.syncAllFiles()` | 同步文件元数据到 Documents 服务的 "Imported Statements" 文件夹：该文件夹按 `company_id` 全局唯一，首次提交时由 CompanyDocService 自动创建；元数据包含 `{ fileName, s3Key, uploadedAt, uploadedBy, taskId, hasExtractableData }`；含 `has_extractable_data=false` 的文件 |
+| `ClosedMonthMailService.notify()` | AFTER_COMMIT 事件监听器调用 `commitAuditRepo.findNewlyIntroducedPeriods(taskId)`，新 period 集合非空时调用 Java 现有邮件服务（不走 Python）+ 写 state_log `NEW_CLOSED_MONTH` |
 
-public interface VerificationService {
-    /**
-     * 1. FOR UPDATE 锁 task；检查 status=REVIEWING
-     * 2. 调 MappingSummaryService.computeSummary() 取最新 hardGateErrors
-     * 3. 若 hardGateErrors 非空 → 抛 BusinessException("HARD_GATE_FAILED", errors)
-     * 4. 若 has_extractable_data=false → 跳到 §5.9 No-Data 分支
-     * 5. 推进 status=VERIFYING；publish event 启动异步 ConflictDetectionJob
-     */
-    DocParseVerifyStartRespVo startVerification(UUID taskId);
-
-    /** 用户中途 Previous → 异步任务收到 cancel 信号，回到 REVIEWING（§4.9 回退处理） */
-    void abortVerification(UUID taskId);
-
-    DocParseVerifyProgressRespVo getProgress(UUID taskId);
-}
-```
-
-#### 5.6.3 Hard Gate 检查规则
-
-```java
-// MappingSummaryService 内部实现
-List<HardGateError> validate(UUID taskId) {
-    List<HardGateError> errors = new ArrayList<>();
-    // 1. unmapped 行项（lg_category 为空）
-    long unmapped = mappingResultRepo.countByTaskIdAndLgCategoryIsNull(taskId);
-    if (unmapped > 0) errors.add(new HardGateError("UNMAPPED_ROWS", unmapped));
-    // 2. unreviewed 行项（user_reviewed=false 的非 confidence-high 项）
-    long unreviewed = extractedRowRepo.countUnreviewedRequired(taskId);
-    if (unreviewed > 0) errors.add(new HardGateError("UNREVIEWED_ROWS", unreviewed));
-    // 3. 缺失元数据：account_label / value / reporting_period 任一为空
-    long missing = extractedRowRepo.countMissingMetadata(taskId);
-    if (missing > 0) errors.add(new HardGateError("MISSING_METADATA", missing));
-    return errors;
-}
-```
+**核心实现层差异**（相对原 §5.4 单一 commit）:
+- Proforma 行项**不参与冲突解决**（豁免），独立走 `appendVersion`
+- `ai_ocr_commit_audit` 全量记录（Proforma append 也算 written）
+- 所有上传文件（含无数据）都通过 `syncAllFiles` 同步到 Documents
+- AFTER_COMMIT 阶段并行触发：(a) Imported Statements 同步、(b) 闭月邮件、(c) 下游 normalization、(d) 记忆学习 SQS（仅 wasOverridden=true 行项）
 
 ---
 
-### 5.7 Step 5b — 单冲突逐个解决 + Note 必填（2026-05-06 重构）
+### 5.7 边界用例 — 无可提取数据（NO_DATA_BYPASS）
 
-> 需求来源：[requirement-analysis §4.10](./requirement-analysis.md#410-step-5b--conflict-resolution-of-manual-uploads2026-05-06-新增)
+> **业务规则** → [requirement-analysis §4.12](./requirement-analysis.md#412-edge-case--documents-without-extractable-data2026-05-06-新增)。本节仅说明 Java 端状态机决策。
 
-**重大变更**: 由原 §5.4 的"批量 resolve"改为**逐个冲突解决**，前端弹窗驱动。Note 强制非空（与原 §5.4 "可选填写 Note" 不同）。
+`NoDataHandlerService.evaluateExtractability(taskId)` 由 `OcrResultSqsProcessor#handleResult()` 在 task 内所有 OcrResult 收到后调用：
 
-#### 5.7.1 端点设计
+| 文件聚合结果 | task 状态推进 | 后续动作 |
+|-------------|--------------|---------|
+| 全部 `has_extractable_data=false` | `status=NO_DATA_BYPASS` → AFTER_COMMIT `syncAllFiles()` → `status=COMPLETED` | 跳过 MEMORY_LEARN（无需学习）；前端轮询发现状态变化弹"未提取到财务数据"提示 |
+| 全部 true | 走正常 5a/5b/5c 流程 | — |
+| 混合 | 仅有数据文件参与 5a 摘要 + 5b 冲突 + 5c commit | 无数据文件在 5c AFTER_COMMIT 时一并 sync 到 Imported Statements |
 
-```java
-@RestController
-@RequestMapping("/api/v1/docparse/tasks/{taskId}/conflicts")
-public class ConflictResolutionController {
-
-    /** 仅 Actuals 冲突；Proforma 整体豁免不入此列表 */
-    @GetMapping
-    public DocParseConflictListRespVo listConflicts(@PathVariable UUID taskId) {
-        return conflictService.listActualsConflicts(taskId);
-    }
-
-    /** 单冲突解决：Note 必填硬校验；返回下一冲突定位（Save & Next 导航） */
-    @PostMapping("/{conflictId}/resolve")
-    public DocParseConflictResolveRespVo resolveOne(
-            @PathVariable UUID taskId,
-            @PathVariable UUID conflictId,
-            @RequestBody @Valid DocParseSingleConflictResolveReqVo req) {
-        return conflictService.resolve(taskId, conflictId, req);
-    }
-}
-
-@Data
-public class DocParseSingleConflictResolveReqVo {
-    @NotNull
-    private DocParseConflictAction action;     // OVERWRITE | SKIP（Cancel 已移除）
-    @NotBlank @Size(max = 2000)
-    private String note;                       // ⚠️ 必填硬校验，前端按钮 disabled until note
-}
-
-@Data
-public class DocParseConflictResolveRespVo {
-    private UUID resolvedConflictId;
-    private boolean isLast;                    // 末尾冲突 → 前端按钮文案变为 "Save"，否则 "Save & Next"
-    private UUID nextConflictId;               // 同 metric 下一月 → 跨 metric 第一冲突
-    private String nextMetric;
-    private int remainingCount;
-}
-```
-
-#### 5.7.2 Save & Next 导航逻辑（§4.10）
-
-```java
-// ConflictService.resolve() 内部
-DocParseConflictResolveRespVo computeNext(UUID taskId, UUID currentConflictId) {
-    Conflict cur = conflictRepo.findById(currentConflictId);
-    // 1. 同 metric 下一未解决月份
-    Optional<Conflict> sameMetric = conflictRepo
-        .findFirstByTaskIdAndMetricAndResolvedFalseAndIdNotOrderByReportingPeriod(
-            taskId, cur.getLgMetric(), currentConflictId);
-    if (sameMetric.isPresent()) return resp(sameMetric.get(), false);
-    // 2. 跨 metric 的第一个未解决冲突
-    Optional<Conflict> nextMetric = conflictRepo
-        .findFirstByTaskIdAndResolvedFalseOrderByLgMetricAscReportingPeriodAsc(taskId);
-    if (nextMetric.isPresent()) return resp(nextMetric.get(), false);
-    // 3. 全部解决 → isLast=true，按钮变 "Save"，前端引导用户进入 5c
-    return new DocParseConflictResolveRespVo(currentConflictId, true, null, null, 0);
-}
-```
-
-#### 5.7.3 Service 方法签名
-
-```java
-public interface ConflictService {
-    /** 仅返回 Actuals 冲突（按 lg_metric, reporting_period 排序） */
-    DocParseConflictListRespVo listActualsConflicts(UUID taskId);
-
-    /**
-     * 1. 校验 task.status IN (CONFLICT_RESOLUTION, VERIFYING)
-     * 2. 校验 note 非空（@Valid 已做但二次防御）
-     * 3. 写 ai_ocr_conflict_record.resolution + ai_ocr_conflict_note
-     * 4. 计算下一冲突定位
-     * 5. 若全部解决 → 推进 task.status=CONFLICT_RESOLUTION（保持，等用户点 Commit）
-     */
-    DocParseConflictResolveRespVo resolve(UUID taskId, UUID conflictId,
-                                          DocParseSingleConflictResolveReqVo req);
-}
-```
+**新增枚举值**: `DocParseStatus.NO_DATA_BYPASS` —— 区别于 `FAILED`（处理失败）。Sweeper 不需要扫描该状态（瞬态）。
 
 ---
 
-### 5.8 Step 5c — Commit、Proforma 追加版本、Imported Statements（2026-05-06 新增）
+### 5.8 边界用例 — Steps Navigation 变更检测
 
-> 需求来源：[requirement-analysis §4.11](./requirement-analysis.md#411-step-5c--commit-uploaded-data-to-lg--display-results2026-05-06-新增)
-
-**核心变更**（相对原 §5.4）：
-- Proforma 走**追加新 committed forecast 版本**路径，**不参与冲突解决**
-- 所有上传文件（含无数据文件）都同步到 Documents 的 `Imported Statements` 文件夹
-- Commit 引入新 closed month 时触发邮件通知
-- 成功后跳转 Benchmark Info Page，附带提示参数
-
-#### 5.8.1 Commit Controller
-
-```java
-@RestController
-@RequestMapping("/api/v1/docparse/tasks/{taskId}")
-public class CommitController {
-
-    @PostMapping("/commit")
-    @Transactional
-    public DocParseCommitRespVo commit(@PathVariable UUID taskId) {
-        return commitService.commit(taskId);
-    }
-
-    /** 5c 跳转 Benchmark 前端获取写入摘要 + 跳转参数 */
-    @GetMapping("/commit/result")
-    public DocParseCommitResultRespVo getResult(@PathVariable UUID taskId) {
-        return commitService.getResult(taskId);
-    }
-}
-
-@Data
-public class DocParseCommitResultRespVo {
-    private int writtenAccountCount;
-    private List<String> writtenPeriods;          // ["2024-01", "2024-02"]
-    private List<String> documentTypes;           // ["P&L", "Balance Sheet"]
-    private UUID importedStatementsFolderId;      // Documents 服务返回的文件夹 ID
-    private boolean newClosedMonthIntroduced;
-    private String benchmarkRedirectUrl;          // 5c 跳转目标
-    private String banner;                        // "View your updated benchmarks"
-}
-```
-
-#### 5.8.2 Service 方法（在原 §5.4 基础上增加）
-
-```java
-public interface CommitService {
-    /**
-     * 整批事务（@Transactional + FOR UPDATE 锁 task）：
-     * 1. 校验 task.status=CONFLICT_RESOLUTION 且所有冲突已解决
-     * 2. 分流写入：
-     *    - Actuals 行项 → fi_* 表（按 §5.7 resolution OVERWRITE/SKIP 规则）
-     *    - Proforma 行项 → 调 ProformaForecastService.appendVersion() 追加新版本
-     * 3. ai_ocr_commit_audit 全量记录（written/overwritten/skipped + Proforma append 也算 written）
-     * 4. AFTER_COMMIT 阶段：
-     *    a. 调 ImportedStatementsService.syncAllFiles(taskId)（含 has_extractable_data=false 的文件）
-     *    b. 检测新 closed month → 发邮件
-     *    c. 触发下游 normalization
-     *    d. 发记忆学习 SQS（仅 wasOverridden=true 行项）
-     */
-    DocParseCommitRespVo commit(UUID taskId);
-
-    DocParseCommitResultRespVo getResult(UUID taskId);
-}
-
-public interface ProformaForecastService {
-    /**
-     * Proforma 追加版本逻辑：
-     * 1. 找当前 active committed forecast（取最新版本，24 个月窗口）
-     * 2. 上传 proforma 月份 ∩ 现有月份 → 替换值
-     * 3. 上传 proforma 月份 ∉ 现有月份 → 追加月份
-     * 4. 创建新 forecast_version 记录（user=上传者，supersedes=旧版本 ID）
-     * 5. 旧版本保留为历史不删除（审计要求）
-     */
-    UUID appendVersion(UUID taskId, UUID companyId, List<ProformaRow> rows);
-}
-
-public interface ImportedStatementsService {
-    /**
-     * 同步上传文件元数据到 Documents 服务的 "Imported Statements" 文件夹：
-     * - 该文件夹按 company_id 全局唯一，首次提交时由 CompanyDocService 自动创建
-     * - 文件元数据: { fileName, s3Key, uploadedAt, uploadedBy, taskId, hasExtractableData }
-     * - 包含 has_extractable_data=false 的文件（§4.12 边界用例）
-     */
-    UUID syncAllFiles(UUID taskId);
-}
-```
-
-#### 5.8.3 闭月邮件触发条件
-
-```java
-// AFTER_COMMIT 事件监听器
-@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-public void onCommitSuccess(CommitSuccessEvent event) {
-    // 1. 检测是否引入新 reporting period
-    Set<String> newPeriods = commitAuditRepo.findNewlyIntroducedPeriods(event.getTaskId());
-    if (!newPeriods.isEmpty()) {
-        // 2. 触发新闭月邮件（同步 Java 现有邮件服务，不走 Python）
-        closedMonthMailService.notify(event.getCompanyId(), newPeriods);
-        // 3. 同步事件日志（§5.4.1 Q16 简化版，不重试）
-        notificationEventService.log(event.getTaskId(), "NEW_CLOSED_MONTH",
-            Map.of("newPeriods", newPeriods));
-    }
-}
-```
-
----
-
-### 5.9 边界用例 — 无可提取数据（2026-05-06 新增）
-
-> 需求来源：[requirement-analysis §4.12](./requirement-analysis.md#412-edge-case--documents-without-extractable-data2026-05-06-新增)
-
-**业务规则**: 全部文件 `has_extractable_data=false` 时跳过 5a/5b/5c，**仅同步到 Imported Statements**；混合批次不阻塞有数据文件流程。
-
-```java
-public interface NoDataHandlerService {
-    /**
-     * 由 Python 端 OcrResultSqsProcessor.handleResult() 收到所有结果后调用：
-     * 聚合 task 下所有 file 的 has_extractable_data 字段：
-     *   - 全部 false → 推进 task.status=NO_DATA_BYPASS（新增枚举值）
-     *                  → AFTER_COMMIT 调 ImportedStatementsService.syncAllFiles()
-     *                  → 推进 task.status=COMPLETED（跳过 MEMORY_LEARN，无需学习）
-     *                  → 前端轮询发现状态变化，弹"未提取到财务数据"提示
-     *   - 全部 true  → 走正常 5a/5b/5c 流程
-     *   - 混合       → 仅有数据文件参与 5a 摘要 + 5b 冲突 + 5c commit；
-     *                  无数据文件在 5c AFTER_COMMIT 时一并 sync 到 Imported Statements
-     */
-    void evaluateExtractability(UUID taskId);
-}
-```
-
-**新增枚举值**: `DocParseStatus.NO_DATA_BYPASS` —— 仅供"全部无数据"批次使用，区别于 `FAILED`（处理失败）。Sweeper 不需要扫描该状态（瞬态）。
-
----
-
-### 5.10 边界用例 — Steps Navigation 变更检测（2026-05-06 新增）
-
-> 需求来源：[requirement-analysis §4.13](./requirement-analysis.md#413-edge-case--steps-navigation2026-05-06-新增)
+> **业务规则** → [requirement-analysis §4.13](./requirement-analysis.md#413-edge-case--steps-navigation2026-05-06-新增)；**端点** → [api-doc.md #20](./api-doc.md#20-tasksidnavigate-back-post)。本节仅说明 Java 端状态机决策。
 
 **核心契约**: Previous 在所有步骤都可用；回退后**未修改**则保留下游结果不重跑；**有修改**则重跑下游 + 清空旧 conflict resolutions。判定靠 `mapping_snapshot_hash` 对比。
 
-```java
-@RestController
-@RequestMapping("/api/v1/docparse/tasks/{taskId}")
-public class NavigationController {
+**`NavigationService.handleNavigateBack` 实现层流程**:
 
-    /**
-     * 用户在 5a/5b/5c 点 Previous 回到 Review 时调用。
-     * 返回值告知前端是否需要"置灰下游 + 重跑"。
-     */
-    @PostMapping("/navigate-back")
-    @Transactional
-    public DocParseNavigateBackRespVo navigateBack(
-            @PathVariable UUID taskId,
-            @RequestBody DocParseNavigateBackReqVo req) {
-        return navigationService.handleNavigateBack(taskId, req.getTargetStep());
-    }
-}
+1. 计算 `computeSnapshotHash(taskId)`：SHA-256(JSON(sorted_rows + sorted_mappings))；关键字段 `row.value` / `row.account_label` / `row.reporting_period` / `mapping.lg_category`
+2. 对比 `ai_ocr_task.mapping_snapshot_hash`：
+   - **相等** → `mappingChanged=false`，前端无延迟前进（保留下游结果）
+   - **不等** → `mappingChanged=true`，执行：
+     - 清空 `ai_ocr_conflict_record.resolution_action`（重置为 NULL）
+     - 推进 `task.status=REVIEWING`（即使是从 CONFLICT_RESOLUTION 回来）
+     - 清空 `ai_ocr_task.summary_cache`（强制 5a 重新聚合）
+     - 更新 `mapping_snapshot_hash` + `mapping_changed_at`
+     - 入队 `ocr-extract-queue`（`mode=REMAP_ONLY`，参见 §4.1）
+3. 返回 `{ mappingChanged, clearedConflictCount, message }`
 
-public interface NavigationService {
-    /**
-     * 1. 计算当前 mapping_snapshot_hash（基于 ai_ocr_extracted_row + ai_ocr_mapping_result 的稳定序列化哈希）
-     * 2. 与 ai_ocr_task.mapping_snapshot_hash 对比：
-     *    - 相等 → mappingChanged=false，前端无延迟前进
-     *    - 不等 → mappingChanged=true，执行：
-     *        a. 清空 ai_ocr_conflict_record 和 ai_ocr_conflict_note 的 resolution（保留 thread 历史）
-     *        b. 推进 task.status=REVIEWING（即使是从 CONFLICT_RESOLUTION 回来）
-     *        c. 清空 ai_ocr_task.summary_cache（强制 5a 重新聚合）
-     *        d. 更新 mapping_snapshot_hash + mapping_changed_at
-     * 3. 返回 { mappingChanged, clearedConflictCount, message }
-     */
-    DocParseNavigateBackRespVo handleNavigateBack(UUID taskId, NavStep targetStep);
+**Conflict 清空策略**: 仅清空 `resolution_action`；`ai_ocr_conflict_note` 不删除（用户历史 thread 是审计记录的一部分，下次进入 5b 仍可见）。
 
-    /**
-     * 计算稳定 hash：SHA-256(JSON(sorted_rows + sorted_mappings))
-     * 关键字段：row.value、row.account_label、row.reporting_period、mapping.lg_category
-     */
-    String computeSnapshotHash(UUID taskId);
-}
-```
+---
 
-**Conflict 清空策略**: `ai_ocr_conflict_record.resolution_action` 重置为 NULL，但 `ai_ocr_conflict_note` 不删除（用户历史 thread 是审计记录的一部分，下次可见）。
+> 注：旧 §5.6.1-5.6.3 / §5.7 / §5.8 / §5.9 / §5.10 的详细 Java Controller / Service 代码示例已删除，规格请查 [api-doc.md](./api-doc.md)（端点 #11-#20）+ [system-architecture.md](./system-architecture.md)（业务规则）。本文档保留以上简化版本（§5.6-§5.8）即可。
 
 ---
 
@@ -1591,7 +736,7 @@ public interface NavigationService {
 
 | 基础能力 | 现状 | 对应章节 |
 |---------|------|---------|
-| S3 安全存储 + presigned 直传 | 已设计 | §2.1 / §5.4.3 / §5.4.4 |
+| S3 安全存储 + presigned 直传 | 已设计 | §2.1 / §5.4.2 / §5.4.3 / §5.4.4 |
 | 唯一 ID 关联 company + upload session | 已设计（task_id + file_id + file_hash） | §3.1 / §3.2 |
 | 文件类型校验（PDF/Excel/CSV/JPG/JPEG/PNG/TIFF） | 已设计 | §6.2 |
 | 文件大小限制（单 20MB / 批 100MB） | DocParseProperties 配置 | §1.1 |
@@ -1607,169 +752,17 @@ public interface NavigationService {
 
 ---
 
-### 5.12 辅助端点详细设计（2026-05-06 补充）
+### 5.12 辅助端点实现层（接口对接说明）
 
-> 这些端点在 §0.1 总览表中已经登记，本节补充 Controller / Service 方法签名 + 副作用细节，避免 §0.1 单行无法承载。
+> **端点 URL / DTO** → [api-doc.md](./api-doc.md)（端点 #5 / #8 / #16-17 / #21-22 / #23-25）。本节仅说明 Java 端实现层副作用与状态推进。
 
-#### 5.12.1 Task History — `/tasks/{id}/history`
-
-```java
-@RestController
-@RequestMapping("/api/v1/docparse/tasks/{taskId}")
-public class TaskHistoryController {
-
-    /** 沿 parent_task_id 链向上回溯到根，返回 v1→v2→...→current 的全版本时间线 */
-    @GetMapping("/history")
-    public DocParseHistoryRespVo getHistory(@PathVariable UUID taskId) {
-        return historyService.buildVersionChain(taskId);
-    }
-}
-
-@Data
-public class DocParseHistoryRespVo {
-    private UUID currentTaskId;
-    private List<TaskVersion> versions;        // 按 revision_number 升序
-}
-
-@Data
-public class TaskVersion {
-    private UUID taskId;
-    private int revisionNumber;
-    private String revisionReason;
-    private Instant committedAt;
-    private String createdByName;
-    private DocParseStatus status;             // COMMITTED / SUPERSEDED / COMPLETED
-    private boolean isCurrent;
-}
-```
-
-**Service 职责**: 递归 `parent_task_id` 链直到 `parent_task_id IS NULL`；按 `revision_number` 升序返回。仅返回 status ∈ {COMMITTED, SUPERSEDED, COMPLETED, MEMORY_LEARN_*} 的版本（DRAFT/FAILED/EXPIRED 不暴露）。
-
-#### 5.12.2 Upload Abort — `/upload/abort`
-
-```java
-@PostMapping("/abort")
-@Transactional
-public DocParseUploadAbortRespVo abortUpload(
-        @RequestBody @Valid DocParseUploadAbortReqVo req) {
-    return uploadService.abort(req.getTaskId(), req.getFileIds());
-}
-
-@Data
-public class DocParseUploadAbortReqVo {
-    @NotNull private UUID taskId;
-    @NotEmpty private List<UUID> fileIds;
-}
-```
-
-**Service 职责**:
-1. 校验 task.status ∈ {DRAFT, UPLOADING, UPLOAD_COMPLETE}（已经入 PROCESSING 的不允许）
-2. 对每个 fileId：`s3:DeleteObject(s3Key)` + `ai_ocr_file.deleted=true` + `status=FILE_FAILED`(error_message="USER_ABORTED")
-3. 写 state_log `event_type=UPLOAD_ABORTED`
-4. 不入队 `ocr-extract-queue`（注意：如果文件已经入队但 Python 还没消费，Python 端在拉取后会发现 `ai_ocr_file.deleted=true` 直接 ack 丢弃 — 详见 python-design.md §X 幂等保护）
-
-#### 5.12.3 Note Thread — `/tasks/{taskId}/conflicts/{conflictId}/notes`
-
-```java
-@RestController
-@RequestMapping("/api/v1/docparse/tasks/{taskId}/conflicts/{conflictId}/notes")
-public class ConflictNoteController {
-
-    @GetMapping
-    public DocParseNoteThreadRespVo getThread(
-            @PathVariable UUID taskId, @PathVariable UUID conflictId) {
-        return noteService.getThread(taskId, conflictId);
-    }
-
-    @PostMapping
-    @Transactional
-    public DocParseNoteAppendRespVo appendNote(
-            @PathVariable UUID taskId, @PathVariable UUID conflictId,
-            @RequestBody @Valid DocParseNoteReplyReqVo req) {
-        return noteService.append(taskId, conflictId, req);
-    }
-}
-
-@Data
-public class DocParseNoteReplyReqVo {
-    @NotBlank @Size(max = 2000)
-    private String content;
-    private UUID parentNoteId;     // 可选：回复某条 note 时填
-}
-```
-
-**Service 职责（appendNote）**:
-1. 校验 conflictId 归属 taskId、taskId 归属 jwtCompanyId
-2. 写 `ai_ocr_conflict_note(conflict_id, content, parent_note_id, author_id, auto_generated=false)`
-3. 不变更 task.status（note 是辅助记录，不影响主流程）
-
-#### 5.12.4 Similarity Hints — `/tasks/{id}/similarity-hints` / `/similarity-hints/{hintId}`
-
-```java
-@RestController
-public class SimilarityHintController {
-
-    /** 列表 — 区分 PENDING / MERGED / IGNORED 三态便于前端分组 */
-    @GetMapping("/api/v1/docparse/tasks/{taskId}/similarity-hints")
-    public DocParseSimilarityHintListRespVo listHints(@PathVariable UUID taskId) {
-        return hintService.listByTaskId(taskId);
-    }
-
-    /** 用户决策 */
-    @PatchMapping("/api/v1/docparse/similarity-hints/{hintId}")
-    @Transactional
-    public DocParseSimilarityHintRespVo updateDecision(
-            @PathVariable UUID hintId,
-            @RequestBody @Valid SimilarityHintDecisionReqVo req) {
-        return hintService.applyDecision(hintId, req.getDecision());
-    }
-}
-
-public enum SimilarityDecision { MERGED, IGNORED }
-```
-
-**Service 职责（applyDecision）**:
-1. JWT scope 校验：hint.companyId == jwtCompanyId
-2. 校验 hint.user_decision IS NULL（已决策的不允许覆盖）
-3. UPDATE `ai_ocr_similarity_hint SET user_decision=?, decided_at=NOW(), decided_by=?`
-4. 若 decision=MERGED：联动更新对应 `ai_ocr_mapping_result.lg_category` 为 hint.suggested_category（可选，由 hint.merge_strategy 决定）
-5. 写 state_log `event_type=SIMILARITY_HINT_DECIDED`
-
-#### 5.12.5 Memory Learn 状态/历史/重试
-
-```java
-@RestController
-@RequestMapping("/api/v1/docparse/tasks/{taskId}/memory-learn")
-public class MemoryLearnController {
-
-    /** 最新一次尝试的状态 */
-    @GetMapping
-    public MemoryLearnStatusRespVo getStatus(@PathVariable UUID taskId) {
-        return memoryLearnService.getLatestStatus(taskId);
-    }
-
-    /** 所有历史尝试（attempt_number 升序） */
-    @GetMapping("/history")
-    public MemoryLearnHistoryRespVo getHistory(@PathVariable UUID taskId) {
-        return memoryLearnService.listHistory(taskId);
-    }
-
-    /** 手动重试（前置：attempt_number<3 && task.status=MEMORY_LEARN_FAILED） */
-    @PostMapping("/retry")
-    @Transactional
-    public MemoryLearnRetryRespVo retry(@PathVariable UUID taskId) {
-        return memoryLearnService.retry(taskId);
-    }
-}
-```
-
-**Service 职责（retry）**:
-1. FOR UPDATE 锁 task；校验 status=MEMORY_LEARN_FAILED
-2. 查 `ai_ocr_memory_learn_log` 取最大 attempt_number；< 3 才允许
-3. 推进 task.status=MEMORY_LEARN_PENDING
-4. **不重写 fi_***（财务数据已 committed，不允许重做）
-5. 重发 `ocr-memory-learn-queue` 消息（attemptNumber+1）
-6. 写 state_log `event_type=MEMORY_LEARN_MANUAL_RETRY`
+| 端点（api-doc.md 编号）| 实现层关键决策 |
+|---------------------|---------------|
+| `/tasks/{id}/history` (#5) | `historyService.buildVersionChain` 递归 `parent_task_id` 链直到 `parent_task_id IS NULL`；按 `revision_number` 升序返回；仅返回 status ∈ {COMMITTED, SUPERSEDED, COMPLETED, MEMORY_LEARN_*} 的版本（DRAFT/FAILED/EXPIRED 不暴露） |
+| `/upload/abort` (#8) | (1) 校验 `task.status ∈ {DRAFT, UPLOADING, UPLOAD_COMPLETE}`（已 PROCESSING 不允许）；(2) 每个 fileId 执行 `s3:DeleteObject(s3Key)` + `ai_ocr_file.deleted=true` + `status=FILE_FAILED(error="USER_ABORTED")`；(3) 写 state_log `UPLOAD_ABORTED`；(4) 不入队 `ocr-extract-queue`；若文件已入队但 Python 未消费，Python 端在拉取后会发现 `deleted=true` 直接 ack 丢弃（详见 python-design.md 幂等保护）|
+| `/conflicts/{id}/notes` (#16-#17) | `noteService.append`：校验 `conflictId` 归属 `taskId`、`taskId` 归属 `jwtCompanyId`；写 `ai_ocr_conflict_note(conflict_id, content, parent_note_id, author_id, auto_generated=false)`；**不变更 task.status**（note 是辅助记录，不影响主流程） |
+| `/similarity-hints/{hintId}` (#22) | `hintService.applyDecision`：(1) JWT scope `hint.companyId == jwtCompanyId`；(2) 校验 `hint.user_decision IS NULL`（已决策不允许覆盖）；(3) UPDATE `ai_ocr_similarity_hint SET user_decision=?, decided_at=NOW(), decided_by=?`；(4) 若 `decision=MERGED` 且 `hint.merge_strategy` 允许 → 联动更新 `ai_ocr_mapping_result.lg_category` 为 `hint.suggested_category`；(5) 写 state_log `SIMILARITY_HINT_DECIDED` |
+| `/memory-learn/retry` (#25) | `memoryLearnService.retry`：(1) FOR UPDATE 锁 task；校验 `status=MEMORY_LEARN_FAILED`；(2) 查 `ai_ocr_memory_learn_log` 取最大 `attempt_number`，必须 `<3`；(3) 推进 `status=MEMORY_LEARN_PENDING`；(4) **不重写 fi_***（财务数据已 committed）；(5) 重发 `ocr-memory-learn-queue` 消息（`attemptNumber+1`）；(6) 写 state_log `MEMORY_LEARN_MANUAL_RETRY` |
 
 ---
 
@@ -1820,20 +813,12 @@ public class MemoryLearnController {
 | 静态 IAM 密钥而非实例角色 | **HIGH** | 改为 EC2/ECS 实例角色 |
 | 跨服务 DB 无角色隔离 | **HIGH** | 分 `java_app` / `python_worker` 角色 |
 
-**S3 权限划分**:
+**S3 / SQS IAM 权限划分**:
 
-```
-Java IAM Role:
-  s3:PutObject  → ocr-uploads/*    (写)
-  s3:GetObject  → ocr-uploads/*    (读)
-  sqs:SendMessage → ocr-extract-queue
-
-Python IAM Role:
-  s3:GetObject  → ocr-uploads/*    (只读)
-  sqs:ReceiveMessage → ocr-extract-queue
-  sqs:DeleteMessage  → ocr-extract-queue
-  sqs:SendMessage    → ocr-result-queue
-```
+| Role | S3 权限 | SQS 权限 |
+|------|--------|---------|
+| Java IAM Role | `s3:PutObject` + `s3:GetObject` → `ocr-uploads/*` | `sqs:SendMessage` → `ocr-extract-queue` / `ocr-similarity-check-queue` / `ocr-memory-learn-queue`；`sqs:Receive/Delete` → `ocr-result-queue` |
+| Python IAM Role | `s3:GetObject` → `ocr-uploads/*`（只读） | `sqs:Receive/Delete` → `ocr-extract-queue` / `ocr-similarity-check-queue` / `ocr-memory-learn-queue`；`sqs:SendMessage` → `ocr-result-queue` |
 
 **数据库角色隔离**:
 
@@ -1854,5 +839,6 @@ Python IAM Role:
 | 2026-05-06 | Asana §4.9-4.14：Step 5 拆分为 5a/5b/5c，新增 4 个 Controller + 4 个 Service + 4 个字段 |
 | 2026-05-06 | 多 agent 头脑风暴清理：删 OcrRemap 生产者（合并 mode 字段）、删 /notifications/retry 端点、删 ai_ocr_notification + extraction_skip_log 引用、新增 OcrSimilarityCheck 生产者 |
 | 2026-05-06 | 文档简化：§0 接口清单抽取到独立 [api-doc.md](./api-doc.md)、§5.4.2 已删除通知重试章节移除、§5.5 DTO 定义指向 api-doc |
+| 2026-04-20（v1.6）| **聚焦"文件上传"**：§0.5 新增文档定位说明；删除全部 Java/JSON 实例代码块（接口签名归 api-doc.md，业务规则归 system-architecture.md / python-design.md）；§2 重写为"文件上传实现层"；§5.4-§5.10 commit/conflict/navigation 章节折叠为接口对接说明；§5.12 辅助端点改为表格 |
 
 > 完整变更详情见 [api-doc.md](./api-doc.md) 与 [system-architecture.md §16](./system-architecture.md#16-变更日志)。
