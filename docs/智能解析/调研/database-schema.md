@@ -406,7 +406,13 @@ CREATE INDEX idx_ai_ocr_conflict_note_parent
 
 ### 2.5 ai_ocr_memory_learn_log
 
-**用途**: 记忆学习审计。**Python 有 INSERT 权限**（跨域写入例外，见 §4）。
+**用途**: 记忆学习决策日志（**架构边界 §0.4 强制要求**）— 每次 fi_* commit 成功后，Java 通过 `ocr-memory-learn-queue` 触发 Python 学习；Python 消费消息后，**每次尝试都必须写一行**到本表，记录是否成功、新增/更新了多少条记忆、失败原因等关键信息。
+
+**关键设计**:
+- **跨域写入例外**: Python 有 INSERT 权限（§4 GRANT 明确授予）但**无 UPDATE/DELETE 权限**——日志一旦写入不可篡改
+- **SQS 幂等**: `UNIQUE (task_id, attempt_number)` 约束防止 SQS at-least-once 重复消费导致同一次尝试重复记录
+- **重试可见性**: `attempt_number` 最大 3 次（与 [system-architecture.md §0.4](./system-architecture.md#04-关键规则记忆处理必须有日志) 三层日志中的"决策日志"层对应）
+- **与变更明细的关系**: 本表记录"做了几次 + 整体成功/失败"，详细的每条记忆变更见 §3.6 `ai_ocr_mapping_memory_audit`
 
 ```sql
 CREATE TABLE ai_ocr_memory_learn_log (
@@ -714,7 +720,12 @@ CREATE INDEX idx_ai_ocr_mapping_memory_industry
 
 ### 3.6 ai_ocr_mapping_memory_audit
 
-**用途**: 记忆变更审计（Python 的 SQS at-least-once 防护依赖 `idempotency_key`）。
+**用途**: 记忆变更明细日志（**架构边界 §0.4 强制要求**）— 每次 `ai_ocr_mapping_memory` 行级变更（CREATE / CONFIRM / REJECT / ARCHIVE）必须记录一行。与 §2.5 `ai_ocr_memory_learn_log` 区分：本表是**行级**变更明细（每条记忆一行），后者是**任务级**决策摘要（每次学习一行）。
+
+**关键设计**:
+- **幂等保护**: `idempotency_key` 格式为 `{task_id}:{row_id}`，配合 `UNIQUE` 约束防止 SQS at-least-once 重复消费导致同一变更被记录两次
+- **不可篡改**: 表无 UPDATE 字段，仅追加（append-only），保证审计完整性
+- **关联追溯**: 通过 `mapping_id` FK 可追溯到当前记忆条目；通过 `actor` 字段可追溯触发者（用户 / 管理员 / 系统）
 
 ```sql
 CREATE TABLE ai_ocr_mapping_memory_audit (
@@ -959,3 +970,4 @@ REVOKE ALL ON fi_metrics FROM python_worker;
 | 2026-05-06 | **统一表名前缀**：`doc_parse_*` → `ai_ocr_*`（8 张 Java 表）、`mapping_memory*` → `ai_ocr_mapping_memory*`（2 张 Python 表）；所有索引、外键、GRANT 同步重命名 |
 | 2026-05-06 | 新增"表清单总览"（文件开头），列出 16 张表的用途/写主/读方+核心引用关系图 |
 | 2026-05-06 | 为 §2.1/§2.2/§3.1-3.5 共 7 张表补充独立 `用途` 段落 |
+| 2026-05-06 | 强化 §2.5 `ai_ocr_memory_learn_log` 与 §3.6 `ai_ocr_mapping_memory_audit` 的描述：明确两表分工（任务级决策日志 vs 行级变更明细）、跨域写入例外说明、关联 [system-architecture.md §0.4](./system-architecture.md#04-关键规则记忆处理必须有日志) 三层日志要求 |

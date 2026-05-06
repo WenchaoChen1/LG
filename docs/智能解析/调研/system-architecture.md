@@ -6,6 +6,61 @@
 
 ---
 
+## 0. 职责边界声明（顶层规则）
+
+> 本节是 OCR Agent 系统的**最高级架构契约**。所有详细设计（§2-§16）必须遵循以下边界，违反需在本节增补例外说明。
+
+### 0.1 边界划分
+
+| 服务 | 职责 |
+|------|------|
+| **Java（CIOaas-api）** | 文件上传、文件校验、**所有面向用户的报错**、任务编排、状态机、数据库写入（fi_* / ai_ocr_*）、邮件通知、Imported Statements 同步。**用户的请求、错误、最终决定都只与 Java 交互。** |
+| **Python（CIOaas-python）** | 文件解析（OCR / Excel / AI 映射）、相似度检测、**记忆学习**。**Python 不直接面向用户，所有错误必须回传 Java，由 Java 决定如何向用户呈现。** |
+| **Frontend（CIOaas-web）** | UI、用户交互、轮询 Java 获取状态。**Frontend 永远不直接调 Python。** |
+
+### 0.2 Java ↔ Python 通信：仅通过 SQS 队列
+
+Java 调用 Python 的**唯一方式**是 SQS 消息。当前定义**三个出口队列**和一个回传队列：
+
+| 序号 | 队列 | 方向 | 触发场景 | 消息类型 | 关联表 |
+|------|------|------|---------|---------|--------|
+| 1️⃣ | `ocr-extract-queue` | **Java → Python** | **文件解析任务** — 文件上传完成后 Java 入队，Python 消费后执行 OCR/AI 提取/映射 | `OcrExtractRequest` | `ai_ocr_extracted_table` / `ai_ocr_extracted_row` / `ai_ocr_mapping_result` |
+| 2️⃣ | `ocr-memory-learn-queue` | **Java → Python** | **最后保存的记忆处理** — fi_* 写入成功（`@AfterCommit`）后 Java 入队，Python 消费后基于用户最终修正学习更新 mapping_memory | `OcrMemoryLearnRequest` | `ai_ocr_mapping_memory` / `ai_ocr_mapping_memory_audit` / **`ai_ocr_memory_learn_log`** |
+| 3️⃣ | `ocr-remap-queue` | **Java → Python** | **重新映射**（§4.13 Steps Navigation 边界）— 用户在 Previous 回退后**修改了 extracted data**，Java 比对快照确认有变化后入队，Python 仅重跑 Map 节点（不重做 OCR） | `OcrRemapRequest` | `ai_ocr_mapping_result`（覆盖更新） |
+| ⏎ | `ocr-result-queue` | **Python → Java** | Python 上报进度/结果/相似度/记忆学习状态（按 `messageType` 字段分发） | `OcrProgress` / `OcrResult` / `OcrSimilarityCheckResult` / `OcrMemoryLearnProgress` | 更新 `ai_ocr_task` / `ai_ocr_file` |
+
+**严禁直接 HTTP 调用** Python 服务（包括同步/异步 RPC）。Python 端不暴露任何 HTTP 端点给 Java。
+
+### 0.3 关键规则：报错只走 Java
+
+- **文件类型 / 大小 / 格式 / 重名校验** → Java 在 S3 写入前完成，校验失败**永不入队 Python**
+- **Python 处理失败**（OCR 异常 / AI 超时 / 解析报错）→ Python 通过 `ocr-result-queue` 回传 `OcrResult.status = FAILED + errorMessage`，**Java 据此更新 task 状态并向前端报错**
+- **任何用户可见的错误信息**（toast、对话框、表单提示）由 Java 生成或转换；Python 不直接生成用户可读字符串
+
+### 0.4 关键规则：记忆处理必须有日志
+
+记忆学习是**唯一允许 Python 写 Java 拥有的表**的例外（跨域写入），但必须满足以下三层日志要求：
+
+| 层级 | 表 / 主体 | 内容 |
+|------|----------|------|
+| **决策日志** | `ai_ocr_memory_learn_log`（每 task 一行，UNIQUE(task_id, attempt_number) 防 SQS at-least-once 重复） | 尝试编号、success/failed、新增/更新条目数、错误信息、起止时间 |
+| **变更明细** | `ai_ocr_mapping_memory_audit`（每条记忆变更一行，含 `idempotency_key` 防重） | event_type（CREATE/CONFIRM/REJECT/ARCHIVE）、old_category、new_category、actor、reason |
+| **进度回传** | `ocr-result-queue` 的 `OcrMemoryLearnProgress` 消息 | 阶段（START / IN_PROGRESS / COMPLETE / FAILED）、进度 %、当前处理的 row 数 |
+
+任务级记忆学习状态由 `ai_ocr_task.status`（`MEMORY_LEARN_PENDING` / `MEMORY_LEARN_IN_PROGRESS` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`）反映，详见 [database-schema.md §1.2 Task 状态](./database-schema.md)。
+
+### 0.5 关键规则：Python 跨域写权限例外清单（仅 3 张表）
+
+| 表 | Python 权限 | 用途 |
+|----|------------|------|
+| `ai_ocr_memory_learn_log` | INSERT | 记忆学习审计（§0.4 上文） |
+| `ai_ocr_similarity_hint` | INSERT / UPDATE（仅 detection 字段，不能改 user_decision） | 相似度检测结果回写 |
+| `ai_ocr_extraction_skip_log` | INSERT | §4.7 No-Extractable-Data 跳过审计 |
+
+详见 [database-schema.md §4 GRANT](./database-schema.md#4-数据库角色与权限)。
+
+---
+
 ## 1. 需求概述
 
 ### 1.1 一句话描述
@@ -1859,6 +1914,7 @@ defusedxml>=0.7.1
 | v1.0 | 2026-04-16 | 初版：OCR Agent 架构、6 步工作流、SQS 消息、API 设计 | 调研阶段 |
 | v1.1 | 2026-04-20 | 项目内部补丁：Task 修订（version chain）、Presigned URL 直传 S3、记忆学习 3 子状态、Note Thread RESTful 化 | requirement-analysis §11 |
 | **v1.2** | **2026-05-06** | **Asana EPIC 同步：Step 5 拆分 + 6 个新 subtask** | **requirement-analysis §4.9-4.14** |
+| **v1.3** | **2026-05-06** | **新增 §0 职责边界声明（顶层架构契约）：明确 Java/Python 分工、3 个 SQS 出口队列、记忆处理三层日志要求、Python 跨域写权限例外清单** | **用户口头确认（架构边界澄清）** |
 
 ### v1.2 (2026-05-06) 详细变更
 
@@ -1886,5 +1942,20 @@ defusedxml>=0.7.1
 
 - §2 Agent 定位、§3 技术选型、§5 SQS 拓扑、§7 数据模型主体、§8 安全设计、§9 状态通知、§13 开发分期、§14 Multi-Agent 演进路线
 - 所有跨子项目接口契约（Java↔Python SQS 消息 schema 不变）
+
+### v1.3 (2026-05-06) 详细变更
+
+**新增 §0 职责边界声明** — 顶层架构契约，所有详细设计必须遵循：
+
+- **§0.1 边界划分**：Java 负责文件上传/校验/任务编排/数据库写入/邮件/Imported Statements；Python 负责文件解析/相似度检测/记忆学习；Frontend 永远不直接调 Python
+- **§0.2 通信契约**：Java→Python 仅通过 SQS（3 个出口队列：`ocr-extract-queue` / `ocr-memory-learn-queue` / `ocr-remap-queue`），Python→Java 通过 `ocr-result-queue`，**严禁 HTTP**
+- **§0.3 报错只走 Java**：所有用户可见错误由 Java 生成，Python 错误回传 Java 后由 Java 转换
+- **§0.4 记忆处理必须有日志**：明确三层日志（决策日志 `ai_ocr_memory_learn_log` / 变更明细 `ai_ocr_mapping_memory_audit` / 进度回传 `OcrMemoryLearnProgress`）
+- **§0.5 Python 跨域写权限例外清单**：仅 3 张表（`ai_ocr_memory_learn_log` / `ai_ocr_similarity_hint` / `ai_ocr_extraction_skip_log`）
+
+**强化数据库 Schema 中两张关键日志表的描述：**
+
+- `ai_ocr_memory_learn_log`（§2.5）：增加架构边界关联说明、SQS 幂等约束、跨域写入例外说明
+- `ai_ocr_mapping_memory_audit`（§3.6）：增加与决策日志的区分说明（行级 vs 任务级）、不可篡改设计、追溯链路
 
 > 边界提示：本文档只描述 cross-cutting 架构。Java 端的 5a/5b/5c Controller/Service/事务实现见 [java-design.md](./java-design.md)；Python 端 No-Data 检测见 [python-design.md](./python-design.md)；前端 5a/5b/5c 页面、Previous 按钮交互、dirty 置灰策略见 [frontend-design.md](./frontend-design.md)。
