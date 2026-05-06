@@ -1155,13 +1155,7 @@ Commit 失败不进 FAILED，是 Q7 方案 B 的核心契约。
 | `SIMILARITY_CHECK_COMPLETE` | OcrSimilarityCheckResult 成功消费 | `{candidateCount:3, processingTimeMs:850}` |
 | `SIMILARITY_CHECK_FAILED` | OcrSimilarityCheckResult 失败 | `{error:"..."}` |
 
-### 5.4.2 已移除的通知重试机制
-
-旧设计中的 `NotificationRetryScheduler` / `retry_count` / 立即/1min/5min 重试策略均已移除（因为根本不发送，也不会失败）。
-
-**Task 状态 `SIMILARITY_CHECK_FAILED` 仍保留**在 enum 中作为"邮件服务将来接入时的预留值"，目前不会进入此状态（`SIMILARITY_CHECKING` 瞬间完成，只写一条日志就推进到 `SIMILARITY_CHECKED` 再立即到 `REVIEWING`）。
-
-### 5.4.3 S3 Bucket CORS 配置（生产必需）
+### 5.4.2 S3 Bucket CORS 配置（生产必需）
 
 Presigned URL 直传要求 S3 Bucket 配置 CORS 允许前端 origin。**严禁使用 `*` 或 localhost 作为 AllowedOrigins**。
 
@@ -1181,7 +1175,7 @@ Presigned URL 直传要求 S3 Bucket 配置 CORS 允许前端 origin。**严禁�
 
 **开发环境**：使用独立的 dev Bucket（`AllowedOrigins: ["http://localhost:8000"]`），**严禁**在生产 Bucket 上允许 localhost。Terraform 配置通过环境变量区分。
 
-### 5.4.4 S3 Presigned URL 安全增强
+### 5.4.3 S3 Presigned URL 安全增强
 
 1. **Presigned PUT 必须加 `content-length-range` 条件**（防止绕过 20MB 限制）:
    ```java
@@ -1218,7 +1212,7 @@ Presigned URL 直传要求 S3 Bucket 配置 CORS 允许前端 origin。**严禁�
 
 5. **CloudTrail S3 数据事件启用**：生产 Bucket 必须启用 CloudTrail Data Events（PutObject / GetObject / DeleteObject），日志存到独立的审计 Bucket（启用 MFA Delete）。
 
-### 5.4.5 URL 响应字段统一（`expiresAt` ISO 时间戳）
+### 5.4.4 URL 响应字段统一（`expiresAt` ISO 时间戳）
 
 全文统一使用 `expiresAt`（ISO 8601 时间戳）而非 `expiresIn`（秒数）。原因：前端直接用 `new Date(expiresAt) > Date.now()` 判断是否过期，无需额外保存"签发时刻"。
 
@@ -1229,43 +1223,10 @@ Presigned URL 直传要求 S3 Bucket 配置 CORS 允许前端 origin。**严禁�
 }
 ```
 
-### 5.5 DTO / VO 契约（新增）
+### 5.5 DTO / VO 契约
 
-```java
-// Verify 响应
-class DocParseVerifyRespVo {
-    UUID verifyJobId;            // 异步任务 ID
-    String status;               // PENDING/RUNNING/COMPLETED/FAILED
-    VerifySummary summary;       // completed 时填充
-    List<ConflictItem> conflicts;
-}
+DTO/VO 字段定义见 [api-doc.md §2 REST 端点详情](./api-doc.md#2-rest-端点详情)（每个端点列出请求 DTO + 响应 DTO 名称）。本章节不重复 DTO 字段定义。
 
-class VerifySummary {
-    int totalFiles;
-    int totalMappedTypes;
-    int totalMappedAccounts;
-}
-
-class ConflictItem {
-    UUID conflictId;
-    String lgMetric;
-    String reportingPeriod;      // YYYY-MM
-    BigDecimal currentLgValue;
-    BigDecimal mappedResultSum;
-    String cellRowRef;           // UI 高亮定位
-}
-
-// Resolve 请求
-class DocParseConflictResolutionReqVo {
-    List<Resolution> resolutions;
-}
-
-class Resolution {
-    UUID conflictId;
-    String action;               // "OVERWRITE" | "SKIP"（Cancel 已移除）
-    String userNote;             // 可选，≤2000 字符
-}
-```
 
 ### 5.6 Step 5a — Mapping Summary 与 Verify 触发（2026-05-06 新增）
 
@@ -1885,10 +1846,13 @@ Python IAM Role:
 
 ## 7. 变更日志
 
-| 日期 | 版本 | 变更摘要 | 关联需求 |
-|------|------|---------|---------|
-| 2026-04-16 | v1.0 | 首版：DDD 模块结构、SQS 集成、上传/审核/提交流程 | 初始 EPIC |
-| 2026-04-19 | v1.1 | 新增 Verify Data Summary 两阶段、冲突 Note thread、Cancel 移除 | Story #5/#6/#7 |
-| 2026-04-20 | v1.2 | S3 Presigned URL 直传、Task 修订、相似度提示、记忆学习进度 | 项目内部补丁 |
-| **2026-05-06** | **v1.3** | **Step 5 拆分为 5a/5b/5c**：新增 `MappingSummaryController` / `ConflictResolutionController` / `CommitController` / `NavigationController`；`ai_ocr_task` 新增 4 字段（mapping_snapshot_hash / mapping_changed_at / has_extractable_data / summary_cache）；新增 `NoDataHandlerService` / `ProformaForecastService` / `ImportedStatementsService` / `NavigationService`；冲突解决改为单冲突逐个 + Note 必填硬校验；Commit 后同步所有文件到 Imported Statements 文件夹 + 闭月邮件 + Benchmark 跳转；新增 `DocParseStatus.NO_DATA_BYPASS` 状态 | [requirement-analysis §4.9-4.14](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增) |
-| **2026-05-06** | **v1.5** | **多 agent 头脑风暴共识落地**：① 新增 §0 接口职责总览（22 个 REST 端点 + 3 个 SQS 生产者 + 4 个 SQS 消费者 handler 全表覆盖，落地 R-4.5）② 删除 `OcrRemapSqsProducer` 类设计（路径合并到 `OcrExtractSqsProducer`，用 `mode` 字段 `FULL_EXTRACT`/`REMAP_ONLY` 区分）③ 删除 `/notifications/{id}/retry` 端点（Q16 不主动推送，无失败重试）④ 删除对 `ai_ocr_notification` 与 `ai_ocr_extraction_skip_log` 表的所有引用（合并到 `ai_ocr_task_state_log`）⑤ 新增 `OcrSimilarityCheckSqsProducer`（task 全部 REVIEW_READY 触发，AFTER_COMMIT 入队）⑥ 新增 `OcrSimilarityCheckResult` 消息处理章节（§4.2.3，handler 方法签名 + 状态变更）⑦ 补充 §5.12 辅助端点详细设计（History / Upload Abort / Note Thread / Similarity Hints / Memory Learn）⑧ §5.3 review 副作用补充：清空 summary_cache + 更新 mapping_changed_at | [user-input-requirements.md §4 R-4.5 + §6 Q1-Q4](../user-input-requirements.md#4-当前迭代要求2026-05-06本次对话) + [system-architecture.md §0](./system-architecture.md#0-职责边界声明顶层规则) v1.5 |
+| 日期 | 摘要 |
+|------|------|
+| 2026-04-16 | 首版：DDD 模块、SQS 集成、上传/审核/提交流程 |
+| 2026-04-19 | Verify Data Summary 两阶段、冲突 Note thread、Cancel 移除 |
+| 2026-04-20 | S3 Presigned URL 直传、Task 修订、相似度提示、记忆学习进度 |
+| 2026-05-06 | Asana §4.9-4.14：Step 5 拆分为 5a/5b/5c，新增 4 个 Controller + 4 个 Service + 4 个字段 |
+| 2026-05-06 | 多 agent 头脑风暴清理：删 OcrRemap 生产者（合并 mode 字段）、删 /notifications/retry 端点、删 ai_ocr_notification + extraction_skip_log 引用、新增 OcrSimilarityCheck 生产者 |
+| 2026-05-06 | 文档简化：§0 接口清单抽取到独立 [api-doc.md](./api-doc.md)、§5.4.2 已删除通知重试章节移除、§5.5 DTO 定义指向 api-doc |
+
+> 完整变更详情见 [api-doc.md](./api-doc.md) 与 [system-architecture.md §16](./system-architecture.md#16-变更日志)。

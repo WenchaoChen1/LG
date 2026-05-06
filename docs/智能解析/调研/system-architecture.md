@@ -1989,47 +1989,6 @@ defusedxml>=0.7.1
 | **v1.3** | **2026-05-06** | **新增 §0 职责边界声明（顶层架构契约）：明确 Java/Python 分工、3 个 SQS 出口队列、记忆处理三层日志要求、Python 跨域写权限例外清单** | **用户口头确认（架构边界澄清）** |
 | **v1.4** | **2026-05-06** | **新增 §0.0 项目核心流程（4 步抽象）+ §0.6 全流程状态日志强制要求 + 新表 `ai_ocr_task_state_log`** | **用户口头确认（4 步流程定义 + 校验前后留 log）** |
 | **v1.5** | **2026-05-06** | **多 agent 头脑风暴后的简化清理：删 `ocr-remap-queue`（合并到 `ocr-extract-queue` 用 `mode` 字段）+ 加 `ocr-similarity-check-queue` 登记 + 删 `state_log.snapshot_data` JSONB（改用原表 + hash 关联）+ 删 `ai_ocr_extraction_skip_log` 与 `ai_ocr_notification` 两张表（合并到 state_log）** | **用户口头确认（删除无意义变更）+ [user-input-requirements.md](./../user-input-requirements.md) 头脑风暴共识** |
+| v1.6 | 2026-05-06 | 文档简化（删除冗余）：抽取接口文档到独立 [api-doc.md](./api-doc.md) + 合并 v1.2/v1.3 详细变更子章节 + 删除其他无用变更 | 用户指令"删除无用的变更" |
 
-### v1.2 (2026-05-06) 详细变更
-
-**Step 5 三子步拆分（原 Story #6 → 5a/5b/5c）：**
-
-- 工作流图（§1.3）: ⑤ 写入 LG 拆为 5a Mapping Summary → 5b Conflict Resolution → 5c Commit & Display
-- 子任务清单（§1.4）: 标记原 Story #6 为已拆分，新增 5a/5b/5c + EC1/EC2/INF 共 6 行
-- Pipeline 状态机（§4.4）: 图示更新，明示 5a→5b→5c 顺序与两条旁路（无数据 / 步骤导航重跑）
-
-**新增章节：**
-
-- **§4.5 Step 5 子流程架构**：5a→5b→5c 数据流、各阶段所有权边界、5 个关键架构决策（Summary 不走 SQS、Verification 异步轮询、Proforma 独立路径、整批事务、afterCommit 触发后置）
-- **§4.6 步骤导航变更检测机制**：新增 6 个状态字段（mapping_snapshot_hash / extraction_snapshot_hash / mapping_changed_at / extraction_changed_at / verify_snapshot_hash / dirty_downstream），定义 hash 对比与下游清空策略
-- **§4.7 No-Extractable-Data 流程分支**：检测点在 PERSISTING 阶段，全批次无数据走 NO_DATA_SHORTCUT 直达 COMPLETED；混合批次只让有数据的走 5a/5b/5c
-- **§4.8 Imported Statements S3 路径设计**：复用 `file_objects.folder` 字段，5c 事务内统一打标签，新增 `import_status` 与 `source_task_id` 字段
-
-**API 列表更新（§6.1）：**
-
-- 5a: GET /summary、POST /verify/start、GET /verify/progress、POST /verify/cancel
-- 5b: GET /conflicts、POST /conflicts/{id}/resolve、GET /conflicts/next
-- 5c: POST /commit、GET /commit/result
-- 导航: POST /navigate/back、GET /navigate/dirty-state
-
-**保留不变：**
-
-- §2 Agent 定位、§3 技术选型、§5 SQS 拓扑、§7 数据模型主体、§8 安全设计、§9 状态通知、§13 开发分期、§14 Multi-Agent 演进路线
-- 所有跨子项目接口契约（Java↔Python SQS 消息 schema 不变）
-
-### v1.3 (2026-05-06) 详细变更
-
-**新增 §0 职责边界声明** — 顶层架构契约，所有详细设计必须遵循：
-
-- **§0.1 边界划分**：Java 负责文件上传/校验/任务编排/数据库写入/邮件/Imported Statements；Python 负责文件解析/相似度检测/记忆学习；Frontend 永远不直接调 Python
-- **§0.2 通信契约**：Java→Python 仅通过 SQS（3 个出口队列：`ocr-extract-queue` / `ocr-memory-learn-queue` / `ocr-remap-queue`），Python→Java 通过 `ocr-result-queue`，**严禁 HTTP**
-- **§0.3 报错只走 Java**：所有用户可见错误由 Java 生成，Python 错误回传 Java 后由 Java 转换
-- **§0.4 记忆处理必须有日志**：明确三层日志（决策日志 `ai_ocr_memory_learn_log` / 变更明细 `ai_ocr_mapping_memory_audit` / 进度回传 `OcrMemoryLearnProgress`）
-- **§0.5 Python 跨域写权限例外清单**：仅 3 张表（`ai_ocr_memory_learn_log` / `ai_ocr_similarity_hint` / `ai_ocr_extraction_skip_log`）
-
-**强化数据库 Schema 中两张关键日志表的描述：**
-
-- `ai_ocr_memory_learn_log`（§2.5）：增加架构边界关联说明、SQS 幂等约束、跨域写入例外说明
-- `ai_ocr_mapping_memory_audit`（§3.6）：增加与决策日志的区分说明（行级 vs 任务级）、不可篡改设计、追溯链路
-
-> 边界提示：本文档只描述 cross-cutting 架构。Java 端的 5a/5b/5c Controller/Service/事务实现见 [java-design.md](./java-design.md)；Python 端 No-Data 检测见 [python-design.md](./python-design.md)；前端 5a/5b/5c 页面、Previous 按钮交互、dirty 置灰策略见 [frontend-design.md](./frontend-design.md)。
+> 完整变更详情见 [user-input-requirements.md §6 共识矩阵](./../user-input-requirements.md#6-待澄清可能误解的点)。各文档自身的实现层变更见各 design 文档末尾的变更日志。

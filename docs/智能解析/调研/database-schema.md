@@ -198,18 +198,7 @@ Balance Sheet:       Cash / Accounts Receivable / R&D Capitalized / Other Assets
 | `BATCH_TOO_LARGE` | 批量总大小超限 |
 | `DUPLICATE_NAME` | 同 company_id + file_hash 已存在（活跃状态） |
 
-#### ~~Notification Event Type~~（**2026-05-06 删除，合并至 `ai_ocr_task_state_log.event_type`**）
-
-> 原 6 个事件类型已被 `ai_ocr_task_state_log.event_type` 完整覆盖：
->
-> | 旧 Notification Event Type | 新 `ai_ocr_task_state_log.event_type` |
-> |---------------------------|--------------------------------------|
-> | `PARSE_COMPLETE` | `EXTRACT_COMPLETED`（最后一个文件完成时）|
-> | `COMMIT_COMPLETE` | `COMMIT_SUCCESS` |
-> | `COMMIT_FAILED` | `COMMIT_FAILED` |
-> | `MEMORY_LEARN_COMPLETE` | `MEMORY_LEARN_COMPLETE` |
-> | `MEMORY_LEARN_FAILED` | `MEMORY_LEARN_FAILED` |
-> | `NEW_CLOSED_MONTH` | `COMMIT_SUCCESS`（携带 `correlation_id` 关联到 Benchmark 触发逻辑）|
+> ~~Notification Event Type~~ — **2026-05-06 已删除**，6 个旧事件类型合并至 `ai_ocr_task_state_log.event_type`（详见 §6 变更历史）。
 
 ---
 
@@ -352,11 +341,7 @@ CREATE INDEX idx_ai_ocr_file_pending_sync
       AND deleted = FALSE;
 ```
 
-### ~~2.3 ai_ocr_notification~~（**2026-05-06 删除，已合并至 `ai_ocr_task_state_log`**）
-
-> **删除理由**: 与 `ai_ocr_task_state_log` 职责重叠（都是任务事件日志），且 6 个事件类型（`PARSE_COMPLETE` / `COMMIT_COMPLETE` / `MEMORY_LEARN_COMPLETE` 等）已被 state_log 的 `event_type` 枚举覆盖。前端通过 `ai_ocr_task.status` + `ai_ocr_task_state_log` 查询等效信息。
->
-> **迁移**: `payload` JSONB 字段对应数据通过 `ai_ocr_task_state_log.error_detail` 或事件本身的语义承载；不再有 `Notification Event Type` 枚举（详见 §1.2 已移除该枚举）。
+> §2.3 ~~ai_ocr_notification~~ — **2026-05-06 已删除**，事件并入 `ai_ocr_task_state_log`（详见 §6）。
 
 ### 2.4 ai_ocr_conflict_note
 
@@ -786,11 +771,7 @@ CREATE TABLE ai_ocr_mapping_memory_audit (
 );
 ```
 
-### ~~3.7 ai_ocr_extraction_skip_log~~（**2026-05-06 删除，已合并至 `ai_ocr_task_state_log`**）
-
-> **删除理由**: 该表的事件（每个文件因无可提取数据被跳过）已被 `ai_ocr_task_state_log` 的 `EXTRACT_NO_DATA` 事件类型完整覆盖。`skip_reason` 信息存在 `ai_ocr_task.extraction_skip_reason` 字段（值: `NO_TABLES` / `NARRATIVE_ONLY` / `IMAGE_NO_DATA`），无需独立审计表。
->
-> **迁移**: Java 收到 Python 的 `OcrResult{status: NO_DATA, skipReason: ...}` 后写 `ai_ocr_task_state_log` 行（event_type=`EXTRACT_NO_DATA`，并通过 `error_detail` 字段关联 `file_id` 和 `skip_reason`），同时更新 `ai_ocr_task.has_extractable_data=FALSE` 和 `extraction_skip_reason=...`。
+> §3.7 ~~ai_ocr_extraction_skip_log~~ — **2026-05-06 已删除**，事件并入 `ai_ocr_task_state_log` 的 `EXTRACT_NO_DATA` 事件（详见 §6）。
 
 ### 3.8 ai_ocr_mapping_change_log（2026-05-06 新增）
 
@@ -965,35 +946,12 @@ REVOKE ALL ON fi_metrics FROM python_worker;
 
 ## 6. 变更历史
 
-| 日期 | 变更 |
+| 日期 | 摘要 |
 |------|------|
-| 2026-04-16 | 初始版本：Java `ai_ocr_*` 基础表 + Python `ai_ocr_*` + `ai_ocr_mapping_memory*` |
-| 2026-04-17 | 加入 Asana 2026-04-17 Story 更新字段（currency_warning、unresolved_period_count 等） |
-| 2026-04-19 | 新增 `ai_ocr_conflict_note`（Story #7）；Cancel 移除 |
-| 2026-04-20 | 新增 `parent_task_id`/`revision_number`/`revision_reason`/`superseded_by`（修订） |
-| 2026-04-20 | 新增 `ai_ocr_memory_learn_log`（记忆学习审计） |
-| 2026-04-20 | 新增 `ai_ocr_commit_audit` / `ai_ocr_erasure_log` DDL |
-| 2026-04-20 | `ai_ocr_notification` 简化为事件日志（Q16） |
-| 2026-04-20 | 所有表加 UNIQUE 约束防 SQS at-least-once 重复 |
-| 2026-04-20 | `ai_ocr_extracted_row.account_label` 从 500 降到 200（防 token 炸弹） |
-| 2026-04-20 | 新增 `ai_ocr_extracted_row.label_embedding VECTOR(1536)` + HNSW 索引 |
-| 2026-04-20 | 新增 `ai_ocr_similarity_hint` 表（相似度检测结果） |
-| 2026-04-20 | Task 状态重命名：NOTIFYING→SIMILARITY_CHECKING, NOTIFIED→SIMILARITY_CHECKED, NOTIFY_FAILED→SIMILARITY_CHECK_FAILED |
-| 2026-05-06 | Step 5 拆分（需求 §4.9-4.14）：Task 状态新增 `MAPPING_SUMMARY` / `VERIFY_PENDING`（5a） |
-| 2026-05-06 | `ai_ocr_task` 扩展 7 个字段：`mapping_changed_at` / `mapping_snapshot_hash`（§4.13）、`has_extractable_data` / `extraction_skip_reason`（§4.12）、`summary_cache`（§4.9）、`committed_forecast_id` / `imported_statements_folder_id`（§4.11）+ CHECK 约束 |
-| 2026-05-06 | `ai_ocr_file` 扩展 `imported_statements_synced` / `synced_at`（§4.11/§4.12 Imported Statements 同步标记） |
-| 2026-05-06 | `ai_ocr_conflict_record` 扩展（§4.10）：`note` 必填（CHECK 约束）、`resolution` 默认 PENDING、新增 `resolved_order` / `lg_category` / `existing_value` / `mapped_value` |
-| 2026-05-06 | 新增 `ai_ocr_extraction_skip_log`（§4.12 无可提取数据审计） |
-| 2026-05-06 | 新增 `ai_ocr_mapping_change_log`（§4.13 Previous 导航变更追踪） |
-| 2026-05-06 | GRANT 更新：Java 获 `ai_ocr_conflict_record` UPDATE 权限；新表权限分配（Python 写 skip_log、Java 写 change_log） |
-| 2026-05-06 | 新增索引：`mapping_changed_at` / `has_extractable_data=FALSE` / Imported Statements pending sync / 冲突按 metric 排序 |
-| 2026-05-06 | **统一表名前缀**：`doc_parse_*` → `ai_ocr_*`（8 张 Java 表）、`mapping_memory*` → `ai_ocr_mapping_memory*`（2 张 Python 表）；所有索引、外键、GRANT 同步重命名 |
-| 2026-05-06 | 新增"表清单总览"（文件开头），列出 16 张表的用途/写主/读方+核心引用关系图 |
-| 2026-05-06 | 为 §2.1/§2.2/§3.1-3.5 共 7 张表补充独立 `用途` 段落 |
-| 2026-05-06 | 强化 §2.5 `ai_ocr_memory_learn_log` 与 §3.6 `ai_ocr_mapping_memory_audit` 的描述：明确两表分工（任务级决策日志 vs 行级变更明细）、跨域写入例外说明、关联 [system-architecture.md §0.4](./system-architecture.md#04-关键规则记忆处理必须有日志) 三层日志要求 |
-| 2026-05-06 | **新增 §2.9 `ai_ocr_task_state_log` 表**（架构边界 §0.6 强制要求）：全流程状态变更总日志，承载 4 步流程的每次 status 变更 + 第 3 步"数据校验"前后的数据快照（VALIDATION_START / VALIDATION_END / COMMIT_START 三个事件填充 snapshot_data JSONB）；Java 通过 AOP 切面统一写入，Python 仅 SELECT |
-| 2026-05-06 | Schema Overview 表数从 16 → 17（任务编排组从 5 → 6） |
-| 2026-05-06 | **多 agent 头脑风暴清理（用户指令 R-4.4）**：删除 §2.3 `ai_ocr_notification` 表（合并至 state_log）+ 删除 §3.7 `ai_ocr_extraction_skip_log` 表（合并至 state_log 的 `EXTRACT_NO_DATA` 事件）+ 删除 §2.9 `ai_ocr_task_state_log.snapshot_data` JSONB 字段（数据已在原表，避免双倍存储） |
-| 2026-05-06 | Schema Overview 表数从 17 → 15（任务编排组从 6 → 4） |
-| 2026-05-06 | 删除 `Notification Event Type` 枚举（§1.2）：6 个事件类型已被 state_log 的 `event_type` 枚举覆盖 |
-| 2026-05-06 | 调整 GRANT：移除 `ai_ocr_notification` / `ai_ocr_extraction_skip_log` 的权限授予；Python 跨域写权限例外从 3 张表降为 2 张 |
+| 2026-04-16 | 初版：Java + Python OCR 基础表（原 `doc_parse_*` + `mapping_memory*` 双前缀） |
+| 2026-04-17 | Asana Story 同步：currency_warning / unresolved_period_count 等字段 |
+| 2026-04-19 | 新增 `ai_ocr_conflict_note`（Story #7）；Cancel 选项移除 |
+| 2026-04-20 | 多个增量：修订字段、记忆学习审计、commit_audit、erasure_log、SQS 幂等约束、label_embedding + HNSW 索引、similarity_hint 表、Task 状态重命名（NOTIFYING→SIMILARITY_CHECKING） |
+| 2026-05-06 | Step 5 拆分（§4.9-4.14）：Task 状态加 MAPPING_SUMMARY / VERIFY_PENDING；`ai_ocr_task` 扩展 7 字段；`ai_ocr_conflict_record` Note 改必填 |
+| 2026-05-06 | 统一表名前缀：`doc_parse_*` + `mapping_memory*` → `ai_ocr_*`（10 张表统一）；新增"表清单总览"和 §2.9 `ai_ocr_task_state_log` 总日志表 |
+| 2026-05-06 | 多 agent 头脑风暴清理：删 `ai_ocr_notification` + `ai_ocr_extraction_skip_log` 两张表（合并至 state_log）+ 删 `state_log.snapshot_data` JSONB；Schema 从 17 表降至 15 表，Python 跨域写从 3 张降至 2 张 |

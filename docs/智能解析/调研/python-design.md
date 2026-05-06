@@ -2618,65 +2618,14 @@ async def render_mapping_prompt(template: str, db) -> str:
 
 ## 12. 变更日志
 
-### 2026-05-06 — Step 5 拆分 + 6 个新 Story 落地
+| 日期 | 摘要 |
+|------|------|
+| 2026-04-16 | 初版：基于 EPIC 原始描述与初版 Story #1–#8 |
+| 2026-04-17 | 双层架构记忆学习（Layer A 公司级实时 + Layer B 核心引擎全局，Story #8） |
+| 2026-04-19 | 报告周期识别 fallback 按列处理（Story #5 Calendar Month） |
+| 2026-04-20 | OcrMemoryLearnProgress、相似度检测引擎（Phase 2.5）、label_embedding VECTOR(1536)、跨域 INSERT 权限例外 |
+| 2026-05-06 | Asana §4.9-4.14 同步：OcrResult Schema 加 has_extractable_data 字段、§2.6 无可提取数据识别、§9 OCR Provider 集成、§10 AI Provider 集成、§11 LG Category 配置化扩展 |
+| 2026-05-06 | 多 agent 头脑风暴清理：删 ocr-remap-queue（合并入 extract-queue 用 mode 字段）、删 ai_ocr_extraction_skip_log 写入（改用 OcrResult.status=completed_no_data）、删 ai_ocr_notification 引用、新增 §0 接口职责总览（已迁移到 [api-doc.md](./api-doc.md)）、补充 Validate 节点职责 + OCRPipelineState 字段定义 |
+| 2026-05-06 | 文档简化：§0 拆分到独立 [api-doc.md](./api-doc.md)（保留 §0.1 TypedDict / §0.2 Validate 边界 / §0.3 文件夹结构）、变更日志合并为单表 |
 
-> **需求来源**: [requirement-analysis.md §4.9–§4.14](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增)
-
-| 章节 | 变更内容 | 关联 Story |
-|------|----------|-----------|
-| §1.3.2 OcrResult Schema | 新增 `hasExtractableData` / `extractionSkipReason` 字段 + `completed_no_data` status | §4.12 |
-| ~~§1.6 ocr-remap-queue（新增）~~ | ~~新增重映射触发队列与 consumer~~ → **已于 2026-05-07 撤销**，合并到 `ocr-extract-queue` 用 `mode` 字段区分（详见下方 v1.6 变更） | §4.13 |
-| §2.2 ExtractedTable Schema | 新增 `has_extractable_data` / `extraction_skip_reason` 字段 | §4.12 |
-| §2.6 无可提取数据识别（新增） | 提取阶段后的判定算法 + 5 类 skip reason + 与 Java 的契约边界 | §4.12 |
-| §9 OCR Provider 集成（新增） | eSapiens 客户端封装、多页文档处理、API key 安全存储 | §4.14 |
-| §10 AI Provider 集成（新增） | OpenRouter / OpenAI 选型、模型路由表、集成测试 fixtures | §4.14 |
-| §11 LG Category 配置化扩展（新增） | `lg_category_definition` 表化方案，支持未来子分类（Product Revenue 等） | §4.14 |
-
-**Java 主导、Python 端无新逻辑的 Story**:
-- §4.9 Mapping Summary Page (Step 5a) — Java 实现，详见 [java-design.md](./java-design.md)
-- §4.10 Conflict Resolution (Step 5b) — Java 实现，详见 [java-design.md](./java-design.md)
-- §4.11 Commit & Display Results (Step 5c) — Java 实现，详见 [java-design.md](./java-design.md)
-
-### 2026-05-07 — v1.6 接口职责显式化 + 队列收敛 + 表删除（多 agent 头脑风暴清理）
-
-> **需求来源**: [user-input-requirements.md §4](../user-input-requirements.md#4-当前迭代要求2026-05-06本次对话) — R-4.4「删除无意义变更」+ R-4.5「Java/Python 每个接口/消费者必须显式列出做什么」
->
-> **架构契约同步来源**: [system-architecture.md §0](./system-architecture.md#0-职责边界声明顶层规则) v1.5 清理（已删除 ocr-remap-queue / ai_ocr_extraction_skip_log / ai_ocr_notification）
-
-**A. 删除（与 system-architecture.md v1.5 同步）**:
-
-| 删除项 | 替代方案 |
-|-------|---------|
-| 独立 `ocr-remap-queue` + `OcrRemap` 消息 + `consumers/remap_consumer.py` + `run_remap_pipeline()` | 合并到 `ocr-extract-queue`，消息加 `mode` 字段（`FULL_EXTRACT` / `REMAP_ONLY`）+ `changedRowIds`，由 `extract_consumer.py` 在入口分支处理。理由：用户原始需求只声明 2 个核心 SQS 场景（解析 + 记忆），独立 remap 队列属于 R-4.4 所指"过度设计" |
-| `ai_ocr_extraction_skip_log` 表的所有写入与引用 | Python 在 `OcrResult` 消息中携带 `status=completed_no_data` + `extractionSkipReason` + `skipReason` 字段；Java 在 `ai_ocr_task_state_log` 写 `EXTRACT_NO_DATA` 事件 |
-| `ai_ocr_notification` 表的所有引用 | 已删除（system-architecture.md v1.5）；通知统一通过 `ai_ocr_task_state_log` 的 status 变更 + `ocr-result-queue` 进度消息表达 |
-
-**B. 补充（之前缺漏）**:
-
-| 章节 | 补充内容 |
-|------|---------|
-| §0（新增整章）| 接口职责总览：4 个 SQS 消费者总览表 + 5 个 LangGraph 节点总览表（一句话职责 + 输入输出 state 字段 + 失败处理） |
-| §0.3 | Period Inference 节点归属明确为 **Extract 节点的尾部子步骤**（不是独立节点），调用时序图 |
-| §0.4 | `OCRPipelineState` TypedDict 完整字段定义（入口/Preprocess/Extract/Classify/Map/Validate 各阶段的 state 字段） |
-| §0.5 | Validate（Python）vs §4.10 冲突检测（Java）的边界对比表（数据源/检测对象/`conflict_type` 区分） |
-| §1.5 | 错误处理按消费者细分：4 个消费者 + 1 个 producer 各自的失败动作 + DLQ 路径 + Sweeper 兜底 |
-| §1.6 | 改写为"REMAP_ONLY 模式分支"（已合并入 ocr-extract-queue），消息 schema 用差异表 + `extract_consumer.py` 内 mode 分支代码 |
-| §5.2 | Validate 节点详细职责：5.2.1 三要素硬验证（期间/货币/类别完整性）+ 5.2.2 内部一致性硬验证（行加总/BS 平衡式/sign 一致性）+ 5.2.3 写哪些表（`ai_ocr_conflict_record{conflict_type=INTERNAL_INCONSISTENCY}` 与 Java 的 `CROSS_PERIOD_OVERWRITE` 互不重叠）+ 5.2.4 与 Java §4.10 协同时序图 |
-
-**C. 字段调整**:
-
-- `OcrResultMessage.status` 扩展为 `Literal["completed", "completed_no_data", "remap_completed", "failed", "remap_failed"]`
-- `OcrResultMessage` 新增 `has_extractable_data` / `extraction_skip_reason` / `skip_reason` 字段（替代原跨域写 `ai_ocr_extraction_skip_log` 的方式）
-- `OcrExtract` 消息 schema 新增 `mode` / `changedRowIds` / `taskId` 字段
-
-**覆盖率自检**:
-- 入站 SQS 队列：3 条全部在 §0.1 列出（ocr-extract-queue 拆 2 个 mode 行 + ocr-memory-learn-queue + ocr-similarity-check-queue），共 4 个消费者条目
-- LangGraph 节点：5 个全部在 §0.2 列出（Preprocess / Extract / Classify / Map / Validate）
-- Period Inference 在 §0.3 明确归属（Extract 子步骤，非独立节点）
-
-### 历史变更
-
-- **2026-04-20**: §1.3.3 OcrMemoryLearnProgress（任务级记忆学习进度）；§2.5 相似度检测引擎（Phase 2.5）；`label_embedding VECTOR(1536)` 列；跨域 INSERT 权限例外
-- **2026-04-19**: 报告周期识别 fallback 按列处理（Story #5 Calendar Month）
-- **2026-04-17**: 双层架构记忆学习（Layer A 公司级实时 + Layer B 核心引擎全局，Story #8）
-- **2026-04-16**: 文档初版（基于 EPIC 原始描述与初版 Story #1–#8）
+> 完整变更说明见 [system-architecture.md §16 变更日志](./system-architecture.md#16-变更日志) 与 [user-input-requirements.md](../user-input-requirements.md)。
