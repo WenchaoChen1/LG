@@ -10,8 +10,8 @@
 > **DDL 已全部迁移到 [database-schema.md](./database-schema.md)**（唯一权威定义）。本文件不再重复 DDL，避免双份维护导致漂移。
 >
 > 查找指引:
-> - **Java 拥有的表**（doc_parse_*）: [database-schema.md §2](./database-schema.md#2-java-拥有的表-doc_parse_)
-> - **Python 拥有的表**（ai_ocr_* / mapping_memory*）: [database-schema.md §3](./database-schema.md#3-python-拥有的表-ai_ocr_--mapping_memory)
+> - **Java 拥有的表**（ai_ocr_*）: [database-schema.md §2](./database-schema.md#2-java-拥有的表-ai_ocr_)
+> - **Python 拥有的表**（ai_ocr_* / ai_ocr_mapping_memory*）: [database-schema.md §3](./database-schema.md#3-python-拥有的表-ai_ocr_--ai_ocr_mapping_memory)
 > - **索引**: 在各表 DDL 下方，或 [database-schema.md §4](./database-schema.md#4-数据库角色与权限) 看权限相关
 > - **GRANT 权限**: [database-schema.md §4](./database-schema.md#4-数据库角色与权限)
 > - **枚举值清单**（Task/File/ProcessingStage/LGCategory 等）: [database-schema.md §1.2](./database-schema.md#12-枚举值清单与代码-enum-严格对应)
@@ -264,7 +264,7 @@ async def get_industry_common_mappings(
     results = await db.execute(text("""
         SELECT m.normalized_category, COUNT(DISTINCT m.company_id) as company_count,
                SUM(m.hit_count) as total_freq
-        FROM mapping_memory m
+        FROM ai_ocr_mapping_memory m
         JOIN company c ON m.company_id = c.id
         WHERE c.industry = :industry
           AND m.hit_count >= 3
@@ -635,7 +635,7 @@ interface FinancialUploadModelState {
 > 完整幂等实现见 [python-design.md §4.8 学习逻辑](./python-design.md#48-记忆学习触发双层架构asana-2026-04-17-story-8)，以下为精简示例（未含幂等 upsert）。
 
 ```python
-async def save_mapping_memory(
+async def save_ai_ocr_mapping_memory(
     company_id: int, account_label: str, lg_category: str,
     idempotency_key: str, db: AsyncSession
 ) -> Literal["new", "updated", "duplicate"]:
@@ -949,7 +949,7 @@ json_body = msg.model_dump_json(by_alias=True)  # ⚠️ by_alias=True 必加
 > **背景**: Asana 2026-05-06 将 Step 5 写入流程拆为 5a Mapping Summary / 5b Conflict Resolution / 5c Commit & Display，
 > 并新增 Edge Case（无可提取数据 / 步骤导航变更检测）和后端基础设施 Story。
 >
-> **命名说明**: 以下 Java/SQL 中的"task"表统一使用 `doc_parse_task`（与 [database-schema.md §2.1](./database-schema.md#21-doc_parse_task) 保持一致）。
+> **命名说明**: 以下 Java/SQL 中的"task"表统一使用 `ai_ocr_task`（与 [database-schema.md §2.1](./database-schema.md#21-ai_ocr_task) 保持一致）。
 > 用户提示中的 `ai_ocr_task` 是历史称谓，本节按权威 schema 修正。
 
 ### 16.1 Java — Mapping Summary Controller（§4.9）
@@ -966,7 +966,7 @@ public class MappingSummaryController {
 
     /**
      * §4.9 — 返回 Verify Data Summary：文件数 / 类型数 / 账户数。
-     * 数据来自 doc_parse_task.summary_cache（写入时缓存，避免每次重算）。
+     * 数据来自 ai_ocr_task.summary_cache（写入时缓存，避免每次重算）。
      */
     @GetMapping("/mapping-summary")
     public ApiResponse<MappingSummaryDto> getSummary(
@@ -1066,7 +1066,7 @@ public class ResolveConflictRequest {
 
     @NotBlank(message = "Note is required when resolving a conflict")
     @Size(max = 1000)
-    private String note;                    // §4.10 强制要求；落库到 doc_parse_conflict_note
+    private String note;                    // §4.10 强制要求；落库到 ai_ocr_conflict_note
 }
 
 @Data
@@ -1105,7 +1105,7 @@ public class CommitService {
      *     a. 按 OVERWRITE/KEEP 决策写 fi_actuals（旧值进 fi_actuals_history）
      *     b. Proforma → 创建新 forecast 版本（24 个月旧 + 6-7 个月新）
      *     c. 所有上传文件保存到 Documents / Imported Statements 文件夹
-     *     d. 记录审计（doc_parse_commit_audit）
+     *     d. 记录审计（ai_ocr_commit_audit）
      *  4. 事务提交后再触发外部副作用（email / 跳转），避免事务内做远程调用
      */
     @Transactional(rollbackFor = Exception.class)
@@ -1175,7 +1175,7 @@ public class MappingChangeDetector {
      *  - 已变 → 清空 conflict_resolutions，重新触发 verify
      *
      * 哈希算法：对 mappingResults 做 canonical JSON（key 排序、剔除 timestamps）
-     * 后取 SHA-256，与 doc_parse_task.mapping_snapshot_hash 比较。
+     * 后取 SHA-256，与 ai_ocr_task.mapping_snapshot_hash 比较。
      */
     @Transactional
     public ChangeDetectionResult detectAndHandle(UUID taskId) {
@@ -1236,12 +1236,12 @@ public class MappingChangeDetector {
 
 ### 16.5 DDL 字段补丁（与 database-schema.md 同步）
 
-> **同步要求**: 以下 ALTER / CREATE 必须**同时**写入 [database-schema.md §2.1](./database-schema.md#21-doc_parse_task) 与对应迁移脚本。
+> **同步要求**: 以下 ALTER / CREATE 必须**同时**写入 [database-schema.md §2.1](./database-schema.md#21-ai_ocr_task) 与对应迁移脚本。
 > 本文件仅作开发参考，权威定义以 database-schema.md 为准。
 
 ```sql
--- ① 扩展 doc_parse_task：5a/5b/5c 拆分 + 边界用例支持
-ALTER TABLE doc_parse_task
+-- ① 扩展 ai_ocr_task：5a/5b/5c 拆分 + 边界用例支持
+ALTER TABLE ai_ocr_task
     ADD COLUMN mapping_changed_at      TIMESTAMPTZ,
     -- §4.13 最后一次 mapping 变更时间，用于 UI 显示 "based on your changes"
     ADD COLUMN mapping_snapshot_hash   VARCHAR(64),
@@ -1253,15 +1253,15 @@ ALTER TABLE doc_parse_task
     ADD COLUMN summary_cache           JSONB;
     -- §4.9 缓存 {totalFiles,totalTypes,totalAccounts,...} 避免每次重算
 
-CREATE INDEX idx_doc_parse_task_mapping_hash
-    ON doc_parse_task (mapping_snapshot_hash)
+CREATE INDEX idx_ai_ocr_task_mapping_hash
+    ON ai_ocr_task (mapping_snapshot_hash)
     WHERE mapping_snapshot_hash IS NOT NULL;
 
 -- ② 跳过 write 的审计日志（§4.12）
 CREATE TABLE ai_ocr_extraction_skip_log (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id         UUID NOT NULL REFERENCES doc_parse_task(id),
-    file_id         UUID REFERENCES doc_parse_file(id),     -- NULL = 整个 task 全部跳过
+    task_id         UUID NOT NULL REFERENCES ai_ocr_task(id),
+    file_id         UUID REFERENCES ai_ocr_file(id),     -- NULL = 整个 task 全部跳过
     company_id      BIGINT NOT NULL,
     skip_reason     VARCHAR(50) NOT NULL,
         -- NO_TABLES / NARRATIVE_ONLY / IMAGE_NO_DATA
@@ -1274,7 +1274,7 @@ CREATE INDEX idx_extraction_skip_task ON ai_ocr_extraction_skip_log (task_id);
 -- ③ Mapping 变更日志（§4.13）
 CREATE TABLE ai_ocr_mapping_change_log (
     id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id                  UUID NOT NULL REFERENCES doc_parse_task(id),
+    task_id                  UUID NOT NULL REFERENCES ai_ocr_task(id),
     old_hash                 VARCHAR(64),                    -- NULL = 首次进入 5b
     new_hash                 VARCHAR(64) NOT NULL,
     cleared_resolutions      INT NOT NULL DEFAULT 0,         -- 因变更被清空的 conflict 数
@@ -1505,4 +1505,4 @@ export function useMappingChangeDetector() {
 | 日期 | 变更 |
 |------|------|
 | 2026-04-20 | 新增 §15 S3 Presigned URL 实操（CORS / Java 双端点 / 前端分块 SHA-256 / 续签 / Pydantic camelCase）。 |
-| 2026-05-06 | 新增 §16 Step 5 拆分实现示例（响应 [requirement-analysis.md §4.9-4.14](./requirement-analysis.md)）：<br/>• §16.1 MappingSummaryController（5a 三接口）<br/>• §16.2 ConflictResolutionController（5b Note 必填、动态按钮）<br/>• §16.3 CommitService 整批事务（5c fi_* 写入 + Imported Statements + email + Proforma 新版本）<br/>• §16.4 MappingChangeDetector（4.13 SHA-256 + 清空 resolutions）<br/>• §16.5 DDL 补丁（doc_parse_task 5 个新字段 + 2 张新表）<br/>• §16.6 Python ExtractionResult 扩展（4.12 has_extractable_data / skip_reason）<br/>• §16.7 dva Model 快照与清空<br/>• §16.8 ConflictDialog（Note 必填 / Save vs Save & Next）<br/>• §16.9 useMappingChangeDetector hook |
+| 2026-05-06 | 新增 §16 Step 5 拆分实现示例（响应 [requirement-analysis.md §4.9-4.14](./requirement-analysis.md)）：<br/>• §16.1 MappingSummaryController（5a 三接口）<br/>• §16.2 ConflictResolutionController（5b Note 必填、动态按钮）<br/>• §16.3 CommitService 整批事务（5c fi_* 写入 + Imported Statements + email + Proforma 新版本）<br/>• §16.4 MappingChangeDetector（4.13 SHA-256 + 清空 resolutions）<br/>• §16.5 DDL 补丁（ai_ocr_task 5 个新字段 + 2 张新表）<br/>• §16.6 Python ExtractionResult 扩展（4.12 has_extractable_data / skip_reason）<br/>• §16.7 dva Model 快照与清空<br/>• §16.8 ConflictDialog（Note 必填 / Save vs Save & Next）<br/>• §16.9 useMappingChangeDetector hook |

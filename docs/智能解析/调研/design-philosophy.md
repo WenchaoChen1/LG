@@ -167,7 +167,7 @@ LangGraph 状态机中有一个显式的 `REVIEW` 状态。系统**不能**从 R
 写入路径（Java 提交成功后触发）：
   1. Python 收到 SQS 消息，含 mappingComparisons（原始 vs 确认）
   2. 只处理 wasOverridden=true 的条目（AI 猜对的不存）
-  3. 写入 mapping_memory → 用户修正的标签到分类关联
+  3. 写入 ai_ocr_mapping_memory → 用户修正的标签到分类关联
 
 读取路径（下次上传时）：
   1. Layer 2 查 DB → 精确匹配 / trigram 模糊匹配（零 LLM 调用）
@@ -367,9 +367,9 @@ LangGraph 的开销是一个依赖。自制状态机的开销是永远的维护�
 **在架构中的体现**:
 
 - 文件级 `processing_stage` 12 个子状态（含 `MAPPING_MEMORY_LOOKUP/APPLY/COMPLETE` 3 个记忆子态）都写 DB，Python 每切换子状态都发 OcrProgress
-- 任务级 `doc_parse_task.status` 20 个状态（含 SIMILARITY_CHECKING/MEMORY_LEARN_PENDING/IN_PROGRESS/COMPLETE）都写 DB
-- `doc_parse_notification` 记录通知发送状态（PENDING/SENDING/SENT/FAILED），不是 fire-and-forget
-- `doc_parse_memory_learn_log` 记录每次记忆学习的结果和重试历史
+- 任务级 `ai_ocr_task.status` 20 个状态（含 SIMILARITY_CHECKING/MEMORY_LEARN_PENDING/IN_PROGRESS/COMPLETE）都写 DB
+- `ai_ocr_notification` 记录通知发送状态（PENDING/SENDING/SENT/FAILED），不是 fire-and-forget
+- `ai_ocr_memory_learn_log` 记录每次记忆学习的结果和重试历史
 
 **接受的 trade-off**:
 - 更多 DB 写入（每个 pipeline 阶段多 1 次 UPDATE），但单次成本 < 1ms，可忽略
@@ -386,7 +386,7 @@ LangGraph 的开销是一个依赖。自制状态机的开销是永远的维护�
 
 **在架构中的体现**:
 
-- `doc_parse_task` 新增 `parent_task_id` / `revision_number` / `revision_reason` / `superseded_by` 4 个字段
+- `ai_ocr_task` 新增 `parent_task_id` / `revision_number` / `revision_reason` / `superseded_by` 4 个字段
 - 原任务在修订版 Commit 成功后自动置为 `SUPERSEDED`
 - Copy-on-write 继承文件：修订版复用原文件的 S3 对象（通过 ref_count 防悬空引用）
 - UI 版本链展示：v1 → v2 → v3 + 每个版本的修订原因

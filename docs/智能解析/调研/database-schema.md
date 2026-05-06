@@ -8,17 +8,81 @@
 
 ---
 
+## 表清单总览（Schema Overview）
+
+OCR Agent 包含 **16 张表**，**全部使用 `ai_ocr_` 前缀**。按职责分为四组：任务编排（5）、AI 解析产物（4）、用户交互审计（3）、记忆与跨域审计（4）。
+
+### 设计原则
+
+- **统一前缀**: 所有表以 `ai_ocr_` 开头，便于在共享 schema 中识别 OCR Agent 拥有的对象
+- **所有权隔离**: Java 端（`CIOaas-api/docparse`）和 Python 端（`CIOaas-python/ocr_agent`）共享 schema，但通过 PostgreSQL 角色（`java_app` / `python_worker`）控制写权限（详见 §4）
+- **审计优先**: 所有用户决策、记忆变更、commit 写入都有专门的审计日志表，永久保留
+
+### 一、任务编排（5 张，Java 拥有）
+
+| 表名 | 用途 | 写主 | 读方 |
+|------|------|------|------|
+| `ai_ocr_task` | OCR 解析任务主表，记录每次上传/修订的整体生命周期，含 22 个状态枚举、修订链、`mapping_snapshot_hash`（变更检测）、`summary_cache`（5a 摘要） | Java | Python (SELECT) |
+| `ai_ocr_file` | 单文件元数据（filename / S3 key / hash / status / processing_stage / progress），与 `ai_ocr_task` 1:N | Java | Python (SELECT) |
+| `ai_ocr_notification` | 任务关键节点事件日志（PARSE_COMPLETE / COMMIT_COMPLETE / NEW_CLOSED_MONTH 等），**不主动推送**，用户主动查询 | Java | Python (SELECT) |
+| `ai_ocr_similarity_hint` | Python 相似度检测器输出的"高相似度 account_label 对"，供前端审核页顶部横幅展示，含用户合并/忽略决策 | Python (INSERT/UPDATE) + Java (UPDATE user_decision) | 共享 |
+| `ai_ocr_extraction_skip_log` | §4.12 边界用例审计：当文档无可提取财务数据时，记录跳过原因（NO_TABLES / NARRATIVE_ONLY / IMAGE_NO_DATA） | Java | Python |
+
+### 二、AI 解析产物（4 张，Python 拥有）
+
+| 表名 | 用途 | 写主 | 读方 |
+|------|------|------|------|
+| `ai_ocr_extracted_table` | OCR/Excel 提取出的表格（document_type / currency / source_page），与 `ai_ocr_file` 1:N | Python | Java (SELECT) |
+| `ai_ocr_extracted_row` | 表格中的每一行（account_label / cell_values / `label_embedding` for 相似度检测），与 `ai_ocr_extracted_table` 1:N | Python | Java (SELECT) |
+| `ai_ocr_mapping_result` | AI 映射结果（lg_category / confidence / source / reasoning），1 行最多 1 条映射 | Python | Java (SELECT) |
+| `ai_ocr_conflict_record` | §4.10 冲突记录主体（lg_category / reporting_period / existing_value / mapped_value / **note 必填** / resolution / resolved_order） | Python (Java 也写 resolution) | 共享 |
+
+### 三、用户交互与提交审计（3 张，Java 拥有）
+
+| 表名 | 用途 | 写主 | 读方 |
+|------|------|------|------|
+| `ai_ocr_conflict_note` | §4.10 冲突解决备注的 thread（多条回复，含 auto_generated 系统消息），与 `ai_ocr_conflict_record` 1:N | Java | Python (SELECT) |
+| `ai_ocr_commit_audit` | §4.11 每次 commit 对 fi_* 写入操作的审计（action: written/overwritten/skipped + old_value/new_value），fi_* 数据溯源关键，**永久保留** | Java | Python (SELECT) |
+| `ai_ocr_mapping_change_log` | §4.13 步骤导航变更追踪：用户回退后修改 mapping 触发的 hash 变更 + 下游清空 conflict_resolutions 的次数 | Java | Python (SELECT) |
+
+### 四、记忆与跨域审计（4 张，混合所有权）
+
+| 表名 | 用途 | 写主 | 读方 |
+|------|------|------|------|
+| `ai_ocr_mapping_memory` | 两层架构（通用层 + 公司层）的 account_label → lg_category 映射记忆库，含命中/确认/拒绝计数和 trust 标志 | Python | **仅 Python**（跨公司商业机密，Java 无权访问） |
+| `ai_ocr_mapping_memory_audit` | 记忆变更审计（CREATE/CONFIRM/REJECT/ARCHIVE），含 `idempotency_key` 防 SQS at-least-once 重复 | Python | **仅 Python** |
+| `ai_ocr_memory_learn_log` | §3 Story #8 系统学习审计：每次 commit 后记忆学习的尝试次数（最多 3 次）+ 新增/更新条目数 + 失败原因 | Python (INSERT 跨域例外) + Java | 共享 |
+| `ai_ocr_erasure_log` | GDPR "Right to be Forgotten" 擦除请求和执行审计（target_type / s3_objects_deleted / db_records_deleted） | Java | Python (SELECT) |
+
+### 关系图（核心引用链）
+
+```
+ai_ocr_task ─┬─< ai_ocr_file ─< ai_ocr_extracted_table ─< ai_ocr_extracted_row ─< ai_ocr_mapping_result
+             ├─< ai_ocr_notification
+             ├─< ai_ocr_conflict_record ─< ai_ocr_conflict_note
+             ├─< ai_ocr_commit_audit
+             ├─< ai_ocr_memory_learn_log
+             ├─< ai_ocr_similarity_hint
+             ├─< ai_ocr_extraction_skip_log
+             └─< ai_ocr_mapping_change_log
+
+ai_ocr_mapping_memory ─< ai_ocr_mapping_memory_audit  (独立，不依赖 task)
+ai_ocr_erasure_log                                     (独立审计)
+```
+
+---
+
 ## 0. 物理部署模型
 
 **决策（2026-04-20）**: Java 和 Python 共用**同一个** PostgreSQL RDS 实例、**同一个** schema。通过 PostgreSQL 角色（`java_app` / `python_worker`）实现读写隔离。
 
 **理由**:
-- 共享 schema 下 FK 约束可生效（如 `ai_ocr_extracted_table.file_id → doc_parse_file.id`）
+- 共享 schema 下 FK 约束可生效（如 `ai_ocr_extracted_table.file_id → ai_ocr_file.id`）
 - 跨库 JOIN 免配置（对比 Normalization 下游查询 fi_* 时不需要 FDW）
 - 两个 RDS 实例比一个大实例运维成本高 ~40%
 - 权限隔离通过 `GRANT` / `REVOKE` 即可，无需额外组件
 
-**未来扩展**: 若 `mapping_memory` 增长到亿级，可拆到独立 pgvector 集群（Python 改连接串，Java 无感知）。
+**未来扩展**: 若 `ai_ocr_mapping_memory` 增长到亿级，可拆到独立 pgvector 集群（Python 改连接串，Java 无感知）。
 
 ---
 
@@ -91,7 +155,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; -- UUID 生成
 | `EXTRACTING` | 15-30 | AI Vision / 直接解析 |
 | `CLASSIFYING` | 30-35 | 文档类型识别 |
 | `MAPPING_RULE` | 35-45 | Layer 1 规则引擎 |
-| `MAPPING_MEMORY_LOOKUP` | 45-55 | Layer 2 查询 mapping_memory |
+| `MAPPING_MEMORY_LOOKUP` | 45-55 | Layer 2 查询 ai_ocr_mapping_memory |
 | `MAPPING_MEMORY_APPLY` | 55-65 | 应用命中的记忆 |
 | `MAPPING_MEMORY_COMPLETE` | 65-70 | 记忆阶段完成 |
 | `MAPPING_LLM` | 70-85 | Layer 3 LLM 推理 |
@@ -147,14 +211,18 @@ Balance Sheet:       Cash / Accounts Receivable / R&D Capitalized / Other Assets
 
 ---
 
-## 2. Java 拥有的表（`doc_parse_*`）
+## 2. Java 拥有的表（`ai_ocr_*` Java owned）
 
 归属 Java 域，由 `CIOaas-api` 的 `docparse` 包管理。Python 一般只有 SELECT 权限，少数例外明确标注。
 
-### 2.1 doc_parse_task
+> **命名约定**: 全部表统一使用 `ai_ocr_` 前缀。Java/Python 两侧的表共享同一前缀，所有权通过 §4 数据库角色与权限隔离。
+
+### 2.1 ai_ocr_task
+
+**用途**: OCR 解析任务主表。每次用户发起一次"上传 + 解析 + 审核 + 提交"流程对应一行；修订（revise）会创建新行并通过 `parent_task_id` 链接到原任务。承载 22 个状态枚举（详见 §1.2 Task 状态）、修订链、Step 5a 摘要缓存、Step 5b 冲突变更检测、§4.12 无可提取数据标志等核心元数据。
 
 ```sql
-CREATE TABLE doc_parse_task (
+CREATE TABLE ai_ocr_task (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id      BIGINT NOT NULL,
     uploaded_by     BIGINT NOT NULL,
@@ -163,10 +231,10 @@ CREATE TABLE doc_parse_task (
         -- 20 个状态枚举，见 §1.2 Task 状态
 
     -- 版本化字段（2026-04-20 新增）
-    parent_task_id  UUID REFERENCES doc_parse_task(id),
+    parent_task_id  UUID REFERENCES ai_ocr_task(id),
     revision_number INT NOT NULL DEFAULT 0,
     revision_reason VARCHAR(500),
-    superseded_by   UUID REFERENCES doc_parse_task(id),
+    superseded_by   UUID REFERENCES ai_ocr_task(id),
 
     -- 文件统计
     total_files     INT NOT NULL DEFAULT 0,
@@ -196,42 +264,44 @@ CREATE TABLE doc_parse_task (
 
 **索引**:
 ```sql
-CREATE INDEX idx_doc_parse_task_company
-    ON doc_parse_task (company_id, created_at DESC);
+CREATE INDEX idx_ai_ocr_task_company
+    ON ai_ocr_task (company_id, created_at DESC);
 
-CREATE INDEX idx_doc_parse_task_status
-    ON doc_parse_task (status, updated_at)
+CREATE INDEX idx_ai_ocr_task_status
+    ON ai_ocr_task (status, updated_at)
     WHERE status NOT IN ('COMPLETED', 'SUPERSEDED', 'FAILED', 'EXPIRED');
     -- 只为"活跃"状态建索引，节约空间 + 加速 Sweeper 扫描
 
 -- 修订链查询
-CREATE INDEX idx_doc_parse_task_parent
-    ON doc_parse_task (parent_task_id)
+CREATE INDEX idx_ai_ocr_task_parent
+    ON ai_ocr_task (parent_task_id)
     WHERE parent_task_id IS NOT NULL;
 
 -- 防并发修订（同 parent + 同 revision_number 唯一）
-CREATE UNIQUE INDEX uq_doc_parse_task_parent_revision
-    ON doc_parse_task (parent_task_id, revision_number)
+CREATE UNIQUE INDEX uq_ai_ocr_task_parent_revision
+    ON ai_ocr_task (parent_task_id, revision_number)
     WHERE parent_task_id IS NOT NULL;
 
 -- §4.13 mapping 变更检测：按 mapping_changed_at 查询最近变更的活跃任务
-CREATE INDEX idx_doc_parse_task_mapping_changed
-    ON doc_parse_task (mapping_changed_at DESC)
+CREATE INDEX idx_ai_ocr_task_mapping_changed
+    ON ai_ocr_task (mapping_changed_at DESC)
     WHERE mapping_changed_at IS NOT NULL
       AND status NOT IN ('COMPLETED', 'SUPERSEDED', 'FAILED', 'EXPIRED');
 
 -- §4.12 过滤"无可提取数据"任务（Documents 页"Imported Statements"展示用）
-CREATE INDEX idx_doc_parse_task_skipped
-    ON doc_parse_task (company_id, created_at DESC)
+CREATE INDEX idx_ai_ocr_task_skipped
+    ON ai_ocr_task (company_id, created_at DESC)
     WHERE has_extractable_data = FALSE;
 ```
 
-### 2.2 doc_parse_file
+### 2.2 ai_ocr_file
+
+**用途**: 单文件元数据。一次任务可上传多个文件，每个文件独立追踪上传状态、S3 路径、SHA-256 hash（防重）、Python 处理阶段（12 个 processing_stage 子状态）、错误信息以及是否已同步到 Documents 页"Imported Statements"文件夹。
 
 ```sql
-CREATE TABLE doc_parse_file (
+CREATE TABLE ai_ocr_file (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id         UUID NOT NULL REFERENCES doc_parse_task(id),
+    task_id         UUID NOT NULL REFERENCES ai_ocr_task(id),
     company_id      BIGINT NOT NULL,                                 -- 冗余，便于唯一约束
     filename        VARCHAR(500) NOT NULL,
     file_type       VARCHAR(10) NOT NULL,                            -- PDF/EXCEL/CSV/IMAGE
@@ -259,35 +329,35 @@ CREATE TABLE doc_parse_file (
 
 **索引**:
 ```sql
-CREATE INDEX idx_doc_parse_file_task
-    ON doc_parse_file (task_id, status);
+CREATE INDEX idx_ai_ocr_file_task
+    ON ai_ocr_file (task_id, status);
 
 -- 重名文件校验：同 company 下同 hash 唯一（FAILED 的允许重上传）
-CREATE UNIQUE INDEX idx_doc_parse_file_company_hash_active
-    ON doc_parse_file (company_id, file_hash)
+CREATE UNIQUE INDEX idx_ai_ocr_file_company_hash_active
+    ON ai_ocr_file (company_id, file_hash)
     WHERE deleted = false
       AND status != 'FILE_FAILED';
 
 -- Sweeper 扫描用
-CREATE INDEX idx_doc_parse_file_stuck_processing
-    ON doc_parse_file (status, updated_at)
+CREATE INDEX idx_ai_ocr_file_stuck_processing
+    ON ai_ocr_file (status, updated_at)
     WHERE status = 'PROCESSING';
 
 -- §4.11 / §4.12 待同步到 Imported Statements 的文件
-CREATE INDEX idx_doc_parse_file_pending_sync
-    ON doc_parse_file (task_id, status)
+CREATE INDEX idx_ai_ocr_file_pending_sync
+    ON ai_ocr_file (task_id, status)
     WHERE imported_statements_synced = FALSE
       AND deleted = FALSE;
 ```
 
-### 2.3 doc_parse_notification（事件日志，Q16 简化版）
+### 2.3 ai_ocr_notification（事件日志，Q16 简化版）
 
 **用途**: 仅作为"任务状态变化事件"的审计日志，**不主动推送**（不发邮件/push/站内信）。用户通过 LG Dashboard 的"待处理任务"列表自行发现。
 
 ```sql
-CREATE TABLE doc_parse_notification (
+CREATE TABLE ai_ocr_notification (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id         UUID NOT NULL REFERENCES doc_parse_task(id),
+    task_id         UUID NOT NULL REFERENCES ai_ocr_task(id),
     company_id      BIGINT NOT NULL,
     event_type      VARCHAR(30) NOT NULL,                            -- 见 §1.2 Notification Event Type
     payload         JSONB,                                           -- 事件快照数据
@@ -299,23 +369,23 @@ CREATE TABLE doc_parse_notification (
 
 **索引**:
 ```sql
-CREATE INDEX idx_doc_parse_notification_task
-    ON doc_parse_notification (task_id, event_type, created_at DESC);
+CREATE INDEX idx_ai_ocr_notification_task
+    ON ai_ocr_notification (task_id, event_type, created_at DESC);
 
-CREATE INDEX idx_doc_parse_notification_company_recent
-    ON doc_parse_notification (company_id, created_at DESC);
+CREATE INDEX idx_ai_ocr_notification_company_recent
+    ON ai_ocr_notification (company_id, created_at DESC);
 ```
 
-### 2.4 doc_parse_conflict_note
+### 2.4 ai_ocr_conflict_note
 
 **用途**: 冲突解决时用户填写的备注（支持 thread 多条回复，Story #7）。
 
 ```sql
-CREATE TABLE doc_parse_conflict_note (
+CREATE TABLE ai_ocr_conflict_note (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id         UUID NOT NULL REFERENCES doc_parse_task(id),
+    task_id         UUID NOT NULL REFERENCES ai_ocr_task(id),
     conflict_id     UUID NOT NULL,                                   -- verify 阶段分配的冲突 ID
-    parent_note_id  UUID REFERENCES doc_parse_conflict_note(id),     -- NULL = thread 顶层
+    parent_note_id  UUID REFERENCES ai_ocr_conflict_note(id),     -- NULL = thread 顶层
     author_id       BIGINT NOT NULL,
     note_text       VARCHAR(2000) NOT NULL,
     auto_generated  BOOLEAN DEFAULT FALSE,                           -- 系统自动生成
@@ -326,22 +396,22 @@ CREATE TABLE doc_parse_conflict_note (
 
 **索引**:
 ```sql
-CREATE INDEX idx_doc_parse_conflict_note_task
-    ON doc_parse_conflict_note (task_id, conflict_id, created_at);
+CREATE INDEX idx_ai_ocr_conflict_note_task
+    ON ai_ocr_conflict_note (task_id, conflict_id, created_at);
 
-CREATE INDEX idx_doc_parse_conflict_note_parent
-    ON doc_parse_conflict_note (parent_note_id)
+CREATE INDEX idx_ai_ocr_conflict_note_parent
+    ON ai_ocr_conflict_note (parent_note_id)
     WHERE parent_note_id IS NOT NULL;
 ```
 
-### 2.5 doc_parse_memory_learn_log
+### 2.5 ai_ocr_memory_learn_log
 
 **用途**: 记忆学习审计。**Python 有 INSERT 权限**（跨域写入例外，见 §4）。
 
 ```sql
-CREATE TABLE doc_parse_memory_learn_log (
+CREATE TABLE ai_ocr_memory_learn_log (
     id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id              UUID NOT NULL REFERENCES doc_parse_task(id),
+    task_id              UUID NOT NULL REFERENCES ai_ocr_task(id),
     attempt_number       INT NOT NULL DEFAULT 1,                     -- 第几次（最多 3 次）
     result               VARCHAR(20) NOT NULL,                       -- 'success' / 'failed'
     new_memory_count     INT NOT NULL DEFAULT 0,
@@ -356,29 +426,29 @@ CREATE TABLE doc_parse_memory_learn_log (
 
 **索引**:
 ```sql
-CREATE INDEX idx_doc_parse_memory_learn_log_task
-    ON doc_parse_memory_learn_log (task_id, attempt_number);
+CREATE INDEX idx_ai_ocr_memory_learn_log_task
+    ON ai_ocr_memory_learn_log (task_id, attempt_number);
 
-CREATE INDEX idx_doc_parse_memory_learn_log_failed
-    ON doc_parse_memory_learn_log (result, created_at)
+CREATE INDEX idx_ai_ocr_memory_learn_log_failed
+    ON ai_ocr_memory_learn_log (result, created_at)
     WHERE result = 'failed';
 ```
 
-### 2.6 doc_parse_commit_audit
+### 2.6 ai_ocr_commit_audit
 
 **用途**: 记录每次 commit 对 fi_* 的写入操作（written / overwritten / skipped）。
 
 ```sql
-CREATE TABLE doc_parse_commit_audit (
+CREATE TABLE ai_ocr_commit_audit (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id          UUID NOT NULL REFERENCES doc_parse_task(id),
+    task_id          UUID NOT NULL REFERENCES ai_ocr_task(id),
     row_id           UUID NOT NULL,                                  -- ai_ocr_extracted_row.id
     lg_category      VARCHAR(50) NOT NULL,
     reporting_period VARCHAR(10) NOT NULL,                           -- YYYY-MM
     action           VARCHAR(20) NOT NULL,                           -- 'written' / 'overwritten' / 'skipped'
     old_value        NUMERIC(20,4),
     new_value        NUMERIC(20,4),
-    conflict_note_id UUID REFERENCES doc_parse_conflict_note(id),
+    conflict_note_id UUID REFERENCES ai_ocr_conflict_note(id),
     committed_by     BIGINT NOT NULL,
     committed_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -387,18 +457,18 @@ CREATE TABLE doc_parse_commit_audit (
 **索引**:
 ```sql
 CREATE INDEX idx_commit_audit_task
-    ON doc_parse_commit_audit (task_id, committed_at);
+    ON ai_ocr_commit_audit (task_id, committed_at);
 
 CREATE INDEX idx_commit_audit_period
-    ON doc_parse_commit_audit (lg_category, reporting_period);
+    ON ai_ocr_commit_audit (lg_category, reporting_period);
 ```
 
-### 2.7 doc_parse_erasure_log
+### 2.7 ai_ocr_erasure_log
 
 **用途**: GDPR "Right to be Forgotten" 擦除请求和执行审计。
 
 ```sql
-CREATE TABLE doc_parse_erasure_log (
+CREATE TABLE ai_ocr_erasure_log (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     target_type        VARCHAR(20) NOT NULL,                         -- 'task' / 'user' / 'company'
     target_id          VARCHAR(50) NOT NULL,
@@ -413,17 +483,17 @@ CREATE TABLE doc_parse_erasure_log (
 );
 
 CREATE INDEX idx_erasure_log_status
-    ON doc_parse_erasure_log (status, requested_at);
+    ON ai_ocr_erasure_log (status, requested_at);
 ```
 
-### 2.8 doc_parse_similarity_hint（新增：相似度检测结果）
+### 2.8 ai_ocr_similarity_hint（新增：相似度检测结果）
 
 **用途**: 存储 Python 相似度检测器发现的"高相似度 account_label 对"，供前端 ReviewPage 顶部横幅展示。**Python 有 INSERT/UPDATE 权限**（跨域写入例外）。
 
 ```sql
-CREATE TABLE doc_parse_similarity_hint (
+CREATE TABLE ai_ocr_similarity_hint (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id           UUID NOT NULL REFERENCES doc_parse_task(id),
+    task_id           UUID NOT NULL REFERENCES ai_ocr_task(id),
     row_id_a          UUID NOT NULL,                                 -- ai_ocr_extracted_row.id（较小 ID）
     row_id_b          UUID NOT NULL,                                 -- ai_ocr_extracted_row.id（较大 ID）
     label_a           VARCHAR(200) NOT NULL,                         -- 冗余存储便于展示
@@ -444,8 +514,8 @@ CREATE TABLE doc_parse_similarity_hint (
 
 **索引**:
 ```sql
-CREATE INDEX idx_doc_parse_similarity_hint_task
-    ON doc_parse_similarity_hint (task_id, user_decision)
+CREATE INDEX idx_ai_ocr_similarity_hint_task
+    ON ai_ocr_similarity_hint (task_id, user_decision)
     WHERE user_decision IS NULL;
     -- 仅索引"未处理"的 hint，前端查询快
 ```
@@ -458,16 +528,18 @@ CREATE INDEX idx_doc_parse_similarity_hint_task
 
 ---
 
-## 3. Python 拥有的表（`ai_ocr_*` + `mapping_memory*`）
+## 3. Python 拥有的表（`ai_ocr_*` Python owned）
 
-归属 Python 域，由 `CIOaas-python` 的 `source/ocr_agent/persistence/entities.py` 管理。Java 一般只有 SELECT 权限，`mapping_memory*` 无权限（商业机密）。
+归属 Python 域，由 `CIOaas-python` 的 `source/ocr_agent/persistence/entities.py` 管理。Java 一般只有 SELECT 权限，`ai_ocr_mapping_memory*` 无权限（商业机密）。
 
 ### 3.1 ai_ocr_extracted_table
+
+**用途**: OCR/Excel 提取阶段的输出 — 每个识别到的表格一行。承载文档类型分类（PNL / BALANCE_SHEET / CASH_FLOW / PROFORMA / MISC）、置信度、币种检测（含多币种警告）、来源定位（PDF 页码或 Excel sheet 名）。同 file_id 内通过 `table_index` 区分多个表格。
 
 ```sql
 CREATE TABLE ai_ocr_extracted_table (
     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    file_id               UUID NOT NULL,                             -- 引用 doc_parse_file(id)
+    file_id               UUID NOT NULL,                             -- 引用 ai_ocr_file(id)
     table_index           INT NOT NULL DEFAULT 0,
     document_type         VARCHAR(20) NOT NULL DEFAULT 'MISC',       -- PNL/BALANCE_SHEET/CASH_FLOW/PROFORMA/MISC
     doc_type_confidence   VARCHAR(10) NOT NULL DEFAULT 'LOW',        -- HIGH/MEDIUM/LOW
@@ -484,6 +556,8 @@ CREATE TABLE ai_ocr_extracted_table (
 ```
 
 ### 3.2 ai_ocr_extracted_row（新增 label_embedding 列）
+
+**用途**: 表格中的每个**财务行项**（如 "Revenue", "Cost of Goods Sold"），是 AI 映射的输入单元。`account_label` 是用户审核 / 编辑的对象；`cell_values` 是 JSON 形式的"列头 → 数值"键值对（如 `{"2024-01": 12345.67, "2024-02": ...}`）；`label_embedding` 是 Python 端生成的 1536 维向量，配合 HNSW 索引支持语义相似度检测。
 
 ```sql
 CREATE TABLE ai_ocr_extracted_row (
@@ -525,6 +599,8 @@ CREATE INDEX idx_ai_ocr_row_embedding_hnsw
 
 ### 3.3 ai_ocr_mapping_result
 
+**用途**: AI 映射决策的最终落点 — 每个 `ai_ocr_extracted_row` 对应一条映射结果（`UNIQUE(row_id)` 强约束）。记录映射目标 `lg_category`（19 个 LG 分类 + UNMAPPED 兜底）、置信度（HIGH/MEDIUM/LOW）、来源（rule_engine / company_memory / industry_common / llm / user_override）以及推理依据。`original_ai_suggestion` 字段记录用户覆盖前的 AI 建议，供 Story #8 学习链路使用。
+
 ```sql
 CREATE TABLE ai_ocr_mapping_result (
     id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -558,12 +634,14 @@ ALTER TABLE ai_ocr_mapping_result ADD CONSTRAINT chk_lg_category
 
 ### 3.4 ai_ocr_conflict_record
 
+**用途**: §4.10 冲突解决主表 — 每个 (task, lg_category, month) 组合一行，仅当上传数据与 LG 现存数据**冲突**时才创建。Note 字段在 2026-05-06 改为**必填硬约束**（CHECK length(trim(note))>0），动态按钮 "Save & Next/Save" 通过 `resolved_order` 字段决定下一个待解决冲突。Proforma 数据**不进入此表**（直接覆盖生成新 committed forecast 版本）。
+
 > **2026-05-06 更新**（需求 §4.10 Step 5b）: Note 字段从可选改为**必填**（主按钮在 Note 填好前禁用）；resolution 增加 `PENDING` 默认值；新增 `resolved_order` 字段供"按 metric+month 排序解决"使用。
 
 ```sql
 CREATE TABLE ai_ocr_conflict_record (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id             UUID NOT NULL,                               -- 引用 doc_parse_task(id)
+    task_id             UUID NOT NULL,                               -- 引用 ai_ocr_task(id)
     company_id          BIGINT NOT NULL,
     document_type       VARCHAR(20) NOT NULL,
     reporting_month     INT NOT NULL,
@@ -597,10 +675,12 @@ CREATE INDEX idx_ai_ocr_conflict_record_metric
     ON ai_ocr_conflict_record (task_id, lg_category, reporting_year, reporting_month);
 ```
 
-### 3.5 mapping_memory（两层架构：通用 + 公司）
+### 3.5 ai_ocr_mapping_memory（两层架构：通用 + 公司）
+
+**用途**: AI 映射记忆库的核心存储，承载系统的"持续学习"能力。两层架构：`company_id IS NULL` 表示**通用层**（跨公司共用规则）；`company_id IS NOT NULL` 表示**公司层**（特定公司的用户确认映射）。命中流程通过 trigram 索引模糊匹配 `source_term`，命中后 `hit_count++`；用户确认时 `confirm_count++` + 触发 `is_trusted` 升级。**Java 完全无权访问本表**（跨公司商业机密）。
 
 ```sql
-CREATE TABLE mapping_memory (
+CREATE TABLE ai_ocr_mapping_memory (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id          BIGINT,                                      -- NULL = 通用层，非 NULL = 公司层
     source_term         VARCHAR(500) NOT NULL,
@@ -620,26 +700,26 @@ CREATE TABLE mapping_memory (
 
 **索引**:
 ```sql
-CREATE INDEX idx_mapping_memory_term_trgm
-    ON mapping_memory USING gin (source_term gin_trgm_ops);          -- 模糊匹配
+CREATE INDEX idx_ai_ocr_mapping_memory_term_trgm
+    ON ai_ocr_mapping_memory USING gin (source_term gin_trgm_ops);          -- 模糊匹配
 
-CREATE INDEX idx_mapping_memory_company
-    ON mapping_memory (company_id);                                   -- 公司记忆查询
+CREATE INDEX idx_ai_ocr_mapping_memory_company
+    ON ai_ocr_mapping_memory (company_id);                                   -- 公司记忆查询
 
 -- 同行业频率查询（Layer 2b fallback）
-CREATE INDEX idx_mapping_memory_industry
-    ON mapping_memory (normalized_category, source_term)
+CREATE INDEX idx_ai_ocr_mapping_memory_industry
+    ON ai_ocr_mapping_memory (normalized_category, source_term)
     WHERE company_id IS NOT NULL AND archived_at IS NULL AND is_trusted = true;
 ```
 
-### 3.6 mapping_memory_audit
+### 3.6 ai_ocr_mapping_memory_audit
 
 **用途**: 记忆变更审计（Python 的 SQS at-least-once 防护依赖 `idempotency_key`）。
 
 ```sql
-CREATE TABLE mapping_memory_audit (
+CREATE TABLE ai_ocr_mapping_memory_audit (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    mapping_id      UUID NOT NULL REFERENCES mapping_memory(id),
+    mapping_id      UUID NOT NULL REFERENCES ai_ocr_mapping_memory(id),
     idempotency_key VARCHAR(128) NOT NULL,                           -- f"{task_id}:{row_id}"
     event_type      VARCHAR(20) NOT NULL,                            -- CREATE/CONFIRM/REJECT/ARCHIVE
     old_category    VARCHAR(50),
@@ -659,8 +739,8 @@ CREATE TABLE mapping_memory_audit (
 ```sql
 CREATE TABLE ai_ocr_extraction_skip_log (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id     UUID NOT NULL REFERENCES doc_parse_task(id),
-    file_id     UUID NOT NULL REFERENCES doc_parse_file(id),
+    task_id     UUID NOT NULL REFERENCES ai_ocr_task(id),
+    file_id     UUID NOT NULL REFERENCES ai_ocr_file(id),
     skip_reason VARCHAR(50) NOT NULL,                                -- NO_TABLES / NARRATIVE_ONLY / IMAGE_NO_DATA
     detail      JSONB,                                               -- 可选：模型给出的判定依据（页面截图、文本片段统计等）
     detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -687,7 +767,7 @@ CREATE INDEX idx_ai_ocr_extraction_skip_log_reason
 ```sql
 CREATE TABLE ai_ocr_mapping_change_log (
     id                            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id                       UUID NOT NULL REFERENCES doc_parse_task(id),
+    task_id                       UUID NOT NULL REFERENCES ai_ocr_task(id),
     changed_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
     old_snapshot_hash             VARCHAR(64),                       -- 修改前的 hash（首次变更时为 NULL）
     new_snapshot_hash             VARCHAR(64) NOT NULL,              -- 修改后的 hash
@@ -721,40 +801,40 @@ CREATE ROLE python_worker LOGIN PASSWORD '***';
 GRANT USAGE ON SCHEMA public TO java_app, python_worker;
 
 -- =================================================================
--- Java 拥有的表（doc_parse_*）
+-- Java 拥有的表（ai_ocr_* — Java owned）
 -- =================================================================
 
 -- Java 完全访问
 GRANT SELECT, INSERT, UPDATE, DELETE ON
-    doc_parse_task,
-    doc_parse_file,
-    doc_parse_notification,
-    doc_parse_conflict_note,
-    doc_parse_memory_learn_log,
-    doc_parse_commit_audit,
-    doc_parse_erasure_log,
-    doc_parse_similarity_hint
+    ai_ocr_task,
+    ai_ocr_file,
+    ai_ocr_notification,
+    ai_ocr_conflict_note,
+    ai_ocr_memory_learn_log,
+    ai_ocr_commit_audit,
+    ai_ocr_erasure_log,
+    ai_ocr_similarity_hint
 TO java_app;
 
 -- Python 只读（查状态用）
 GRANT SELECT ON
-    doc_parse_task,
-    doc_parse_file,
-    doc_parse_notification,
-    doc_parse_conflict_note,
-    doc_parse_commit_audit,
-    doc_parse_erasure_log
+    ai_ocr_task,
+    ai_ocr_file,
+    ai_ocr_notification,
+    ai_ocr_conflict_note,
+    ai_ocr_commit_audit,
+    ai_ocr_erasure_log
 TO python_worker;
 
 -- ⚠️ 跨域写入例外（2 张表）
 -- Python 需要 INSERT 这两张表（异步回调场景），但无 UPDATE/DELETE 权限，不能篡改
-GRANT INSERT ON doc_parse_memory_learn_log TO python_worker;
-GRANT INSERT, UPDATE ON doc_parse_similarity_hint TO python_worker;
+GRANT INSERT ON ai_ocr_memory_learn_log TO python_worker;
+GRANT INSERT, UPDATE ON ai_ocr_similarity_hint TO python_worker;
 -- similarity_hint 需要 UPDATE 是因为 Python 可能多次触发检测（覆盖旧结果）
 -- user_decision 字段由 Java 更新（用户在 UI 点击合并/忽略时）
 
 -- =================================================================
--- Python 拥有的表（ai_ocr_* + mapping_memory*）
+-- Python 拥有的表（ai_ocr_* — Python owned）
 -- =================================================================
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON
@@ -762,8 +842,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
     ai_ocr_extracted_row,
     ai_ocr_mapping_result,
     ai_ocr_conflict_record,
-    mapping_memory,
-    mapping_memory_audit
+    ai_ocr_mapping_memory,
+    ai_ocr_mapping_memory_audit
 TO python_worker;
 
 -- Java 只读 ai_ocr_*（commit 时读取用）
@@ -789,7 +869,7 @@ GRANT SELECT ON ai_ocr_extraction_skip_log TO java_app;
 GRANT SELECT, INSERT ON ai_ocr_mapping_change_log TO java_app;
 GRANT SELECT ON ai_ocr_mapping_change_log TO python_worker;
 
--- ⚠️ Java 无权访问 mapping_memory*（跨公司商业机密）
+-- ⚠️ Java 无权访问 ai_ocr_mapping_memory*（跨公司商业机密）
 -- 不需要 GRANT，默认 DENY
 
 -- =================================================================
@@ -821,32 +901,32 @@ REVOKE ALL ON fi_metrics FROM python_worker;
 
 | 表 | 保留策略 |
 |----|---------|
-| `doc_parse_task` | 永久（审计） |
-| `doc_parse_file` | 180 天后 s3_key 清空（对象已删除），记录保留 |
-| `doc_parse_notification` | 180 天（事件日志，按需查询） |
-| `doc_parse_conflict_note` | 永久（审计） |
-| `doc_parse_memory_learn_log` | 永久（审计） |
-| `doc_parse_commit_audit` | 永久（fi_* 数据溯源关键） |
-| `doc_parse_similarity_hint` | 与 task 同生命周期（180 天） |
+| `ai_ocr_task` | 永久（审计） |
+| `ai_ocr_file` | 180 天后 s3_key 清空（对象已删除），记录保留 |
+| `ai_ocr_notification` | 180 天（事件日志，按需查询） |
+| `ai_ocr_conflict_note` | 永久（审计） |
+| `ai_ocr_memory_learn_log` | 永久（审计） |
+| `ai_ocr_commit_audit` | 永久（fi_* 数据溯源关键） |
+| `ai_ocr_similarity_hint` | 与 task 同生命周期（180 天） |
 | `ai_ocr_*` | 180 天后清理原始数据，保留 aggregated 统计 |
 | `ai_ocr_extraction_skip_log` | 永久（审计：哪些上传无可提取数据） |
 | `ai_ocr_mapping_change_log` | 与 task 同生命周期（180 天，调试用） |
-| `mapping_memory` | 18 个月未命中的标记待审核（月度 cron） |
+| `ai_ocr_mapping_memory` | 18 个月未命中的标记待审核（月度 cron） |
 
 ### 5.3 GDPR 擦除流程
 
 触发：用户 / 公司发起 Right to be Forgotten 请求。
 
 ```
-1. 写入 doc_parse_erasure_log，status=PENDING
+1. 写入 ai_ocr_erasure_log，status=PENDING
 2. DocParseErasureService:
    a. 删除 S3 对象（立即，不走 Lifecycle）
-   b. 软删除 doc_parse_file（deleted=true，保留审计记录，清空 s3_key 和 filename）
+   b. 软删除 ai_ocr_file（deleted=true，保留审计记录，清空 s3_key 和 filename）
    c. 硬删除 ai_ocr_extracted_row / ai_ocr_extracted_table（含 embedding）
-   d. 硬删除 doc_parse_similarity_hint
-   e. 保留 doc_parse_task 记录（但清空 revision_reason 等 PII 字段）
-   f. 保留 doc_parse_memory_learn_log / doc_parse_commit_audit（审计不可删）
-   g. 如有 mapping_memory 条目 company_id = target → 归档（archived_at=now）
+   d. 硬删除 ai_ocr_similarity_hint
+   e. 保留 ai_ocr_task 记录（但清空 revision_reason 等 PII 字段）
+   f. 保留 ai_ocr_memory_learn_log / ai_ocr_commit_audit（审计不可删）
+   g. 如有 ai_ocr_mapping_memory 条目 company_id = target → 归档（archived_at=now）
 3. 更新 erasure_log.status=COMPLETED, s3_objects_deleted, db_records_deleted
 ```
 
@@ -856,23 +936,26 @@ REVOKE ALL ON fi_metrics FROM python_worker;
 
 | 日期 | 变更 |
 |------|------|
-| 2026-04-16 | 初始版本：Java `doc_parse_*` 基础表 + Python `ai_ocr_*` + `mapping_memory*` |
+| 2026-04-16 | 初始版本：Java `ai_ocr_*` 基础表 + Python `ai_ocr_*` + `ai_ocr_mapping_memory*` |
 | 2026-04-17 | 加入 Asana 2026-04-17 Story 更新字段（currency_warning、unresolved_period_count 等） |
-| 2026-04-19 | 新增 `doc_parse_conflict_note`（Story #7）；Cancel 移除 |
+| 2026-04-19 | 新增 `ai_ocr_conflict_note`（Story #7）；Cancel 移除 |
 | 2026-04-20 | 新增 `parent_task_id`/`revision_number`/`revision_reason`/`superseded_by`（修订） |
-| 2026-04-20 | 新增 `doc_parse_memory_learn_log`（记忆学习审计） |
-| 2026-04-20 | 新增 `doc_parse_commit_audit` / `doc_parse_erasure_log` DDL |
-| 2026-04-20 | `doc_parse_notification` 简化为事件日志（Q16） |
+| 2026-04-20 | 新增 `ai_ocr_memory_learn_log`（记忆学习审计） |
+| 2026-04-20 | 新增 `ai_ocr_commit_audit` / `ai_ocr_erasure_log` DDL |
+| 2026-04-20 | `ai_ocr_notification` 简化为事件日志（Q16） |
 | 2026-04-20 | 所有表加 UNIQUE 约束防 SQS at-least-once 重复 |
 | 2026-04-20 | `ai_ocr_extracted_row.account_label` 从 500 降到 200（防 token 炸弹） |
 | 2026-04-20 | 新增 `ai_ocr_extracted_row.label_embedding VECTOR(1536)` + HNSW 索引 |
-| 2026-04-20 | 新增 `doc_parse_similarity_hint` 表（相似度检测结果） |
+| 2026-04-20 | 新增 `ai_ocr_similarity_hint` 表（相似度检测结果） |
 | 2026-04-20 | Task 状态重命名：NOTIFYING→SIMILARITY_CHECKING, NOTIFIED→SIMILARITY_CHECKED, NOTIFY_FAILED→SIMILARITY_CHECK_FAILED |
 | 2026-05-06 | Step 5 拆分（需求 §4.9-4.14）：Task 状态新增 `MAPPING_SUMMARY` / `VERIFY_PENDING`（5a） |
-| 2026-05-06 | `doc_parse_task` 扩展 7 个字段：`mapping_changed_at` / `mapping_snapshot_hash`（§4.13）、`has_extractable_data` / `extraction_skip_reason`（§4.12）、`summary_cache`（§4.9）、`committed_forecast_id` / `imported_statements_folder_id`（§4.11）+ CHECK 约束 |
-| 2026-05-06 | `doc_parse_file` 扩展 `imported_statements_synced` / `synced_at`（§4.11/§4.12 Imported Statements 同步标记） |
+| 2026-05-06 | `ai_ocr_task` 扩展 7 个字段：`mapping_changed_at` / `mapping_snapshot_hash`（§4.13）、`has_extractable_data` / `extraction_skip_reason`（§4.12）、`summary_cache`（§4.9）、`committed_forecast_id` / `imported_statements_folder_id`（§4.11）+ CHECK 约束 |
+| 2026-05-06 | `ai_ocr_file` 扩展 `imported_statements_synced` / `synced_at`（§4.11/§4.12 Imported Statements 同步标记） |
 | 2026-05-06 | `ai_ocr_conflict_record` 扩展（§4.10）：`note` 必填（CHECK 约束）、`resolution` 默认 PENDING、新增 `resolved_order` / `lg_category` / `existing_value` / `mapped_value` |
 | 2026-05-06 | 新增 `ai_ocr_extraction_skip_log`（§4.12 无可提取数据审计） |
 | 2026-05-06 | 新增 `ai_ocr_mapping_change_log`（§4.13 Previous 导航变更追踪） |
 | 2026-05-06 | GRANT 更新：Java 获 `ai_ocr_conflict_record` UPDATE 权限；新表权限分配（Python 写 skip_log、Java 写 change_log） |
 | 2026-05-06 | 新增索引：`mapping_changed_at` / `has_extractable_data=FALSE` / Imported Statements pending sync / 冲突按 metric 排序 |
+| 2026-05-06 | **统一表名前缀**：`doc_parse_*` → `ai_ocr_*`（8 张 Java 表）、`mapping_memory*` → `ai_ocr_mapping_memory*`（2 张 Python 表）；所有索引、外键、GRANT 同步重命名 |
+| 2026-05-06 | 新增"表清单总览"（文件开头），列出 16 张表的用途/写主/读方+核心引用关系图 |
+| 2026-05-06 | 为 §2.1/§2.2/§3.1-3.5 共 7 张表补充独立 `用途` 段落 |

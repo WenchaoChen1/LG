@@ -206,9 +206,9 @@ Request:
 
 Java 处理:
   ├─ JWT + company 归属校验
-  ├─ 预校验：大小/扩展名/hash 重名（查 doc_parse_file）
+  ├─ 预校验：大小/扩展名/hash 重名（查 ai_ocr_file）
   └─ 每个合法文件：
-      ├─ 建 doc_parse_file [status=PENDING]
+      ├─ 建 ai_ocr_file [status=PENDING]
       └─ 生成 S3 presigned PUT URL（15 min 有效）
 
 Response:
@@ -282,7 +282,7 @@ Java 处理（事务）:
   │   ├─ revision_reason = request.reason
   │   └─ status = DRAFT
   ├─ copy-on-write 继承:
-  │   ├─ COPY parent 的 doc_parse_file 记录（新 task_id，保留 s3_key 不重新上传）
+  │   ├─ COPY parent 的 ai_ocr_file 记录（新 task_id，保留 s3_key 不重新上传）
   │   ├─ COPY ai_ocr_extracted_table / row（由 Python 执行，Java 发 SQS 通知）
   │   └─ COPY ai_ocr_mapping_result
   └─ 返回 {newTaskId}
@@ -304,14 +304,14 @@ Commit 成功 → 新 task.status=COMPLETED → parent task.superseded_by = 新 
 
 | 表 | 用途 | DDL 引用 |
 |----|------|---------|
-| `doc_parse_task` | Task 生命周期（批次级状态 + 版本化字段） | [§2.1](./database-schema.md#21-doc_parse_task) |
-| `doc_parse_file` | 单个文件的上传 + 处理状态（12 子阶段 + stage_detail JSONB） | [§2.2](./database-schema.md#22-doc_parse_file) |
-| `doc_parse_notification` | 事件日志（Q16 简化：不主动推送，仅记录任务状态变化事件） | [§2.3](./database-schema.md#23-doc_parse_notification事件日志q16-简化版) |
-| `doc_parse_conflict_note` | 冲突解决 note（Story #7，支持 thread） | [§2.4](./database-schema.md#24-doc_parse_conflict_note) |
-| `doc_parse_memory_learn_log` | 记忆学习审计（Python INSERT，跨域例外） | [§2.5](./database-schema.md#25-doc_parse_memory_learn_log) |
-| `doc_parse_commit_audit` | fi_* 写入审计（written/overwritten/skipped） | [§2.6](./database-schema.md#26-doc_parse_commit_audit) |
-| `doc_parse_erasure_log` | GDPR 擦除审计 | [§2.7](./database-schema.md#27-doc_parse_erasure_log) |
-| `doc_parse_similarity_hint` | 相似度检测结果（Python INSERT，跨域例外） | [§2.8](./database-schema.md#28-doc_parse_similarity_hint新增相似度检测结果) |
+| `ai_ocr_task` | Task 生命周期（批次级状态 + 版本化字段） | [§2.1](./database-schema.md#21-ai_ocr_task) |
+| `ai_ocr_file` | 单个文件的上传 + 处理状态（12 子阶段 + stage_detail JSONB） | [§2.2](./database-schema.md#22-ai_ocr_file) |
+| `ai_ocr_notification` | 事件日志（Q16 简化：不主动推送，仅记录任务状态变化事件） | [§2.3](./database-schema.md#23-ai_ocr_notification事件日志q16-简化版) |
+| `ai_ocr_conflict_note` | 冲突解决 note（Story #7，支持 thread） | [§2.4](./database-schema.md#24-ai_ocr_conflict_note) |
+| `ai_ocr_memory_learn_log` | 记忆学习审计（Python INSERT，跨域例外） | [§2.5](./database-schema.md#25-ai_ocr_memory_learn_log) |
+| `ai_ocr_commit_audit` | fi_* 写入审计（written/overwritten/skipped） | [§2.6](./database-schema.md#26-ai_ocr_commit_audit) |
+| `ai_ocr_erasure_log` | GDPR 擦除审计 | [§2.7](./database-schema.md#27-ai_ocr_erasure_log) |
+| `ai_ocr_similarity_hint` | 相似度检测结果（Python INSERT，跨域例外） | [§2.8](./database-schema.md#28-ai_ocr_similarity_hint新增相似度检测结果) |
 
 ### 3.2 关键设计决策解释
 
@@ -325,10 +325,10 @@ Commit 成功 → 新 task.status=COMPLETED → parent task.superseded_by = 新 
 `UNIQUE (company_id, file_hash) WHERE deleted = false AND status != 'FILE_FAILED'` —— 只对"活跃"记录生效。`FILE_FAILED` 状态的文件允许用户重新上传同名文件（因为之前失败了）。
 
 #### 通知表的职责降级（Q16）
-`doc_parse_notification` 不再是"通知发送状态追踪表"，而是"任务事件日志"。**不主动推送邮件/push**，用户通过 LG Dashboard "待处理任务" 列表自行发现。字段精简为 `event_type + payload + created_at`，删除了 `recipient_id` / `channel` / `status` / `retry_count`。
+`ai_ocr_notification` 不再是"通知发送状态追踪表"，而是"任务事件日志"。**不主动推送邮件/push**，用户通过 LG Dashboard "待处理任务" 列表自行发现。字段精简为 `event_type + payload + created_at`，删除了 `recipient_id` / `channel` / `status` / `retry_count`。
 
 #### Step 5 拆分新增字段（2026-05-06）
-为支撑 [requirement-analysis §4.9-4.13](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增) 的 5a/5b/5c 流程与导航变更检测，在 `doc_parse_task` 上新增 4 个字段（DDL 同步至 [database-schema.md §2.1](./database-schema.md#21-doc_parse_task)）：
+为支撑 [requirement-analysis §4.9-4.13](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增) 的 5a/5b/5c 流程与导航变更检测，在 `ai_ocr_task` 上新增 4 个字段（DDL 同步至 [database-schema.md §2.1](./database-schema.md#21-ai_ocr_task)）：
 
 | 字段 | 类型 | 用途 |
 |------|------|------|
@@ -338,7 +338,7 @@ Commit 成功 → 新 task.status=COMPLETED → parent task.superseded_by = 新 
 | `summary_cache` | JSONB | 5a Mapping Summary 摘要缓存（totalFiles / totalMappedTypes / totalMappedAccounts / hardGateErrors[]），命中后避免重复聚合查询；mapping 变更时清空 |
 
 #### 跨域 INSERT 例外（2 张表）
-Python 有 INSERT 权限访问 `doc_parse_memory_learn_log` 和 `doc_parse_similarity_hint`（Java 拥有的表）。理由：这两张表由 Python 生成内容（记忆学习审计 + 相似度检测结果），走 SQS 回传增加延迟和复杂度；直接 INSERT 简单可靠。Python 无 UPDATE/DELETE 权限，不能篡改已有记录。GRANT 语句详见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。
+Python 有 INSERT 权限访问 `ai_ocr_memory_learn_log` 和 `ai_ocr_similarity_hint`（Java 拥有的表）。理由：这两张表由 Python 生成内容（记忆学习审计 + 相似度检测结果），走 SQS 回传增加延迟和复杂度；直接 INSERT 简单可靠。Python 无 UPDATE/DELETE 权限，不能篡改已有记录。GRANT 语句详见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。
 
 ### 3.3 状态推进示例（两级状态协同）
 
@@ -465,9 +465,9 @@ void handleProgress(OcrProgressMessage msg) {
 }
 ```
 
-**`doc_parse_file.stage_detail JSONB` 列**：
+**`ai_ocr_file.stage_detail JSONB` 列**：
 ```sql
-ALTER TABLE doc_parse_file ADD COLUMN stage_detail JSONB;
+ALTER TABLE ai_ocr_file ADD COLUMN stage_detail JSONB;
 ```
 前端 `GET /tasks/{id}/status` 读这张表时把 `stage_detail` 字段透传给前端，前端按 `frontend-design.md §5.2` 规则渲染细节文字（"第 3/8 页"、"已应用 8/47 条记忆"等）。
 
@@ -545,7 +545,7 @@ void handleResult(OcrResultMessage msg) {
 
 #### 4.2.3 OcrMemoryLearnProgress 消息（任务级记忆学习进度）
 
-Python 记忆学习 consumer 在 3 个时机发送此消息（IN_PROGRESS / COMPLETE / FAILED），与 `doc_parse_task.status` 中的 `MEMORY_LEARN_*` 子态对应。
+Python 记忆学习 consumer 在 3 个时机发送此消息（IN_PROGRESS / COMPLETE / FAILED），与 `ai_ocr_task.status` 中的 `MEMORY_LEARN_*` 子态对应。
 
 **消息 Schema (Python -> Java)**:
 
@@ -638,7 +638,7 @@ void handleMemoryLearnProgress(OcrMemoryLearnProgressMessage msg) {
 **Python 记忆学习逻辑**:
 - 只处理 `wasOverridden: true` 的条目
 - `wasOverridden: false` 的忽略（AI 猜对了，不需要存记忆）
-- 对比 `originalAiCategory` vs `confirmedCategory`，将修正存入 `mapping_memory`
+- 对比 `originalAiCategory` vs `confirmedCategory`，将修正存入 `ai_ocr_mapping_memory`
 - 如果已有同公司同标签的记忆，更新 `confirm_count` + `normalized_category`
 
 ### 4.4 队列配置
@@ -750,32 +750,32 @@ public class DocParseTaskSweeper {
 CREATE ROLE java_app LOGIN PASSWORD '***';
 CREATE ROLE python_worker LOGIN PASSWORD '***';
 
--- Java 表（doc_parse_*）— Java 拥有，Python 只读（少数例外）
+-- Java 表（ai_ocr_*）— Java 拥有，Python 只读（少数例外）
 GRANT SELECT, INSERT, UPDATE, DELETE ON
-    doc_parse_task, doc_parse_file, doc_parse_notification,
-    doc_parse_conflict_note, doc_parse_commit_audit
+    ai_ocr_task, ai_ocr_file, ai_ocr_notification,
+    ai_ocr_conflict_note, ai_ocr_commit_audit
 TO java_app;
 
 GRANT SELECT ON
-    doc_parse_task, doc_parse_file, doc_parse_notification,
-    doc_parse_conflict_note, doc_parse_commit_audit
+    ai_ocr_task, ai_ocr_file, ai_ocr_notification,
+    ai_ocr_conflict_note, ai_ocr_commit_audit
 TO python_worker;
 
--- ⚠️ 例外：Python 对 doc_parse_memory_learn_log 有 INSERT 权限
-GRANT INSERT ON doc_parse_memory_learn_log TO python_worker;
+-- ⚠️ 例外：Python 对 ai_ocr_memory_learn_log 有 INSERT 权限
+GRANT INSERT ON ai_ocr_memory_learn_log TO python_worker;
 -- 无 UPDATE / DELETE 权限，只能追加审计记录，不能篡改历史
 
--- Python 表（ai_ocr_* + mapping_memory*）— Python 拥有，Java 只读
+-- Python 表（ai_ocr_* + ai_ocr_mapping_memory*）— Python 拥有，Java 只读
 GRANT SELECT, INSERT, UPDATE, DELETE ON
     ai_ocr_extracted_table, ai_ocr_extracted_row, ai_ocr_mapping_result,
-    ai_ocr_conflict_record, mapping_memory, mapping_memory_audit
+    ai_ocr_conflict_record, ai_ocr_mapping_memory, ai_ocr_mapping_memory_audit
 TO python_worker;
 
 GRANT SELECT ON
     ai_ocr_extracted_table, ai_ocr_extracted_row, ai_ocr_mapping_result,
     ai_ocr_conflict_record
 TO java_app;
--- Java 无权查询 mapping_memory（涉及跨公司商业机密）
+-- Java 无权查询 ai_ocr_mapping_memory（涉及跨公司商业机密）
 
 -- fi_* 财务表 — 仅 Java 可写
 GRANT SELECT, INSERT, UPDATE ON fi_* TO java_app;
@@ -784,11 +784,11 @@ REVOKE ALL ON fi_* FROM python_worker;
 
 **为什么不分独立实例**:
 - 分实例需要 postgres_fdw 或跨库查询代理（复杂）
-- 共享实例下 FK 约束可生效（`ai_ocr_extracted_table.file_id → doc_parse_file.id`）
+- 共享实例下 FK 约束可生效（`ai_ocr_extracted_table.file_id → ai_ocr_file.id`）
 - 权限隔离足够防止误写
 - 生产成本更低（单 RDS 实例可扩展 vCPU，两个小实例比一个大实例贵）
 
-**未来扩展**: 如果 mapping_memory 增长到亿级记录，可将 `mapping_memory*` 表拆到独立 pgvector 集群（迁移时 Python 改用新连接串，Java 无感知）。
+**未来扩展**: 如果 ai_ocr_mapping_memory 增长到亿级记录，可将 `ai_ocr_mapping_memory*` 表拆到独立 pgvector 集群（迁移时 Python 改用新连接串，Java 无感知）。
 
 ## 5. 业务流程
 
@@ -797,11 +797,11 @@ REVOKE ALL ON fi_* FROM python_worker;
 ```
 用户上传文件 (multipart)
     → ① 校验文件 (MIME + magic bytes + 文件大小)
-    → ①.5 计算文件 SHA-256 hash → 查 doc_parse_file 是否已存在同 company_id + file_hash
+    → ①.5 计算文件 SHA-256 hash → 查 ai_ocr_file 是否已存在同 company_id + file_hash
           → 若存在则抛 DUPLICATE_NAME 错误
     → ② 存入 S3 (ocr-uploads/{companyId}/{sessionId}/{fileId}/filename)
-    → ③ 创建 doc_parse_task 记录 (status=PENDING)
-    → ④ 创建 doc_parse_file 记录（写入 file_hash）
+    → ③ 创建 ai_ocr_task 记录 (status=PENDING)
+    → ④ 创建 ai_ocr_file 记录（写入 file_hash）
     → ⑤ 发送 SQS 消息到 ocr-extract-queue (每文件一条)
     → ⑥ 返回 202 {taskId, sessionId}
 ```
@@ -818,7 +818,7 @@ REVOKE ALL ON fi_* FROM python_worker;
 ```
 前端轮询 (每 2 秒)
     → GET /api/v1/docparse/tasks/{id}/status
-    → 查 doc_parse_task 表
+    → 查 ai_ocr_task 表
     → 返回 {status, progress, completedFiles, totalFiles}
 ```
 
@@ -870,7 +870,7 @@ REVOKE ALL ON fi_* FROM python_worker;
     ○ Skip: 保留 LG 现有值，跳过该指标
 
 可选填写 Note（Story #7 2026-04-19 更新）:
-    - 手动输入 → 写入 doc_parse_conflict_note
+    - 手动输入 → 写入 ai_ocr_conflict_note
     - 不填写 → 系统自动生成默认 note（auto_generated=true）
     - 支持 note thread（parent_note_id）
 
@@ -879,12 +879,12 @@ REVOKE ALL ON fi_* FROM python_worker;
     → POST /api/v1/docparse/tasks/{id}/commit
     → 后端执行（两阶段：事务 + AFTER_COMMIT 事件）:
         事务内（@Transactional）:
-          ① FOR UPDATE 锁 doc_parse_task 行（防并发 Commit）
+          ① FOR UPDATE 锁 ai_ocr_task 行（防并发 Commit）
           ② 检查 task.status IN (REVIEWING, CONFLICT_RESOLUTION)；否则抛异常
           ③ 推进 task.status = COMMITTING
           ④ 读取 ai_ocr_extracted_row + ai_ocr_mapping_result
           ⑤ 按 resolution 策略写入 fi_* 财务表
-          ⑥ 记录 doc_parse_commit_audit（written/overwritten/skipped）
+          ⑥ 记录 ai_ocr_commit_audit（written/overwritten/skipped）
           ⑦ 推进 task.status = COMMITTED；file.status = FILE_COMMITTED
           ⑧ 如果是 revision task：parent.status = SUPERSEDED, parent.superseded_by = self.id
           ⑨ publishEvent(CommitSuccessEvent) —— Spring 事件，不立即发 SQS
@@ -895,7 +895,7 @@ REVOKE ALL ON fi_* FROM python_worker;
           ⑫ 如果存在新的 reporting period → 触发新闭月邮件通知
           ⑬ 构建 mappingComparisons 发送 ocr-memory-learn-queue
           ⑭ 推进 task.status = MEMORY_LEARN_PENDING
-          ⑮ 创建 doc_parse_notification 条目 → 调用通知服务发送
+          ⑮ 创建 ai_ocr_notification 条目 → 调用通知服务发送
 
     → 事务内任何一步失败 → ROLLBACK，task.status 回到 REVIEWING（依赖事件监听补偿，见下方）
     → AFTER_COMMIT 阶段失败不回滚 fi_*（财务数据已提交），仅记录到 dlq，后续可重试
@@ -903,7 +903,7 @@ REVOKE ALL ON fi_* FROM python_worker;
 
 **关键约束（2026-04-19 强化 + 2026-04-20 并发修正）**:
 
-- **并发互斥**: Commit 入口用 `@Lock(LockModeType.PESSIMISTIC_WRITE)` 或 `SELECT ... FOR UPDATE` 锁 `doc_parse_task`，再用 CAS 更新 `status = COMMITTING WHERE status IN (REVIEWING, CONFLICT_RESOLUTION)`；受影响 0 行则抛异常（已被另一用户 commit）
+- **并发互斥**: Commit 入口用 `@Lock(LockModeType.PESSIMISTIC_WRITE)` 或 `SELECT ... FOR UPDATE` 锁 `ai_ocr_task`，再用 CAS 更新 `status = COMMITTING WHERE status IN (REVIEWING, CONFLICT_RESOLUTION)`；受影响 0 行则抛异常（已被另一用户 commit）
 - **整体事务**: `@Transactional(propagation=REQUIRED, rollbackFor=Exception.class)` 包裹 fi_* 写入
 - **⚠️ SQS 必须在 AFTER_COMMIT 后发**: 使用 `@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)` 监听 `CommitSuccessEvent`；否则事务回滚后 Python 已收到记忆学习消息，会写入脏记忆
 - **部分写入禁止**: 任何一个 metric 写入失败，整个 commit 回滚，`task.status` 自动回到 `REVIEWING`（通过事务回滚 + 异常处理器）
@@ -973,7 +973,7 @@ Commit 失败不进 FAILED，是 Q7 方案 B 的核心契约。
 
 ### 5.4.1 通知事件记录（Q16 简化版，不发送）
 
-**关键决策**: 系统**不主动推送通知**。以下所有场景都只写一条 `doc_parse_notification` 事件日志，用户下次登录 LG 主页时通过"待处理任务"自行发现。
+**关键决策**: 系统**不主动推送通知**。以下所有场景都只写一条 `ai_ocr_notification` 事件日志，用户下次登录 LG 主页时通过"待处理任务"自行发现。
 
 事件触发点（`NotificationEventService.log()` 在各业务事务 AFTER_COMMIT 后调用）：
 
@@ -1138,7 +1138,7 @@ public class MappingSummaryController {
 public interface MappingSummaryService {
     /**
      * 聚合: 文件总数 / 映射类型数（Actuals + Proforma）/ 映射账户数 + hard gate 检查
-     * 命中 doc_parse_task.summary_cache 直接返回；mapping_changed_at 变化或 cache 为 null 时重算并写回
+     * 命中 ai_ocr_task.summary_cache 直接返回；mapping_changed_at 变化或 cache 为 null 时重算并写回
      */
     DocParseMappingSummaryRespVo computeSummary(UUID taskId);
 }
@@ -1258,7 +1258,7 @@ public interface ConflictService {
     /**
      * 1. 校验 task.status IN (CONFLICT_RESOLUTION, VERIFYING)
      * 2. 校验 note 非空（@Valid 已做但二次防御）
-     * 3. 写 ai_ocr_conflict_record.resolution + doc_parse_conflict_note
+     * 3. 写 ai_ocr_conflict_record.resolution + ai_ocr_conflict_note
      * 4. 计算下一冲突定位
      * 5. 若全部解决 → 推进 task.status=CONFLICT_RESOLUTION（保持，等用户点 Commit）
      */
@@ -1321,7 +1321,7 @@ public interface CommitService {
      * 2. 分流写入：
      *    - Actuals 行项 → fi_* 表（按 §5.7 resolution OVERWRITE/SKIP 规则）
      *    - Proforma 行项 → 调 ProformaForecastService.appendVersion() 追加新版本
-     * 3. doc_parse_commit_audit 全量记录（written/overwritten/skipped + Proforma append 也算 written）
+     * 3. ai_ocr_commit_audit 全量记录（written/overwritten/skipped + Proforma append 也算 written）
      * 4. AFTER_COMMIT 阶段：
      *    a. 调 ImportedStatementsService.syncAllFiles(taskId)（含 has_extractable_data=false 的文件）
      *    b. 检测新 closed month → 发邮件
@@ -1430,12 +1430,12 @@ public class NavigationController {
 public interface NavigationService {
     /**
      * 1. 计算当前 mapping_snapshot_hash（基于 ai_ocr_extracted_row + ai_ocr_mapping_result 的稳定序列化哈希）
-     * 2. 与 doc_parse_task.mapping_snapshot_hash 对比：
+     * 2. 与 ai_ocr_task.mapping_snapshot_hash 对比：
      *    - 相等 → mappingChanged=false，前端无延迟前进
      *    - 不等 → mappingChanged=true，执行：
-     *        a. 清空 ai_ocr_conflict_record 和 doc_parse_conflict_note 的 resolution（保留 thread 历史）
+     *        a. 清空 ai_ocr_conflict_record 和 ai_ocr_conflict_note 的 resolution（保留 thread 历史）
      *        b. 推进 task.status=REVIEWING（即使是从 CONFLICT_RESOLUTION 回来）
-     *        c. 清空 doc_parse_task.summary_cache（强制 5a 重新聚合）
+     *        c. 清空 ai_ocr_task.summary_cache（强制 5a 重新聚合）
      *        d. 更新 mapping_snapshot_hash + mapping_changed_at
      * 3. 返回 { mappingChanged, clearedConflictCount, message }
      */
@@ -1449,7 +1449,7 @@ public interface NavigationService {
 }
 ```
 
-**Conflict 清空策略**: `ai_ocr_conflict_record.resolution_action` 重置为 NULL，但 `doc_parse_conflict_note` 不删除（用户历史 thread 是审计记录的一部分，下次可见）。
+**Conflict 清空策略**: `ai_ocr_conflict_record.resolution_action` 重置为 NULL，但 `ai_ocr_conflict_note` 不删除（用户历史 thread 是审计记录的一部分，下次可见）。
 
 ---
 
@@ -1471,7 +1471,7 @@ public interface NavigationService {
 | 内部数据契约（line items / 文档类型 / 报告周期 / source ref） | extracted_table/row schema | python-design.md / database-schema.md |
 | 为未来 LG 财务分类扩展留空间 | mapping_result.lg_category 字符串字段，无枚举绑定 | database-schema.md |
 | AI provider 集成测试 | OpenRouter / Instructor，Story #4 实现 | python-design.md |
-| Audit Logging（company / user / timestamp / file type / file size） | doc_parse_file 表已包含 + commit_audit 全量审计 | §3.1 |
+| Audit Logging（company / user / timestamp / file type / file size） | ai_ocr_file 表已包含 + commit_audit 全量审计 | §3.1 |
 
 **新增 Liang Chunru 验收点**: 所有 5a/5b/5c 端点必须支持 `X-Request-Id` 透传到 SQS 消息和审计日志，便于跨 Java/Python 链路追踪。
 
@@ -1515,7 +1515,7 @@ public interface NavigationService {
 |------|---------|------|----------|
 | SQS 消息中 companyId 未做归属校验 | **HIGH** | `SQSMessageListener.java` | 消费前校验 file -> company 归属 |
 
-`OcrResultSqsProcessor` 消费结果消息时，必须校验 `fileId` 对应的 `doc_parse_file` 记录的 `task_id` → `doc_parse_task.company_id` 与消息中的 `companyId` 一致，防止跨公司数据越权。
+`OcrResultSqsProcessor` 消费结果消息时，必须校验 `fileId` 对应的 `ai_ocr_file` 记录的 `task_id` → `ai_ocr_task.company_id` 与消息中的 `companyId` 一致，防止跨公司数据越权。
 
 ### 6.5 其他安全措施
 
@@ -1544,7 +1544,7 @@ Python IAM Role:
 | 角色 | 权限 |
 |------|------|
 | `java_app` | 完全访问 Java 拥有的表 + `SELECT` 权限访问 Python 表 |
-| `python_worker` | 完全访问 Python 拥有的表 + `SELECT` 权限访问 `doc_parse_task`、`doc_parse_file`（查状态） + 零权限访问 `fi_*` 表 |
+| `python_worker` | 完全访问 Python 拥有的表 + `SELECT` 权限访问 `ai_ocr_task`、`ai_ocr_file`（查状态） + 零权限访问 `fi_*` 表 |
 
 ---
 
@@ -1555,4 +1555,4 @@ Python IAM Role:
 | 2026-04-16 | v1.0 | 首版：DDD 模块结构、SQS 集成、上传/审核/提交流程 | 初始 EPIC |
 | 2026-04-19 | v1.1 | 新增 Verify Data Summary 两阶段、冲突 Note thread、Cancel 移除 | Story #5/#6/#7 |
 | 2026-04-20 | v1.2 | S3 Presigned URL 直传、Task 修订、相似度提示、记忆学习进度 | 项目内部补丁 |
-| **2026-05-06** | **v1.3** | **Step 5 拆分为 5a/5b/5c**：新增 `MappingSummaryController` / `ConflictResolutionController` / `CommitController` / `NavigationController`；`doc_parse_task` 新增 4 字段（mapping_snapshot_hash / mapping_changed_at / has_extractable_data / summary_cache）；新增 `NoDataHandlerService` / `ProformaForecastService` / `ImportedStatementsService` / `NavigationService`；冲突解决改为单冲突逐个 + Note 必填硬校验；Commit 后同步所有文件到 Imported Statements 文件夹 + 闭月邮件 + Benchmark 跳转；新增 `DocParseStatus.NO_DATA_BYPASS` 状态 | [requirement-analysis §4.9-4.14](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增) |
+| **2026-05-06** | **v1.3** | **Step 5 拆分为 5a/5b/5c**：新增 `MappingSummaryController` / `ConflictResolutionController` / `CommitController` / `NavigationController`；`ai_ocr_task` 新增 4 字段（mapping_snapshot_hash / mapping_changed_at / has_extractable_data / summary_cache）；新增 `NoDataHandlerService` / `ProformaForecastService` / `ImportedStatementsService` / `NavigationService`；冲突解决改为单冲突逐个 + Note 必填硬校验；Commit 后同步所有文件到 Imported Statements 文件夹 + 闭月邮件 + Benchmark 跳转；新增 `DocParseStatus.NO_DATA_BYPASS` 状态 | [requirement-analysis §4.9-4.14](./requirement-analysis.md#49-step-5a--mapping-summary-page2026-05-06-新增) |

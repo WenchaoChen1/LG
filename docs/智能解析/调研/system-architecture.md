@@ -86,11 +86,11 @@ OCR 文档解析是一个**独立的智能体（Agent）**，未来作为多智�
 
 | 维度 | OCR Agent 的边界 |
 |------|------------------|
-| **状态** | AI 处理状态由 LangGraph checkpoint 管理；task 生命周期由 Java 端 `doc_parse_task`/`doc_parse_file` 管理 |
+| **状态** | AI 处理状态由 LangGraph checkpoint 管理；task 生命周期由 Java 端 `ai_ocr_task`/`ai_ocr_file` 管理 |
 | **记忆** | 独立管理公司映射记忆（PostgreSQL + pg_trgm，无向量数据库） |
 | **接口** | 通过 Tool 协议暴露能力，不暴露内部实现 |
 | **模型** | 独立决定用哪个 AI 模型（Gemini Flash 提取 / Claude 映射） |
-| **数据** | 只读写自己的 `ai_ocr_*` 提取/映射表 + `mapping_memory`，上传元数据由 Java 管理（`doc_parse_*`），写入 LG 通过标准 Writer 接口 |
+| **数据** | 只读写自己的 `ai_ocr_*` 提取/映射表 + `ai_ocr_mapping_memory`，上传元数据由 Java 管理（`ai_ocr_*`），写入 LG 通过标准 Writer 接口 |
 
 ### 2.3 Agent Tool 接口定义
 
@@ -117,7 +117,7 @@ Tool 4: commit_to_lg
   Input:  { session_id: str, conflict_resolutions: Resolution[], notes: Note[] }
   Output: { success: bool, written_periods: str[], conflicts: Conflict[] }
 
-Tool 5: query_mapping_memory
+Tool 5: query_ai_ocr_mapping_memory
   描述: 查询公司映射记忆（供其他 Agent 参考）
   Input:  { company_id: int, labels: str[] }
   Output: { matches: MappingMemory[] }
@@ -245,7 +245,7 @@ Embedding(RAG阶段) 任意       text-embedding-3-small  $0.02
 1. **两级状态**：Task（批次）级 + File（单文件）级，状态独立演进
 2. **批次完成 = 所有文件都完成**：任一文件未完成，整个 batch 不算 done
 3. **后置动作（邮件、学习）仅在 batch COMPLETED 后触发**
-4. **Python 不直写 Java 表**：所有状态变更通过 SQS 消息驱动，Java 是 doc_parse_* 唯一 writer
+4. **Python 不直写 Java 表**：所有状态变更通过 SQS 消息驱动，Java 是 ai_ocr_* 唯一 writer
 5. **前端始终轮询 task 级状态**，UI 根据状态精确映射到不同页面/组件
 6. **Task 支持版本化修订**：新 task 可基于历史 task 创建，通过 `parent_task_id` 追溯
 7. **S3 前端直传/直查**：使用 presigned URL，文件不经 Java 服务器中转
@@ -255,7 +255,7 @@ Embedding(RAG阶段) 任意       text-embedding-3-small  $0.02
 
 #### 4.1.1 状态机定义
 
-**Task 级状态**（`doc_parse_task.status`，Java 管理）:
+**Task 级状态**（`ai_ocr_task.status`，Java 管理）:
 
 ```
         DRAFT                新建 task（可能基于 parent_task_id 继承数据）
@@ -268,7 +268,7 @@ Embedding(RAG阶段) 任意       text-embedding-3-small  $0.02
             ↓
     SIMILARITY_CHECKING      所有文件处理完成，Python 跑 account_label 相似度检测
             ↓
-     SIMILARITY_CHECKED      检测完成，发现的高相似度对写入 doc_parse_similarity_hint
+     SIMILARITY_CHECKED      检测完成，发现的高相似度对写入 ai_ocr_similarity_hint
                               （失败时走 SIMILARITY_CHECK_FAILED → Sweeper 兜底推进 REVIEWING）
             ↓
         REVIEWING            用户已打开审核页
@@ -298,10 +298,10 @@ Embedding(RAG阶段) 任意       text-embedding-3-small  $0.02
 **Task 版本化字段**（Asana 需求补充）:
 
 ```
-doc_parse_task.parent_task_id    UUID  -- NULL = 原始批次；非 NULL = 基于该 task 的修订
-doc_parse_task.revision_number   INT   -- 0 = 原始；1,2,3 = 第 N 次修订
-doc_parse_task.revision_reason   VARCHAR(500)  -- 修订原因（用户输入）
-doc_parse_task.superseded_by     UUID  -- 指向取代本 task 的新 task（仅对被取代的 parent 填充）
+ai_ocr_task.parent_task_id    UUID  -- NULL = 原始批次；非 NULL = 基于该 task 的修订
+ai_ocr_task.revision_number   INT   -- 0 = 原始；1,2,3 = 第 N 次修订
+ai_ocr_task.revision_reason   VARCHAR(500)  -- 修订原因（用户输入）
+ai_ocr_task.superseded_by     UUID  -- 指向取代本 task 的新 task（仅对被取代的 parent 填充）
 ```
 
 修订流程：用户在 Financial Entry / Company Documents 点击 "基于 Task #ABC 修订" →
@@ -309,7 +309,7 @@ Java 创建新 task（parent_task_id = ABC，revision_number = ABC.revision_numb
 继承原 task 的 files 和 ai_ocr_* 提取结果（可编辑/删除/添加）→
 走完整流程到 COMPLETED → Java 把原 task.superseded_by = 新 task.id，原 task.status = SUPERSEDED。
 
-**File 级状态**（`doc_parse_file.status`，Java 管理）:
+**File 级状态**（`ai_ocr_file.status`，Java 管理）:
 
 ```
    PENDING      在前端队列，尚未开始上传
@@ -342,7 +342,7 @@ Java 创建新 task（parent_task_id = ABC，revision_number = ABC.revision_numb
   MAPPING_RULE          → 规则引擎匹配中
 
 # Layer 2 公司记忆（45-70%，3 个子状态都落 DB）★ 重点新增
-  MAPPING_MEMORY_LOOKUP    → 正在查询 mapping_memory（含 trigram 模糊匹配）
+  MAPPING_MEMORY_LOOKUP    → 正在查询 ai_ocr_mapping_memory（含 trigram 模糊匹配）
   MAPPING_MEMORY_APPLY     → 命中记忆，应用到对应行项中
   MAPPING_MEMORY_COMPLETE  → 记忆匹配完成，准备进入 LLM
 
@@ -361,7 +361,7 @@ Java 创建新 task（parent_task_id = ABC，revision_number = ABC.revision_numb
 2. **APPLY**（应用中）记录"查到了 N 条命中"
 3. **COMPLETE**（完成）记录"命中率 X%"，供后续审计
 
-每个状态变化都通过 OcrProgress SQS 消息 → Java 写 `doc_parse_file.processing_stage` 列。这样重启/断电后可从数据库恢复当前进度，不依赖 Python 进程内存。
+每个状态变化都通过 OcrProgress SQS 消息 → Java 写 `ai_ocr_file.processing_stage` 列。这样重启/断电后可从数据库恢复当前进度，不依赖 Python 进程内存。
 
 **⚠️ 关键对照表：两组"记忆"状态完全不同**
 
@@ -369,15 +369,15 @@ Java 创建新 task（parent_task_id = ABC，revision_number = ABC.revision_numb
 
 | 维度 | 文件级 MAPPING_MEMORY_* | 任务级 MEMORY_LEARN_* |
 |------|------------------------|----------------------|
-| **存储字段** | `doc_parse_file.processing_stage` | `doc_parse_task.status` |
+| **存储字段** | `ai_ocr_file.processing_stage` | `ai_ocr_task.status` |
 | **发生阶段** | Phase 2 解析阶段（单文件处理中） | Phase 6 记忆学习阶段（commit 后） |
-| **数据方向** | **读** `mapping_memory` 表 | **写** `mapping_memory` 表 |
+| **数据方向** | **读** `ai_ocr_mapping_memory` 表 | **写** `ai_ocr_mapping_memory` 表 |
 | **触发者** | Python OCR pipeline（每个文件都经过） | Python memory_learn_consumer（Commit 后 Java 发 SQS 触发） |
 | **可能的值** | `MAPPING_MEMORY_LOOKUP` / `_APPLY` / `_COMPLETE` | `MEMORY_LEARN_PENDING` / `_IN_PROGRESS` / `_COMPLETE` / `_FAILED` |
 | **失败影响** | 单文件映射失败，可重试或降级 LLM | 财务数据已写入，学习失败不回滚 |
 | **UI 展示** | ProcessingPage 文件级进度条"记忆查询中..." | SuccessPage 悬浮条"记忆学习中 (2/3 文件)..." |
 
-**记忆一词的双重角色**: 同一张 `mapping_memory` 表，在解析时被读（Layer 2 匹配），在 commit 后被写（用户修正学习）。这是闭环——读历史记忆帮助映射，映射错了用户修正，修正写回成新记忆。
+**记忆一词的双重角色**: 同一张 `ai_ocr_mapping_memory` 表，在解析时被读（Layer 2 匹配），在 commit 后被写（用户修正学习）。这是闭环——读历史记忆帮助映射，映射错了用户修正，修正写回成新记忆。
 
 ---
 
@@ -392,7 +392,7 @@ A) 正常新建
    Frontend                    Java
    ────────                   ──────
    用户点"上传财务文件"         
-   POST /docparse/tasks  ───→  创建 doc_parse_task
+   POST /docparse/tasks  ───→  创建 ai_ocr_task
                                 parent_task_id = NULL
                                 revision_number = 0
                                 [task.status=DRAFT]
@@ -402,14 +402,14 @@ B) 基于历史 task 修订（Asana 需求：支持修订）
    用户在 Financial Entry 点"基于 Task #ABC 修订"
    POST /docparse/tasks/{abcId}/revise
       body: { reason: "客户更正了 Q1 数据" }
-                          ───→  创建新 doc_parse_task
+                          ───→  创建新 ai_ocr_task
                                 parent_task_id = abcId
                                 revision_number = parent.revision_number + 1
                                 revision_reason = body.reason
                                 [task.status=DRAFT]
                                 
                                 继承数据（copy-on-write）:
-                                 ├─ copy doc_parse_file（文件记录）
+                                 ├─ copy ai_ocr_file（文件记录）
                                  ├─ copy ai_ocr_extracted_table/row
                                  └─ copy ai_ocr_mapping_result
                                   （如果用户完全不改，直接进入 REVIEWING）
@@ -436,7 +436,7 @@ Frontend                     Java (CIOaas-api)               S3           Python
                                    └─ file_hash 查重（当前 company 下活跃 task）
                                 
                                 ⑤ 为每个合法文件:
-                                   ├─ 建 doc_parse_file
+                                   ├─ 建 ai_ocr_file
                                    │  [file.status=PENDING]
                                    ├─ 生成 S3 presigned PUT URL
                                    │  （15 分钟有效）
@@ -509,7 +509,7 @@ Phase 2：解析阶段（Python 异步，每个文件独立推进）
                                                                    Layer 1 规则引擎 (~60% 覆盖)
 
                                                                  发 OcrProgress ──→ stage=MAPPING_MEMORY_LOOKUP
-                                                                   Layer 2 SELECT * FROM mapping_memory
+                                                                   Layer 2 SELECT * FROM ai_ocr_mapping_memory
                                                                    WHERE company_id=? AND similarity(source_term,?)>0.6
                                                                    （带 stageDetail.matchedMemoryCount）
                                                                  发 OcrProgress ──→ stage=MAPPING_MEMORY_APPLY
@@ -557,14 +557,14 @@ Phase 2.5：相似度检测（所有文件处理完成后，Python 跑 account_l
                                      的同 task 内其他 row（排除自己）
                                   ④ 过滤 cosine_similarity > 0.9 的对
                                   ⑤ 强制 row_id_a < row_id_b（去重避免 (A,B) 和 (B,A)）
-                                  ⑥ 批量 INSERT doc_parse_similarity_hint
+                                  ⑥ 批量 INSERT ai_ocr_similarity_hint
                                      （Python 对该 Java 表有 INSERT 权限，跨域例外）
                                   ⑦ 发 OcrSimilarityCheckResult → ocr-result-queue
 
                              ㉓ Java 收到结果消息:
                                 [task.status=SIMILARITY_CHECKED]（瞬态）
                                 → 立即推进 [task.status=REVIEWING]
-                                同时写一条 doc_parse_notification 事件日志:
+                                同时写一条 ai_ocr_notification 事件日志:
                                   event_type=PARSE_COMPLETE
                                   payload={totalFiles, hintCount}
 
@@ -577,7 +577,7 @@ Phase 2.5：相似度检测（所有文件处理完成后，Python 跑 account_l
      1. Dashboard "待处理任务" 列表显示该 task（因为 status=REVIEWING）
      2. 进入 /financial/review/:taskId，ReviewPage 顶部 SimilarityHintBanner
         显示 "检测到 N 组可能相似的指标"
-        （读 doc_parse_similarity_hint WHERE task_id=? AND user_decision IS NULL）
+        （读 ai_ocr_similarity_hint WHERE task_id=? AND user_decision IS NULL）
 
    [REVIEWING]
    展示审核页 + 提取数据 + 相似度提示横幅
@@ -624,7 +624,7 @@ Phase 4：Verify 阶段（Asana 2026-04-19 新增）
    [RESOLVING_CONFLICTS]
    用户逐个解决
    POST /resolve  ──────→     ㉔ 保存 resolution + notes
-                                 保存到 doc_parse_conflict_note
+                                 保存到 ai_ocr_conflict_note
                                  （支持 note thread / auto-generated）
 
 
@@ -664,7 +664,7 @@ Phase 5.5：COMMITTED 后置动作（仅成功 commit 才触发）
                                  
                                  ㉚c 检测新闭月:
                                      if (存在新 reporting period)
-                                        ┌─ 创建 doc_parse_notification
+                                        ┌─ 创建 ai_ocr_notification
                                         │   type=COMMIT_COMPLETE, channel=EMAIL
                                         │   status=PENDING → SENDING → SENT
                                         └─ 触发邮件通知
@@ -695,7 +695,7 @@ Phase 6：记忆学习（独立阶段，通过 SQS 异步触发，前后有完�
                                                               
                                                               ㉟ 处理每条 override:
                                                                  - 计算记忆项的 hash
-                                                                 - 查询 mapping_memory 冲突
+                                                                 - 查询 ai_ocr_mapping_memory 冲突
                                                                  - 写入 / 更新记忆
                                                                  - 累计 learned_count
                                                               
@@ -734,7 +734,7 @@ Python 通过 SQS 发两类消息给 Java：
 - `OcrProgress`（轻量）：进度更新，包含 processing_stage
 - `OcrResult`（完整）：最终结果，触发 REVIEW_READY
 
-Java 是 `doc_parse_*` 表的唯一 writer，避免跨服务写入冲突。
+Java 是 `ai_ocr_*` 表的唯一 writer，避免跨服务写入冲突。
 
 **3. processing_stage 细粒度**
 
@@ -765,8 +765,8 @@ Python 只把行项分别映射为 `other_income` 或 `other_expense` 原始字�
 
 | 职责 | Java (CIOaas-api) | Python (CIOaas-python) | Frontend (CIOaas-web) |
 |------|-------------------|----------------------|---------------------|
-| **Task 级状态（doc_parse_task.status）** | **Owner** 唯一 writer | 通过 SQS 消息触发状态转换 | 读取（轮询 GET /status） |
-| **File 级状态（doc_parse_file.status）** | **Owner** 唯一 writer | 通过 SQS 消息触发状态转换 | 读取 |
+| **Task 级状态（ai_ocr_task.status）** | **Owner** 唯一 writer | 通过 SQS 消息触发状态转换 | 读取（轮询 GET /status） |
+| **File 级状态（ai_ocr_file.status）** | **Owner** 唯一 writer | 通过 SQS 消息触发状态转换 | 读取 |
 | **File processing_stage**（细分阶段）| **Owner** 写入 | 通过 OcrProgress 消息上报 | 读取（显示进度条） |
 | 文件上传 + S3 存储 | **Owner** | — | 选择文件 + 分片上传 |
 | 文件校验（MIME/大小/重名/恶意）| **Owner**（S3 写入前）| — | 客户端预校验（大小/类型） |
@@ -780,11 +780,11 @@ Python 只把行项分别映射为 `other_income` 或 `other_expense` 原始字�
 | 用户审核数据服务 | **Owner**（读取 + 返回前端）| — | **Owner**（审核 UI） |
 | Verify Data Summary 计算 | **Owner** | — | — |
 | 冲突检测（与 fi_* 对比）| **Owner** | — | — |
-| Conflict Resolution + Note | **Owner**（保存 doc_parse_conflict_note）| — | **Owner**（UI） |
+| Conflict Resolution + Note | **Owner**（保存 ai_ocr_conflict_note）| — | **Owner**（UI） |
 | 最终确认写入 fi_* 表 | **Owner**（@Transactional）| — | — |
 | 新闭月邮件通知触发 | **Owner** | — | — |
 | Company Documents 记录源文件 | **Owner** | — | — |
-| 映射记忆管理（mapping_memory）| — | **Owner** | — |
+| 映射记忆管理（ai_ocr_mapping_memory）| — | **Owner** | — |
 | 认证 + 授权 | **Owner**（JWT + 归属校验）| —（信任 SQS 消息来源）| 登录 + token 管理 |
 
 > Java 端模块详细设计见 [java-design.md](./java-design.md)。Python 端 AI 处理详细设计见 [python-design.md](./python-design.md)。前端路由/组件/dva 详细设计见 [frontend-design.md](./frontend-design.md)。
@@ -922,7 +922,7 @@ FAILED      FAILED         FAILED   FAILED     FAILED     (用户编辑)  │
         ▼
 [5a: MAPPING_SUMMARY 屏幕]
         │  Java 计算 summary（同步、纯查询，不走 SQS）：
-        │    - 源文件总数 = COUNT(doc_parse_file WHERE task_id=?)
+        │    - 源文件总数 = COUNT(ai_ocr_file WHERE task_id=?)
         │    - 映射类型数 = COUNT(DISTINCT document_type)（Actuals / Proforma）
         │    - 映射源账户数 = COUNT(DISTINCT mapped_account_label)
         │  Hard gate：所有行项必须 reviewed && mapped，否则 422
@@ -934,7 +934,7 @@ FAILED      FAILED         FAILED   FAILED     FAILED     (用户编辑)  │
         │    - 仅扫描 Actuals tab 中的 mapping
         │    - Proforma 整体跳过（直接进入 5c）
         │    - 比对维度：(company_id, metric, reporting_month, reporting_year)
-        │    - 写 doc_parse_conflict 表（detected）
+        │    - 写 ai_ocr_conflict 表（detected）
         │  前端轮询 GET /verify/progress，显示百分比
         │  回退点：用户点 Previous 触发 verification.cancel，状态回 MAPPING_SUMMARY
         │
@@ -945,7 +945,7 @@ FAILED      FAILED         FAILED   FAILED     FAILED     (用户编辑)  │
         │    - 选择 Overwrite / Keep
         │    - 填 Note（必填，主按钮禁用直到非空）
         │    - Save & Next 自动跳下一冲突（同 metric → 下一月份；本 metric 完 → 下一 metric）
-        │  Java 写 doc_parse_conflict_resolution 表（resolution + note）
+        │  Java 写 ai_ocr_conflict_resolution 表（resolution + note）
         │  全部解决 → 自动进入 COMMITTING
         │
         ▼
@@ -970,7 +970,7 @@ FAILED      FAILED         FAILED   FAILED     FAILED     (用户编辑)  │
 | 5a Summary 计算 | **Owner**（纯 SQL 聚合，不走 SQS） | — | 展示 + Start Verification 按钮 |
 | 5a Hard Gate 校验 | **Owner**（unmapped/unreviewed 阻断） | — | 显示阻断错误 |
 | 5b 冲突检测 | **Owner**（fi_* 比对，仅 Actuals） | — | 进度轮询 |
-| 5b Note 持久化 | **Owner**（doc_parse_conflict_note） | — | 必填校验、字符上限提示 |
+| 5b Note 持久化 | **Owner**（ai_ocr_conflict_note） | — | 必填校验、字符上限提示 |
 | 5b Save & Next 导航 | **Owner**（next-conflict 排序逻辑） | — | UI 自动跳转 |
 | 5c fi_* 写入 | **Owner**（@Transactional 整批） | — | — |
 | 5c Proforma forecast 版本 | **Owner**（写 committed_forecast） | — | — |
@@ -998,7 +998,7 @@ FAILED      FAILED         FAILED   FAILED     FAILED     (用户编辑)  │
 
 #### 4.6.2 核心状态字段
 
-新增/复用 `doc_parse_task` / `doc_parse_file` 字段：
+新增/复用 `ai_ocr_task` / `ai_ocr_file` 字段：
 
 | 字段 | 类型 | 用途 |
 |------|------|------|
@@ -1021,8 +1021,8 @@ on Next 进入 5a (Mapping Summary):
       dirty_downstream = NONE         # 直接显示上次 summary，无需重新计算
   else:
       dirty_downstream = VERIFY       # 用户必须重新点 Start Verification
-      清空：doc_parse_conflict (status='detected')
-            doc_parse_conflict_resolution (本批所有 resolution + note)
+      清空：ai_ocr_conflict (status='detected')
+            ai_ocr_conflict_resolution (本批所有 resolution + note)
       verify_snapshot_hash = NULL
 
 on Next 进入 5b (Conflict Resolution):
@@ -1050,7 +1050,7 @@ on Previous from 5b → 5a:
 - **写时计算 hash**：每次用户 PATCH /review 提交编辑，Java 在事务内重算 `mapping_snapshot_hash` 并更新 `mapping_changed_at`。
 - **置灰下游**：前端读取 `dirty_downstream`，对受影响的步骤（5a/5b 标签）置灰，避免用户看到陈旧数据。
 - **不影响记忆学习**：记忆学习只在 COMPLETED 后基于 final mapping 触发，与 dirty_downstream 无关。
-- **审计**：每次清空 conflict_resolution 写入 `doc_parse_navigation_audit`（task_id, from_step, to_step, cleared_what, timestamp）。
+- **审计**：每次清空 conflict_resolution 写入 `ai_ocr_navigation_audit`（task_id, from_step, to_step, cleared_what, timestamp）。
 
 ---
 
@@ -1062,7 +1062,7 @@ on Previous from 5b → 5a:
 
 Python extraction 完成时（PERSISTING 阶段），如果 `ai_ocr_extracted_row` 中该 file 行数 = 0 且 OCR 文本无可识别表格：
 
-- 写 `doc_parse_file.has_extractable_data = false`
+- 写 `ai_ocr_file.has_extractable_data = false`
 - file.status 仍走到 `REVIEW_READY`（不视为 FAILED）
 - processing_stage 标记 `NO_DATA_DETECTED`
 - 通过 OcrResult SQS 消息上报 `extracted_row_count=0`
@@ -1110,7 +1110,7 @@ S3 物理路径**不变**（仍按 §8.2 的 `ocr-uploads/{companyId}/{taskId}/{
 | 字段 | 取值 | 说明 |
 |------|------|------|
 | `file_objects.folder` | `'Imported Statements'` | OCR pipeline 完成后由 Java 在 5c 事务内统一更新 |
-| `file_objects.source_task_id` | UUID（doc_parse_task.id） | 反向追溯到 OCR task |
+| `file_objects.source_task_id` | UUID（ai_ocr_task.id） | 反向追溯到 OCR task |
 | `file_objects.import_status` | `IMPORTED` / `IMPORTED_NO_DATA` | 区分有数据 vs 无数据导入 |
 
 #### 4.8.3 时机
@@ -1122,7 +1122,7 @@ S3 物理路径**不变**（仍按 §8.2 的 `ocr-uploads/{companyId}/{taskId}/{
 #### 4.8.4 生命周期
 
 - **永久保留**：Imported Statements 中的文件遵循 §8.4 规则，与 fi_* 写入产生强依赖（用户可点击查看原始凭证）。
-- **删除约束**：用户在 Documents 页面删除会同时移除 S3 对象 + 标记 `doc_parse_file.status=DELETED`，但**不能删除已 COMMITTED task 引用的源文件**（防止破坏审计链）。
+- **删除约束**：用户在 Documents 页面删除会同时移除 S3 对象 + 标记 `ai_ocr_file.status=DELETED`，但**不能删除已 COMMITTED task 引用的源文件**（防止破坏审计链）。
 - **Presigned URL 查看**：通过现有 `POST /api/v1/docparse/files/{fileId}/download-url` 端点生成 15 分钟有效签名 URL。
 
 ---
@@ -1141,12 +1141,12 @@ Java (Producer)                                         Python (Consumer)
 
   ③ OcrSimilarityCheckProducer ──→ ocr-similarity-check-queue ──→ similarity_check_consumer
      (所有 file REVIEW_READY 后)                                    │ 计算 embedding + 相似度
-                                                                    │ 写入 doc_parse_similarity_hint
+                                                                    │ 写入 ai_ocr_similarity_hint
      OcrResultSqsProcessor ←── ocr-result-queue ←──────────────────┘ 返回完成
 
   ④ OcrMemoryLearnSqsProducer ──→ ocr-memory-learn-queue ──→ memory_learn_consumer
      (fi_* 写入成功后 AFTER_COMMIT)                                  │ 对比映射差异
-                                                                    │ 存入 mapping_memory
+                                                                    │ 存入 ai_ocr_mapping_memory
 
   共享: dlq-queue（四个队列都 redrive 到这里）
 ```
@@ -1316,7 +1316,7 @@ Java 收到 `status=completed` → `task.status = SIMILARITY_CHECKED` → 立即
 **Python 记忆学习逻辑**:
 - 只处理 `wasOverridden: true` 的条目
 - `wasOverridden: false` 的忽略（AI 猜对了，不需要存记忆）
-- 对比 `originalAiCategory` vs `confirmedCategory`，将修正存入 `mapping_memory`
+- 对比 `originalAiCategory` vs `confirmedCategory`，将修正存入 `ai_ocr_mapping_memory`
 - 如果已有同公司同标签的记忆，更新 `confirm_count` + `normalized_category`
 
 ### 5.3 队列配置
@@ -1428,8 +1428,8 @@ routes:
 
 | 表 | 用途 |
 |----|------|
-| `doc_parse_task` | Task 生命周期：company_id, uploaded_by, session_id, status, total_files, completed_files |
-| `doc_parse_file` | 上传文件记录：task_id, filename, file_type, file_size, s3_bucket, s3_key, status |
+| `ai_ocr_task` | Task 生命周期：company_id, uploaded_by, session_id, status, total_files, completed_files |
+| `ai_ocr_file` | 上传文件记录：task_id, filename, file_type, file_size, s3_bucket, s3_key, status |
 | `file_objects` (现有) | S3 文件记录，复用 storage 模块 |
 | `fi_*` (现有) | 最终确认的财务数据 |
 
@@ -1441,8 +1441,8 @@ routes:
 | `ai_ocr_extracted_row` | 提取的行数据 |
 | `ai_ocr_mapping_result` | AI 映射结果 |
 | `ai_ocr_conflict_record` | 冲突检测结果 |
-| `mapping_memory` | 两层映射记忆（通用+公司） |
-| `mapping_memory_audit` | 记忆变更审计日志 |
+| `ai_ocr_mapping_memory` | 两层映射记忆（通用+公司） |
+| `ai_ocr_mapping_memory_audit` | 记忆变更审计日志 |
 
 > **RAG 阶段**: 将新增 `rag_chunks` 表用于向量存储（pgvector），支持知识库检索和语义匹配。OCR 阶段不需要向量表。
 
@@ -1452,10 +1452,10 @@ routes:
 
 | 角色 | 权限 |
 |------|------|
-| `java_app` | 完全访问 Java 拥有的表（doc_parse_*）+ fi_* 写入 + `SELECT` Python 表（ai_ocr_*） |
-| `python_worker` | 完全访问 Python 拥有的表（ai_ocr_* / mapping_memory*）+ `SELECT` Java 拥有的 `doc_parse_task` / `doc_parse_file` / `doc_parse_notification`（查状态）+ **仅 INSERT** 权限访问 `doc_parse_memory_learn_log`（写审计，是跨域写入的唯一例外）+ 零权限访问 `fi_*` / `mapping_memory` 之外的 Java 表 |
+| `java_app` | 完全访问 Java 拥有的表（ai_ocr_*）+ fi_* 写入 + `SELECT` Python 表（ai_ocr_*） |
+| `python_worker` | 完全访问 Python 拥有的表（ai_ocr_* / ai_ocr_mapping_memory*）+ `SELECT` Java 拥有的 `ai_ocr_task` / `ai_ocr_file` / `ai_ocr_notification`（查状态）+ **仅 INSERT** 权限访问 `ai_ocr_memory_learn_log`（写审计，是跨域写入的唯一例外）+ 零权限访问 `fi_*` / `ai_ocr_mapping_memory` 之外的 Java 表 |
 
-**⚠️ 跨域写入例外说明**: 原则上 Python 只写 `ai_ocr_*` + `mapping_memory*`，但 `doc_parse_memory_learn_log`（Java 拥有）的 INSERT 权限是明确例外。理由：记忆学习审计记录由 Python 生成，走 SQS 回传会增加一次 ack 往返延迟；直接 INSERT 简单可靠。Python 无 UPDATE / DELETE 权限，不能篡改已有记录。
+**⚠️ 跨域写入例外说明**: 原则上 Python 只写 `ai_ocr_*` + `ai_ocr_mapping_memory*`，但 `ai_ocr_memory_learn_log`（Java 拥有）的 INSERT 权限是明确例外。理由：记忆学习审计记录由 Python 生成，走 SQS 回传会增加一次 ack 往返延迟；直接 INSERT 简单可靠。Python 无 UPDATE / DELETE 权限，不能篡改已有记录。
 
 ### 7.3 详细 DDL
 
@@ -1465,8 +1465,8 @@ routes:
 
 | 索引 | 类型 | 用途 |
 |------|------|------|
-| `idx_mapping_memory_term_trgm` | GIN (pg_trgm) | 映射记忆模糊匹配 |
-| `idx_mapping_memory_industry` | B-tree (company.industry) | 同行业频率查询 |
+| `idx_ai_ocr_mapping_memory_term_trgm` | GIN (pg_trgm) | 映射记忆模糊匹配 |
+| `idx_ai_ocr_mapping_memory_industry` | B-tree (company.industry) | 同行业频率查询 |
 | `idx_financial_data_conflict` | B-tree 复合索引 | 冲突检测快速查询 |
 
 > **RAG 阶段**: 将新增 `idx_rag_chunks_hnsw` (HNSW, pgvector) 用于向量近似搜索。
@@ -1588,10 +1588,10 @@ Note 字段（≤2000 字符自由文本）在 Financial Statements 模块展示
 
 180 天保留策略不能阻挡 GDPR 擦除请求。当用户/管理员发起擦除请求：
 
-1. 立即软删除 `doc_parse_task` + `doc_parse_file` + `ai_ocr_*`（`deleted = true`）
+1. 立即软删除 `ai_ocr_task` + `ai_ocr_file` + `ai_ocr_*`（`deleted = true`）
 2. 立即调用 S3 `DeleteObject`（Standard tier 立即生效）
 3. 若文件已归档到 Glacier：发起 restore 请求 → 恢复后 delete（约 3-5 小时）
-4. 记录擦除请求和处理时间到 `doc_parse_erasure_log` 表（合规审计）
+4. 记录擦除请求和处理时间到 `ai_ocr_erasure_log` 表（合规审计）
 5. 365 天 OVERWRITE 审计延长例外不能凌驾于 GDPR 之上 — 用户的擦除请求优先
 
 ### 8.9 S3 上传孤儿对象清理
@@ -1624,7 +1624,7 @@ POST /docparse/upload
                         ← 202 {taskId}
 
 GET /docparse/tasks/{id}/status  (每 2 秒)
-                        → 查 doc_parse_task 表
+                        → 查 ai_ocr_task 表
                         ← {status: "processing", progress: 30%}
 
                         ← (SQS result 到达)

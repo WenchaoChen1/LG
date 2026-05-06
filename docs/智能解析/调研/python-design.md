@@ -56,7 +56,7 @@ source/ocr_agent/
 │
 ├── memory/                      # 记忆系统
 │   ├── __init__.py
-│   ├── repository.py              # mapping_memory CRUD（query, save, archive）
+│   ├── repository.py              # ai_ocr_mapping_memory CRUD（query, save, archive）
 │   ├── learner.py                 # post-commit 学习逻辑（对比原始 vs 确认，存差异）
 │   └── seed_data.py               # 通用层种子数据（~120 条预置映射）
 │
@@ -74,7 +74,7 @@ source/ocr_agent/
 ├── persistence/                 # 数据库层（项目首次引入 DB）
 │   ├── __init__.py
 │   ├── client.py                  # asyncpg/SQLAlchemy 连接池
-│   ├── entities.py                # ORM 实体（ai_ocr_* 表 + mapping_memory），命名 entities 区分 schemas/
+│   ├── entities.py                # ORM 实体（ai_ocr_* 表 + ai_ocr_mapping_memory），命名 entities 区分 schemas/
 │   └── migrations/                # Alembic 迁移文件
 │       └── versions/
 │
@@ -128,7 +128,7 @@ Python 端通过 SQS 与 Java 端解耦通信，共涉及三条队列。
 
 ### 1.1 消费 ocr-extract-queue（AI 提取）
 
-Java 端上传文件到 S3 并写入 `doc_parse_task` 后，向 `ocr-extract-queue` 发送消息。Python 端使用 `aioboto3` 异步消费：
+Java 端上传文件到 S3 并写入 `ai_ocr_task` 后，向 `ocr-extract-queue` 发送消息。Python 端使用 `aioboto3` 异步消费：
 
 - 一条消息对应一个文件（不是一个 session），实现独立重试、天然并发、部分失败隔离
 - 消费后从 S3 下载文件，执行 AI 提取 + 映射 Pipeline
@@ -164,7 +164,7 @@ Java 端上传文件到 S3 并写入 `doc_parse_task` 后，向 `ocr-extract-que
 Java 端成功写入 `fi_*` 财务表后（不是审核时），向 `ocr-memory-learn-queue` 发送消息。Python 端消费后执行记忆学习：
 
 - 只处理 `wasOverridden: true` 的条目（AI 猜对的忽略，不需要存记忆）
-- 对比 `originalAiCategory` vs `confirmedCategory`，将修正存入 `mapping_memory`
+- 对比 `originalAiCategory` vs `confirmedCategory`，将修正存入 `ai_ocr_mapping_memory`
 - 如果已有同公司同标签的记忆，更新 `confirm_count` + `normalized_category`
 
 **消息 Schema（Java → Python）**:
@@ -197,11 +197,11 @@ Java 端成功写入 `fi_*` 财务表后（不是审核时），向 `ocr-memory-
 
 ### 1.3 发送 ocr-result-queue（结果回调）
 
-Python 端向 `ocr-result-queue` 发送**三类**消息：文件级进度上报（OcrProgress，轻量，频繁）、最终结果（OcrResult，每个文件一次）、以及任务级记忆学习进度（OcrMemoryLearnProgress，post-commit 阶段）。Java 端消费后更新 `doc_parse_file` 的 `processing_stage` 字段和 `doc_parse_task` 的 `status` 字段，均持久化到 DB（不是内存状态）。
+Python 端向 `ocr-result-queue` 发送**三类**消息：文件级进度上报（OcrProgress，轻量，频繁）、最终结果（OcrResult，每个文件一次）、以及任务级记忆学习进度（OcrMemoryLearnProgress，post-commit 阶段）。Java 端消费后更新 `ai_ocr_file` 的 `processing_stage` 字段和 `ai_ocr_task` 的 `status` 字段，均持久化到 DB（不是内存状态）。
 
 #### 1.3.1 OcrProgress 消息（文件级进度上报）
 
-每当 LangGraph 切换节点时发送，供前端展示精确进度。Java 端收到后**立即更新 `doc_parse_file.processing_stage` 字段到 DB**，前端轮询 `GET /docparse/tasks/{taskId}` 可拿到实时进度。
+每当 LangGraph 切换节点时发送，供前端展示精确进度。Java 端收到后**立即更新 `ai_ocr_file.processing_stage` 字段到 DB**，前端轮询 `GET /docparse/tasks/{taskId}` 可拿到实时进度。
 
 **消息 Schema（Python → Java）**:
 
@@ -223,7 +223,7 @@ Python 端向 `ocr-result-queue` 发送**三类**消息：文件级进度上报�
 }
 ```
 
-**processingStage 全量枚举值**（12 个子状态，与 `doc_parse_file.processing_stage` 一致）:
+**processingStage 全量枚举值**（12 个子状态，与 `ai_ocr_file.processing_stage` 一致）:
 
 | 阶段枚举 | 中文显示 | 进度区间 | 对应 workflow 节点 | 持久化时机 |
 |----------|---------|---------|-------------------|-----------|
@@ -241,11 +241,11 @@ Python 端向 `ocr-result-queue` 发送**三类**消息：文件级进度上报�
 | `REVIEW_READY` | 可供审核 | 100% | workflow 出口 | 最终状态 |
 
 **为什么需要把 MAPPING_MEMORY 拆成 3 个子状态**:
-1. **LOOKUP**: 从 `mapping_memory` 表按 company_id + trigram 模糊查询（DB IO 密集）
+1. **LOOKUP**: 从 `ai_ocr_mapping_memory` 表按 company_id + trigram 模糊查询（DB IO 密集）
 2. **APPLY**: 把查到的记忆与当前行对齐、应用置信度过滤（CPU 密集）
 3. **COMPLETE**: 统计应用情况、准备传给 LLM 的剩余未映射行（计算阶段）
 
-这 3 个阶段耗时差异大（LOOKUP 可能 500ms，APPLY 可能 2s，COMPLETE 可能 200ms），拆分后前端能展示"正在查询 3 条记忆" / "正在应用 8 条记忆" 的细粒度反馈。同时，每个子状态都要**存入 DB**，这样即使 Python 崩溃重启，也能从 `doc_parse_file.processing_stage` 恢复到精确位置。
+这 3 个阶段耗时差异大（LOOKUP 可能 500ms，APPLY 可能 2s，COMPLETE 可能 200ms），拆分后前端能展示"正在查询 3 条记忆" / "正在应用 8 条记忆" 的细粒度反馈。同时，每个子状态都要**存入 DB**，这样即使 Python 崩溃重启，也能从 `ai_ocr_file.processing_stage` 恢复到精确位置。
 
 **stageDetail 字段（可选，按阶段附带额外数据）**:
 - `EXTRACTING`: `{ "pageIndex": 3, "totalPages": 8 }` — 当前处理第几页
@@ -291,7 +291,7 @@ async def map_node(state: OCRPipelineState) -> OCRPipelineState:
 
 #### 1.3.2 OcrResult 消息（文件级最终结果）
 
-Python 完成一个文件的**全部处理**（提取+映射+验证+持久化）后发送。Java 收到后把 `doc_parse_file.processing_stage` 置为 `REVIEW_READY`，并检查当前任务下所有文件是否都已到达此状态，若是则把 `doc_parse_task.status` 置为 `SIMILARITY_CHECKING`（进入 Phase 2.5 的通知流程）。
+Python 完成一个文件的**全部处理**（提取+映射+验证+持久化）后发送。Java 收到后把 `ai_ocr_file.processing_stage` 置为 `REVIEW_READY`，并检查当前任务下所有文件是否都已到达此状态，若是则把 `ai_ocr_task.status` 置为 `SIMILARITY_CHECKING`（进入 Phase 2.5 的通知流程）。
 
 **消息 Schema（Python → Java）**:
 
@@ -335,7 +335,7 @@ Python 完成一个文件的**全部处理**（提取+映射+验证+持久化）
 
 #### 1.3.3 OcrMemoryLearnProgress 消息（任务级记忆学习进度）
 
-Phase 6 的记忆学习是**异步后台任务**，由 Java 在用户确认（Phase 5）并成功写入 `fi_*` 表（Phase 5.5）后，向 `ocr-memory-learn-queue` 发送消息触发。Python consumer 处理过程中需要向 `ocr-result-queue` 回传进度，让 Java 更新 `doc_parse_task.status` 和 UI 展示。
+Phase 6 的记忆学习是**异步后台任务**，由 Java 在用户确认（Phase 5）并成功写入 `fi_*` 表（Phase 5.5）后，向 `ocr-memory-learn-queue` 发送消息触发。Python consumer 处理过程中需要向 `ocr-result-queue` 回传进度，让 Java 更新 `ai_ocr_task.status` 和 UI 展示。
 
 **消息 Schema（Python → Java）**:
 
@@ -357,7 +357,7 @@ Phase 6 的记忆学习是**异步后台任务**，由 Java 在用户确认（Ph
 }
 ```
 
-**learnStage 枚举值**（对应 `doc_parse_task.status` 中的 3 个记忆学习态）:
+**learnStage 枚举值**（对应 `ai_ocr_task.status` 中的 3 个记忆学习态）:
 
 | 状态 | 说明 | 前端展示 |
 |------|------|---------|
@@ -368,8 +368,8 @@ Phase 6 的记忆学习是**异步后台任务**，由 Java 在用户确认（Ph
 
 **设计要点**:
 - 记忆学习**失败不回滚**财务数据 —— 即使 Phase 6 失败，Phase 5.5 写入 `fi_*` 的数据依然有效，用户下次上传时只是少了这次积累的记忆
-- Python 可以**重试**（最多 3 次），重试间隔从 `doc_parse_memory_learn_log` 表读取
-- Java 收到 `MEMORY_LEARN_COMPLETE` 后才把 `doc_parse_task.status` 最终置为 `COMMITTED`（完全终态）
+- Python 可以**重试**（最多 3 次），重试间隔从 `ai_ocr_memory_learn_log` 表读取
+- Java 收到 `MEMORY_LEARN_COMPLETE` 后才把 `ai_ocr_task.status` 最终置为 `COMMITTED`（完全终态）
 
 ### 1.3.4 Pydantic 消息 Schema 必须配 camelCase alias（⚠️ 关键）
 
@@ -460,7 +460,7 @@ async def handle_extract_message(message: OcrExtractMessage, db: AsyncSession):
     # 步骤 1：尝试获取 file 的行级锁。拿不到（另一 worker 已在处理）直接退出
     file_row = await db.execute(
         text("""
-            SELECT id, status FROM doc_parse_file
+            SELECT id, status FROM ai_ocr_file
             WHERE id = :file_id AND status IN ('QUEUED', 'UPLOADED', 'PROCESSING')
             FOR UPDATE SKIP LOCKED
         """),
@@ -484,7 +484,7 @@ async def handle_extract_message(message: OcrExtractMessage, db: AsyncSession):
 
 **锁的释放时机**: 事务提交时自动释放（`await db.commit()`）。如果 Python 崩溃，锁在连接断开时释放，SQS visibility timeout 结束后消息重发，另一 worker 可以接管。
 
-**注意**: `FOR UPDATE SKIP LOCKED` 要求 Java 端的 `doc_parse_file` 操作也必须使用事务 + `@Lock(LockModeType.PESSIMISTIC_WRITE)` 才能配合（否则 Java 侧的 status 更新不会看到 Python 的锁）。Java 侧只在发 SQS 前做一次状态推进，不会竞争锁，无需修改。
+**注意**: `FOR UPDATE SKIP LOCKED` 要求 Java 端的 `ai_ocr_file` 操作也必须使用事务 + `@Lock(LockModeType.PESSIMISTIC_WRITE)` 才能配合（否则 Java 侧的 status 更新不会看到 Python 的锁）。Java 侧只在发 SQS 前做一次状态推进，不会竞争锁，无需修改。
 
 ### 1.5 错误处理
 
@@ -896,14 +896,14 @@ class SimilarityChecker:
           2. 为未算的批量调 OpenAI 生成 embedding，写回 ai_ocr_extracted_row
           3. 用 pgvector HNSW 索引对每个 row 查 top-5 相似 row
           4. 过滤 cosine > 0.9 的对，强制 row_id_a < row_id_b
-          5. 批量 INSERT doc_parse_similarity_hint（ON CONFLICT DO NOTHING 幂等）
+          5. 批量 INSERT ai_ocr_similarity_hint（ON CONFLICT DO NOTHING 幂等）
         """
         # Step 1: 查询所有 row
         rows = await self.db.execute(text("""
             SELECT r.id, r.account_label, r.label_embedding, t.file_id
             FROM ai_ocr_extracted_row r
             JOIN ai_ocr_extracted_table t ON t.id = r.table_id
-            JOIN doc_parse_file f ON f.id = t.file_id
+            JOIN ai_ocr_file f ON f.id = t.file_id
             WHERE f.task_id = :task_id
               AND r.deleted = false
               AND r.is_header = false
@@ -936,7 +936,7 @@ class SimilarityChecker:
                 FROM ai_ocr_extracted_row r1
                 JOIN ai_ocr_extracted_row r2 ON r2.id != r1.id
                 JOIN ai_ocr_extracted_table t2 ON t2.id = r2.table_id
-                JOIN doc_parse_file f2 ON f2.id = t2.file_id
+                JOIN ai_ocr_file f2 ON f2.id = t2.file_id
                 WHERE r1.id = :row_id
                   AND f2.task_id = :task_id
                   AND r2.label_embedding IS NOT NULL
@@ -970,10 +970,10 @@ class SimilarityChecker:
                     "similarity_score": round(float(n.similarity), 3),
                 })
 
-        # Step 4: 批量 INSERT doc_parse_similarity_hint（跨域写入例外）
+        # Step 4: 批量 INSERT ai_ocr_similarity_hint（跨域写入例外）
         if hints_to_insert:
             await self.db.execute(text("""
-                INSERT INTO doc_parse_similarity_hint
+                INSERT INTO ai_ocr_similarity_hint
                     (task_id, row_id_a, row_id_b, label_a, label_b,
                      file_id_a, file_id_b, similarity_score)
                 VALUES
@@ -1126,7 +1126,7 @@ LangGraph 在 `extract` 节点之后做条件路由：`skip_downstream=True` →
 | 责任方 | 行为 |
 |--------|------|
 | **Python** | 判定 + 写 `ai_ocr_extracted_table.has_extractable_data/extraction_skip_reason`；发送 `OcrResult{status=completed_no_data}` |
-| **Java** | 收到后置 `doc_parse_file.processing_stage=NO_DATA`；该文件**不进入** mapping review；任务汇总时若**所有文件**均无数据，按 §4.12 跳过 5a/5b/5c，仅写 Documents/Imported Statements；混合批次时只让有数据的文件走完整流程 |
+| **Java** | 收到后置 `ai_ocr_file.processing_stage=NO_DATA`；该文件**不进入** mapping review；任务汇总时若**所有文件**均无数据，按 §4.12 跳过 5a/5b/5c，仅写 Documents/Imported Statements；混合批次时只让有数据的文件走完整流程 |
 
 #### 审计
 
@@ -1338,7 +1338,7 @@ def rule_engine_match(label: str, section_context: str = "") -> tuple[LGCategory
 ```
 用户确认映射
     │
-    ▼ 保存到 mapping_memory 表
+    ▼ 保存到 ai_ocr_mapping_memory 表
     │
 未来同公司上传
     │
@@ -1394,7 +1394,7 @@ async def get_industry_common_mappings(
     results = await db.execute(text("""
         SELECT m.normalized_category, COUNT(DISTINCT m.company_id) as company_count,
                SUM(m.hit_count) as total_freq
-        FROM mapping_memory m
+        FROM ai_ocr_mapping_memory m
         JOIN company c ON m.company_id = c.id
         WHERE c.industry = :industry
           AND m.hit_count >= 3
@@ -1541,7 +1541,7 @@ async def map_extracted_rows(
 
 ```
 ┌──────────────────────────────────────────────┐
-│               mapping_memory 表               │
+│               ai_ocr_mapping_memory 表               │
 │                                              │
 │  ┌─────────────────────────────────────────┐ │
 │  │ Tier 1: 通用层 (company_id = NULL)       │ │
@@ -1566,7 +1566,7 @@ async def map_extracted_rows(
 ```sql
 SELECT DISTINCT ON (source_term)
     source_term, normalized_category, confidence, is_trusted, source
-FROM mapping_memory
+FROM ai_ocr_mapping_memory
 WHERE source_term = ANY(:terms)
   AND (company_id = :company_id OR company_id IS NULL)
   AND archived_at IS NULL
@@ -1638,7 +1638,7 @@ retained earnings    → Equity                   1.0
 **关键约束（由 Layer 2 运行时校验）**:
 1. 种子数据的 `normalized_category` 必须是 19 个 LG 分类之一或字面量 `UNMAPPED`
 2. Payroll 相关词条（wages/salary/payroll/compensation/benefits）种子数据**必须**写 `UNMAPPED`，通过规则引擎 Priority 2 + 上下文推断正确类别
-3. 启动时 `memory_matcher.validate_seed_data()` 会扫描 `mapping_memory` 中 `company_id IS NULL` 的条目，发现非 19 分类的值直接拒绝启动
+3. 启动时 `memory_matcher.validate_seed_data()` 会扫描 `ai_ocr_mapping_memory` 中 `company_id IS NULL` 的条目，发现非 19 分类的值直接拒绝启动
 
 ### 4.7 记忆生命周期
 
@@ -1659,7 +1659,7 @@ retained earnings    → Equity                   1.0
 
 **触发**: 每次用户在 Side-by-Side Review 中保存映射修正（由 Java commit 后通过 SQS `ocr-memory-learn-queue` 触发）
 
-**存储**: `mapping_memory` 表，`WHERE company_id = :this_company`
+**存储**: `ai_ocr_mapping_memory` 表，`WHERE company_id = :this_company`
 
 **生效**: 立即。该公司下次上传时，Layer 2 匹配直接命中用户修正
 
@@ -1707,21 +1707,21 @@ ai_ocr_mapping_result:
 #### 学习逻辑（Python 侧）
 
 1. Python 消费 `ocr-memory-learn-queue` 消息，获取 `mappingComparisons` 列表
-2. **先向 `ocr-result-queue` 发送 `OcrMemoryLearnProgress(learnStage=MEMORY_LEARN_IN_PROGRESS)`**，Java 收到后把 `doc_parse_task.status` 更新到 `MEMORY_LEARN_IN_PROGRESS` 并持久化
+2. **先向 `ocr-result-queue` 发送 `OcrMemoryLearnProgress(learnStage=MEMORY_LEARN_IN_PROGRESS)`**，Java 收到后把 `ai_ocr_task.status` 更新到 `MEMORY_LEARN_IN_PROGRESS` 并持久化
 3. **只处理 `wasOverridden: true` 的条目**（AI 猜对的不存，避免记忆膨胀）
 4. 对比 `originalAiCategory` vs `confirmedCategory`
-5. 只有被用户修正过的映射才存入 `mapping_memory`（company_id 隔离）
+5. 只有被用户修正过的映射才存入 `ai_ocr_mapping_memory`（company_id 隔离）
 6. 更新 `company_memory_version`（该 company 的最新 hash）
-7. 向 `doc_parse_memory_learn_log` 表写一条 `result=success` 记录（Python 直连 Java 库的 SELECT/INSERT 权限表）
-8. 向 `ocr-result-queue` 发送 `OcrMemoryLearnProgress(learnStage=MEMORY_LEARN_COMPLETE)`，Java 把 `doc_parse_task.status` 置为 `COMMITTED`（完全终态）
+7. 向 `ai_ocr_memory_learn_log` 表写一条 `result=success` 记录（Python 直连 Java 库的 SELECT/INSERT 权限表）
+8. 向 `ocr-result-queue` 发送 `OcrMemoryLearnProgress(learnStage=MEMORY_LEARN_COMPLETE)`，Java 把 `ai_ocr_task.status` 置为 `COMMITTED`（完全终态）
 
-**状态持久化（关键）**: Python 处理期间每一步状态切换都**持久化到 Java 端的 `doc_parse_task.status` 和 `doc_parse_memory_learn_log`**，不是只在内存中。即使 Python worker 崩溃重启，Java 端仍能从 DB 知道当前学习到哪一步，并决定是否需要重试。
+**状态持久化（关键）**: Python 处理期间每一步状态切换都**持久化到 Java 端的 `ai_ocr_task.status` 和 `ai_ocr_memory_learn_log`**，不是只在内存中。即使 Python worker 崩溃重启，Java 端仍能从 DB 知道当前学习到哪一步，并决定是否需要重试。
 
 **学习闭环**: 第 1 次上传走 LLM → 用户确认 → 保存记忆 → 第 2 次上传同标签直接命中，零 LLM 调用
 
 **职责划分（重要）**:
 - Python 负责：记忆学习（本节）+ 向 Java 回传学习进度（3 状态）
-- Java 负责：触发记忆学习 SQS + 新闭月邮件通知 + fi_* 写入 + 持久化 `doc_parse_task.status` 中的记忆学习 3 状态
+- Java 负责：触发记忆学习 SQS + 新闭月邮件通知 + fi_* 写入 + 持久化 `ai_ocr_task.status` 中的记忆学习 3 状态
 - **Python 不负责邮件通知**（避免重复实现）
 
 ```python
@@ -1742,7 +1742,7 @@ async def handle_memory_learn(message: OcrMemoryLearnMessage, db: AsyncSession):
     overridden = [c for c in message["mappingComparisons"] if c["wasOverridden"]]
     new_count, updated_count = 0, 0
     for comp in overridden:
-        result = await save_mapping_memory(
+        result = await save_ai_ocr_mapping_memory(
             company_id=company_id,
             account_label=comp["accountLabel"],
             lg_category=comp["confirmedCategory"],
@@ -1772,7 +1772,7 @@ async def handle_memory_learn(message: OcrMemoryLearnMessage, db: AsyncSession):
         stage_detail={"newMemoryCount": new_count, "updatedMemoryCount": updated_count}
     )
 
-async def save_mapping_memory(
+async def save_ai_ocr_mapping_memory(
     company_id: int, account_label: str, lg_category: str,
     idempotency_key: str, db: AsyncSession
 ) -> Literal["new", "updated", "duplicate"]:
@@ -1780,7 +1780,7 @@ async def save_mapping_memory(
     每次用户确认映射后保存到公司记忆，返回 'new' / 'updated' / 'duplicate'
 
     幂等性：SQS at-least-once 可能导致同一条 comparison 被处理多次。
-    通过 mapping_memory_audit 表的 (task_id, row_id) 唯一约束去重。
+    通过 ai_ocr_mapping_memory_audit 表的 (task_id, row_id) 唯一约束去重。
 
     Args:
         idempotency_key: 通常为 f"{task_id}:{row_id}"，唯一标识本次修正
@@ -1794,7 +1794,7 @@ async def save_mapping_memory(
     if audit_check.scalar_one_or_none():
         return "duplicate"
 
-    # 步骤 2：Upsert mapping_memory（原子操作，无 race condition）
+    # 步骤 2：Upsert ai_ocr_mapping_memory（原子操作，无 race condition）
     from sqlalchemy.dialects.postgresql import insert as pg_insert
     stmt = pg_insert(MappingMemory).values(
         company_id=company_id,
@@ -1852,17 +1852,17 @@ except Exception as e:
 ```
 
 Java 收到 `MEMORY_LEARN_FAILED` 消息后：
-- `doc_parse_task.status` 从 `MEMORY_LEARN_IN_PROGRESS` 改回 `MEMORY_LEARN_PENDING`（允许前端重试按钮触发）
-- `doc_parse_memory_learn_log` 新增一条 `result=failed` + `error_message`
+- `ai_ocr_task.status` 从 `MEMORY_LEARN_IN_PROGRESS` 改回 `MEMORY_LEARN_PENDING`（允许前端重试按钮触发）
+- `ai_ocr_memory_learn_log` 新增一条 `result=failed` + `error_message`
 
 **重点**: 失败不回滚 `fi_*` 表的财务数据（Phase 5.5 已提交），用户依然看到任务处于 `SIMILARITY_CHECKED`（表示财务数据已可见），只是记忆学习需要重试。
 
 ### 4.9 审计
 
-每次 `mapping_memory` 变更都产生一条审计记录：
+每次 `ai_ocr_mapping_memory` 变更都产生一条审计记录：
 
 ```
-mapping_memory_audit 表:
+ai_ocr_mapping_memory_audit 表:
   mapping_id, event_type, old_category, new_category,
   actor (用户/系统), reason, metadata (upload_id, session_id),
   created_at
@@ -1946,10 +1946,10 @@ FAILED      FAILED         FAILED   FAILED   ┌─CONFLICT   (用户      FAILE
 | `ai_ocr_extracted_row` | Python | 提取的行数据 + `label_embedding VECTOR(1536)` 列（相似度检测用） | [§3.2](./database-schema.md#32-ai_ocr_extracted_row新增-label_embedding-列) |
 | `ai_ocr_mapping_result` | Python | AI 映射结果（三层架构产出 + user_override） | [§3.3](./database-schema.md#33-ai_ocr_mapping_result) |
 | `ai_ocr_conflict_record` | Python | 冲突检测结果（与 fi_* 对比） | [§3.4](./database-schema.md#34-ai_ocr_conflict_record) |
-| `mapping_memory` | Python | 两层记忆（通用 + 公司） | [§3.5](./database-schema.md#35-mapping_memory两层架构通用--公司) |
-| `mapping_memory_audit` | Python | 记忆变更审计（含 idempotency_key 防 SQS 重复） | [§3.6](./database-schema.md#36-mapping_memory_audit) |
-| `doc_parse_memory_learn_log` | Java（Python 有 INSERT 权限） | 记忆学习执行审计 | [§2.5](./database-schema.md#25-doc_parse_memory_learn_log) |
-| `doc_parse_similarity_hint` | Java（Python 有 INSERT/UPDATE 权限） | 相似度检测结果 | [§2.8](./database-schema.md#28-doc_parse_similarity_hint新增相似度检测结果) |
+| `ai_ocr_mapping_memory` | Python | 两层记忆（通用 + 公司） | [§3.5](./database-schema.md#35-ai_ocr_mapping_memory两层架构通用--公司) |
+| `ai_ocr_mapping_memory_audit` | Python | 记忆变更审计（含 idempotency_key 防 SQS 重复） | [§3.6](./database-schema.md#36-ai_ocr_mapping_memory_audit) |
+| `ai_ocr_memory_learn_log` | Java（Python 有 INSERT 权限） | 记忆学习执行审计 | [§2.5](./database-schema.md#25-ai_ocr_memory_learn_log) |
+| `ai_ocr_similarity_hint` | Java（Python 有 INSERT/UPDATE 权限） | 相似度检测结果 | [§2.8](./database-schema.md#28-ai_ocr_similarity_hint新增相似度检测结果) |
 
 ### 6.2 关键设计决策解释
 
@@ -1958,14 +1958,14 @@ FAILED      FAILED         FAILED   FAILED   ┌─CONFLICT   (用户      FAILE
 - `ai_ocr_extracted_table`: `UNIQUE (file_id, table_index)`
 - `ai_ocr_extracted_row`: `UNIQUE (table_id, row_index)`
 - `ai_ocr_mapping_result`: `UNIQUE (row_id)`
-- `mapping_memory_audit`: `UNIQUE (idempotency_key)` where `idempotency_key = f"{task_id}:{row_id}"`
+- `ai_ocr_mapping_memory_audit`: `UNIQUE (idempotency_key)` where `idempotency_key = f"{task_id}:{row_id}"`
 
 **重试时的行为**: Python consumer 入口先 `DELETE FROM ai_ocr_extracted_table WHERE file_id = ?`（级联删除下游 row 和 mapping），再重新 INSERT。消息重复消费不会产生数据重复。
 
 #### label_embedding VECTOR(1536)（2026-04-20 新增）
 `ai_ocr_extracted_row` 新增 `label_embedding VECTOR(1536)` 列，存储 `account_label` 的 OpenAI embedding。用于 Phase 2.5 相似度检测（见 §2.5）。HNSW 索引 `idx_ai_ocr_row_embedding_hnsw` 加速 KNN 查询（每次 <10ms）。
 
-#### mapping_memory 两层架构
+#### ai_ocr_mapping_memory 两层架构
 一张表两种语义：
 - `company_id IS NULL`: 通用层（~500 条种子 + 管理员维护，所有公司共享）
 - `company_id IS NOT NULL`: 公司层（每公司最多 5000 条，Java commit 后通过 SQS 触发学习）
@@ -1976,13 +1976,13 @@ FAILED      FAILED         FAILED   FAILED   ┌─CONFLICT   (用户      FAILE
 `ai_ocr_mapping_result.lg_category` 有 CHECK 约束，只允许 19 个 LG 分类 + `UNMAPPED`。防止 LLM 输出伪造分类名绕过业务逻辑（如 `"DROP TABLE"`）。种子数据也严格遵守此约束（启动时 `memory_matcher.validate_seed_data()` 校验）。
 
 #### 跨域 INSERT 例外
-Python 对 Java 拥有的 `doc_parse_memory_learn_log` 和 `doc_parse_similarity_hint` 有 INSERT 权限（前者还有条件化 UPDATE）。这违反"各自拥有表"原则，但比 SQS 回传简单可靠。GRANT 细节见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。
+Python 对 Java 拥有的 `ai_ocr_memory_learn_log` 和 `ai_ocr_similarity_hint` 有 INSERT 权限（前者还有条件化 UPDATE）。这违反"各自拥有表"原则，但比 SQS 回传简单可靠。GRANT 细节见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。
 
 ### 6.3 数据库权限隔离
 
 详见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。简要：
-- `java_app`: 完全访问 `doc_parse_*` + `fi_*`；`SELECT` 访问 `ai_ocr_*`；**无权**访问 `mapping_memory*`（跨公司商业机密）
-- `python_worker`: 完全访问 `ai_ocr_*` + `mapping_memory*`；`SELECT` 大部分 `doc_parse_*`；**INSERT** 例外：`doc_parse_memory_learn_log` + `doc_parse_similarity_hint`；**无权**访问 `fi_*`
+- `java_app`: 完全访问 `ai_ocr_*` + `fi_*`；`SELECT` 访问 `ai_ocr_*`；**无权**访问 `ai_ocr_mapping_memory*`（跨公司商业机密）
+- `python_worker`: 完全访问 `ai_ocr_*` + `ai_ocr_mapping_memory*`；`SELECT` 大部分 `ai_ocr_*`；**INSERT** 例外：`ai_ocr_memory_learn_log` + `ai_ocr_similarity_hint`；**无权**访问 `fi_*`
 
 ---
 
@@ -2441,7 +2441,7 @@ async def render_mapping_prompt(template: str, db) -> str:
 
 ### 11.5 与记忆系统的关系
 
-`mapping_memory.normalized_category` 也引用 `lg_category_definition.code`。新增子分类时：
+`ai_ocr_mapping_memory.normalized_category` 也引用 `lg_category_definition.code`。新增子分类时：
 - 旧记忆继续指向父分类，不强制升级
 - 后台 job 可基于 keywords 推荐"建议升级到子分类"，由管理员审核
 
