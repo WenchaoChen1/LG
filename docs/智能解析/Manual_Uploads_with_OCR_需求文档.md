@@ -55,7 +55,7 @@
 - 若同批文档总大小超过100MB，按照上传速度，速度慢的超过100MB总量的文件不予上传
 
 **状态与队列管理**
-- 每个文件需显示实时状态：进度条实时展示上传进度，Next按钮在全部上传完成前不可用
+- 每个文件需显示uploding loding circle：文件上传时显示uploading loding circle, Next按钮在全部上传完成前不可用
 - 上传过程中，显示clear all按钮，若点击此按钮，则清空全部在上传的文件
 - 上传完成后，点击Remove按钮可移除文件
 - 点击上传按钮继续添加文件
@@ -184,7 +184,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 
 ### 3.4 Side-by-Side 审核与内联编辑
 
-呈现左右分屏，供用户在写入前核对、修正抽取数据与映射结果。左屏显示解析进度
+呈现左右分屏，供用户在写入前核对、修正抽取数据与映射结果。左屏显示loding circle，解析过程中左右屏均显示灰色。若替换文件或重新上传，同样显示loading circle且左右屏显示灰色。
 
 **左面板 — 源文档浏览器**
 - 顶部：文件选择下拉，可切换文件或选择 "All Files" ，默认显示"All Files"。
@@ -219,7 +219,8 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 **特殊情况**
 - 若该批文件没有任何可用数据，右面版提示 No mapped data
   No mapped amount data was extracted from this file, so nothing can be mapped. Try uploading a clearer file or a different file format.
-- 点击Next直接提交文档到documents,首次提交时，创建文件夹，命名为Imports documents
+- 点击Next，弹出Files Uploaded Successfully弹框，显示No financial accounts extracted. [amount] file(s) have been uploaded to the Imported Statements folder in Documentation.该批文件直接提交到Documentation板块，可点击close按钮关闭弹框，或点击Go to Documentation按钮跳转到All Documentation页面，首次提交时，创建文件夹，命名为Imported documents
+- 若该批文件只包含一种数据类型，如只有Actuals数据或者只有Proforma数据，则右屏其对应的tab应为空白页，显示 No financial accounts found for this data type 。
   
   - **LG 科目**
   - **底层源行项**
