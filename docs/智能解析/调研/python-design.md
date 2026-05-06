@@ -1,10 +1,10 @@
 # OCR Agent Python 端设计 (CIOaas-python)
 
 > **技术栈**: Python 3.12 + FastAPI + LangGraph + Instructor + OpenRouter + asyncpg + aioboto3
-> **关联文档**: [设计理念](./design-philosophy.md) · [需求分析](./requirement-analysis.md) · [系统架构](./system-architecture.md) · [Java 端设计](./java-design.md) · [前端设计](./frontend-design.md) · [代码示例](./code-examples.md) · [接口文档](./api-doc.md)
+> **关联文档**: [设计理念](./design-philosophy.md) · [需求分析](./requirement-analysis.md) · [系统架构](./system-architecture.md) · [Java 端设计](./java-design.md) · [前端设计](./frontend-design.md) · [代码示例](./code-examples.md)
 >
 > **架构契约来源**: [system-architecture.md §0 职责边界声明](./system-architecture.md#0-职责边界声明顶层规则)（4 步流程、新边界 v2、SQS 队列清单、跨域权限）。
-> **接口权威**: [api-doc.md](./api-doc.md) — Python 端 4 个 HTTP 端点 + 3 入站 SQS + 1 出站 SQS + 5 LangGraph 节点的契约清单全部位于该文档。本文档描述**实现层**。
+> **本文档定位**: Python 端**完整接口契约 + 实现层设计**（v2 合并 api-doc.md 后的唯一权威）。Python 端 4 个 HTTP 端点 + 3 入站 SQS + 1 出站 SQS（4 messageType）+ 1 内部 producer + 5 LangGraph 节点的所有契约与详情均在本文档。
 
 ---
 
@@ -12,7 +12,8 @@
 
 - [0. 文档定位与接口清单](#0-文档定位与接口清单)
   - [0.0 文档定位声明（v2 重写）](#00-文档定位声明v2-重写)
-  - [0.1 接口清单（→ 见独立接口文档）](#01-接口清单-见独立接口文档)
+  - [0.1 接口清单（合并 api-doc.md 后的完整索引）](#01-接口清单合并-api-docmd-后的完整索引)
+- [1.5 接口流程图（v2 全景）](#15-接口流程图v2-全景)
 - [1. HTTP 服务器架构（v2 新增）](#1-http-服务器架构v2-新增)
   - [1.1 设计前提](#11-设计前提)
   - [1.2 启动配置](#12-启动配置)
@@ -21,11 +22,11 @@
   - [1.5 `company_id` 归属校验中间件](#15-company_id-归属校验中间件)
   - [1.6 错误响应规范（与 Java 统一）](#16-错误响应规范与-java-统一)
   - [1.7 路由注册（FastAPI）](#17-路由注册fastapi)
-- [2. 4 个前端面向端点 — Service 层概览](#2-4-个前端面向端点--service-层概览)
-  - [2.1 端点 #1 — `/ocr/tasks/{id}/state` (GET)](#21-端点-1--ocrtasksidstate-get)
-  - [2.2 端点 #2 — `/ocr/tasks/{id}/review` (PATCH)](#22-端点-2--ocrtasksidreview-patch)
-  - [2.3 端点 #3 — `/ocr/tasks/{id}/verify` (POST)](#23-端点-3--ocrtasksidverify-post)
-  - [2.4 端点 #4 — `/ocr/conflicts/{id}/resolve` (POST)](#24-端点-4--ocrconflictsidresolve-post)
+- [2. 4 个前端面向端点 — 完整接口详情](#2-4-个前端面向端点--完整接口详情)
+  - [2.1 端点 #7 — `GET /ocr/tasks/{id}/state`](#21-端点-7--get-ocrtasksidstate)
+  - [2.2 端点 #8 — `PATCH /ocr/tasks/{id}/review`](#22-端点-8--patch-ocrtasksidreview)
+  - [2.3 端点 #9 — `POST /ocr/tasks/{id}/verify`](#23-端点-9--post-ocrtasksidverify)
+  - [2.4 端点 #10 — `POST /ocr/conflicts/{id}/resolve`](#24-端点-10--post-ocrconflictsidresolve)
 - [3. TaskStateAggregationService（v2 新增）](#3-taskstateaggregationservicev2-新增)
   - [3.1 聚合范围（9 个数据源）](#31-聚合范围9-个数据源)
   - [3.2 单次聚合 SQL 策略](#32-单次聚合-sql-策略)
@@ -99,12 +100,13 @@
   - [13.1 OCRPipelineState TypedDict](#131-ocrpipelinestate-typeddict)
   - [13.2 Pipeline 总览](#132-pipeline-总览)
   - [13.3 Checkpoint 与断点续跑](#133-checkpoint-与断点续跑)
+  - [13.4 5 个节点完整接口契约](#134-5-个节点完整接口契约)
 - [14. SQS 消费与生产](#14-sqs-消费与生产)
   - [14.1 消费 ocr-extract-queue（统一入口）](#141-消费-ocr-extract-queue统一入口)
   - [14.2 消费 ocr-memory-learn-queue](#142-消费-ocr-memory-learn-queue)
   - [14.3 消费 ocr-similarity-check-queue](#143-消费-ocr-similarity-check-queue)
   - [14.4 内部生产 ocr-extract-queue (mode=REMAP_ONLY)](#144-内部生产-ocr-extract-queue-moderemap_only--v2-新增)
-  - [14.5 出站 ocr-result-queue（按 messageType 多路复用）](#145-出站-ocr-result-queue按-messagetype-多路复用)
+  - [14.5 出站 ocr-result-queue（按 messageType 多路复用，4 种）](#145-出站-ocr-result-queue按-messagetype-多路复用4-种)
   - [14.6 Pydantic alias 配置（关键）](#146-pydantic-alias-配置关键)
   - [14.7 队列配置](#147-队列配置)
   - [14.8 消费入口并发互斥（FOR UPDATE SKIP LOCKED）](#148-消费入口并发互斥for-update-skip-locked)
@@ -167,19 +169,187 @@
 
 **与 java-design.md 的分工**：本文不重复 Java 实现细节，仅在涉及 Python ↔ Java 协同（如 verify 端点读 fi_* 与 Java commit 写 fi_* 的边界、记忆学习状态机协议、相似度跨域 INSERT 契约）时给出**设计原理与协同时序**。
 
-### 0.1 接口清单（→ 见独立接口文档）
+### 0.1 接口清单（合并 api-doc.md 后的完整索引）
 
-Python 端的所有外部契约已统一抽取到独立接口文档：
+> **v2 整合（2026-05-06）**：原 `api-doc.md` 的 Python 端契约已全部并入本文档。Java 端契约见 [java-design.md](./java-design.md)。
 
-📘 **[OCR Agent 接口文档（v2）](./api-doc.md)**
+#### 0.1.1 REST 端点（Python，4 个，前端直接调用）
 
-| 接口类别 | 数量 | 索引位置 |
-|---------|:---:|---------|
-| **HTTP 端点（前端 → Python，v2 新增）** | **4** | [api-doc.md §1.1.3 + §2 Python 端](./api-doc.md#113-python-端用户面向查询--编辑--验证--2026-05-06-v2-新边界) |
-| SQS 消费者（Java → Python，3 条入站队列）| 3（含 `ocr-extract-queue` 的 FULL_EXTRACT / REMAP_ONLY 两种 mode）| [api-doc.md §1.2.1 + §3.1](./api-doc.md#121-java--python出口队列) |
-| SQS 生产者（Python → Java，单一出口 `ocr-result-queue`，4 种 messageType 多路复用） | 4 | [api-doc.md §1.2.2 + §3.2](./api-doc.md#122-python--java回传队列按-messagetype-多路复用) |
-| **SQS 内部生产者（Python → Python 自身入队，v2 新增）** | **1**（`ocr-extract-queue` mode=REMAP_ONLY）| §4.4 |
-| LangGraph Pipeline 节点 | 5 | [api-doc.md §1.3 + §4](./api-doc.md#13-langgraph-pipeline-节点python-内部) |
+| # | URL | 方法 | 用户步骤 | 一句话职责 | 详情 |
+|---:|-----|:---:|:---:|----------|:---:|
+| 7 | `/ocr/tasks/{id}/state` | GET | 步骤 3/5 | **综合状态聚合**（task + 文件进度 + 提取数据 + 映射 + 相似度提示 + 记忆学习状态 + 历史链 + Mapping Summary + verifyState） | §2.1 / §3 |
+| 8 | `/ocr/tasks/{id}/review` | PATCH | 步骤 4 | 客户变更：编辑 row/mapping + note + **mapping 变更检测自动触发 REMAP SQS** + 接受相似度决策 | §2.2 / §4 |
+| 9 | `/ocr/tasks/{id}/verify` | POST | 步骤 6 | 启动验证：跑冲突检测（读 fi_*）→ 写 `ai_ocr_conflict_record` → 进度通过 `/state` 轮询 | §2.3 / §5 |
+| 10 | `/ocr/conflicts/{id}/resolve` | POST | 步骤 6 | 单冲突解决（note 必填，自动写 conflict thread + Save & Next 导航） | §2.4 / §6 |
+
+> 通用约定：路径前缀 `/ocr`；JWT 中间件 + `company_id` 归属校验（§1.3-1.5）；返回 `Result<T>` 信封（§1.6）。
+
+#### 0.1.2 SQS 队列
+
+**入站（Java → Python，3 条）**
+
+| 队列 | 触发场景 | 一句话职责 | 详情 |
+|------|---------|----------|:---:|
+| `ocr-extract-queue` | 步骤 3 Java `/start-processing` 批量入队 | OCR + AI 提取 + AI 映射；`mode=FULL_EXTRACT` / `REMAP_ONLY` | §14.1 |
+| `ocr-similarity-check-queue` | 所有文件 REVIEW_READY 后 | embedding + KNN 相似度检测 | §14.3 |
+| `ocr-memory-learn-queue` | Java commit AFTER_COMMIT | 记忆学习更新 mapping_memory | §14.2 |
+
+**内部生产（Python → Python 自身入队，v2 新增，1 条）**
+
+| 队列 | 触发场景 | 一句话职责 | 详情 |
+|------|---------|----------|:---:|
+| `ocr-extract-queue`（mode=REMAP_ONLY）| Python `/review` 检测到 mapping 变更 | 仅重跑 Map 节点（约 1-10s），不下载 S3 | §4.4 / §14.4 |
+
+**出站（Python → Java，单一队列 `ocr-result-queue`，按 `messageType` 多路复用 4 种）**
+
+| messageType | Java Handler | 一句话职责 | 详情 |
+|-------------|--------------|----------|:---:|
+| `OcrProgress` | `OcrResultSqsProcessor#handleProgress` | 文件级精细进度上报（每 stage 一条） | §14.5.1 |
+| `OcrResult` | `OcrResultSqsProcessor#handleResult` | 单文件最终结果上报 | §14.5.2 |
+| `OcrSimilarityCheckResult` | `OcrResultSqsProcessor#handleSimilarityCheckResult` | 相似度检测完成回执 | §14.5.3 |
+| `OcrMemoryLearnProgress` | `OcrResultSqsProcessor#handleMemoryLearnProgress` | 记忆学习状态切换 | §14.5.4 |
+
+#### 0.1.3 LangGraph Pipeline 节点（5 个，Python 内部）
+
+| 节点 | 文件 | 一句话职责 | 详情 |
+|------|------|----------|:---:|
+| **Preprocess** | `workflow/nodes/preprocess.py` | PDF/图片/Excel 标准化 | §13.4 NODE-1 |
+| **Extract** | `workflow/nodes/extract.py` | Vision LLM 提取表格 + 周期推断 + 可提取性判定 | §13.4 NODE-2 |
+| **Classify** | `workflow/nodes/classify.py` | 文档类型识别（纯本地评分） | §13.4 NODE-3 |
+| **Map** | `workflow/nodes/map.py` | 三层级联映射到 19 个 LG 分类 | §13.4 NODE-4 |
+| **Validate** | `workflow/nodes/validate.py` | OCR 数据自洽性硬验证 | §13.4 NODE-5 |
+
+---
+
+## 1.5 接口流程图（v2 全景）
+
+> 横向：Frontend / Java / Python / SQS / DB；纵向：4 步用户流程。Python 端 4 个 REST 接口 + 5 个 LangGraph 节点的位置突出标注。
+
+```text
+┌─ 步骤 1：用户上传文件 ────────────────────────────────────────────────────────┐
+│                                                                              │
+│ Frontend ──POST /tasks/upload-init──▶ Java ──INSERT ai_ocr_task─▶ DB        │
+│         ◀──{taskId, presignedUrls[]}── Java                                  │
+│         ──PUT s3://...─────────────────────────────────▶ S3                  │
+│         ──POST /tasks/{id}/upload-complete──▶ Java                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 步骤 2：用户点 Next 启动处理 ───────────────────────────────────────────────┐
+│                                                                              │
+│ Frontend ──POST /tasks/{id}/start-processing──▶ Java                         │
+│                                                  │                           │
+│                                                  ▼                           │
+│                                       SQS ocr-extract-queue                  │
+│                                          (mode=FULL_EXTRACT × N files)       │
+│                                                  │                           │
+│                                                  ▼                           │
+│                                            Python extract_consumer           │
+│                                                  │                           │
+│                                       ┌──────────┴──────────┐                │
+│                                       ▼                     ▼                │
+│                                LangGraph Pipeline:    SQS ocr-result-queue   │
+│                                NODE-1 Preprocess  ──▶ OcrProgress×多次        │
+│                                NODE-2 Extract     ──▶                        │
+│                                NODE-3 Classify    ──▶ OcrResult              │
+│                                NODE-4 Map         ──▶                        │
+│                                NODE-5 Validate    ──▶                        │
+│                                       │                                      │
+│                                       ▼                                      │
+│                              所有 file REVIEW_READY                          │
+│                                       │                                      │
+│ Java ──▶ SQS ocr-similarity-check-queue ──▶ Python similarity_check_consumer │
+│                                                       │                      │
+│                                                       ▼                      │
+│                                             OcrSimilarityCheckResult         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 步骤 3：前端轮询查看处理进度 + 加载审核数据（Python 直连） ─────────────────┐
+│                                                                              │
+│ Frontend ──GET /ocr/tasks/{id}/state──▶ ★ Python REST #1                     │
+│         ◀──{task, files[], extractedData, mappingResults,                    │
+│             similarityHints, memoryLearn, history, mappingSummary,           │
+│             verifyState}── (聚合 9 张表的单一接口)                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 步骤 4：用户审核与编辑 ─────────────────────────────────────────────────────┐
+│                                                                              │
+│ Frontend ──PATCH /ocr/tasks/{id}/review──▶ ★ Python REST #2                  │
+│           {rowEdits, mappingEdits, similarityDecisions, conflictNotes}       │
+│                                                  │                           │
+│                                       ┌──────────┼──────────┐                │
+│                                       ▼          ▼          ▼                │
+│                              UPDATE extracted   mapping  conflict_note       │
+│                              _row              _result   (跨域 INSERT)       │
+│                                       │                                      │
+│                                       ▼                                      │
+│                          mapping_snapshot_hash 变化？                        │
+│                                       │                                      │
+│                                  YES  ▼                                      │
+│                          Python 内部 producer 入队                           │
+│                          SQS ocr-extract-queue (mode=REMAP_ONLY)             │
+│                                       │                                      │
+│                                       ▼                                      │
+│                          Python extract_consumer 仅跑 NODE-4 Map             │
+│                                       │                                      │
+│                                       ▼                                      │
+│                          OcrResult{remap_completed} ──▶ Java                 │
+│         ◀──{remapTriggered: true}──                                          │
+│ Frontend 继续轮询 /state                                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 步骤 6：用户点 Start Verification ─────────────────────────────────────────┐
+│                                                                              │
+│ Frontend ──POST /ocr/tasks/{id}/verify──▶ ★ Python REST #3                   │
+│         ◀──{verifyJobId, status: RUNNING}──                                  │
+│                                                  │                           │
+│                                          异步任务 _verify_async              │
+│                                                  │                           │
+│                                       ┌──────────┴──────────┐                │
+│                                       ▼                     ▼                │
+│                          SELECT fi_* (跨域只读 19 表)   INSERT conflict_record│
+│                                       │                     │                │
+│                                       ▼                     ▼                │
+│                          UPDATE task.status =                                │
+│                            CONFLICT_RESOLUTION / READY_TO_COMMIT             │
+│                                                                              │
+│ Frontend 继续轮询 /state ── verifyState.percent / conflicts[]                │
+│                                                                              │
+│ 用户对每条冲突 ──POST /ocr/conflicts/{id}/resolve──▶ ★ Python REST #4        │
+│                  {action: OVERWRITE|SKIP, note}                              │
+│         ◀──{nextConflictId}── (Save & Next 自动导航)                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 步骤 7：用户最终提交 ──────────────────────────────────────────────────────┐
+│                                                                              │
+│ Frontend ──POST /tasks/{id}/commit──▶ Java                                   │
+│                                          │                                   │
+│                                          ▼                                   │
+│                                     INSERT fi_* + commit_audit               │
+│                                          │                                   │
+│                                          ▼ AFTER_COMMIT                      │
+│                                     SQS ocr-memory-learn-queue               │
+│                                          │                                   │
+│                                          ▼                                   │
+│                                Python memory_learn_consumer                  │
+│                                          │                                   │
+│                                          ▼                                   │
+│                                INSERT mapping_memory                         │
+│                                          │                                   │
+│                                          ▼                                   │
+│                                OcrMemoryLearnProgress(COMPLETE) ──▶ Java     │
+│         ◀──{benchmarkRedirectUrl}── Java                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Python 端接口位置速查**：
+
+| 阶段 | Python 接口 | 关联 LangGraph 节点 | 关联 SQS |
+|------|------------|------------------|---------|
+| 步骤 2 | — | NODE-1 ~ NODE-5（FULL_EXTRACT）| 入站 ocr-extract-queue / 入站 ocr-similarity-check-queue / 出站 OcrProgress, OcrResult, OcrSimilarityCheckResult |
+| 步骤 3/5 | **GET /state** | — | — |
+| 步骤 4 | **PATCH /review** | NODE-4 Map（REMAP_ONLY）| 内部 producer ocr-extract-queue / 出站 OcrResult{remap_completed} |
+| 步骤 6 | **POST /verify** + **POST /resolve** | — | — |
+| 步骤 7 | — | — | 入站 ocr-memory-learn-queue / 出站 OcrMemoryLearnProgress |
 
 ---
 
@@ -322,7 +492,7 @@ source/ocr_agent/routes.py
 
 ---
 
-## 2. 4 个前端面向端点 — Service 层概览
+## 2. 4 个前端面向端点 — 完整接口详情
 
 | # | 端点 | 用户步骤 | Service 入口 | 详细设计 |
 |---:|------|:---:|--------------|:---:|
@@ -331,122 +501,347 @@ source/ocr_agent/routes.py
 | 3 | `POST /ocr/tasks/{id}/verify` | 6 | `services/verify_service.py#run_verification` | §5 |
 | 4 | `POST /ocr/conflicts/{id}/resolve` | 6 | `services/conflict_service.py#resolve_one` | §6 |
 
-### 2.1 端点 #1 — `/ocr/tasks/{id}/state` (GET)
+> 每个端点详情含 4 部分：**支持的业务逻辑** / **逻辑图** / **关联的表** / **接口契约**。
 
-**输入参数验证**：
+### 2.1 端点 #7 — `GET /ocr/tasks/{id}/state`
 
-| 参数 | 验证 |
-|------|-----|
-| `task_id` (path) | UUID 格式；中间件已校验存在 + 归属 |
-| `Authorization` | JWT 已校验 |
+**支持的业务逻辑**：
 
-**数据库操作**：见 §3（聚合 9 张表，全部 SELECT 只读）。
+- **唯一聚合查询接口**：替代 v1 的 9 个独立查询端点（`/status` + `/result` + `/history` + `/mapping-summary` + `/verify/progress` + `/conflicts` + `/similarity-hints` + `/memory-learn` + `/memory-learn/history`）
+- **前端按 `task.status` 决定渲染哪个屏幕**：DRAFT → UploadPage；PROCESSING/SIMILARITY_CHECKING → ProgressPage；REVIEWING → ReviewPage；CONFLICT_RESOLUTION → ConflictPage；READY_TO_COMMIT → SummaryPage；MEMORY_LEARN_* → SuccessPage
+- 文件级精细进度展示（`processing_stage` 12 个枚举值，§14.5.1）
+- 前端 1-2 秒轮询；P50 ≤ 80ms / P95 ≤ 250ms（详见 §3.2 性能预算）
+- 状态高频变化（PROCESSING / REMAP / VERIFY 阶段）；不引入应用层缓存（§3.3）
+- 部分子查询失败（如 fi_* 不可读）→ 该子模块字段降级为 `null`，主响应仍 200
 
-**SQS 触发**：无。
+**逻辑图**：
 
-**状态变更**：无（纯查询）。
+```text
+Frontend (1-2s 轮询)
+        │
+        ▼ GET /ocr/tasks/{id}/state
+[FastAPI Route: routes.py#get_task_state]
+        │
+        ▼ Depends(jwt_auth) + Depends(company_auth)
+[Middleware] 校验 JWT + task.company_id ∈ principal.companies
+        │
+        ▼
+[Service: task_state_service.py#aggregate_state]
+        │
+        ├──▶ _load_task_and_files(task_id)        ──┐
+        ├──▶ _load_extracted_and_mapping(task_id) ──┤
+        ├──▶ _load_similarity_hints(task_id)      ──┤  asyncpg.gather()
+        ├──▶ _load_memory_learn_summary(task_id)  ──┤  并行执行 6-7 次查询
+        ├──▶ _load_state_log(task_id, limit=50)   ──┤
+        ├──▶ _load_conflicts_with_notes(task_id)  ──┤
+        └──▶ _maybe_load_fi_snapshots(task)       ──┘  (条件: status=READY_TO_COMMIT)
+                                                   │
+                                                   ▼
+                                       _assemble_response(...)
+                                                   │
+                                                   ▼
+                                       TaskStateResponse (JSON)
+```
 
-**错误处理**：
+**关联的表**（全部 SELECT 只读，9 个数据源）：
 
-- task 不存在 → 404 / `TASK_NOT_FOUND`（中间件已拦截）
-- DB 超时 → 503 / `UPSTREAM_UNAVAILABLE`（不重试，前端轮询自然恢复）
-- 部分子查询失败（如 fi_* 不可读）→ 该子模块字段降级为 `null`，主响应仍 200（前端负责判空）
+| # | 表 / 表组 | Owner | 用途 / 字段 |
+|---:|----------|-------|------------|
+| 1 | `ai_ocr_task` | Java | SELECT id, status, mapping_changed_at, has_extractable_data, parent_task_id, created_at, updated_at, verify_progress_pct |
+| 2 | `ai_ocr_file` | Java | SELECT id, filename, status, processing_stage, progress_pct, stage_detail, error |
+| 3 | `ai_ocr_extracted_table` + `ai_ocr_extracted_row` | Python | SELECT 表元数据 + 行数据（cell_values, deleted, user_edited） |
+| 4 | `ai_ocr_mapping_result` | Python | SELECT row_id, lg_category, confidence, source, user_override, user_note, original_ai_suggestion |
+| 5 | `ai_ocr_similarity_hint` | Java | SELECT id, rowIdA, rowIdB, similarity, user_decision, decided_at |
+| 6 | `ai_ocr_memory_learn_log` | Java | SELECT 最近 5 条 attempt 历史 |
+| 7 | `ai_ocr_task_state_log` | Java | SELECT 最近 50 条 event_type / created_at / triggered_by |
+| 8 | `ai_ocr_conflict_record` + `ai_ocr_conflict_note` | Python (record) / Java (note) | SELECT 冲突 + thread notes |
+| 9 | `fi_*`（19 张）| LG | **跨域 SELECT 只读**；仅当 task.status ∈ (CONFLICT_RESOLUTION, READY_TO_COMMIT) 时执行 |
 
-### 2.2 端点 #2 — `/ocr/tasks/{id}/review` (PATCH)
+**接口契约**：
 
-**输入参数验证**：
+- **Endpoint**: `routes.py#get_task_state`
+- **Service**: `services/task_state_service.py#aggregate_state(task_id, principal) -> TaskStateResponse`
+- **请求**: 仅路径参数 `task_id` (UUID)；Header `Authorization: Bearer <jwt>`；可选 `?fileId=<uuid>&stateLogLimit=200`
+- **响应** (`TaskStateResponse`)：
+  ```json
+  {
+    "task": {"id":"...", "status":"REVIEWING", "mapping_changed_at":"...",
+             "has_extractable_data":true, ...},
+    "files": [{"id":"...", "status":"REVIEW_READY", "processing_stage":"REVIEW_READY",
+               "progress_pct":100, "stage_detail":{}, "error":null}],
+    "extractedData": [{"tableId":"...", "fileId":"...", "document_type":"PNL",
+                       "currency":"USD", "reporting_periods":["2024-01",...],
+                       "rows":[{"rowId":"...", "account_label":"...", "cell_values":{...},
+                                "is_header":false, "is_total":false, "deleted":false}]}],
+    "mappingResults": [{"rowId":"...", "lg_category":"Revenue", "confidence":"HIGH",
+                        "source":"RULE_ENGINE", "user_override":false,
+                        "user_note":null, "original_ai_suggestion":"Revenue"}],
+    "similarityHints": [{"id":"...", "rowIdA":"...", "rowIdB":"...",
+                         "similarity":0.92, "user_decision":"PENDING"}],
+    "memoryLearn": {"stage":"COMPLETE", "lastResult":"success", "retryCount":0,
+                    "canRetry":false, "attempt_history":[...]},
+    "history": {"versionChain":[{"taskId":"...", "version":1, "status":"SUPERSEDED",
+                                  "completedAt":"..."}],
+                "stateLog":[{"event_type":"MAPPING_EDITED", "created_at":"...",
+                             "triggered_by":"user_id", "error_detail":null}]},
+    "mappingSummary": {"totalFiles":3, "mappedTypes":["PNL","BS"],
+                       "mappedAccounts":42, "hardGateErrors":[],
+                       "committedSnapshots":[{"company_id":1,"lg_category":"Revenue",
+                                              "period":"2024-01","value":100000}]},
+    "verifyState": {"stage":"COMPLETE", "percent":100,
+                    "conflicts":[{"id":"...","status":"PENDING","metric":"Revenue",
+                                  "period":"2024-01","ai_value":120,"fi_value":100,
+                                  "resolution":null,"notes":[]}]}
+  }
+  ```
+- **错误码**：404 `TASK_NOT_FOUND` / 403 `FORBIDDEN_COMPANY` / 503 `UPSTREAM_UNAVAILABLE`
 
-| 字段 | 验证 |
-|------|-----|
-| `rowEdits[].rowId` | UUID + 必须属于本 task（JOIN 校验，§4.2） |
-| `rowEdits[].cellValues` | dict[str, float \| null]；key 必须 ∈ extracted_table.reporting_periods |
-| `mappingEdits[].lgCategory` | 必须 ∈ 当前 active LGCategory enum（§17）+ 不允许 `UNMAPPED` 显式设置 |
-| `similarityDecisions[].decision` | `"MERGED"` \| `"IGNORED"` |
-| `conflictNotes[].content` | length(trim) ≥ 1, ≤ 2000 字符 |
-| 整体 | 至少一个非空数组（防空请求） |
+### 2.2 端点 #8 — `PATCH /ocr/tasks/{id}/review`
 
-**数据库操作**（事务内）：
+**支持的业务逻辑**：
 
-| 表 | 动作 | 条件 |
-|----|-----|------|
-| `ai_ocr_extracted_row` | UPDATE `account_label` / `cell_values` / `deleted` / `user_edited=true` | rowEdits 每条一次 |
-| `ai_ocr_mapping_result` | UPDATE `lg_category` / `confidence='HIGH'` / `source='USER'` / `user_note` / `user_override=true` | mappingEdits 每条一次 |
-| `ai_ocr_similarity_hint` | UPDATE `user_decision` / `decided_at` / `decided_by` | similarityDecisions 每条一次 |
-| `ai_ocr_conflict_note` | INSERT（thread reply）| conflictNotes 每条一次（跨域 INSERT，需 GRANT） |
-| `ai_ocr_task_state_log` | INSERT `event_type='MAPPING_EDITED'` + snapshot_data 含 diff 摘要 | 一次（聚合事件）|
-| `ai_ocr_task` | UPDATE `mapping_changed_at = now()` | 仅当 mappingEdits 非空 |
+- 用户在 ReviewPage 的批量编辑：行编辑（cell_values / account_label / 删行）+ 映射编辑 + 相似度决策 + 冲突 note thread
+- **核心：mapping snapshot hash 自动检测**（§4.3）— 用户可能"改回原值"（R&D → COGS → R&D），数组非空但实际无变化；hash 比对鲁棒
+- mapping 变更 → 自动入队 `ocr-extract-queue (mode=REMAP_ONLY)` + 清空已解决冲突 + 响应 `remapTriggered=true`（§4.4）
+- mapping 不变 → 仅写编辑数据，无 SQS 触发
+- **替代之前的 navigate-back 端点**：变更检测内嵌（§4.5）
+- 幂等性：相同 PATCH 重发不产生副作用（覆盖写 + UNIQUE constraint）
 
-**SQS 触发**：见 §4.3 mapping 变更检测 → 自动入队 `ocr-extract-queue` (mode=REMAP_ONLY)。
+**逻辑图**：
 
-**状态变更**：
+```text
+Frontend
+   │
+   ▼ PATCH /ocr/tasks/{id}/review {rowEdits, mappingEdits, similarityDecisions, conflictNotes}
+[FastAPI Route: routes.py#patch_review]
+   │
+   ▼ JWT + company_auth + body 校验
+[Service: review_service.py#apply_changes]
+   │
+   ▼ BEGIN; SELECT task FOR UPDATE;
+   │ 校验 task.status ∈ (REVIEWING, CONFLICT_RESOLUTION) 否则 409
+   │
+   ├─ Step 3: 计算 old_hash = SHA256(sorted mapping snapshot)
+   ├─ Step 4: UPDATE ai_ocr_extracted_row × N
+   ├─ Step 5: UPDATE ai_ocr_mapping_result × N
+   ├─ Step 6: UPDATE ai_ocr_similarity_hint × N
+   ├─ Step 7: INSERT ai_ocr_conflict_note × N  (跨域 INSERT)
+   ├─ Step 8: 计算 new_hash
+   ├─ Step 9: 比较 old_hash != new_hash
+   │     │
+   │     YES ──▶ Step 10: UPDATE task.mapping_changed_at = now()
+   │             ├─ 清已解决冲突
+   │             └─ asyncio.create_task(producer.enqueue_remap(...))
+   │                            │
+   │                            ▼
+   │                    SQS ocr-extract-queue (mode=REMAP_ONLY)
+   ├─ Step 11: INSERT ai_ocr_task_state_log (MAPPING_EDITED)
+   └─ Step 12: COMMIT;
+        │
+        ▼ {updatedRowCount, updatedMappingCount, remapTriggered: bool}
+```
 
-- `task.status` 不变（保持 `REVIEWING` / `CONFLICT_RESOLUTION`）
-- 若触发 REMAP → 客户端通过 `/state` 看到 file 进入 `MAPPING_*` 子阶段
+**关联的表**（事务内）：
 
-**错误处理**：
+| 表 | 动作 | 条件 | 跨域 |
+|----|-----|------|:---:|
+| `ai_ocr_task` | SELECT FOR UPDATE → UPDATE `mapping_changed_at` / `mapping_snapshot_hash` | 锁 task；仅 mappingEdits 非空时 UPDATE | 否（Java 拥有但 Python 有 UPDATE 部分字段权限）|
+| `ai_ocr_extracted_row` | UPDATE `account_label` / `cell_values` / `deleted` / `user_edited=true` | rowEdits 每条一次 | 否（Python 拥有）|
+| `ai_ocr_mapping_result` | UPDATE `lg_category` / `confidence='HIGH'` / `source='USER'` / `user_note` / `user_override=true` | mappingEdits 每条一次 | 否（Python 拥有）|
+| `ai_ocr_similarity_hint` | UPDATE `user_decision` / `decided_at` / `decided_by` | similarityDecisions 每条一次 | **是**（Java 拥有，Python GRANT UPDATE）|
+| `ai_ocr_conflict_note` | INSERT（thread reply）| conflictNotes 每条一次 | **是**（Java 拥有，Python GRANT INSERT）|
+| `ai_ocr_task_state_log` | INSERT `event_type='MAPPING_EDITED'` + snapshot_data 含 diff 摘要 | 一次（聚合事件）| **是**（Java 拥有，Python GRANT INSERT）|
+| `ai_ocr_conflict_record` | UPDATE `status='PENDING'`（清除已解决冲突）| 仅 mapping 变更时 | 是（Python 拥有 + 跨域 UPDATE 部分字段）|
 
-- mappingEdits 涉及不存在 row → 400 / `INVALID_PAYLOAD`
-- task 状态非 REVIEWING/CONFLICT_RESOLUTION → 409 / `INVALID_TASK_STATE`
-- DB 死锁 → 重试一次；仍失败 → 500 / `INTERNAL_ERROR`
+**SQS 触发**（仅当 mapping snapshot hash 变化）：
+- 队列：`ocr-extract-queue`；`messageType=OcrExtract`；`mode=REMAP_ONLY`
+- 字段：`taskId / fileId[] / companyId / changedRowIds / trigger=user_edited_mapping`
+- dedup key：`f"REMAP:{task_id}:{mapping_changed_at_epoch}"`
 
-### 2.3 端点 #3 — `/ocr/tasks/{id}/verify` (POST)
+**接口契约**：
 
-**输入参数验证**：
+- **Endpoint**: `routes.py#patch_review`
+- **Service**: `services/review_service.py#apply_changes(task_id, request, principal) -> ReviewPatchResponse`
+- **Producer**: `producers/extract_remap_producer.py#enqueue_remap` (内部 SQS producer)
+- **请求** (`ReviewPatchRequest`)：
+  ```json
+  {
+    "rowEdits": [{"rowId":"<uuid>", "accountLabel":"...", "cellValues":{"2024-01":1000.0},
+                  "deleted":false}],
+    "mappingEdits": [{"rowId":"<uuid>", "lgCategory":"Revenue", "userNote":"..."}],
+    "similarityDecisions": [{"hintId":"<uuid>", "decision":"MERGED|IGNORED"}],
+    "conflictNotes": [{"conflictId":"<uuid>", "parentNoteId":"<uuid>|null", "content":"..."}]
+  }
+  ```
+- **校验规则**：
+  - `rowEdits[].cellValues` keys ∈ `extracted_table.reporting_periods`
+  - `mappingEdits[].lgCategory` ∈ 当前 active LGCategory enum；**不允许**显式设置 `UNMAPPED`
+  - `conflictNotes[].content` length(trim) ∈ [1, 2000]
+  - 至少一个非空数组
+- **响应**: `{"updatedRowCount": int, "updatedMappingCount": int, "remapTriggered": bool}`
+- **错误码**：400 `INVALID_PAYLOAD` / 409 `INVALID_TASK_STATE` / 500 `INTERNAL_ERROR`
 
-| 验证 | 行为 |
-|------|-----|
-| `task.status = REVIEWING` | 否则 409 |
-| 无 `mapping_result.lg_category = UNMAPPED` 残留 | 否则 422 / `MAPPING_INCOMPLETE` |
-| 全部 file 已 `REVIEW_READY` | 否则 422 / `FILES_NOT_READY` |
+### 2.3 端点 #9 — `POST /ocr/tasks/{id}/verify`
 
-**数据库操作**：
+**支持的业务逻辑**：
 
-| 表 | 动作 | 阶段 |
-|----|-----|------|
-| `ai_ocr_task` | UPDATE `status = 'VERIFYING'` + `verify_started_at = now()` | 同步（响应前） |
-| `ai_ocr_task_state_log` | INSERT `event_type='VERIFICATION_TRIGGERED'` | 同步 |
-| `fi_*` | **SELECT 只读**（跨域，§5.2） | 异步任务内 |
-| `ai_ocr_conflict_record` | INSERT 每条冲突一行 + `status='PENDING'` | 异步任务内 |
-| `ai_ocr_task_state_log` | INSERT `event_type='CONFLICT_DETECTED'`（每个 metric 一次）| 异步任务内 |
-| `ai_ocr_task` | UPDATE `status = 'CONFLICT_RESOLUTION'` 或 `'READY_TO_COMMIT'` | 异步任务结束时 |
+- 用户在步骤 6 点 "Start Verification" 触发跨期间冲突检测
+- **v2 关键变更**：Python 直接读 `fi_*`（之前由 Java 读）— Python 端获得 fi_* SELECT 权限（§5.5）
+- 与 Validate 节点的边界（§5.1）：
+  - Validate 节点 = OCR **内部**一致性（pipeline 内自动跑，写 INTERNAL_INCONSISTENCY）
+  - VerifyService = **跨期间**冲突（用户触发，对比 fi_* 历史，写 CROSS_PERIOD_OVERWRITE）
+  - 同一张 `ai_ocr_conflict_record` 表，`conflict_type` 字段区分主体
+- 启动条件硬校验：所有 file `REVIEW_READY` + 无 `UNMAPPED` 残留
+- 异步执行 + 同步 202 响应；前端通过 `/state` 轮询 `verifyState.percent`
+- 19 表批量 SELECT 优化（仅查 task 涉及的 LG category，asyncpg `gather()` 并行）
+- Proforma 豁免：`is_actuals=false` 的 mapping 不查（业务规则）
+- 失败回退：异步任务失败 → `task.status` 回 `REVIEWING` + state_log 写 `VERIFICATION_FAILED`
+
+**逻辑图**：
+
+```text
+Frontend
+   │
+   ▼ POST /ocr/tasks/{id}/verify
+[FastAPI Route: routes.py#start_verify]
+   │
+   ▼ JWT + company_auth + 状态校验
+[Service: verify_service.py#run_verification]
+   │
+   ├─ 同步部分 (响应前):
+   │     UPDATE task SET status='VERIFYING', verify_started_at=now()
+   │     INSERT state_log (VERIFICATION_TRIGGERED)
+   │     asyncio.create_task(_verify_async(task_id))
+   │
+   ▼ 立即返回
+   {verifyJobId: task_id, status: "RUNNING"}     ──▶ Frontend
+   │
+   │  (后台异步任务)
+   ▼
+[_verify_async(task_id)]
+   │
+   ├─ SELECT mapping_results WHERE task_id = ? AND lg_category != 'UNMAPPED'
+   ├─ group_by_category_period(rows) → 按 lg_category × period 聚合
+   │
+   ├─ asyncpg.gather(*[query_fi_table(cat, periods) for cat in cats])
+   │       │
+   │       ▼ 并行查 19 表中相关的 5-10 张 (跨域 SELECT)
+   │  fi_revenue / fi_cogs / fi_cash / ... 19 张
+   │
+   ├─ detect_conflicts(rows, existing) → list[Conflict]
+   │       条件: existing_row_count > 0 AND existing_value ≠ new_value (容忍 0.01%)
+   │
+   ├─ 批量 INSERT ai_ocr_conflict_record (CROSS_PERIOD_OVERWRITE) ON CONFLICT DO NOTHING
+   ├─ INSERT state_log (CONFLICT_DETECTED) for each metric
+   └─ UPDATE task SET status = 'CONFLICT_RESOLUTION' if conflicts else 'READY_TO_COMMIT'
+                       verify_completed_at = now()
+```
+
+**关联的表**：
+
+| 表 | 动作 | 阶段 | 跨域 |
+|----|-----|------|:---:|
+| `ai_ocr_task` | UPDATE `status='VERIFYING'`, `verify_started_at=now()` | 同步 | 否（Python 有 UPDATE 部分字段权限）|
+| `ai_ocr_task_state_log` | INSERT `event_type='VERIFICATION_TRIGGERED'` | 同步 | **是**（GRANT INSERT）|
+| `ai_ocr_mapping_result` | SELECT row_id, lg_category, period | 异步 | 否（Python 拥有）|
+| `fi_*`（19 张：fi_revenue / fi_cogs / fi_sm_expenses / fi_rd_expenses / fi_ga_expenses / fi_sm_payroll / fi_rd_payroll / fi_ga_payroll / fi_other_income_expense / fi_cash / fi_accounts_receivable / fi_rd_capitalized / fi_other_assets / fi_accounts_payable / fi_short_term_debt / fi_long_term_debt / fi_other_liabilities / fi_equity / fi_payroll_unmapped）| **SELECT 只读**（按 company_id + period 聚合 SUM(amount)）| 异步 | **是**（v2 新增 GRANT SELECT）|
+| `ai_ocr_conflict_record` | INSERT 每条冲突 `status='PENDING'`, `conflict_type='CROSS_PERIOD_OVERWRITE'` | 异步 | 否（Python 拥有）|
+| `ai_ocr_task_state_log` | INSERT `event_type='CONFLICT_DETECTED'`（每 metric 一次）| 异步 | 是 |
+| `ai_ocr_task` | UPDATE `status='CONFLICT_RESOLUTION'` 或 `'READY_TO_COMMIT'`, `verify_completed_at=now()` | 异步任务结束 | 否 |
 
 **SQS 触发**：无（同步 SELECT + INSERT，无需异步消息）。
 
-**响应**：`{verifyJobId: task_id, status: "RUNNING"}` 立即返回；前端通过 `/state` 轮询 `verifyState` 字段。
+**接口契约**：
 
-**错误处理**：
+- **Endpoint**: `routes.py#start_verify`
+- **Service**: `services/verify_service.py#run_verification(task_id, principal) -> VerifyStartResponse`
+- **私有**: `services/verify_service.py#_verify_async(task_id)` (后台 task)
+- **请求**: 仅路径参数 `task_id`
+- **校验规则**：
+  - `task.status = REVIEWING` 否则 409 `INVALID_TASK_STATE`
+  - 无 `mapping_result.lg_category = UNMAPPED` 残留 否则 422 `MAPPING_INCOMPLETE`
+  - 全部 file `REVIEW_READY` 否则 422 `FILES_NOT_READY`
+- **响应**: `{"verifyJobId": "<task_id>", "status": "RUNNING"}`（HTTP 202）
+- **进度查询**：通过 `GET /ocr/tasks/{id}/state` 的 `verifyState.percent` 字段（0% → 50% 查 fi_* → 80% 写 conflict → 100% 推进 status）
+- **错误码**：409 `INVALID_TASK_STATE` / 422 `MAPPING_INCOMPLETE` / 422 `FILES_NOT_READY` / 500 `INTERNAL_ERROR`
 
-- 异步任务失败 → `task.status` 回到 `REVIEWING` + state_log 写 `VERIFICATION_FAILED`
-- 部分 fi_* 表 SELECT 权限缺失 → 启动期 health check 已发现并 fail-fast；运行期不应发生
+### 2.4 端点 #10 — `POST /ocr/conflicts/{id}/resolve`
 
-### 2.4 端点 #4 — `/ocr/conflicts/{id}/resolve` (POST)
+**支持的业务逻辑**：
 
-**输入参数验证**：
+- 用户在 ConflictPage 对单个冲突的决策：`OVERWRITE`（覆盖现存值）或 `SKIP`（跳过本次提交）
+- **note 必填硬校验**（长度 > 0，trim 后非空）— note 是 commit 后审计追溯的核心证据；`ai_ocr_commit_audit.conflict_note_id` 引用本 note
+- 双层防护：service 层校验 + DB CHECK constraint (`ck_note_not_empty`)
+- **Save & Next 自动导航**（§6.3）：返回 `nextConflictId`，前端无需额外查询
+- 排序规则：同 metric 内按 period 早到晚；跨 metric 按 19 类 enum 顺序
+- 全部冲突 RESOLVED → 自动推进 `task.status: CONFLICT_RESOLUTION → READY_TO_COMMIT`
+- 并发保护：FOR UPDATE 行级锁；后到的得 409
 
-| 字段 | 验证 |
-|------|-----|
-| `action` | `"OVERWRITE"` \| `"SKIP"` |
-| `note` | length(trim) > 0；≤ 2000 字符；硬校验 |
-| 中间件 | conflict 归属本 company；conflict.status = `PENDING` |
+**逻辑图**：
 
-**数据库操作**（事务内）：
+```text
+Frontend
+   │
+   ▼ POST /ocr/conflicts/{id}/resolve {action, note}
+[FastAPI Route: routes.py#resolve_conflict]
+   │
+   ▼ JWT + company_auth (JOIN ai_ocr_task 校验归属)
+   ▼ note 非空硬校验 (length(trim) > 0)
+[Service: conflict_service.py#resolve_one]
+   │
+   ▼ BEGIN; SELECT conflict FOR UPDATE WHERE id=? AND status='PENDING';
+   │  拿不到锁 → 409 INVALID_CONFLICT_STATE
+   │
+   ├─ Step 4: UPDATE ai_ocr_conflict_record
+   │            SET resolution=action, resolved_at=now(),
+   │                resolved_by=user_id, status='RESOLVED'
+   ├─ Step 5: INSERT ai_ocr_conflict_note
+   │            (auto_generated=false, parent_note_id=NULL,
+   │             content=note, created_by=user_id)         (跨域 INSERT)
+   ├─ Step 6: INSERT ai_ocr_task_state_log
+   │            (event_type='CONFLICT_RESOLVED',
+   │             snapshot_data={conflict_id, action})       (跨域 INSERT)
+   ├─ Step 7: 计算 next_conflict_id (Save & Next 排序 SQL)
+   │            SELECT id WHERE task_id=? AND status='PENDING'
+   │            ORDER BY array_position(LG_ENUM, metric), period
+   │            LIMIT 1
+   ├─ Step 8: 检查所有冲突已 RESOLVED?
+   │     YES → UPDATE task SET status='READY_TO_COMMIT'
+   │           INSERT state_log (ALL_CONFLICTS_RESOLVED)
+   ├─ Step 9: COMMIT;
+   │
+   ▼
+   {nextConflictId: <uuid> | null}     ──▶ Frontend (Save & Next 跳转)
+```
 
-| 表 | 动作 |
-|----|-----|
-| `ai_ocr_conflict_record` | UPDATE `resolution = action` / `resolved_at = now()` / `resolved_by = user_id` / `status = 'RESOLVED'` |
-| `ai_ocr_conflict_note` | INSERT `auto_generated = false` / `content = note` / `parent_note_id = NULL` |
-| `ai_ocr_task_state_log` | INSERT `event_type = 'CONFLICT_RESOLVED'` |
-| `ai_ocr_task` | UPDATE `status = 'READY_TO_COMMIT'`（仅当本次解决后无 PENDING 冲突） |
+**关联的表**（事务内）：
+
+| 表 | 动作 | 跨域 |
+|----|-----|:---:|
+| `ai_ocr_conflict_record` | SELECT FOR UPDATE → UPDATE `resolution` / `resolved_at` / `resolved_by` / `status='RESOLVED'` | 否（Python 拥有；v2 新增 UPDATE 部分字段范围）|
+| `ai_ocr_conflict_note` | INSERT `auto_generated=false` / `content=note` / `parent_note_id=NULL` / `created_by=user_id` | **是**（Java 拥有，Python GRANT INSERT，v2 新增）|
+| `ai_ocr_task_state_log` | INSERT `event_type='CONFLICT_RESOLVED'` + snapshot_data | **是**（GRANT INSERT）|
+| `ai_ocr_task` | UPDATE `status='READY_TO_COMMIT'`（仅当本次解决后无 PENDING 冲突）| 否（Python 有 UPDATE 部分字段权限）|
 
 **SQS 触发**：无。
 
-**响应**：`{nextConflictId: <uuid> | null}`，前端用于 Save & Next 自动跳转。
+**接口契约**：
 
-**错误处理**：
-
-- `note` 为空 → 400 / `NOTE_REQUIRED`
-- conflict 已 RESOLVED → 409 / `INVALID_CONFLICT_STATE`
-- 并发解决（两个用户同时点 Save）→ FOR UPDATE 锁；后到的得 409
+- **Endpoint**: `routes.py#resolve_conflict`
+- **Service**: `services/conflict_service.py#resolve_one(conflict_id, request, principal) -> ResolveResponse`
+- **请求** (`ResolveRequest`)：
+  ```json
+  {
+    "action": "OVERWRITE" | "SKIP",
+    "note": "string (length(trim) > 0, ≤ 2000 chars)"
+  }
+  ```
+- **响应** (`ResolveResponse`)：
+  ```json
+  {"nextConflictId": "<uuid> | null"}
+  ```
+- **DB 约束**：`ALTER TABLE ai_ocr_conflict_note ADD CONSTRAINT ck_note_not_empty CHECK (length(trim(content)) > 0)`
+- **错误码**：400 `NOTE_REQUIRED` / 404 `CONFLICT_NOT_FOUND` / 409 `INVALID_CONFLICT_STATE` / 403 `FORBIDDEN_COMPANY`
 
 ---
 
@@ -1587,37 +1982,499 @@ LangGraph PostgreSQL checkpoint：
 - 进程崩溃后从最近 checkpoint 恢复
 - 节点级重试由 LangGraph 控制（`max_retries`）
 
+### 13.4 5 个节点完整接口契约
+
+> 每个节点详情含 4 部分：**支持的业务逻辑** / **逻辑图** / **关联的表** / **接口契约**（输入/输出 state + AI 服务）。
+
+#### NODE-1: Preprocess
+
+**支持的业务逻辑**：
+
+- 文件类型路由（`workflow/nodes/preprocess.py`）：
+  - PDF/图片 + 无文本层 → eSapiens OCR（扫描件）
+  - PDF + 含文本层 → pdf2image + PyMuPDF 抽取（跳过 eSapiens）
+  - Excel/CSV → openpyxl/pandas 直接解析
+- 多页 PDF 服务端 OCR（eSapiens 原生支持），返回 `pages: [{page_index, text, confidence, bounding_boxes}]`
+- 异步 HTTP 调用，超时 120s，3 次指数退避重试
+- API key 从 AWS Secrets Manager 异步加载
+- Magic bytes 校验（`safety/file_validator.py`）：白名单 PDF / Excel / CSV / JPEG / PNG / TIFF；不在白名单 → `ValueError`
+
+**逻辑图**：
+
+```text
+[State 输入: file_id, file_bytes, content_type, filename]
+    │
+    ▼ 判定 content_type + 文本层
+    ├─ application/pdf + 含文本层 ──▶ pdf2image + PyMuPDF
+    ├─ application/pdf + 无文本层 ──▶ ESapiensClient.ocr_document(bytes)
+    ├─ image/png|jpeg|tiff       ──▶ ESapiensClient.ocr_document(bytes)
+    └─ application/vnd.ms-excel  ──▶ openpyxl/pandas
+                                          │
+                                          ▼
+                                  [State 输出: processed_pages,
+                                   page_count, ocr_text,
+                                   has_text_layer, provider_request_id]
+```
+
+**关联的表**：
+
+| 表 | 动作 | 用途 |
+|----|-----|------|
+| 无 | — | 节点本身不直接读写 DB；输出 state 由后续节点持久化（NODE-2 写 `ai_ocr_extracted_table.provider_metadata` 含 `provider_request_id`）|
+
+**接口契约**：
+
+- **节点函数**: `workflow/nodes/preprocess.py#preprocess_node(state) -> state`
+- **输入 state**: `file_id, file_bytes, content_type, filename`
+- **输出 state**: `processed_pages, page_count, ocr_text, has_text_layer, provider_request_id`
+- **AI 服务**: eSapiens OCR（仅扫描件 / 图片型 PDF 且无文本层）；Excel 走 openpyxl/pandas
+- **失败处理**: eSapiens 503 → 重试 3 次；超时 → SQS 重试；MIME 不允许 → `OcrResult{status=failed, error="unsupported_mime"}`
+- **依赖客户端**: `engines/ocr_provider/esapiens_client.py#ocr_document` (§15)
+
+#### NODE-2: Extract
+
+**支持的业务逻辑**：
+
+- 调 Vision LLM 把每页转成 `ExtractedTable` Pydantic 模型
+- Instructor + Pydantic 强类型结构化输出（schema 不符自动重试 3 次）
+- 模型路由：默认 `google/gemini-2.5-flash`；复杂场景升级 `anthropic/claude-sonnet-4`
+- 大文件并发：`asyncio.Semaphore(5)` 逐页并发，每页独立失败/重试
+- 跨页表格合并：同 `document_type` + 同 `reporting_periods` → 合并 rows
+- **尾部子步骤：周期推断**（§10.5）— 4 信号 fallback：列头 → Sheet 名 → 表格标题 → 文件名
+- **可提取性判定**（§8.6）：5 类 skip_reason（`image_only_no_data` / `narrative_only` / `cover_or_title_page` / `all_zero_values` / `no_tables_detected`）→ `skip_downstream=True` 直接终止
+- 多货币检测：`currency_warning=true` + `detected_currencies[]`，默认 USD
+- 负值识别：括号 `(1,234)` → -1234
+- Prompt Injection 防御：`<user_data>` XML 包裹 + `max_length=500` 截断（`safety/prompt_guard.py`）
+
+**逻辑图**：
+
+```text
+[State 输入: processed_pages, page_count, ocr_text, document_type_hint?]
+    │
+    ▼ Semaphore(5) 并发逐页
+    │
+    ▼ Vision LLM (Gemini Flash via OpenRouter)
+    │   + Instructor (Pydantic schema 校验, max_retries=3)
+    │
+    ▼ 跨页表格合并 (同 document_type + 同 reporting_periods)
+    │
+    ▼ 周期推断 (Period Inference): 4 信号 fallback
+    │   1. 列头 "Jan 2024" → "2024-01"
+    │   2. Sheet 名 "PnL 2024"
+    │   3. 表格标题 "Income Statement - FY2024"
+    │   4. 文件名 "2024_Q4_Financials.pdf"
+    │   失败列 → "UNKNOWN_<col_index>" + unresolved_period_count++
+    │
+    ▼ 可提取性判定 (extractability_classifier)
+    │   has_extractable_data + extraction_skip_reason
+    │
+    ▼ skip_downstream=True? ──YES──▶ 直接发 OcrResult{status='completed_no_data'}
+    │
+    NO
+    ▼
+[State 输出: tables[], skip_downstream, extraction_notes]
+```
+
+**关联的表**：
+
+| 表 | 动作 | 时机 |
+|----|-----|------|
+| `ai_ocr_extracted_table` | INSERT 元数据（document_type, currency, reporting_periods, provider_metadata={provider_request_id, page_count}）| 节点后由 persistence 层写 |
+| `ai_ocr_extracted_row` | INSERT 行数据（account_label, cell_values, is_header, is_total, source_reference={bbox, page}）| 同上 |
+
+**接口契约**：
+
+- **节点函数**: `workflow/nodes/extract.py#extract_node(state) -> state`
+- **输入 state**: `processed_pages, page_count, ocr_text, document_type_hint?`
+- **输出 state**: `tables: list[ExtractedTable]`, `skip_downstream: bool`, `extraction_notes: list[str]`
+- **AI 服务**:
+  - OpenRouter `google/gemini-2.5-flash`（Vision + Instructor，主选）
+  - 复杂场景升级 `anthropic/claude-sonnet-4`
+- **Pydantic schemas**: `ExtractedTable` / `ExtractedRow` / `ExtractionResult`（§8.2）
+- **失败处理**: LLM 超时 → Instructor 自动重试 3 次；无表格 → 走可提取性判定 → `skip_downstream=True`
+- **Prompt 模板**: `prompts/extraction_system.md`（§19.1）
+
+#### NODE-3: Classify
+
+**支持的业务逻辑**：
+
+- 给每张表打 `document_type` 标签：`PNL` / `BALANCE_SHEET` / `CASH_FLOW` / `PROFORMA` / `MISC`
+- 三类信号加权评分（§8.3）：
+  - Sheet name 关键词（权重 3）：`"P&L"` / `"Balance Sheet"`
+  - Row label 模式（权重 2/项）：`Revenue, COGS, EBITDA → P&L`
+  - 结构线索（权重 4-5）：`Assets = Liabilities + Equity → BS`
+- 阈值：≥8 HIGH / ≥4 MEDIUM / ≥2 LOW / <2 → `MISC`
+- **不调 AI**（纯本地评分算法）→ 零成本，毫秒级
+- 评分 < 2 → `MISC` + LOW，不阻断下游
+
+**逻辑图**：
+
+```text
+[State 输入: tables[]]
+    │
+    ▼ 对每张表
+    │
+    ├─ Signal 1: Sheet name 关键词 → score += 3
+    ├─ Signal 2: Row label 模式 (Revenue/COGS/...) → score += 2 × N matches
+    └─ Signal 3: 结构线索 (Assets=Liabilities+Equity) → score += 4-5
+    │
+    ▼ 阈值判定
+    │   score ≥ 8 → HIGH
+    │   score ≥ 4 → MEDIUM
+    │   score ≥ 2 → LOW
+    │   score < 2 → MISC + LOW
+    │
+    ▼
+[State 输出: tables[*].document_type, classification_confidence]
+```
+
+**关联的表**：
+
+| 表 | 动作 |
+|----|-----|
+| `ai_ocr_extracted_table` | UPDATE `document_type` / `classification_confidence`（节点后由 persistence 层写）|
+
+**接口契约**：
+
+- **节点函数**: `workflow/nodes/classify.py#classify_node(state) -> state`
+- **输入 state**: `tables: list[ExtractedTable]`
+- **输出 state**: `tables[*].document_type` (str)，`classification_confidence: Literal["HIGH", "MEDIUM", "LOW"]`
+- **AI 服务**: 不调 AI（纯本地评分算法）
+- **依赖引擎**: `engines/document_classifier.py`
+- **失败处理**: 评分 < 2 → `MISC` + LOW，不阻断
+
+#### NODE-4: Map
+
+**支持的业务逻辑**：
+
+- 三层级联映射到 19 个 LG 分类（§9）：
+  - **Layer 1 规则引擎**（覆盖 ~60%，零 AI 成本）：5 级优先级关键词匹配（§9.2）
+  - **Layer 2 公司记忆**（覆盖 ~25%，零 AI）：精确匹配 + pg_trgm 模糊匹配（相似度 > 0.6）
+  - **Layer 3 行业高频**（覆盖 ~5%，零 AI）：跨公司聚合（不暴露原标签防数据泄漏）
+  - **Layer 4 LLM 推理**（覆盖 ~10%，唯一 AI 成本）：Claude Sonnet + Few-Shot 动态注入
+- LLM Few-Shot 注入：公司记忆最相关 ≤20 条 + 同行业高频 ≤10 条
+- 跳过 `is_header` / `is_total` 行
+- 强类型 enum 防伪造分类（Instructor 重试）
+- `source` 字段四枚举：`RULE_ENGINE` / `COMPANY_MEMORY` / `INDUSTRY_COMMON` / `LLM`
+- **Mode 分支**：
+  - `FULL_EXTRACT`: 处理全部 row
+  - `REMAP_ONLY`: 仅处理 `changed_row_ids` 中的 row（§4.6）
+- 双版本流审计：`core_engine_version` + `company_memory_version`（§12.7）
+
+**逻辑图**：
+
+```text
+[State 输入: tables, company_id, industry, document_type, mode, changed_row_ids?]
+    │
+    ▼ 跳过 is_header/is_total 行
+    │
+    ▼ Layer 1: rule_engine_match (P1-P5 优先级)
+    │   命中 HIGH/MEDIUM → 完成
+    │   未命中/LOW → 进入 Layer 2
+    │
+    ▼ Layer 2: company_memory_match (asyncpg)
+    │   SELECT WHERE company_id=? AND similarity(source_term,label) > 0.6
+    │   命中 → 完成
+    │
+    ▼ Layer 3: industry_common 高频字典精确匹配
+    │   命中 → MEDIUM
+    │
+    ▼ Layer 4: 收集到 llm_batch
+    │   单次批量 LLM 调用 (Claude Sonnet + Instructor)
+    │   System Prompt 含 19 类定义 + Few-Shot
+    │
+    ▼
+[State 输出: mapping_results[], unresolved_rows[], memory_hit_count,
+            llm_map_count, core_engine_version, company_memory_version]
+```
+
+**关联的表**：
+
+| 表 | 动作 |
+|----|-----|
+| `ai_ocr_mapping_memory` | SELECT（Layer 2 公司记忆 + Layer 3 行业高频）|
+| `ai_ocr_mapping_result` | INSERT 每行映射结果（lg_category, confidence, source, reasoning, original_ai_suggestion）|
+| `lg_category_definition` | SELECT（启动时加载到运行期缓存）|
+| `company` | SELECT industry（Layer 3 用）|
+
+**接口契约**：
+
+- **节点函数**: `workflow/nodes/map.py#map_node(state) -> state`
+- **输入 state**: `tables, company_id, industry, document_type, mode, changed_row_ids?`
+- **输出 state**: `mapping_results: list[MappingResult]`, `unresolved_rows: list[MappingItem]`, `memory_hit_count: int`, `llm_map_count: int`, `core_engine_version: str`, `company_memory_version: str`
+- **AI 服务**: 三层级联（规则 → 公司记忆 → 行业 → LLM）
+  - LLM: OpenRouter `anthropic/claude-sonnet-4`
+- **依赖引擎**: `engines/rule_engine.py` / `engines/memory_matcher.py` / `engines/llm_mapper.py` / `engines/lg_category_loader.py`
+- **Pydantic schemas**: `MappingResult` / `MappingItem` / `MappingBatchResult` / `LGCategory` enum
+- **失败处理**: LLM 超时后剩余行项标记 `UNMAPPED + LOW`
+- **Prompt 模板**: `prompts/mapping_system.md` + `prompts/mapping_user_template.md`（§19.2）
+
+#### NODE-5: Validate
+
+**支持的业务逻辑**：
+
+- **OCR 数据自身的内部一致性**硬验证（**不**对比 fi_*，那是 §5 VerifyService 职责）
+- 三要素硬验证（§10.1）：
+  - 期间识别：`reporting_periods` 非空 + 无 `UNKNOWN_<idx>`
+  - 货币识别：`currency` 非空 + `currency_warning=false`
+  - 类别完整性：`lg_category=UNMAPPED` 占比 ≤ 20%
+- 内部一致性硬验证（§10.2）：
+  - 行加总 = 合计行（容忍相对 < 1% 或绝对 < 1.0）
+  - Assets ≈ Liabilities + Equity（BS 表，相对 < 1%）
+  - 期间值 sign 一致（仅 warning）
+- 失败时写 `ai_ocr_conflict_record{conflict_type='INTERNAL_INCONSISTENCY'}`
+- 三要素警告通过 `OcrResult` 字段返回 Java，**不直接写 DB**
+- **不阻断 pipeline**（与 Java 跨期间冲突检测互不重叠）
+
+**逻辑图**：
+
+```text
+[State 输入: tables, mapping_results]
+    │
+    ├─ 三要素硬验证 (warnings, 不阻断):
+    │   ├─ 期间识别? → MISSING_PERIOD warning
+    │   ├─ 货币识别? → CURRENCY_AMBIGUOUS warning
+    │   └─ UNMAPPED 占比 ≤ 20%? → MAPPING_INCOMPLETE warning
+    │
+    ├─ 内部一致性硬验证 (写 DB, 不阻断):
+    │   ├─ 行加总 = 合计行? (容忍 1%)
+    │   ├─ BS: Assets ≈ Liabilities + Equity? (容忍 1%)
+    │   └─ 期间值 sign 一致? (仅 warning)
+    │   失败 → INSERT ai_ocr_conflict_record (INTERNAL_INCONSISTENCY)
+    │
+    ▼
+[State 输出: validation_warnings[], internal_conflicts[],
+            pipeline_status: REVIEW_READY|FAILED|NO_DATA]
+```
+
+**关联的表**：
+
+| 表 | 动作 | 时机 |
+|----|-----|------|
+| `ai_ocr_conflict_record` | INSERT `conflict_type='INTERNAL_INCONSISTENCY'` | 仅当内部一致性失败 |
+| 不写 | `ai_ocr_extraction_skip_log`（已删除）/ `ai_ocr_conflict_resolution`（属用户解决，由 Java 写）| — |
+
+**接口契约**：
+
+- **节点函数**: `workflow/nodes/validate.py#validate_node(state) -> state`
+- **输入 state**: `tables, mapping_results`
+- **输出 state**: `validation_warnings: list[dict]`, `internal_conflicts: list[dict]`, `pipeline_status: Literal["REVIEW_READY", "FAILED", "NO_DATA"]`, `error_detail: str | None`
+- **AI 服务**: 不调 AI（纯算法 + SQL 内部一致性）
+- **失败处理**: 三要素硬验证失败 → 写 warnings 但不阻断
+- **边界澄清**: 与 §5 VerifyService 协同（§10.4）— 同一张 `ai_ocr_conflict_record` 表，`conflict_type` 字段区分主体（INTERNAL_INCONSISTENCY by Validate / CROSS_PERIOD_OVERWRITE by VerifyService）
+
+---
+
 ---
 
 ## 14. SQS 消费与生产
 
-> Python 端通过 SQS 与 Java 解耦通信：**3 条入站 + 1 条出站 + 1 条内部生产**。详细消息字段见 [api-doc.md §3](./api-doc.md#3-sqs-接口详情)。
+> Python 端通过 SQS 与 Java 解耦通信：**3 条入站 + 1 条出站（4 种 messageType）+ 1 条内部生产**。
+
+> 每个消费者/生产者详情含 4 部分：**支持的业务逻辑** / **逻辑图** / **关联的表** / **接口契约**（消息 schema + Producer/Consumer 路径）。
 
 ### 14.1 消费 ocr-extract-queue（统一入口）
 
-mode 分支语义：
+**支持的业务逻辑**：
 
-| `mode` | 触发场景 | 处理流程 | 删除 | 跑节点 |
-|--------|---------|---------|------|--------|
-| `FULL_EXTRACT` | Java `/start-processing` 入队 | 完整 Pipeline | DELETE extracted_table CASCADE | Preprocess→Extract→Classify→Map→Validate |
-| `REMAP_ONLY` | **Python `/review` 端点内部入队**（v2）| 仅 Map | DELETE mapping_result WHERE row_id ∈ changedRowIds | 仅 Map |
-
-**消费要点**：
 - 一条消息对应一个文件 → 独立重试、并发、隔离
-- 入口先按 `mode` 路由
-- 结果写 `ai_ocr_*` 表 + 通过 `ocr-result-queue` 回传
+- 入口先按 `mode` 路由（FULL_EXTRACT 或 REMAP_ONLY）
+- mode 分支语义：
+
+| `mode` | 触发场景 | 处理流程 | 删除范围 | 跑节点 | 时长 |
+|--------|---------|---------|---------|--------|------|
+| `FULL_EXTRACT` | (a) Java `/start-processing` 入队 | 完整 Pipeline | DELETE `ai_ocr_extracted_table` CASCADE | Preprocess→Extract→Classify→Map→Validate | ~30-60s |
+| `REMAP_ONLY` | (b) Python `/review` 端点检测到 mapping 变更内部入队（v2）| 仅 Map | DELETE `mapping_result` WHERE row_id ∈ changedRowIds（空则清整 file） | 仅 Map | ~1-10s |
+
+- 并发互斥：`SELECT ... FROM ai_ocr_file FOR UPDATE SKIP LOCKED`（§14.8）
+- 结果写 `ai_ocr_*` 表 + 通过 `ocr-result-queue` 回传 `OcrProgress` × 多次 + 终态 `OcrResult`
+
+**逻辑图**：
+
+```text
+SQS ocr-extract-queue (mode=FULL_EXTRACT 或 REMAP_ONLY)
+    │
+    ▼ aioboto3 long-polling
+[Consumer: consumers/extract_consumer.py#handle_extract_message]
+    │
+    ▼ 拿锁: SELECT file FOR UPDATE SKIP LOCKED
+    │  拿不到 → 立即 ack 退出 (其他 worker 处理中)
+    │
+    ▼ 按 mode 路由
+    ├─ FULL_EXTRACT:
+    │   DELETE ai_ocr_extracted_table CASCADE
+    │   run_full_pipeline(state)
+    │       ├─ NODE-1 Preprocess  → progress_producer.send(PREPROCESSING)
+    │       ├─ NODE-2 Extract     → progress_producer.send(EXTRACTING)
+    │       ├─ NODE-3 Classify    → progress_producer.send(MAPPING_RULE_LAYER)
+    │       ├─ NODE-4 Map (4 layers)
+    │       └─ NODE-5 Validate    → progress_producer.send(VALIDATING)
+    │
+    ├─ REMAP_ONLY:
+    │   DELETE mapping_result WHERE row_id IN changedRowIds
+    │   run_only_map_node(state)
+    │
+    ▼
+result_producer.send(OcrResult{status=completed|completed_no_data|failed|remap_completed})
+    │
+    ▼ ack SQS message
+```
+
+**关联的表**：
+
+| 表 | 动作 |
+|----|-----|
+| `ai_ocr_file` | SELECT FOR UPDATE SKIP LOCKED → UPDATE `processing_stage` / `progress_pct`（间接通过 OcrProgress 回传 Java）|
+| `ai_ocr_extracted_table` | DELETE (FULL_EXTRACT) → INSERT 新 |
+| `ai_ocr_extracted_row` | CASCADE 删 → INSERT 新 |
+| `ai_ocr_mapping_result` | DELETE (REMAP_ONLY 按 row_id 集合) → INSERT 新 |
+| `ai_ocr_conflict_record` | INSERT (Validate 节点写 INTERNAL_INCONSISTENCY) |
+
+**接口契约**：
+
+- **Consumer**: `consumers/extract_consumer.py#handle_extract_message(msg: OcrExtractMessage) -> None`
+- **Producer**（Java 端 + Python 内部）: `OcrExtractSqsProducer` (Java) / `producers/extract_remap_producer.py#enqueue_remap` (Python，v2 新增)
+- **消息 schema** (`OcrExtractMessage`)：
+  ```json
+  {
+    "messageType": "OcrExtract",
+    "mode": "FULL_EXTRACT" | "REMAP_ONLY",
+    "taskId": "<uuid>",
+    "fileId": "<uuid>",
+    "companyId": 1,
+    "s3Bucket": "...",
+    "s3Key": "...",
+    "filename": "...",
+    "contentType": "application/pdf",
+    "fileSize": 1234567,
+    "uploadedBy": "<user_id>",
+    "callbackMeta": {},
+    "changedRowIds": ["<uuid>", ...],   // REMAP_ONLY 时
+    "trigger": "user_edited_mapping"     // REMAP_ONLY 时
+  }
+  ```
+- **失败处理**：详见 §14.9
 
 ### 14.2 消费 ocr-memory-learn-queue
 
-Java commit 后入队。Python 处理：
-- 只处理 `wasOverridden=true`
-- 对比 `originalAiCategory` vs `confirmedCategory`
-- 写 `ai_ocr_mapping_memory`（company 隔离）
-- 通过 `ocr-result-queue` 回传 `OcrMemoryLearnProgress`
+**支持的业务逻辑**：
+
+- Java commit 后 AFTER_COMMIT 触发；学习 user override 修正 AI 映射
+- **只处理 `wasOverridden=true`**（AI 猜对的不存）
+- 对比 `originalAiCategory` vs `confirmedCategory`，写 `ai_ocr_mapping_memory`（company_id 隔离）
+- 状态机持久化：`MEMORY_LEARN_PENDING → IN_PROGRESS → COMPLETED / FAILED`
+- 幂等 upsert（`idempotency_key = f"{task_id}:{row_id}"`，§12.9）
+- 失败 → 写 log{failed} + 发 FAILED + 抛出重试（**永不回滚 fi_***）
+- 通过 `ocr-result-queue` 回传 `OcrMemoryLearnProgress` 4 个 stage
+
+**逻辑图**：
+
+```text
+SQS ocr-memory-learn-queue
+    │
+    ▼
+[Consumer: consumers/memory_learn_consumer.py#handle_memory_learn]
+    │
+    ├─ result_producer.send(OcrMemoryLearnProgress, learnStage=IN_PROGRESS)
+    │
+    ▼ 过滤 wasOverridden=true 的 mappingComparisons
+    │
+    ├─ 对每条:
+    │   ├─ idempotency_key = f"{task_id}:{row_id}"
+    │   ├─ SELECT memory_audit WHERE idempotency_key = ?  → 已存在则 skip
+    │   └─ INSERT ai_ocr_mapping_memory ON CONFLICT DO UPDATE
+    │       confirm_count += 1, hit_count += 1
+    │       INSERT ai_ocr_mapping_memory_audit (event_type='CONFIRM')
+    │
+    ├─ 更新 company_memory_version (SHA256 全部 memory)
+    ├─ INSERT ai_ocr_memory_learn_log {result=success}
+    └─ result_producer.send(OcrMemoryLearnProgress, learnStage=COMPLETE)
+```
+
+**关联的表**：
+
+| 表 | 动作 |
+|----|-----|
+| `ai_ocr_mapping_memory` | INSERT ON CONFLICT (company_id, source_term) DO UPDATE confirm_count / hit_count |
+| `ai_ocr_mapping_memory_audit` | INSERT `idempotency_key` / `event_type='CONFIRM'` |
+| `ai_ocr_memory_learn_log` | INSERT `result=success|failed` (跨域 INSERT，Java 拥有) |
+| `ai_ocr_task` | UPDATE `company_memory_version` |
+
+**接口契约**：
+
+- **Consumer**: `consumers/memory_learn_consumer.py#handle_memory_learn(msg: OcrMemoryLearnMessage) -> None`
+- **Producer**: `OcrMemoryLearnSqsProducer` (Java)
+- **消息 schema** (`OcrMemoryLearnMessage`)：
+  ```json
+  {
+    "messageType": "OcrMemoryLearn",
+    "taskId": "<uuid>",
+    "fileId": "<uuid>",
+    "companyId": 1,
+    "mappingComparisons": [{
+      "accountLabel": "...",
+      "originalAiCategory": "COGS",
+      "confirmedCategory": "Revenue",
+      "wasOverridden": true
+    }],
+    "attemptNumber": 1
+  }
+  ```
+- **回传**: `OcrMemoryLearnProgress` 4 个 stage：`PENDING` / `IN_PROGRESS` / `COMPLETE` / `FAILED`
 
 ### 14.3 消费 ocr-similarity-check-queue
 
-详见 §11.3。
+**支持的业务逻辑**：
+
+- 触发：所有非 FAILED 文件 = `REVIEW_READY` 时（Java 计数完成判定）
+- 检测本 task 内 `account_label` 间高相似度对（cosine > 0.9），标记给用户审核关注
+- OpenAI `text-embedding-3-small`（1536 维），batch_size=100，单 task ~$0.0002 成本
+- pgvector HNSW KNN 查 top-5 邻居，过滤 `similarity ≥ 0.9`
+- 强制 `row_id_a < row_id_b` 去重；幂等 INSERT ON CONFLICT DO NOTHING
+- 性能：100-500 rows → 5-15s
+- 失败降级：OpenAI 503 → 跳过 embedding 更新；pgvector 失败 → DLQ + Java Sweeper 兜底
+
+**逻辑图**：
+
+```text
+SQS ocr-similarity-check-queue
+    │
+    ▼
+[Consumer: consumers/similarity_check_consumer.py#handle_similarity_check]
+    │
+    ▼ JOIN extracted_row → extracted_table → ai_ocr_file
+    │  WHERE task_id = ? AND deleted=false AND is_header=false AND is_total=false
+    │
+    ▼ 对 label_embedding IS NULL 的行批量调 OpenAI
+    │  text-embedding-3-small (batch_size=100)
+    │  UPDATE ai_ocr_extracted_row SET label_embedding = vector
+    │
+    ▼ 对每个 row 用 pgvector HNSW KNN 查 top-5
+    │  cosine similarity ≥ 0.9
+    │
+    ▼ 过滤 row_id_a < row_id_b 去重
+    │
+    ▼ 批量 INSERT ai_ocr_similarity_hint ON CONFLICT DO NOTHING
+    │
+    ▼ result_producer.send(OcrSimilarityCheckResult)
+```
+
+**关联的表**：
+
+| 表 | 动作 |
+|----|-----|
+| `ai_ocr_extracted_row` | SELECT label / SELECT/UPDATE `label_embedding VECTOR(1536)` (HNSW 索引) |
+| `ai_ocr_similarity_hint` | INSERT detection 字段（rowIdA, rowIdB, similarity） — Java 拥有，跨域 INSERT |
+| `ai_ocr_extracted_table` | SELECT JOIN |
+| `ai_ocr_file` | SELECT JOIN |
+
+**接口契约**：
+
+- **Consumer**: `consumers/similarity_check_consumer.py#handle_similarity_check(msg: OcrSimilarityCheckRequest) -> None`
+- **Producer**: `OcrSimilarityCheckSqsProducer` (Java)
+- **消息 schema**: `{messageType: "OcrSimilarityCheck", taskId, companyId}`
+- **AI 服务**: OpenAI `text-embedding-3-small`
+- **依赖引擎**: `engines/embedding_service.py` / `engines/similarity_checker.py`
 
 ### 14.4 内部生产 ocr-extract-queue (mode=REMAP_ONLY) ★ v2 新增
 
@@ -1646,16 +2503,243 @@ Java commit 后入队。Python 处理：
 | 幂等 | dedup key = `f"REMAP:{task_id}:{mapping_changed_at_epoch}"` |
 | 监控 | Prometheus counter `ocr_remap_enqueued_total{trigger=...}` |
 
-### 14.5 出站 ocr-result-queue（按 messageType 多路复用）
+### 14.5 出站 ocr-result-queue（按 messageType 多路复用，4 种）
 
-4 种消息：
+> 单一队列 `ocr-result-queue`；按 `messageType` 字段多路复用到 Java `OcrResultSqsProcessor` 4 个 handler。
 
-| messageType | 时机 | 详见 |
-|-------------|------|------|
-| `OcrProgress` | 阶段切换（频繁） | [api-doc.md MSG-1](./api-doc.md#msg-1-ocrprogress) |
-| `OcrResult` | 文件处理完成 | [api-doc.md MSG-2](./api-doc.md#msg-2-ocrresult) |
-| `OcrSimilarityCheckResult` | 相似度检测完成 | [api-doc.md MSG-3](./api-doc.md#msg-3-ocrsimilaritycheckresult) |
-| `OcrMemoryLearnProgress` | 记忆学习状态切换 | [api-doc.md MSG-4](./api-doc.md#msg-4-ocrmemorylearnprogress) |
+#### 14.5.1 MSG-1: `OcrProgress`
+
+**支持的业务逻辑**：
+
+- 文件级精细进度上报；每个 `processing_stage` 切换发一条
+- 幂等去重：靠 `processing_stage` ordinal（Java 端比对，落后阶段不写）
+- 12 个 stage 枚举值（覆盖 0-100%）：
+
+| Stage | 进度 | 对应节点 | 前端显示 |
+|-------|---:|---------|---------|
+| `QUEUED` | 0% | — | "已入队" |
+| `PREPROCESS_PENDING` | 1-5% | Preprocess（开始）| "准备解析" |
+| `PREPROCESSING` | 6-15% | Preprocess（执行）| "格式转换中" |
+| `EXTRACTING` | 16-50% | Extract | "AI 识别表格" |
+| `MAPPING_RULE_LAYER` | 51-60% | Map (Layer 1) | "应用业务规则" |
+| `MAPPING_MEMORY_LOOKUP` | 61-70% | Map (Layer 2) | "查询历史记忆" |
+| `MAPPING_INDUSTRY_LAYER` | 71-78% | Map (Layer 3) | "应用行业模板" |
+| `MAPPING_LLM_FALLBACK` | 79-90% | Map (Layer 4) | "AI 智能映射" |
+| `VALIDATING` | 91-95% | Validate | "校验数据一致性" |
+| `PERSISTING` | 96-99% | — | "保存结果" |
+| `REVIEW_READY` | 100% | — | "可审核" |
+| `FAILED` | — | — | 显示错误 |
+
+**逻辑图**：
+
+```text
+[LangGraph node] 切入新阶段
+    │
+    ▼
+[Producer: producers/progress_producer.py#send_progress]
+    │
+    ▼ SQS ocr-result-queue
+    {messageType: "OcrProgress", fileId, processingStage, progressPct, stageDetail}
+    │
+    ▼
+[Java Handler: OcrResultSqsProcessor#handleProgress]
+    │
+    ├─ UPDATE ai_ocr_file SET processing_stage, progress_pct, stage_detail
+    └─ CAS UPDATE ai_ocr_task.status = PROCESSING (首次到达时)
+```
+
+**关联的表**（Java 端写）：
+
+| 表 | 动作 |
+|----|-----|
+| `ai_ocr_file` | UPDATE `processing_stage` / `progress_pct` / `stage_detail` JSONB |
+| `ai_ocr_task` | UPDATE `status: UPLOAD_COMPLETE → PROCESSING` (CAS 首次) |
+
+**接口契约**：
+
+- **Producer**: `producers/progress_producer.py#send_progress(file_id, stage, pct, detail)`
+- **Java Handler**: `OcrResultSqsProcessor#handleProgress`
+- **消息 schema**：
+  ```json
+  {
+    "messageType": "OcrProgress",
+    "taskId": "<uuid>",
+    "fileId": "<uuid>",
+    "processingStage": "EXTRACTING",
+    "progressPct": 35,
+    "stageDetail": {"page": 3, "totalPages": 10}
+  }
+  ```
+
+#### 14.5.2 MSG-2: `OcrResult`
+
+**支持的业务逻辑**：
+
+- 单文件最终结果上报；每文件一次
+- 三个终态语义：
+
+| status | 含义 | file 终态 | state_log event_type |
+|--------|------|----------|---------------------|
+| `completed` | 解析成功，含可提取财务数据 | `REVIEW_READY` | `EXTRACT_COMPLETE` |
+| `completed_no_data` | 解析成功，无可提取财务数据 | `REVIEW_READY` | `EXTRACT_NO_DATA`（含 `skipReason`）|
+| `failed` | 解析失败 | `FILE_FAILED` | `EXTRACT_FAILED` |
+| `remap_completed` | REMAP_ONLY mode 完成（v2 新增）| `REVIEW_READY` (不变) | `REMAP_COMPLETE` |
+| `remap_failed` | REMAP_ONLY mode 失败 | `REVIEW_READY` (不变) | `REMAP_FAILED` |
+
+- `skipReason` 5 类：`NO_TABLES` / `NARRATIVE_ONLY` / `IMAGE_NO_DATA` / `EMPTY_TABLE` / `INDISTINGUISHABLE_NUMBERS`
+- Java FOR UPDATE 锁 task 行做计数；全部完成 → 触发相似度检测阶段
+
+**逻辑图**：
+
+```text
+[Pipeline 完成]
+    │
+    ▼
+[Producer: producers/result_producer.py#send_result]
+    │
+    ▼ SQS ocr-result-queue
+    {messageType: "OcrResult", status, fileId, taskId, ...}
+    │
+    ▼
+[Java Handler: OcrResultSqsProcessor#handleResult]
+    │
+    ├─ FOR UPDATE 锁 task
+    ├─ UPDATE ai_ocr_file.status = REVIEW_READY | FILE_FAILED
+    ├─ INSERT state_log (event_type)
+    └─ 计数: 全部完成?
+            YES → 入队 ocr-similarity-check-queue
+                  task.status = PROCESSING → SIMILARITY_CHECKING
+```
+
+**关联的表**（Java 端写）：
+
+| 表 | 动作 |
+|----|-----|
+| `ai_ocr_file` | FOR UPDATE → UPDATE `status` |
+| `ai_ocr_task` | FOR UPDATE → UPDATE `status` 计数推进 |
+| `ai_ocr_task_state_log` | INSERT |
+
+**接口契约**：
+
+- **Producer**: `producers/result_producer.py#send_result(...)`
+- **Java Handler**: `OcrResultSqsProcessor#handleResult`
+- **消息 schema**：
+  ```json
+  {
+    "messageType": "OcrResult",
+    "status": "completed" | "completed_no_data" | "failed" | "remap_completed" | "remap_failed",
+    "taskId": "<uuid>",
+    "fileId": "<uuid>",
+    "skipReason": "NO_TABLES" | null,
+    "errorDetail": "..." | null,
+    "extractedTableCount": 3,
+    "mappedRowCount": 42,
+    "validationWarnings": [{"code": "MISSING_PERIOD", "detail": "..."}]
+  }
+  ```
+
+#### 14.5.3 MSG-3: `OcrSimilarityCheckResult`
+
+**支持的业务逻辑**：
+
+- 相似度检测完成回执；推进 task 进入用户审核阶段
+- 状态变更：`task.status: SIMILARITY_CHECKING → REVIEWING`
+- 单一时机（Phase 2.5 完成后）
+
+**逻辑图**：
+
+```text
+[similarity_checker 完成]
+    │
+    ▼
+[Producer: producers/result_producer.py]
+    │
+    ▼ SQS ocr-result-queue
+    {messageType: "OcrSimilarityCheckResult", taskId, hintCount}
+    │
+    ▼
+[Java Handler: OcrResultSqsProcessor#handleSimilarityCheckResult]
+    │
+    ├─ UPDATE task.status: SIMILARITY_CHECKING → REVIEWING
+    └─ INSERT state_log (event_type='SIMILARITY_CHECK_COMPLETE')
+```
+
+**关联的表**（Java 端写）：
+
+| 表 | 动作 |
+|----|-----|
+| `ai_ocr_task` | UPDATE `status` |
+| `ai_ocr_task_state_log` | INSERT |
+
+**接口契约**：
+
+- **Producer**: `producers/result_producer.py#send_similarity_result`
+- **Java Handler**: `OcrResultSqsProcessor#handleSimilarityCheckResult`
+- **消息 schema**：
+  ```json
+  {
+    "messageType": "OcrSimilarityCheckResult",
+    "taskId": "<uuid>",
+    "hintCount": 5,
+    "status": "completed" | "failed"
+  }
+  ```
+
+#### 14.5.4 MSG-4: `OcrMemoryLearnProgress`
+
+**支持的业务逻辑**：
+
+- 记忆学习阶段进度回报；驱动 task 终态切换
+- 4 个 learnStage 枚举：
+
+| learnStage | 含义 | 前端显示 |
+|-----------|------|---------|
+| `PENDING` | 已入队等待 Python 消费 | "记忆学习排队中..." |
+| `IN_PROGRESS` | Python 已开始处理 | "正在学习用户修正..." |
+| `COMPLETE` | 学习成功完成 | "学习完成" |
+| `FAILED` | 本次尝试失败 | 静默或"学习失败但财务数据已提交" |
+
+- 状态变更：`MEMORY_LEARN_PENDING → IN_PROGRESS → COMPLETED / FAILED`
+
+**逻辑图**：
+
+```text
+[memory_learn_consumer 各阶段]
+    │
+    ├─ 启动 → send(IN_PROGRESS)
+    ├─ 完成 → send(COMPLETE)
+    └─ 失败 → send(FAILED)
+    │
+    ▼ SQS ocr-result-queue
+    │
+    ▼
+[Java Handler: OcrResultSqsProcessor#handleMemoryLearnProgress]
+    │
+    └─ UPDATE task.status: MEMORY_LEARN_<learnStage>
+```
+
+**关联的表**（Java 端写）：
+
+| 表 | 动作 |
+|----|-----|
+| `ai_ocr_task` | UPDATE `status` |
+| `ai_ocr_task_state_log` | INSERT |
+
+**接口契约**：
+
+- **Producer**: `producers/result_producer.py#send_memory_learn_progress`
+- **Java Handler**: `OcrResultSqsProcessor#handleMemoryLearnProgress`
+- **消息 schema**：
+  ```json
+  {
+    "messageType": "OcrMemoryLearnProgress",
+    "taskId": "<uuid>",
+    "learnStage": "IN_PROGRESS" | "COMPLETE" | "FAILED",
+    "attemptNumber": 1,
+    "result": "success" | "failed" | null,
+    "errorDetail": "..." | null
+  }
+  ```
 
 ### 14.6 Pydantic alias 配置（关键）
 

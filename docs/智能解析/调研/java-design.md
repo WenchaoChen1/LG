@@ -1,119 +1,847 @@
 # OCR Agent Java 端设计 (CIOaas-api)
 
 > **技术栈**: Java 17 + Spring Boot 3 + Spring Cloud Gateway + AWS S3/SQS
-> **关联文档**: [设计理念](./design-philosophy.md) · [需求分析](./requirement-analysis.md) · [系统架构](./system-architecture.md) · [Python 端设计](./python-design.md) · [前端设计](./frontend-design.md) · [接口文档](./api-doc.md) · [代码示例](./code-examples.md) · [用户输入需求清单](../user-input-requirements.md)
+> **关联文档**: [设计理念](./design-philosophy.md) · [需求分析](./requirement-analysis.md) · [系统架构](./system-architecture.md) · [Python 端设计](./python-design.md) · [前端设计](./frontend-design.md) · [数据库 Schema](./database-schema.md) · [代码示例](./code-examples.md) · [用户输入需求清单](../user-input-requirements.md)
 
 ---
 
 ## 目录
 
-- [0.5 文档定位说明（v2 收敛）](#05-文档定位说明v2-收敛)
-- [0. 接口清单（v2 — 25 → 6）](#0-接口清单v2--25--6)
-- [1. 模块结构](#1-模块结构)
-  - [1.1 包结构（v2 精简）](#11-包结构v2-精简)
-  - [1.2 与现有模块的集成点](#12-与现有模块的集成点)
-- [2. 文件上传实现层（端点 1-3）](#2-文件上传实现层端点-1-3)
-  - [2.1 端点 1：`POST /tasks/upload-init`（一站式初始化 + 预关联公司文件表）](#21-端点-1post-tasksupload-init一站式初始化--预关联公司文件表)
-  - [2.2 端点 2：`POST /tasks/{id}/upload-complete`（单文件完成）](#22-端点-2post-tasksidupload-complete单文件完成)
-  - [2.3 端点 3：`POST /tasks/{id}/start-processing`（新增 — 用户点 Next 触发批量入队）](#23-端点-3post-tasksidstart-processing新增--用户点-next-触发批量入队)
-  - [2.4 上传错误码](#24-上传错误码)
-  - [2.5 Presigned GET URL（端点 6 — 文件查看辅助）](#25-presigned-get-url端点-6--文件查看辅助)
-- [3. 数据表设计（业务语义）](#3-数据表设计业务语义)
-  - [3.1 Java 拥有的表（v2 概览）](#31-java-拥有的表v2-概览)
-  - [3.2 关键设计决策（v2 保留）](#32-关键设计决策v2-保留)
-- [4. SQS 集成（实现层）](#4-sqs-集成实现层)
-  - [4.1 OcrExtractSqsProducer 设计要点](#41-ocrextractsqsproducer-设计要点)
-  - [4.2 OcrResultSqsProcessor 设计要点](#42-ocrresultsqsprocessor-设计要点)
-  - [4.3 OcrSimilarityCheckSqsProducer](#43-ocrsimilaritychecksqsproducer)
-  - [4.4 OcrMemoryLearnSqsProducer](#44-ocrmemorylearnsqsproducer)
-  - [4.5 队列配置](#45-队列配置)
-  - [4.6 DocParseTaskSweeper（v2 收窄）](#46-docparsetasksweeperv2-收窄)
-  - [4.7 Java/Python 数据库物理部署](#47-javapython-数据库物理部署)
-- [5. Commit 流程实现层（端点 4 — 核心职责）](#5-commit-流程实现层端点-4--核心职责)
-  - [5.1 v2 Commit 端点重大变更](#51-v2-commit-端点重大变更)
-  - [5.2 两阶段事务模型](#52-两阶段事务模型)
-  - [5.3 关键实现层约束](#53-关键实现层约束)
-  - [5.4 Commit 失败的恢复路径（Q7 方案 B）](#54-commit-失败的恢复路径q7-方案-b)
-  - [5.5 v2 ImportedStatementsService 职责（预占位 → 最终化）](#55-v2-importedstatementsservice-职责预占位--最终化)
-  - [5.6 边界用例 — 无可提取数据（NO_DATA_BYPASS）](#56-边界用例--无可提取数据no_data_bypass)
-- [6. 任务修订实现层（端点 5）](#6-任务修订实现层端点-5)
-- [7. 安全要求](#7-安全要求)
-  - [7.1 移除 FileController @AnonymousAccess](#71-移除-filecontroller-anonymousaccess)
-  - [7.2 上传校验 MIME + magic bytes](#72-上传校验-mime--magic-bytes)
-  - [7.3 SQS 消息 HMAC 签名](#73-sqs-消息-hmac-签名)
-  - [7.4 SQS 消费时跨公司归属校验](#74-sqs-消费时跨公司归属校验)
-  - [7.5 S3 Bucket CORS（生产必需）](#75-s3-bucket-cors生产必需)
-  - [7.6 S3 Presigned URL 安全增强（5 项约束）](#76-s3-presigned-url-安全增强5-项约束)
-  - [7.7 IAM 角色与数据库角色](#77-iam-角色与数据库角色)
-  - [7.8 v2 Python 端点的 JWT 共享](#78-v2-python-端点的-jwt-共享)
+- [0. 文档定位（v2）](#0-文档定位v2)
+- [1. 接口清单（Java 端 6 REST + 3 SQS Producer + 1 回传 Consumer）](#1-接口清单java-端-6-rest--3-sqs-producer--1-回传-consumer)
+  - [1.1 REST 端点（用户面向：上传 + 提交）](#11-rest-端点用户面向上传--提交)
+  - [1.2 REST 端点（辅助：文件查看）](#12-rest-端点辅助文件查看)
+  - [1.3 SQS 出口生产者（Java → Python）](#13-sqs-出口生产者java--python)
+  - [1.4 SQS 回传消费者（Python → Java）](#14-sqs-回传消费者python--java按-messagetype-多路复用)
+- [1.5 接口流程图（v2 全景）](#15-接口流程图v2-全景)
+- [2. REST 端点详情（6 个 — 含业务逻辑 / 逻辑图 / 关联表 / 契约）](#2-rest-端点详情6-个--含业务逻辑--逻辑图--关联表--契约)
+  - [2.1 POST /tasks/upload-init](#21-post-tasksupload-init)
+  - [2.2 POST /tasks/{id}/upload-complete](#22-post-tasksidupload-complete)
+  - [2.3 POST /tasks/{id}/start-processing](#23-post-tasksidstart-processing)
+  - [2.4 POST /tasks/{id}/commit](#24-post-tasksidcommit)
+  - [2.5 POST /tasks/{id}/revise](#25-post-tasksidrevise)
+  - [2.6 POST /files/{fileId}/download-url](#26-post-filesfileiddownload-url)
+- [3. SQS 集成（实现层 + 业务详情）](#3-sqs-集成实现层--业务详情)
+  - [3.1 OcrExtractSqsProducer（出口 1）](#31-ocrextractsqsproducer出口-1)
+  - [3.2 OcrSimilarityCheckSqsProducer（出口 2）](#32-ocrsimilaritychecksqsproducer出口-2)
+  - [3.3 OcrMemoryLearnSqsProducer（出口 3）](#33-ocrmemorylearnsqsproducer出口-3)
+  - [3.4 OcrResultSqsProcessor（回传消费者，4 个 messageType handler）](#34-ocrresultsqsprocessor回传消费者4-个-messagetype-handler)
+  - [3.5 队列配置](#35-队列配置)
+  - [3.6 DocParseTaskSweeper（v2 收窄）](#36-docparsetasksweeperv2-收窄)
+- [4. 模块结构](#4-模块结构)
+  - [4.1 包结构（v2 精简）](#41-包结构v2-精简)
+  - [4.2 与现有模块的集成点](#42-与现有模块的集成点)
+- [5. 数据表设计（业务语义）](#5-数据表设计业务语义)
+  - [5.1 Java 拥有的表（v2 概览）](#51-java-拥有的表v2-概览)
+  - [5.2 关键设计决策（v2 保留）](#52-关键设计决策v2-保留)
+  - [5.3 Java/Python 数据库物理部署](#53-javapython-数据库物理部署)
+- [6. Commit 流程实现层（端点 4 — 核心职责）](#6-commit-流程实现层端点-4--核心职责)
+  - [6.1 v2 Commit 端点重大变更](#61-v2-commit-端点重大变更)
+  - [6.2 两阶段事务模型](#62-两阶段事务模型)
+  - [6.3 关键实现层约束](#63-关键实现层约束)
+  - [6.4 Commit 失败的恢复路径](#64-commit-失败的恢复路径)
+  - [6.5 ImportedStatementsService 职责（预占位 → 最终化）](#65-importedstatementsservice-职责预占位--最终化)
+  - [6.6 边界用例 — 无可提取数据（NO_DATA_BYPASS）](#66-边界用例--无可提取数据no_data_bypass)
+- [7. 任务修订实现层（端点 5）](#7-任务修订实现层端点-5)
+- [8. 安全要求](#8-安全要求)
 
 ---
 
-## 0.5 文档定位说明（v2 收敛）
+## 0. 文档定位（v2）
 
-本文档**主要描述 Java 端"文件上传 + 最终提交"两条核心路径的实现层细节**：
+本文档**唯一权威**描述 Java 端的所有对外接口（6 个 REST + 3 个 SQS Producer + 1 个回传 Consumer），覆盖：
+- 接口契约（URL / DTO / 字段定义）
+- 接口对应的业务逻辑
+- 接口逻辑图（前端 → Controller → Service → Repository / S3 / SQS / DB）
+- 接口关联的数据库表（INSERT / UPDATE / SELECT 哪些字段）
+- 实现层细节（事务边界、并发控制、状态机推进、安全约束）
 
-- 文件上传：S3 presigned URL 直传、magic bytes 校验、上传完成、批量入队
-- 最终提交：fi_* 写入事务、AFTER_COMMIT 触发记忆学习 SQS、Imported Statements 同步、Benchmark 跳转
-
-其他业务逻辑（综合状态查询 / 用户编辑 / 冲突验证 / 单冲突解决 / 相似度决策 / 记忆学习状态 / 任务历史链 / mapping 变更检测）**全部由 Python 主导**，前端直接调用 Python 的 4 个端点 — 详见 [api-doc.md §1.1.3](./api-doc.md#113-python-端用户面向查询--编辑--验证--2026-05-06-v2-新边界) 与 [python-design.md](./python-design.md)。
-
-本文档不再描述上述被迁移的端点；保留章节聚焦：
-- 接口职责定义 → [api-doc.md](./api-doc.md)（Java 端 6 个端点 + 3 个 SQS 生产者 + 1 个回传消费者）
-- 业务规则与状态契约 → [system-architecture.md](./system-architecture.md)（4 步流程、状态机、跨域权限）
-
----
-
-## 0. 接口清单（v2 — 25 → 6）
-
-Java 端对外接口的**完整清单 + 字段定义**已抽取到独立接口文档：
-
-📘 **[OCR Agent 接口文档](./api-doc.md)** — 先看 §1 总览（一行一个接口），需要细节时跳转 §2-§3。
-
-| 接口类别 | 数量 | 索引位置 |
-|---------|:---:|---------|
-| REST 端点（用户面向：上传 + 提交）| 5 | [api-doc.md §1.1.1](./api-doc.md#111-java-端用户面向文件上传--最终提交) |
-| REST 端点（辅助：文件查看）| 1 | [api-doc.md §1.1.2](./api-doc.md#112-java-端辅助) |
-| SQS 生产者（Java → Python）| 3 | [api-doc.md §1.2.1](./api-doc.md#121-java--python出口队列) |
-| SQS 消费者 handler（Python → Java，按 messageType 多路复用）| 4 | [api-doc.md §1.2.2](./api-doc.md#122-python--java回传队列按-messagetype-多路复用) |
-
-**v2 端点清单（Java 端 6 个）**：
-
-| # | URL | 方法 | 一句话职责 |
-|---:|-----|:---:|-----------|
-| 1 | `/tasks/upload-init` | POST | 一站式：创建 task + presigned PUT URL + **预关联公司文件表占位行** |
-| 2 | `/tasks/{id}/upload-complete` | POST | 单文件上传完成（HeadObject + magic bytes 校验，写 `ai_ocr_file`） |
-| 3 | `/tasks/{id}/start-processing` | POST | **新增**：用户点 Next 触发批量入队所有 UPLOADED 文件到 `ocr-extract-queue` |
-| 4 | `/tasks/{id}/commit` | POST | 写 fi_* + AFTER_COMMIT 触发记忆 SQS + 最终化 Imported Statements + 返回 Benchmark URL |
-| 5 | `/tasks/{id}/revise` | POST | 任务修订：基于 COMPLETED task 创建新批次（copy-on-write） |
-| 6 | `/files/{fileId}/download-url` | POST | ReviewPage 渲染 PDF/Excel 时申请 5min S3 presigned GET URL |
-
-**v2 删除的端点（16 个，功能迁移到 Python 或合并）**：
-
-| 旧端点 | 去向 |
-|-------|------|
-| `POST /tasks` 创建空任务 | 合并入 `/tasks/upload-init` |
-| `GET /tasks/{id}/status` | 迁移到 Python `/ocr/tasks/{id}/state` |
-| `GET /tasks/{id}/result` | 迁移到 Python `/state` |
-| `GET /tasks/{id}/history` | 内嵌 Python `/state` 响应 |
-| `POST /upload/abort` | 简化删除（用户放弃直接退出页面，Sweeper 24h 清 DRAFT） |
-| `PATCH /tasks/{id}/review` | 迁移到 Python `/ocr/tasks/{id}/review` |
-| `GET /tasks/{id}/mapping-summary` | 内嵌 Python `/state.mappingSummary` |
-| `POST /tasks/{id}/verify/start` | 迁移到 Python `/ocr/tasks/{id}/verify` |
-| `GET /tasks/{id}/verify/progress` | 内嵌 Python `/state.verifyState` |
-| `GET /tasks/{id}/conflicts` | 内嵌 Python `/state.verifyState.conflicts` |
-| `POST /tasks/{id}/conflicts/{id}/resolve` | 迁移到 Python `/ocr/conflicts/{id}/resolve` |
-| `GET/POST /tasks/{id}/notes` | 合并到 Python `/review.conflictNotes` 字段 |
-| `GET /tasks/{id}/commit/result` | 合并到 `/commit` 响应（含 `benchmarkRedirectUrl`） |
-| `POST /tasks/{id}/navigate-back` | **功能内嵌**到 Python `/review` 端点的 mapping 变更检测 |
-| `PATCH /similarity-hints/{hintId}` | 合并到 Python `/review.similarityDecisions` 字段 |
-| `GET /memory-learn` / `/history` / `POST /retry` | 迁移到 Python `/state.memoryLearn` |
+**v2 边界（2026-05-06）**：
+- Java 仅承担"文件上传 + 最终提交"两条核心路径，6 个 REST 端点
+- 步骤 3-6（综合状态查询 / 用户编辑 / 冲突验证 / 单冲突解决 / 相似度决策 / 记忆学习状态 / 任务历史链 / mapping 变更检测）**全部由 Python 主导**，前端直接调用 Python 端点 — 详见 [python-design.md](./python-design.md)
+- Java ↔ Python 通信仅通过 SQS（不变）
+- 详见 [system-architecture.md §0](./system-architecture.md#0-职责边界声明顶层规则)
 
 ---
 
-## 1. 模块结构
+## 1. 接口清单（Java 端 6 REST + 3 SQS Producer + 1 回传 Consumer）
 
-### 1.1 包结构（v2 精简）
+通用约定：
+- 所有 REST 端点位于 `/api/v1/docparse` 前缀下
+- JWT 认证 + `company_id` 归属校验（强制）
+- 返回 `Result<T>` 标准包装（success / data / error）
+- 用户可见错误信息均由 Java 生成（R-2.2 约束）
+
+### 1.1 REST 端点（用户面向：上传 + 提交）
+
+| # | URL | 方法 | 用户步骤 | 一句话职责 |
+|---:|-----|:---:|:---:|----------|
+| 1 | `/tasks/upload-init` | POST | 步骤 1 | 一站式：创建 task + 申请 S3 presigned PUT URL + **预关联公司文件表占位行** |
+| 2 | `/tasks/{id}/upload-complete` | POST | 步骤 1 | 单文件上传完成（HeadObject + magic bytes 校验，写 `ai_ocr_file`） |
+| 3 | `/tasks/{id}/start-processing` | POST | 步骤 2 | **点 Next 触发**：批量入队所有已上传文件到 `ocr-extract-queue` |
+| 4 | `/tasks/{id}/commit` | POST | 步骤 7 | 写 fi_* + AFTER_COMMIT 触发记忆 SQS + 最终化 Imported Statements + 返回 Benchmark 跳转 URL |
+| 5 | `/tasks/{id}/revise` | POST | — | 任务修订：基于已 COMPLETED task 创建新批次（copy-on-write） |
+
+### 1.2 REST 端点（辅助：文件查看）
+
+| # | URL | 方法 | 用途 |
+|---:|-----|:---:|------|
+| 6 | `/files/{fileId}/download-url` | POST | ReviewPage 渲染 PDF/Excel 时申请 5 min S3 presigned GET URL |
+
+### 1.3 SQS 出口生产者（Java → Python）
+
+| 队列 | Producer 类 | 触发场景 | 一句话职责 |
+|------|-------------|---------|----------|
+| `ocr-extract-queue` | `OcrExtractSqsProducer` | 步骤 3：用户点 Next 后由 `start-processing` 端点批量入队 | 触发 OCR + AI 提取 + AI 映射；`mode` 字段区分 `FULL_EXTRACT` / `REMAP_ONLY` |
+| `ocr-similarity-check-queue` | `OcrSimilarityCheckSqsProducer` | 内部辅助：所有文件 REVIEW_READY 后由 `OcrResultSqsProcessor` 通过 `TaskReadyForReviewEvent` 派发 | 触发 embedding + KNN 相似度检测 |
+| `ocr-memory-learn-queue` | `OcrMemoryLearnSqsProducer` | 步骤 7：`commit` 端点 AFTER_COMMIT 入队 | 触发记忆学习更新 mapping_memory |
+
+> `REMAP_ONLY` 入队由 Python `/review` 端点检测 mapping 变更后内部完成（Python 也是 `ocr-extract-queue` 的 producer，通过 boto3 共享 SQS API）。Java 不再承担 navigate-back 端点。
+
+### 1.4 SQS 回传消费者（Python → Java，按 messageType 多路复用）
+
+> 单一队列 `ocr-result-queue`；4 个 messageType 分发到 `OcrResultSqsProcessor` 4 个 handler。
+
+| messageType | Handler | 一句话职责 |
+|-------------|---------|----------|
+| `OcrProgress` | `OcrResultSqsProcessor#handleProgress` | 文件级精细进度上报（每个 stage 一条） |
+| `OcrResult` | `OcrResultSqsProcessor#handleResult` | 单文件最终结果上报 |
+| `OcrSimilarityCheckResult` | `OcrResultSqsProcessor#handleSimilarityCheckResult` | 相似度检测完成回执 |
+| `OcrMemoryLearnProgress` | `OcrResultSqsProcessor#handleMemoryLearnProgress` | 记忆学习进度回报 |
+
+---
+
+## 1.5 接口流程图（v2 全景）
+
+下图横轴：Frontend / Java / Python / SQS / DB / S3；纵轴：4 步流程的时间顺序。突出 Java 端 6 个 REST 接口在整个流程中的位置。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant FE as Frontend (CIOaas-web)
+    participant J as Java (CIOaas-api)
+    participant S3 as AWS S3
+    participant SQS as AWS SQS
+    participant PY as Python (CIOaas-python)
+    participant DB as PostgreSQL
+
+    Note over FE,DB: 步骤 1：文件上传 — Java 主导
+    FE->>J: ① POST /tasks/upload-init {files[]}
+    J->>DB: INSERT ai_ocr_task (DRAFT)
+    J->>DB: INSERT ai_ocr_file × N (PENDING)
+    J->>DB: INSERT ImportedStatements 占位行 (visible=false)
+    J->>S3: 生成 presigned PUT URL × N
+    J-->>FE: {taskId, uploads[], companyDocFolderId}
+    FE->>S3: 直接 PUT 文件
+    FE->>J: ② POST /tasks/{id}/upload-complete {fileId, etag, actualSize}
+    J->>S3: HeadObject + 读首 2KB 做 magic bytes 校验
+    J->>DB: UPDATE ai_ocr_file (UPLOADED) + state_log
+    J-->>FE: {status: ok}
+
+    Note over FE,DB: 步骤 2：用户点 Next → 触发解析
+    FE->>J: ③ POST /tasks/{id}/start-processing
+    J->>DB: SELECT FOR UPDATE ai_ocr_task + 批量扫描 UPLOADED 文件
+    J->>DB: UPDATE ai_ocr_file (QUEUED) + UPDATE task (PROCESSING)
+    J->>SQS: send ocr-extract-queue × N (mode=FULL_EXTRACT)
+    J-->>FE: {queuedCount, skippedCount}
+
+    Note over FE,DB: 步骤 3：解析 + 进度查询
+    SQS->>PY: 消费 ocr-extract-queue
+    PY->>S3: GetObject 文件
+    PY->>DB: 写 ai_ocr_extracted_table/row + mapping_result
+    PY->>SQS: send ocr-result-queue (OcrProgress × N + OcrResult)
+    SQS->>J: 消费 ocr-result-queue → OcrResultSqsProcessor
+    J->>DB: UPDATE ai_ocr_file.processing_stage / progress_pct
+    FE->>PY: GET /ocr/tasks/{id}/state (轮询)
+    PY-->>FE: 综合状态 (task + files + 数据 + 映射 + 历史 + summary)
+
+    Note over FE,DB: 步骤 4-6：用户审核/编辑/验证/解决冲突 — Python 主导
+    FE->>PY: PATCH /ocr/tasks/{id}/review (编辑 + similarity 决策)
+    PY->>SQS: send ocr-extract-queue (mode=REMAP_ONLY) — 若 mapping 变更
+    FE->>PY: POST /ocr/tasks/{id}/verify
+    PY->>DB: SELECT fi_* 跑冲突检测 + 写 ai_ocr_conflict_record
+    FE->>PY: POST /ocr/conflicts/{id}/resolve
+
+    Note over FE,DB: 步骤 7：最终提交 — Java 主导
+    FE->>J: ④ POST /tasks/{id}/commit
+    J->>DB: SELECT FOR UPDATE task + Hard Gate 校验
+    J->>DB: 写 fi_* (Actuals) + ProformaForecastService.appendVersion()
+    J->>DB: INSERT ai_ocr_commit_audit + UPDATE task (COMMITTED)
+    J-->>FE: {writtenAccounts, writtenPeriods[], importedStatementsFolderId, benchmarkRedirectUrl}
+    Note over J,SQS: AFTER_COMMIT 阶段
+    J->>DB: ImportedStatements finalize (visible=true)
+    J->>SQS: send ocr-memory-learn-queue
+    SQS->>PY: 消费 → 更新 ai_ocr_mapping_memory + 双重日志
+    PY->>SQS: send ocr-result-queue (OcrMemoryLearnProgress)
+    SQS->>J: 消费 → UPDATE task.status (MEMORY_LEARN_*)
+
+    Note over FE,DB: 辅助：ReviewPage 渲染文件
+    FE->>J: ⑥ POST /files/{fileId}/download-url
+    J->>S3: 生成 5min presigned GET URL
+    J-->>FE: {url, expiresAt}
+
+    Note over FE,DB: 任务修订（独立路径）
+    FE->>J: ⑤ POST /tasks/{id}/revise
+    J->>DB: copy-on-write 创建新 task + 继承 file/extracted/mapping
+    J-->>FE: {newTaskId}
+```
+
+---
+
+## 2. REST 端点详情（6 个 — 含业务逻辑 / 逻辑图 / 关联表 / 契约）
+
+### 2.1 POST /tasks/upload-init
+
+> 步骤 1 入口：一站式创建 task + 申请 S3 presigned PUT URL + 预关联公司文件表占位行。
+
+**支持的业务逻辑**：
+- JWT + company 归属校验
+- 创建 `ai_ocr_task`（status=DRAFT，24h 后过期）
+- 对每个 file 逐项预校验（部分失败不阻断其余文件）：
+  - 单文件大小 ≤ 20MB；批次累计 ≤ 100MB
+  - 扩展名 + Content-Type 白名单（PDF / XLSX / CSV / JPG / PNG / TIFF）
+  - SHA-256 hash 重名查询：UNIQUE `(company_id, file_hash) WHERE deleted=false AND status!='FILE_FAILED'`
+- 合法文件 → 创建 `ai_ocr_file`（status=PENDING）+ 生成 S3 presigned PUT URL（15 min 有效）
+- **预关联公司文件表（v2 新增）**：在 Documents 服务的 "Imported Statements/{taskUuid}/" 文件夹下创建占位行（visible=false），供用户在上传过程中即可在 Documents 视图看到"导入中"批次
+- 写 `ai_ocr_task_state_log` (event_type=`UPLOAD_INITIATED`)
+
+**逻辑图**：
+
+```
+[Frontend]
+   │ POST /tasks/upload-init {files[]: {filename, fileSize, contentType, sha256}}
+   ▼
+[UploadController#initUpload]
+   │ JWT + company 归属校验
+   ▼
+[UploadInitService] (@Transactional)
+   ├──→ [DocParseTaskRepository] INSERT ai_ocr_task (DRAFT)
+   ├──→ FOR EACH file:
+   │    ├─ 校验 size / 扩展名 / Content-Type / hash
+   │    ├──→ [DocParseFileRepository] INSERT ai_ocr_file (PENDING)
+   │    └──→ [S3PresignedUrlClient] generate PUT URL (15 min)
+   ├──→ [ImportedStatementsService#createPlaceholder]
+   │    └──→ [CompanyDocService] 创建占位文件夹 + 占位文件行 (visible=false)
+   ├──→ INSERT ai_ocr_task_state_log (UPLOAD_INITIATED)
+   ▼
+{taskId, uploads[], companyDocFolderId}
+```
+
+**关联的表**：
+- `ai_ocr_task` — INSERT：`id`, `company_id`, `uploaded_by`, `status=DRAFT`, `expires_at=NOW()+24h`
+- `ai_ocr_file` — INSERT × N：`id`, `task_id`, `filename`, `file_size`, `content_type`, `file_hash`, `s3_key`, `status=PENDING`
+- `ai_ocr_task_state_log` — INSERT：`event_type=UPLOAD_INITIATED`, `payload={fileCount, totalSize}`
+- 公司文件表（`documents` 模块）— INSERT：占位文件夹 + 占位文件行（visible=false）
+
+**接口契约**：
+- Controller: `UploadController#initUpload`
+- 请求 DTO: `UploadInitReqVo` — `files[]: {filename, fileSize, contentType, sha256}`
+- 响应 DTO: `UploadInitRespVo` — `taskId, uploads[]: {fileId, presignedUrl, expiresAt, error?}, companyDocFolderId`
+- S3 Key 命名：`ocr-uploads/{companyId}/{taskId}/{fileId}/{hash}.ext`（含 companyId 保证 IAM 按 prefix 隔离）
+
+---
+
+### 2.2 POST /tasks/{id}/upload-complete
+
+> 单文件上传完成回调：S3 HeadObject 验证 + magic bytes 双重校验。
+
+**支持的业务逻辑**：
+- JWT + task.company_id 归属校验
+- ⚠️ 安全：从 `ai_ocr_file` 表查 s3Key，**不信任前端传入**（防伪造）
+- `s3:HeadObject` 验证对象存在 + ETag/actualSize 一致
+- 读取首 2KB 做 MIME + magic bytes 双重校验（防扩展名伪装攻击）
+- 通过 → `ai_ocr_file.status=UPLOADED` + 更新 ImportedStatements 占位行的真实 s3_key
+- 失败 → `s3:DeleteObject` 清理 + `ai_ocr_file.status=FILE_FAILED` + 错误码（详见错误码表）
+- ⚠️ 关键变更（v2）：**不入队** `ocr-extract-queue`，入队动作由 §2.3 `/start-processing` 端点统一触发
+
+**逻辑图**：
+
+```
+[Frontend]
+   │ (前端已 PUT 文件到 S3 拿到 ETag)
+   │ POST /tasks/{id}/upload-complete {fileId, etag, actualSize}
+   ▼
+[UploadController#completeUpload]
+   │ JWT + task.company_id 归属校验
+   ▼
+[UploadCompleteService] (@Transactional)
+   ├──→ [DocParseFileRepository] SELECT s3_key  ← 不信任前端
+   ├──→ [S3PresignedUrlClient] HeadObject (验证 ETag + actualSize)
+   ├──→ 读首 2KB → magic bytes 校验
+   ├─ 通过：
+   │    ├──→ UPDATE ai_ocr_file (status=UPLOADED)
+   │    ├──→ INSERT ai_ocr_task_state_log (UPLOAD_S3_PERSISTED)
+   │    └──→ [ImportedStatementsService#bindActualS3Key] 更新占位行
+   └─ 失败：
+        ├──→ [S3PresignedUrlClient] DeleteObject (清理 S3)
+        ├──→ UPDATE ai_ocr_file (status=FILE_FAILED, error_code)
+        └──→ INSERT ai_ocr_task_state_log (UPLOAD_REJECTED)
+   ▼
+{status: "ok" | "rejected", error?: {code, message}}
+```
+
+**关联的表**：
+- `ai_ocr_file` — SELECT (s3_key) / UPDATE：`status` (UPLOADED 或 FILE_FAILED), `etag`, `actual_size`, `error_code?`
+- `ai_ocr_task_state_log` — INSERT：`event_type=UPLOAD_S3_PERSISTED` 或 `UPLOAD_REJECTED`
+- 公司文件表 — UPDATE：占位行的真实 `s3_key`（成功时）
+
+**接口契约**：
+- Controller: `UploadController#completeUpload`
+- 请求 DTO: `UploadCompleteReqVo` — `fileId, etag, actualSize`
+- 响应 DTO: `UploadCompleteRespVo` — `status, error?: {code, message}`
+- 错误码：`S3_OBJECT_NOT_FOUND` / `MAGIC_BYTES_MISMATCH` / `UNSUPPORTED_TYPE` / `FILE_TOO_LARGE`（详见 §8 错误码总表）
+
+---
+
+### 2.3 POST /tasks/{id}/start-processing
+
+> 用户点 "Next" 后批量触发所有 UPLOADED 文件入队解析。**v2 新增端点**，替代 v1 隐式逐文件入队。
+
+**支持的业务逻辑**：
+- JWT + task.company_id 归属校验
+- `SELECT ... FOR UPDATE` 锁 `ai_ocr_task` 行 → 防止用户重复点 Next 并发触发
+- CAS 校验：`task.status IN (DRAFT, UPLOAD_COMPLETE) → PROCESSING`；非法状态抛 `INVALID_STATUS_FOR_PROCESSING`
+- 批量扫描所有 `ai_ocr_file.status=UPLOADED` 的文件
+- 每个文件入队 `ocr-extract-queue`（`mode=FULL_EXTRACT`，每文件 1 条消息）
+- SQS 入队**在事务内**（不 AFTER_COMMIT）—— 失败则整个事务回滚，保证"看到 file.status=QUEUED 时一定已经入队"
+- 幂等保护：CAS 推进 task.status；即使重复入队，Python extract_consumer 也通过 `ai_ocr_file.status=PROCESSING/REVIEW_READY` 判定丢弃
+- 写 `ai_ocr_task_state_log` (event_type=`START_PROCESSING`, payload={queuedCount, skippedCount})
+
+**逻辑图**：
+
+```
+[Frontend]
+   │ (用户在上传页面点 Next)
+   │ POST /tasks/{id}/start-processing
+   ▼
+[UploadController#startProcessing]
+   │ JWT + task.company_id 归属校验
+   ▼
+[StartProcessingService] (@Transactional + FOR UPDATE)
+   ├──→ SELECT FOR UPDATE ai_ocr_task
+   ├──→ CAS：status IN (DRAFT, UPLOAD_COMPLETE) → PROCESSING
+   ├──→ SELECT ai_ocr_file WHERE task_id=? AND status='UPLOADED'
+   ├──→ FOR EACH UPLOADED file:
+   │    ├──→ UPDATE ai_ocr_file (status=QUEUED)
+   │    ├──→ [OcrExtractSqsProducer#send] (taskId, fileId, mode=FULL_EXTRACT)
+   │    │       ↓
+   │    │   [SQS: ocr-extract-queue]
+   │    └──→ INSERT ai_ocr_task_state_log (EXTRACT_QUEUED)
+   ├──→ INSERT ai_ocr_task_state_log (START_PROCESSING, payload)
+   ▼
+{queuedCount, skippedCount}
+```
+
+**关联的表**：
+- `ai_ocr_task` — SELECT FOR UPDATE / UPDATE：`status` (DRAFT/UPLOAD_COMPLETE → PROCESSING)
+- `ai_ocr_file` — SELECT (WHERE status=UPLOADED) / UPDATE × N：`status` (UPLOADED → QUEUED)
+- `ai_ocr_task_state_log` — INSERT × (N+1)：每文件一条 `EXTRACT_QUEUED` + 一条 `START_PROCESSING`
+
+**接口契约**：
+- Controller: `UploadController#startProcessing`
+- 请求 DTO: `StartProcessingReqVo` — 空 body 或 `force?: bool`
+- 响应 DTO: `StartProcessingRespVo` — `queuedCount, skippedCount`
+- 错误码：`INVALID_STATUS_FOR_PROCESSING`（task 已在跑或已完成）
+
+---
+
+### 2.4 POST /tasks/{id}/commit
+
+> 步骤 7 终结点：写 fi_* 财务表 + AFTER_COMMIT 触发记忆 SQS + 最终化 Imported Statements + 返回 Benchmark 跳转 URL。
+
+**支持的业务逻辑**：
+- `SELECT ... FOR UPDATE` 锁 `ai_ocr_task` 行 → 防并发 Commit
+- CAS 校验：`status IN (REVIEWING, CONFLICT_RESOLUTION, READY_TO_COMMIT) → COMMITTING`
+- **Hard Gate 二次校验**（防绕过）：
+  - Python `/verify` 已跑且无 PENDING 冲突
+  - 所有 row 都有 lg_category（unmapped 拒绝）
+  - 任一失败 → 抛 `HARD_GATE_FAILED` + 回滚
+- 读 `ai_ocr_extracted_row` + `ai_ocr_mapping_result`（跨 schema SELECT，Java 对 Python 拥有的表只读）
+- 按 resolution 策略写 `fi_*` 财务表（Actuals）+ 调 `ProformaForecastService.appendVersion()`（Proforma）
+- 写 `ai_ocr_commit_audit`（written/overwritten/skipped + 关联 conflict_note_id）
+- task.status=COMMITTED；files.status=FILE_COMMITTED
+- 若是 revision：parent.status=SUPERSEDED + parent.superseded_by=self.id
+- 构建 `benchmarkRedirectUrl`（前端直接跳转用，不再有独立 `/commit/result` 端点）
+- **AFTER_COMMIT 阶段**（@TransactionalEventListener(phase=AFTER_COMMIT)）：
+  - `ImportedStatementsService.finalize(taskId)`：所有 visible=false 的占位行设为 visible=true
+  - 触发下游 normalization 流程（@Async）
+  - 检测新 closed month → `ClosedMonthMailService.notify()` + 写 state_log NEW_CLOSED_MONTH
+  - 构建 mappingComparisons → `OcrMemoryLearnSqsProducer.send(...)`
+  - task.status=MEMORY_LEARN_PENDING
+  - 写 state_log COMMIT_COMPLETE
+
+**逻辑图**：
+
+```
+[Frontend]
+   │ POST /tasks/{id}/commit {confirmFinal: true}
+   ▼
+[CommitController#commit]
+   │ JWT + task.company_id 归属校验
+   ▼
+[CommitService] (@Transactional + FOR UPDATE)
+   ├──→ SELECT FOR UPDATE ai_ocr_task
+   ├──→ CAS → status=COMMITTING
+   ├──→ Hard Gate 校验（无 PENDING 冲突 + 全部 mapped）
+   ├──→ SELECT ai_ocr_extracted_row + ai_ocr_mapping_result
+   ├──→ 写 fi_* (Actuals) + [ProformaForecastService#appendVersion]
+   ├──→ INSERT ai_ocr_commit_audit
+   ├──→ UPDATE ai_ocr_task (COMMITTED) + UPDATE ai_ocr_file × N (FILE_COMMITTED)
+   ├──→ [BenchmarkRedirectService#buildUrl]
+   ├──→ publishEvent(CommitSuccessEvent)
+   ▼
+{writtenAccounts, writtenPeriods[], importedStatementsFolderId, benchmarkRedirectUrl}
+
+[AFTER_COMMIT @TransactionalEventListener]
+   ├──→ [ImportedStatementsService#finalize] visible=true
+   ├──→ [ClosedMonthMailService#notify] (新 closed month)
+   ├──→ [OcrMemoryLearnSqsProducer#send] → [SQS: ocr-memory-learn-queue]
+   ├──→ UPDATE ai_ocr_task (MEMORY_LEARN_PENDING)
+   └──→ INSERT ai_ocr_task_state_log (COMMIT_COMPLETE)
+```
+
+**关联的表**：
+- `ai_ocr_task` — SELECT FOR UPDATE / UPDATE：`status` (REVIEWING/CONFLICT_RESOLUTION/READY_TO_COMMIT → COMMITTING → COMMITTED → MEMORY_LEARN_PENDING)
+- `ai_ocr_file` — UPDATE × N：`status=FILE_COMMITTED`
+- `ai_ocr_extracted_row` — SELECT（跨域只读）
+- `ai_ocr_mapping_result` — SELECT（跨域只读）
+- `ai_ocr_conflict_record` — SELECT（验证无 PENDING 冲突）
+- `ai_ocr_commit_audit` — INSERT：`written / overwritten / skipped` + `conflict_note_id` 关联
+- `fi_*` 财务表 — INSERT/UPDATE（Actuals）；通过 `ProformaForecastService.appendVersion()` 间接处理 Proforma
+- `ai_ocr_task_state_log` — INSERT：`COMMIT_COMPLETE` / `NEW_CLOSED_MONTH`
+- 公司文件表 — UPDATE：占位行 `visible=true`（AFTER_COMMIT）
+
+**接口契约**：
+- Controller: `CommitController#commit`
+- 请求 DTO: `CommitReqVo` — `confirmFinal: bool`（hard gate 二次确认）
+- 响应 DTO: `CommitRespVo` — `writtenAccounts: int, writtenPeriods: string[], importedStatementsFolderId: string, benchmarkRedirectUrl: string`
+- 错误码：`HARD_GATE_FAILED` / `INVALID_STATUS_FOR_COMMIT` / `COMMIT_FAILED_RETRYABLE`
+
+---
+
+### 2.5 POST /tasks/{id}/revise
+
+> 任务修订：基于已 COMPLETED/SUPERSEDED task 创建新批次（copy-on-write）。
+
+**支持的业务逻辑**：
+- JWT + company 归属校验
+- 校验 parent task.status ∈ {COMPLETED, SUPERSEDED}
+- 新 task 沿用 parent 的 `s3_key`（不重新上传文件，仅 COPY `ai_ocr_file` 行）
+- copy-on-write 继承：
+  - `ai_ocr_extracted_table/row` 由 Java 直接 COPY（v2：Java 写入 Python 拥有的表的单向例外，仅 revise 场景）
+  - `ai_ocr_mapping_result` 由 Java 直接 INSERT
+- `revision_number = parent.revision_number + 1`，受 UNIQUE `(parent_task_id, revision_number)` 约束保护并发
+- 新 task.status=DRAFT；用户在新批次中重新走 4 步流程
+- Commit 成功后置 parent.status=SUPERSEDED + parent.superseded_by=self.id（在 commit 事务步骤处理）
+- 修订原因记录到 `ai_ocr_task.revision_reason`
+- Cancel 选项已移除（Asana 2026-04-19）—— 用户若放弃直接退出页面，Sweeper 24h 后清 DRAFT
+
+**逻辑图**：
+
+```
+[Frontend]
+   │ POST /tasks/{id}/revise {reason}
+   ▼
+[ReviseController#reviseTask]
+   │ JWT + parent task.company_id 归属校验
+   ▼
+[ReviseService] (@Transactional)
+   ├──→ SELECT parent ai_ocr_task (status IN COMPLETED/SUPERSEDED)
+   ├──→ INSERT ai_ocr_task (parent_task_id, revision_number+1, status=DRAFT, revision_reason)
+   ├──→ COPY ai_ocr_file × N (沿用 s3_key)
+   ├──→ COPY ai_ocr_extracted_table/row × N
+   ├──→ COPY ai_ocr_mapping_result × N
+   ├──→ INSERT ai_ocr_task_state_log (REVISION_CREATED)
+   ▼
+{newTaskId}
+```
+
+**关联的表**：
+- `ai_ocr_task` — SELECT (parent) / INSERT (new revision)：`parent_task_id`, `revision_number`, `revision_reason`, `status=DRAFT`
+- `ai_ocr_file` — COPY × N：沿用 `s3_key`，新 `task_id`
+- `ai_ocr_extracted_table` / `ai_ocr_extracted_row` — COPY × N（跨域 INSERT 例外）
+- `ai_ocr_mapping_result` — INSERT × N（跨域 INSERT 例外）
+- `ai_ocr_task_state_log` — INSERT：`REVISION_CREATED`
+
+**接口契约**：
+- Controller: `ReviseController#reviseTask`
+- 请求 DTO: `ReviseReqVo` — `reason: string`
+- 响应 DTO: `ReviseRespVo` — `newTaskId: string`
+- 错误码：`PARENT_TASK_INVALID_STATUS`（parent 不在 COMPLETED/SUPERSEDED）
+
+---
+
+### 2.6 POST /files/{fileId}/download-url
+
+> ReviewPage 渲染 PDF/Excel 时申请 5 min S3 presigned GET URL。
+
+**支持的业务逻辑**：
+- JWT + company 归属校验
+- 校验 `ai_ocr_file.deleted=false` AND `status NOT IN (FILE_FAILED, PENDING)`
+- 生成 S3 presigned GET URL（生存期 **5 分钟**，比 PUT 的 15 min 更短，安全收紧）
+- **不附加** `Content-Disposition: attachment` —— 让浏览器直接预览
+- 前端用此 URL：PDF/图片直接 `<iframe>` 或 `<img>` 渲染；Excel 由前端用 SheetJS 拉取后解析
+
+**逻辑图**：
+
+```
+[Frontend]
+   │ (ReviewPage 加载文件)
+   │ POST /files/{fileId}/download-url
+   ▼
+[FileViewController#getDownloadUrl]
+   │ JWT + company 归属校验
+   ▼
+[Service]
+   ├──→ SELECT ai_ocr_file (校验 status + deleted)
+   ├──→ [S3PresignedUrlClient] generate GET URL (5 min, signatureDuration)
+   ▼
+{url, expiresAt}
+```
+
+**关联的表**：
+- `ai_ocr_file` — SELECT：`s3_key`, `status`, `deleted`, `company_id`（用于归属校验）
+
+**接口契约**：
+- Controller: `FileViewController#getDownloadUrl`
+- 请求 DTO: 无 body（fileId 来自 path）
+- 响应 DTO: `FileDownloadUrlRespVo` — `url: string, expiresAt: ISO8601 datetime`
+- 错误码：`FILE_NOT_FOUND` / `FILE_DELETED` / `FILE_NOT_READABLE`（status PENDING/FAILED）
+
+---
+
+## 3. SQS 集成（实现层 + 业务详情）
+
+### 3.1 OcrExtractSqsProducer（出口 1）
+
+**支持的业务逻辑**：
+- 一条消息对应一个文件（不是一个 task）—— 独立重试、天然并发、部分失败隔离
+- `mode` 字段路由：
+  - `FULL_EXTRACT`：首次上传，由 `/start-processing` 触发，全量走 Preprocess→Extract→Classify→Map→Validate（约 30-60s）
+  - `REMAP_ONLY`：mapping 变更，**由 Python `/review` 端点检测后内部入队**（Python 通过 boto3 共享 SQS API，仅重跑 Map 节点，约 1-10s）
+- HMAC-SHA256 签名（消息防伪造，详见 §8.3）
+
+**逻辑图**：
+
+```
+[/start-processing 端点]
+   │ FOR EACH UPLOADED file
+   ▼
+[OcrExtractSqsProducer#send]
+   ├──→ 构建 OcrExtractMessage {messageType=OcrExtract, mode=FULL_EXTRACT, taskId, fileId, companyId, s3Bucket, s3Key, ...}
+   ├──→ 计算 HMAC-SHA256 签名 → hmacSignature 字段
+   ├──→ AWS SDK send_message → ocr-extract-queue
+   ▼
+[Python extract_consumer.py#handle_extract_message]
+```
+
+**关联的表**：
+- 触发前：`ai_ocr_file` (SELECT WHERE status=UPLOADED)
+- 触发同事务内：`ai_ocr_file` UPDATE (status=QUEUED) + `ai_ocr_task_state_log` INSERT (EXTRACT_QUEUED)
+
+**接口契约**：
+- Producer 类: `OcrExtractSqsProducer`
+- 消息 DTO: `OcrExtractMessage`
+  - `messageType: "OcrExtract"`
+  - `mode: "FULL_EXTRACT" | "REMAP_ONLY"`
+  - `taskId, fileId, companyId`
+  - `s3Bucket, s3Key, filename, contentType, fileSize`
+  - `uploadedBy, callbackMeta, hmacSignature`
+- Python 消费者: `consumers/extract_consumer.py#handle_extract_message`
+
+---
+
+### 3.2 OcrSimilarityCheckSqsProducer（出口 2）
+
+**支持的业务逻辑**：
+- 触发：由 `OcrResultSqsProcessor#handleResult` 通过 `publishEvent(TaskReadyForReviewEvent)` 派发
+- 消费：`@TransactionalEventListener(phase=AFTER_COMMIT)` 才发送 SQS（**严禁 BEFORE_COMMIT**）
+- 聚合粒度：每个 task 入队**仅 1 条消息**（聚合所有 mapping_result.account_label），不是 per-file
+- HMAC-SHA256 签名
+
+**逻辑图**：
+
+```
+[OcrResultSqsProcessor#handleResult]
+   │ (task 内所有 OcrResult 收到，全部 REVIEW_READY)
+   │ task.status = SIMILARITY_CHECKING
+   │ publishEvent(TaskReadyForReviewEvent)
+   ▼
+[@TransactionalEventListener(phase=AFTER_COMMIT)]
+   ▼
+[OcrSimilarityCheckSqsProducer#send]
+   ├──→ 聚合所有 account_label
+   ├──→ AWS SDK send_message → ocr-similarity-check-queue
+   ▼
+[Python similarity_check_consumer.py#handle_similarity_check]
+   ├──→ embedding + pgvector HNSW KNN
+   └──→ INSERT ai_ocr_similarity_hint
+```
+
+**关联的表**：
+- 触发前：`ai_ocr_mapping_result` (SELECT account_label)；`ai_ocr_task` UPDATE (status=SIMILARITY_CHECKING)
+- Python 消费后写：`ai_ocr_similarity_hint` (INSERT，跨域写入例外)
+
+**接口契约**：
+- Producer 类: `OcrSimilarityCheckSqsProducer`
+- 消息 DTO: `OcrSimilarityCheckRequest`
+  - `messageType: "OcrSimilarityCheck"`
+  - `taskId, companyId`
+  - `accountLabels: string[]`（聚合）
+  - `hmacSignature`
+- Python 消费者: `consumers/similarity_check_consumer.py#handle_similarity_check`
+
+---
+
+### 3.3 OcrMemoryLearnSqsProducer（出口 3）
+
+**支持的业务逻辑**：
+- 触发时机：`/tasks/{id}/commit` 事务 **AFTER_COMMIT** 阶段（fi_* 写入成功后）
+- payload 构建：对每个 `extracted_row` 比对 `originalAiCategory` vs `confirmedCategory`，生成 `mappingComparisons[]` 数组
+- `wasOverridden` 计算：Java 端计算 `originalAiCategory != confirmedCategory`；Python 端只学习 `wasOverridden=true` 的条目
+- 重试支持：`attemptNumber` 字段；首次为 1。**v2 注意**：原 Java `/memory-learn/retry` 端点已删除；重试改由 Python 内部 cron 或 Python `/state` 端点暴露 retry 入口
+- HMAC-SHA256 签名
+
+**逻辑图**：
+
+```
+[CommitService] @Transactional 提交后
+   ▼
+[@TransactionalEventListener(phase=AFTER_COMMIT)]
+   ├──→ SELECT ai_ocr_extracted_row + ai_ocr_mapping_result
+   ├──→ 构建 mappingComparisons[] (含 wasOverridden 标记)
+   ▼
+[OcrMemoryLearnSqsProducer#send]
+   ├──→ AWS SDK send_message → ocr-memory-learn-queue
+   ▼
+[Python memory_learn_consumer.py#handle_memory_learn]
+   ├──→ 仅学习 wasOverridden=true 条目
+   ├──→ INSERT/UPDATE ai_ocr_mapping_memory
+   ├──→ INSERT ai_ocr_mapping_memory_audit (变更明细)
+   └──→ INSERT ai_ocr_memory_learn_log (决策日志)
+```
+
+**关联的表**：
+- 触发前：`ai_ocr_extracted_row` + `ai_ocr_mapping_result` (SELECT)
+- Java 端 AFTER_COMMIT：`ai_ocr_task` UPDATE (status=MEMORY_LEARN_PENDING)
+- Python 消费后写：`ai_ocr_mapping_memory` (RWUD)、`ai_ocr_mapping_memory_audit` (INSERT)、`ai_ocr_memory_learn_log` (INSERT)
+
+**接口契约**：
+- Producer 类: `OcrMemoryLearnSqsProducer`
+- 消息 DTO: `OcrMemoryLearnMessage`
+  - `messageType: "OcrMemoryLearn"`
+  - `taskId, fileId?, companyId`
+  - `mappingComparisons[]: {accountLabel, originalAiCategory, confirmedCategory, wasOverridden}`
+  - `attemptNumber: int`
+  - `hmacSignature`
+- Python 消费者: `consumers/memory_learn_consumer.py#handle_memory_learn`
+
+---
+
+### 3.4 OcrResultSqsProcessor（回传消费者，4 个 messageType handler）
+
+> 单一队列 `ocr-result-queue`，按 `messageType` 多路分发。`OcrResultSqsProcessor implements MessageProcessor`。
+
+#### 3.4.1 handleProgress（messageType=OcrProgress）
+
+**支持的业务逻辑**：
+- 文件级精细进度上报（每个 stage 一条）
+- 幂等去重：用 `processing_stage` 的 ordinal 比较丢弃过期消息（避免乱序覆盖更新后的阶段）
+- FOR UPDATE 锁 `ai_ocr_file` 行后再判定阶段
+- `stage_detail JSONB` 透传：必须原样写入 DB，前端从 Python `/state` 端点读取
+- 状态推进：首次到达时推进 `file.status: QUEUED → PROCESSING` + `task.status: UPLOAD_COMPLETE → PROCESSING`（CAS 防止覆盖更后状态）
+- 不触发终态：仅 OcrResult handler 才触发 `task.status` 终态转换
+
+**逻辑图**：
+
+```
+[SQS: ocr-result-queue]
+   │ messageType=OcrProgress
+   ▼
+[OcrResultSqsProcessor#handleProgress] (@Transactional)
+   ├──→ HMAC + companyId 校验
+   ├──→ SELECT FOR UPDATE ai_ocr_file
+   ├──→ 比较 processing_stage ordinal
+   │    ├─ 过期 → 丢弃
+   │    └─ 新阶段：UPDATE ai_ocr_file (processing_stage, progress_pct, stage_detail)
+   ├──→ CAS：file.status QUEUED → PROCESSING (首次到达)
+   ├──→ CAS：task.status UPLOAD_COMPLETE → PROCESSING (首次到达)
+   └──→ INSERT ai_ocr_task_state_log (FILE_PROGRESS)
+```
+
+**关联的表**：
+- `ai_ocr_file` — SELECT FOR UPDATE / UPDATE：`processing_stage`, `progress_pct`, `stage_detail JSONB`, `status`
+- `ai_ocr_task` — UPDATE (CAS)：`status` (UPLOAD_COMPLETE → PROCESSING)
+- `ai_ocr_task_state_log` — INSERT：`FILE_PROGRESS`
+
+**`processingStage` 12 个枚举值**：
+
+| Stage | 进度 | 对应节点 | 前端显示 |
+|-------|---:|---------|---------|
+| `QUEUED` | 0% | — | "已入队" |
+| `PREPROCESS_PENDING` | 1-5% | Preprocess（开始）| "准备解析" |
+| `PREPROCESSING` | 6-15% | Preprocess（执行）| "格式转换中" |
+| `EXTRACTING` | 16-50% | Extract | "AI 识别表格" |
+| `MAPPING_RULE_LAYER` | 51-60% | Map（Layer 1）| "应用业务规则" |
+| `MAPPING_MEMORY_LOOKUP` | 61-70% | Map（Layer 2）| "查询历史记忆" |
+| `MAPPING_INDUSTRY_LAYER` | 71-78% | Map（Layer 3）| "应用行业模板" |
+| `MAPPING_LLM_FALLBACK` | 79-90% | Map（Layer 4）| "AI 智能映射" |
+| `VALIDATING` | 91-95% | Validate | "校验数据一致性" |
+| `PERSISTING` | 96-99% | — | "保存结果" |
+| `REVIEW_READY` | 100% | — | "可审核" |
+| `FAILED` | — | — | 显示错误 |
+
+#### 3.4.2 handleResult（messageType=OcrResult）
+
+**支持的业务逻辑**：
+- 单文件最终结果上报；FOR UPDATE 锁 task 行做计数；全部完成 → 进入相似度检测阶段
+- `@Transactional` + FOR UPDATE 锁 task 行：防御场景 —— 两个 worker 同时处理 task 最后两个文件的 OcrResult，无锁会导致两条消息都把 task 推进到 SIMILARITY_CHECKING（重复触发）
+- CAS 更新 file.status：`expectedStatus=PROCESSING`；返回 0 行则视为重复消息丢弃（幂等）
+- 批次完成判定（在锁内计数）：
+  - 全部 `REVIEW_READY`（至少一个成功）→ `task.status=SIMILARITY_CHECKING` + 发布 `TaskReadyForReviewEvent`
+  - 全部 `FILE_FAILED` → `task.status=FAILED`
+  - 全部 `has_extractable_data=false` → `task.status=NO_DATA_BYPASS`（详见 §6.6）
+  - 否则保持 PROCESSING
+- AFTER_COMMIT 入队：`TaskReadyForReviewEvent` 由 `OcrSimilarityCheckSqsProducer` 在 AFTER_COMMIT 阶段消费 + 发 SQS
+
+**逻辑图**：
+
+```
+[SQS: ocr-result-queue]
+   │ messageType=OcrResult, status=completed/completed_no_data/failed
+   ▼
+[OcrResultSqsProcessor#handleResult] (@Transactional)
+   ├──→ HMAC + companyId 校验
+   ├──→ SELECT FOR UPDATE ai_ocr_task
+   ├──→ CAS UPDATE ai_ocr_file (PROCESSING → REVIEW_READY/FILE_FAILED)
+   ├──→ 锁内计数：聚合 task 内所有 file.status
+   │    ├─ 全部 REVIEW_READY → task.status=SIMILARITY_CHECKING + publishEvent(TaskReadyForReviewEvent)
+   │    ├─ 全部 FILE_FAILED → task.status=FAILED
+   │    ├─ 全部 has_extractable_data=false → task.status=NO_DATA_BYPASS
+   │    └─ 混合 → 保持 PROCESSING
+   └──→ INSERT ai_ocr_task_state_log (EXTRACT_COMPLETE / EXTRACT_NO_DATA / EXTRACT_FAILED)
+
+[AFTER_COMMIT @TransactionalEventListener]
+   ├──→ [OcrSimilarityCheckSqsProducer#send] → [SQS: ocr-similarity-check-queue]
+```
+
+**关联的表**：
+- `ai_ocr_task` — SELECT FOR UPDATE / UPDATE：`status`
+- `ai_ocr_file` — UPDATE (CAS)：`status` (PROCESSING → REVIEW_READY 或 FILE_FAILED)、`has_extractable_data`
+- `ai_ocr_task_state_log` — INSERT：`EXTRACT_COMPLETE` / `EXTRACT_NO_DATA`（含 skipReason）/ `EXTRACT_FAILED`
+
+**`status` 三个终态**：
+
+| status | 含义 | file 终态 | state_log event_type |
+|--------|------|----------|---------------------|
+| `completed` | 解析成功，含可提取财务数据 | `REVIEW_READY` | `EXTRACT_COMPLETE` |
+| `completed_no_data` | 解析成功，无可提取财务数据 | `REVIEW_READY` | `EXTRACT_NO_DATA`（含 `skipReason`）|
+| `failed` | 解析失败 | `FILE_FAILED` | `EXTRACT_FAILED` |
+
+**`skipReason` 5 类**: `NO_TABLES` / `NARRATIVE_ONLY` / `IMAGE_NO_DATA` / `EMPTY_TABLE` / `INDISTINGUISHABLE_NUMBERS`
+
+#### 3.4.3 handleSimilarityCheckResult（messageType=OcrSimilarityCheckResult）
+
+**支持的业务逻辑**：
+- 跨域 INSERT 例外：`ai_ocr_similarity_hint` 由 Python 直接 INSERT；Java handler **只做状态推进 + state_log 写入**
+- 跨公司归属校验：比对 `task.company_id == msg.companyId`，不一致直接丢弃（防伪造）
+- CAS 推进状态：仅 `SIMILARITY_CHECKING → REVIEWING`；过期消息丢弃
+- 失败态语义：`SIMILARITY_CHECK_FAILED` 不阻塞用户，前端在 Python `/state` 端点检测到该状态后提供"跳过相似度提示"按钮
+
+**逻辑图**：
+
+```
+[SQS: ocr-result-queue]
+   │ messageType=OcrSimilarityCheckResult
+   ▼
+[OcrResultSqsProcessor#handleSimilarityCheckResult] (@Transactional)
+   ├──→ HMAC + 跨公司归属校验
+   ├──→ CAS：task.status SIMILARITY_CHECKING → REVIEWING (或 SIMILARITY_CHECK_FAILED)
+   └──→ INSERT ai_ocr_task_state_log (SIMILARITY_CHECK_DONE / FAILED)
+```
+
+**关联的表**：
+- `ai_ocr_task` — UPDATE (CAS)：`status`
+- `ai_ocr_similarity_hint` — Python 已 INSERT（Java 不写）
+- `ai_ocr_task_state_log` — INSERT：`SIMILARITY_CHECK_DONE` / `SIMILARITY_CHECK_FAILED`
+
+#### 3.4.4 handleMemoryLearnProgress（messageType=OcrMemoryLearnProgress）
+
+**支持的业务逻辑**：
+- 记忆学习阶段进度回报，驱动 task 终态切换
+- `MEMORY_LEARN_FAILED` 终态 **不回滚 fi_***（财务数据已 committed，不允许重做）
+
+| `learnStage` | Java 端动作 |
+|--------------|-------------|
+| `IN_PROGRESS` | CAS：`MEMORY_LEARN_PENDING → MEMORY_LEARN_IN_PROGRESS` |
+| `COMPLETE` | CAS：`MEMORY_LEARN_IN_PROGRESS → COMPLETED` + 写 state_log `MEMORY_LEARN_COMPLETE` |
+| `FAILED` | 读 `ai_ocr_memory_learn_log` 计数：`<3` 回 PENDING 等重试；`≥3` 进 MEMORY_LEARN_FAILED 终态 |
+
+**逻辑图**：
+
+```
+[SQS: ocr-result-queue]
+   │ messageType=OcrMemoryLearnProgress, learnStage=...
+   ▼
+[OcrResultSqsProcessor#handleMemoryLearnProgress] (@Transactional)
+   ├──→ HMAC + companyId 校验
+   ├──→ CAS UPDATE ai_ocr_task (status 按 learnStage 推进)
+   │    └─ FAILED 分支：SELECT ai_ocr_memory_learn_log COUNT
+   └──→ INSERT ai_ocr_task_state_log (MEMORY_LEARN_*)
+```
+
+**关联的表**：
+- `ai_ocr_task` — UPDATE (CAS)：`status` (MEMORY_LEARN_PENDING/IN_PROGRESS/COMPLETED/FAILED)
+- `ai_ocr_memory_learn_log` — SELECT (COUNT，FAILED 分支判定重试次数)
+- `ai_ocr_task_state_log` — INSERT：`MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED`
+
+**`learnStage` 4 个枚举**：
+
+| learnStage | 含义 | 前端显示 |
+|-----------|------|---------|
+| `PENDING` | 已入队等待 Python 消费 | "记忆学习排队中..." |
+| `IN_PROGRESS` | Python 已开始处理 | "正在学习用户修正..." |
+| `COMPLETE` | 学习成功完成 | "学习完成" |
+| `FAILED` | 本次尝试失败 | 静默或"学习失败但财务数据已提交" |
+
+---
+
+### 3.5 队列配置
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `visibilityTimeout` | 300s (5 分钟) | 50 页 PDF 处理需要 ~60s |
+| `maxReceiveCount` | 3 | 3 次重试后进 DLQ |
+| `messageRetentionPeriod` | 345600s (4 天) | 与现有队列一致 |
+| DLQ | 共享 `dlq-queue` | 通过 `messageType` 字段区分 |
+
+---
+
+### 3.6 DocParseTaskSweeper（v2 收窄）
+
+异步消息驱动状态机存在"消息丢失"或"Python/Java 崩溃"导致任务永久停留的风险。`@Scheduled(fixedDelay=120_000)` 每 2 分钟扫描自愈。
+
+| 扫描分支 | 阈值 | 动作 |
+|---------|------|------|
+| `sweepDraftExpired` | DRAFT > 24h | 删 S3 对象 + `status=EXPIRED` + 清理 Imported Statements 占位行 |
+| `sweepZombieProcessing` | file.PROCESSING > 20min | 跨 schema 检查 Python 是否已写 `ai_ocr_extracted_table`：有 → 推进 REVIEW_READY；无 → FILE_FAILED |
+| `sweepStuckMemoryLearn` | MEMORY_LEARN_IN_PROGRESS > 10min | `status=MEMORY_LEARN_FAILED`（fi_* 不回滚） |
+
+**v2 不再扫描的状态**:
+- `VERIFYING` → 由 Python 自身管理（v2 边界变更）
+- `SIMILARITY_CHECKING` → 瞬态，由 SQS DLQ 兜底
+- `COMMITTING` → 事务回滚自动恢复
+
+**实现层关键决策**:
+- 使用 `@Scheduled(fixedDelay)` 而非 `fixedRate`
+- 每个 sweep 分支使用独立事务，失败不影响其他分支
+- 僵尸任务数 > 0 触发 Prometheus 告警
+
+---
+
+## 4. 模块结构
+
+### 4.1 包结构（v2 精简）
 
 在现有 DDD 结构下保留 `docparse` 域（与 `fi/`、`quickbooks/`、`storage/` 同级），4 层 DDD 架构。v2 大幅精简：删除 8 个 Controller / 7 个 Service。
 
@@ -167,10 +895,10 @@ com.gstdev.cioaas.web.docparse/
 │   │   ├── DocParseTaskRepository.java
 │   │   └── DocParseFileRepository.java
 │   └── enums/
-│       ├── DocParseStatus.java             # Task 状态枚举（见 §3）
+│       ├── DocParseStatus.java             # Task 状态枚举（见 §5）
 │       ├── DocParseFileStatus.java         # PENDING / UPLOADING / UPLOADED / QUEUED / PROCESSING / REVIEW_READY / FILE_COMMITTED / FILE_FAILED
 │       ├── DocParseFileType.java           # PDF / EXCEL / CSV / IMAGE
-│       └── DocParseUploadError.java        # 7 种上传错误（§2.4）
+│       └── DocParseUploadError.java        # 7 种上传错误（见 §8 错误码）
 │
 └── infrastructure/                ← 基础设施层（Infrastructure Layer）
     ├── processor/
@@ -181,14 +909,14 @@ com.gstdev.cioaas.web.docparse/
     ├── client/
     │   └── S3PresignedUrlClient.java       # 生成 presigned PUT/GET URL，封装 AWS SDK
     ├── scheduler/
-    │   └── DocParseTaskSweeper.java        # @Scheduled 每 2min 扫描僵尸任务（v2 范围收窄，见 §4.6）
+    │   └── DocParseTaskSweeper.java        # @Scheduled 每 2min 扫描僵尸任务（v2 范围收窄，见 §3.6）
     └── config/
         └── DocParseProperties.java         # 模块配置
 ```
 
 **为什么大幅精简 Controller**：v2 边界变更后，前端**步骤 3-6 全部直接调 Python**（综合状态查询 / 编辑 / 冲突验证 / 单冲突解决）；Java 端只剩"上传 + 提交"两条核心路径，因此原先的 `MappingSummaryController` / `ConflictResolutionController` / `ConflictNoteController` / `NavigationController` / `SimilarityHintController` / `MemoryLearnController` / `ReviewController` / `DocParseQueryController` 全部删除。
 
-### 1.2 与现有模块的集成点
+### 4.2 与现有模块的集成点
 
 | 集成点 | 文件 | 操作 |
 |--------|------|------|
@@ -197,153 +925,35 @@ com.gstdev.cioaas.web.docparse/
 | SQS 队列注册 | `sqs/enums/InitSqsQueueEnum.java` | 注册 `OcrExtractQueue` / `OcrSimilarityCheckQueue` / `OcrMemoryLearnQueue` / `OcrResultQueue` |
 | SQS 消息类型 | `sqs/enums/SqsMessageType.java` | 注册 `OcrExtract` / `OcrSimilarityCheck` / `OcrMemoryLearn` / `OcrResult` / `OcrProgress` / `OcrSimilarityCheckResult` / `OcrMemoryLearnProgress` |
 | SQS Listener | `sqs/listener/SQSMessageListener.java` | 新增 `onOcrResultQueue()` 方法（@SqsListener 消费 ocr-result-queue） |
-| 事务边界 | Spring `@TransactionalEventListener` | Commit / Revise 等涉及发 SQS 必须 `phase = AFTER_COMMIT`（见 §5.3） |
+| 事务边界 | Spring `@TransactionalEventListener` | Commit / Revise 等涉及发 SQS 必须 `phase = AFTER_COMMIT`（见 §6.3） |
 | 参考实现模板 | `quickbooks/infrastructure/processor/QuickbooksSqsProcessor.java` | Producer 不 implements MessageProcessor；Consumer 必须 implements 并注册 |
 
 ---
 
-## 2. 文件上传实现层（端点 1-3）
-
-> **本章是 Java 端的核心职责章节之一**。所有端点 URL / DTO / 响应字段定义在 [api-doc.md §2.1-§2.3](./api-doc.md#java-端)；本节聚焦实现层决策。
-
-### 2.1 端点 1：`POST /tasks/upload-init`（一站式初始化 + 预关联公司文件表）
-
-参见 [api-doc.md #1](./api-doc.md#1-tasksupload-init-post)。
-
-**实现层时序**（Controller `UploadController#initUpload` → `UploadInitService`）：
-
-```
-Java 处理（@Transactional）:
-  ① JWT + company 归属校验
-  ② 创建 ai_ocr_task（status=DRAFT, company_id, uploaded_by, expires_at=NOW()+24h）
-  ③ 对每个 file（按文件逐项进行，部分失败不阻断其余）：
-     ├─ 文件大小校验（单文件 ≤20MB / 批次累计 ≤100MB）
-     ├─ 扩展名 + Content-Type 白名单（参见 §6.2）
-     ├─ SHA-256 hash 重名查询（UNIQUE 约束 (company_id, file_hash) WHERE deleted=false AND status!='FILE_FAILED'）
-     ├─ 合法 → 建 ai_ocr_file（status=PENDING） + 生成 S3 presigned PUT URL（15 min）
-     └─ 非法 → 在 uploads[] 数组按位返回 error 项
-  ④ 调 ImportedStatementsService.createPlaceholder(taskId, companyId)
-     └─ 在公司文件表创建 "Imported Statements/{taskUuid}/" 占位文件夹（visible=false）
-        + 为每个合法文件预创建占位行（s3_key 临时 placeholder, status=UPLOADING）
-  ⑤ 写 ai_ocr_task_state_log（event_type=UPLOAD_INITIATED, payload={fileCount, totalSize}）
-  ⑥ 返回 {taskId, uploads[], companyDocFolderId}
-```
-
-**S3 Key 命名规范**: `ocr-uploads/{companyId}/{taskId}/{fileId}/{hash}.ext` —— 路径含 companyId 保证 IAM 策略可按 prefix 隔离权限。
-
-**预关联公司文件表的设计意图**：
-- 用户在上传期间已能在 Documents 视图看到"正在导入的批次"占位（visible=false 时仅 owner 可见）
-- 文件最终提交（`/commit` 成功）才把 `visible=true` 设为可见 → "Imported Statements" 是用户真正归档的位置
-- 占位行在 `/upload/abort` 或 task EXPIRED 时由 Sweeper 清除（v2 简化：不再有显式 abort 端点，靠 24h Sweeper）
-
-### 2.2 端点 2：`POST /tasks/{id}/upload-complete`（单文件完成）
-
-参见 [api-doc.md #2](./api-doc.md#2-tasksidupload-complete-post)。
-
-**实现层时序**（`UploadController#completeUpload` → `UploadCompleteService`）：
-
-```
-Java 处理（@Transactional）:
-  ① JWT + task.company_id 归属校验
-  ② ⚠️ 安全：从 ai_ocr_file 表查 s3Key（不信任前端传入，参见 §5.4 安全约束）
-  ③ s3:HeadObject 验证对象存在 + ETag/actualSize 一致
-  ④ 读取首 2KB 做 MIME + magic bytes 双重校验（白名单见 §6.2）
-  ⑤ 通过 → ai_ocr_file.status=UPLOADED + 写 state_log UPLOAD_S3_PERSISTED
-     → ImportedStatementsService.bindActualS3Key(fileId, s3Key)（更新占位行 s3_key）
-  ⑥ 失败 → s3:DeleteObject 清理 + ai_ocr_file.status=FILE_FAILED + state_log UPLOAD_REJECTED + 错误码（§2.4）
-  ⑦ ⚠️ 关键变更（v2）：不入队 ocr-extract-queue
-     入队动作由 §2.3 /start-processing 端点统一触发
-```
-
-**为什么必须做 magic bytes 校验**: 前端可能上传一个改了扩展名的恶意文件（如 `.exe` 改为 `.pdf`）。仅看扩展名/Content-Type 不安全，必须读首 2KB 验证 magic bytes。
-
-### 2.3 端点 3：`POST /tasks/{id}/start-processing`（新增 — 用户点 Next 触发批量入队）
-
-参见 [api-doc.md #3](./api-doc.md#3-tasksidstart-processing-post)。这是 v2 新增端点，替代之前每个文件 complete 后自动入队的隐式行为。
-
-**为什么需要这个端点**：
-- v1 行为：每个文件 complete 后立即入队 → 用户还没确认就已经在跑解析（浪费 Python 资源、不可撤回）
-- v2 行为：用户在前端逐个上传完成后，在上传页面点 "Next" 才统一触发 → 更明确的用户控制权 + 自然的"批次"边界
-- 与前端"4 步流程"对齐：Step 1 全部上传完毕 → Step 2 解析
-
-**实现层时序**（`UploadController#startProcessing` → `StartProcessingService`）：
-
-```
-Java 处理（@Transactional + FOR UPDATE 锁）:
-  ① JWT + task.company_id 归属校验
-  ② SELECT ... FOR UPDATE 锁 ai_ocr_task 行（防止用户重复点 Next 并发触发）
-  ③ CAS 校验：task.status IN (DRAFT, UPLOAD_COMPLETE) → PROCESSING
-       └─ 不在此范围 → 抛 INVALID_STATUS_FOR_PROCESSING（已在跑或已完成）
-  ④ 批量扫描：SELECT * FROM ai_ocr_file WHERE task_id=? AND status='UPLOADED' AND deleted=false
-  ⑤ 对每个 UPLOADED 文件：
-     ├─ ai_ocr_file.status=QUEUED
-     ├─ OcrExtractSqsProducer.send(taskId, fileId, mode=FULL_EXTRACT)（每文件 1 条消息）
-     └─ 写 state_log EXTRACT_QUEUED
-  ⑥ 统计：queuedCount = ⑤ 的数量；skippedCount = 非 UPLOADED 的文件数（FILE_FAILED 等）
-  ⑦ 写 state_log START_PROCESSING（payload={queuedCount, skippedCount}）
-  ⑧ 返回 {queuedCount, skippedCount}
-```
-
-**事务边界关键**：
-- SQS 入队**在事务内**（不 AFTER_COMMIT）—— 因为本事务无回滚风险，仅更新 file.status；且我们希望"看到 file.status=QUEUED 时一定已经入队"
-- 如果 SQS 发送失败 → 整个事务回滚，前端收到 500 + 重试（task.status 自动恢复）
-
-**幂等保护**：
-- CAS 推进 task.status 防止用户连点 Next 重复入队
-- 即使重复入队（极端情况），Python 端 extract_consumer 也通过 ai_ocr_file.status=PROCESSING/REVIEW_READY 判定为重复消息丢弃
-
-### 2.4 上传错误码
-
-| 错误码 | 触发场景 | HTTP 状态 |
-|-------|---------|----------|
-| `FILE_TOO_LARGE` | 单文件超 20MB | 400 |
-| `BATCH_TOO_LARGE` | 批次累计超 100MB | 400 |
-| `UNSUPPORTED_TYPE` | 扩展名/Content-Type 不在白名单 | 400 |
-| `MAGIC_BYTES_MISMATCH` | 扩展名与文件头不一致 | 400 |
-| `DUPLICATE_NAME` | 同 company + 同 hash 已存在活跃记录 | 409 |
-| `S3_OBJECT_NOT_FOUND` | `/upload-complete` 但 HeadObject 失败 | 404 |
-| `INVALID_HASH_FORMAT` | hash 不符合 `^[a-f0-9]{64}$` | 400 |
-| `INVALID_STATUS_FOR_PROCESSING` | `/start-processing` 时 task.status 非法 | 409 |
-
-错误信息均由 Java 生成（R-2.2 约束：用户可见错误必须由 Java 转换；Python 不直接面向用户）。
-
-### 2.5 Presigned GET URL（端点 6 — 文件查看辅助）
-
-ReviewPage 加载 PDF/Excel 时，前端向 `POST /files/{fileId}/download-url`（参见 [api-doc.md #6](./api-doc.md#6-filesfileiddownload-url-post)）请求临时 URL。
-
-**实现层决策**:
-- URL 生存期 **5 分钟**（不是 15 分钟，参见 §5.4 安全收紧）
-- 生成前必须验证 JWT + company 归属 + `ai_ocr_file.deleted=false` + `ai_ocr_file.status NOT IN (FILE_FAILED, PENDING)`
-- 不附加 `Content-Disposition: attachment` —— 让浏览器直接预览
-
-前端用此 URL：PDF/图片直接 `<iframe>` 或 `<img>` 渲染；Excel 由前端用 SheetJS 从该 URL 拉取后解析。
-
----
-
-## 3. 数据表设计（业务语义）
+## 5. 数据表设计（业务语义）
 
 > **DDL 权威定义**：所有表结构、索引、约束、权限 GRANT 语句的**唯一权威定义**在 [database-schema.md](./database-schema.md)。本节仅说明 Java 端表的**业务语义**与设计意图。
 
-### 3.1 Java 拥有的表（v2 概览）
+### 5.1 Java 拥有的表（v2 概览）
 
 | 表 | 用途 | DDL 引用 |
 |----|------|---------|
 | `ai_ocr_task` | Task 生命周期（批次级状态 + 版本化字段 + summary_cache + mapping_snapshot_hash） | [§2.1](./database-schema.md#21-ai_ocr_task) |
 | `ai_ocr_file` | 单个文件的上传 + 处理状态（12 子阶段 + stage_detail JSONB + has_extractable_data） | [§2.2](./database-schema.md#22-ai_ocr_file) |
 | `ai_ocr_task_state_log` | **总状态日志表**（覆盖 4 步流程所有状态变更，落地 R-3.4） | [§2.9](./database-schema.md#29-ai_ocr_task_state_log) |
-| `ai_ocr_conflict_note` | 冲突解决 note（thread 支持，Java + Python 共写，详见 §5.5） | [§2.4](./database-schema.md#24-ai_ocr_conflict_note) |
+| `ai_ocr_conflict_note` | 冲突解决 note（thread 支持，Java + Python 共写） | [§2.4](./database-schema.md#24-ai_ocr_conflict_note) |
 | `ai_ocr_memory_learn_log` | 记忆学习审计（Python 跨域 INSERT） | [§2.5](./database-schema.md#25-ai_ocr_memory_learn_log) |
 | `ai_ocr_commit_audit` | fi_* 写入审计（written/overwritten/skipped） | [§2.6](./database-schema.md#26-ai_ocr_commit_audit) |
 | `ai_ocr_erasure_log` | GDPR 擦除审计 | [§2.7](./database-schema.md#27-ai_ocr_erasure_log) |
 | `ai_ocr_similarity_hint` | 相似度检测结果（Python 跨域 INSERT；Python 也可 UPDATE detection 字段） | [§2.8](./database-schema.md#28-ai_ocr_similarity_hint) |
 
-### 3.2 关键设计决策（v2 保留）
+### 5.2 关键设计决策（v2 保留）
 
 #### Task 版本化
 `parent_task_id` / `revision_number` / `revision_reason` / `superseded_by` 支持"基于历史 task 修订"场景。原任务在修订版 Commit 成功后自动置为 `SUPERSEDED`。**并发防护**：`UNIQUE (parent_task_id, revision_number) WHERE parent_task_id IS NOT NULL` 约束防止两个用户同时创建相同版本号。
 
 #### File 处理阶段
-12 个子状态精确描述 Python 处理进度（见 [api-doc.md MSG-1 OcrProgress](./api-doc.md#msg-1-ocrprogress)）。`stage_detail JSONB` 由 Python 透传，前端通过 Python 的 `/state` 端点直接读取并渲染（v2 边界变更 — Java 不再做查询中转）。
+12 个子状态精确描述 Python 处理进度（见 §3.4.1 OcrProgress）。`stage_detail JSONB` 由 Python 透传，前端通过 Python 的 `/state` 端点直接读取并渲染（v2 边界变更 — Java 不再做查询中转）。
 
 #### 重名文件校验的唯一约束
 `UNIQUE (company_id, file_hash) WHERE deleted = false AND status != 'FILE_FAILED'` —— 只对"活跃"记录生效。`FILE_FAILED` 状态的文件允许用户重新上传同名文件。
@@ -352,7 +962,7 @@ ReviewPage 加载 PDF/Excel 时，前端向 `POST /files/{fileId}/download-url`�
 **不主动推送邮件/push**，用户通过 LG Dashboard "待处理任务" 列表自行发现。所有事件统一写入 `ai_ocr_task_state_log`。
 
 #### 公司文件表预占位（v2 新增）
-`/tasks/upload-init` 创建 task 时同步在 Documents 服务的 "Imported Statements" 文件夹下创建占位条目（`visible=false`），用户在上传过程中即可在 Documents 视图看到"进行中"批次。`/commit` 成功后由 `ImportedStatementsService.finalize()` 把 `visible=true` 标记为可见。详见 §5 / §6。
+`/tasks/upload-init` 创建 task 时同步在 Documents 服务的 "Imported Statements" 文件夹下创建占位条目（`visible=false`），用户在上传过程中即可在 Documents 视图看到"进行中"批次。`/commit` 成功后由 `ImportedStatementsService.finalize()` 把 `visible=true` 标记为可见。详见 §6.5。
 
 #### 跨域 INSERT 例外（v2 扩展）
 Python 在 v2 后获得对 4 张 Java 拥有的表的写权限：
@@ -367,113 +977,7 @@ Python 在 v2 后获得对 4 张 Java 拥有的表的写权限：
 
 GRANT 语句详见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。
 
----
-
-## 4. SQS 集成（实现层）
-
-> **接口契约**: SQS 队列名 / messageType / 消息字段定义参见 [api-doc.md §3 SQS 接口详情](./api-doc.md#3-sqs-接口详情)。本节聚焦 Java 端实现层决策。
-
-### 4.1 OcrExtractSqsProducer 设计要点
-
-参见 [api-doc.md SQS-1](./api-doc.md#sqs-1-ocr-extract-queue)。
-
-| 实现层关注点 | 决策 |
-|------------|------|
-| 粒度 | 一条消息对应一个文件（不是一个 task）—— 独立重试、天然并发、部分失败隔离 |
-| `mode` 字段路由 | `FULL_EXTRACT`（首次上传，由 `/start-processing` 触发）/ `REMAP_ONLY`（mapping 变更，**由 Python `/review` 端点检测后内部入队**） |
-| 触发时机（FULL_EXTRACT） | `/start-processing` 端点同一事务内发送 |
-| 触发时机（REMAP_ONLY） | **v2 变更**：Python 是 producer。Python 共享 SQS API（`boto3.client('sqs').send_message`），mode 字段标识 `REMAP_ONLY` |
-| HMAC-SHA256 签名 | 见 §6.3 |
-
-### 4.2 OcrResultSqsProcessor 设计要点
-
-`OcrResultSqsProcessor` implements `MessageProcessor`，按 `messageType` 多路分发到 4 个 handler。**接口契约见 [api-doc.md §3.2 MSG-1 ~ MSG-4](./api-doc.md#32-回传队列python--java)**；本节描述实现层决策。
-
-#### 4.2.1 OcrProgress handler
-
-- **幂等去重**: 用 `processing_stage` 的 ordinal 比较丢弃过期消息（避免乱序覆盖更新后的阶段）
-- **FOR UPDATE 锁**: 锁 `ai_ocr_file` 行后再判定阶段，防并发 worker 同时处理两条 progress 消息
-- **`stage_detail` JSONB 透传**: 必须原样写入 DB，前端从 Python `/state` 端点读取（v2：Java 不做转发）
-- **状态推进**: 首次到达时推进 `file.status: QUEUED → PROCESSING` + `task.status: UPLOAD_COMPLETE → PROCESSING`（CAS 防止覆盖更后状态）
-- **不触发终态**: 仅 OcrResult handler 才触发 `task.status` 终态转换
-
-#### 4.2.2 OcrResult handler
-
-- **`@Transactional` + FOR UPDATE 锁 task 行**: 防御场景 —— 两个 worker 同时处理 task 最后两个文件的 OcrResult，无锁会导致两条消息都把 task 推进到 SIMILARITY_CHECKING（重复触发）
-- **CAS 更新 file.status**: `expectedStatus=PROCESSING`；返回 0 行则视为重复消息丢弃（幂等）
-- **批次完成判定**（在锁内计数）:
-  - 全部 `REVIEW_READY`（至少一个成功）→ `task.status=SIMILARITY_CHECKING` + 发布 `TaskReadyForReviewEvent`
-  - 全部 `FILE_FAILED` → `task.status=FAILED`
-  - 全部 `has_extractable_data=false` → `task.status=NO_DATA_BYPASS`（见 §5.6）
-  - 否则保持 PROCESSING
-- **AFTER_COMMIT 入队**: `TaskReadyForReviewEvent` 由 `OcrSimilarityCheckSqsProducer` 在 AFTER_COMMIT 阶段消费 + 发 SQS
-
-#### 4.2.3 OcrSimilarityCheckResult handler
-
-- **跨域 INSERT 例外**: `ai_ocr_similarity_hint` 由 Python 直接 INSERT；Java handler **只做状态推进 + state_log 写入**
-- **跨公司归属校验**: 比对 `task.company_id == msg.companyId`，不一致直接丢弃（防伪造）
-- **CAS 推进状态**: 仅 `SIMILARITY_CHECKING → REVIEWING`；过期消息丢弃
-- **失败态语义**: `SIMILARITY_CHECK_FAILED` 不阻塞用户，前端在 Python `/state` 端点检测到该状态后提供"跳过相似度提示"按钮
-
-#### 4.2.4 OcrMemoryLearnProgress handler
-
-| `learnStage` | Java 端动作 |
-|--------------|-------------|
-| `IN_PROGRESS` | CAS：`MEMORY_LEARN_PENDING → MEMORY_LEARN_IN_PROGRESS` |
-| `COMPLETE` | CAS：`MEMORY_LEARN_IN_PROGRESS → COMPLETED` + 写 state_log `MEMORY_LEARN_COMPLETE` |
-| `FAILED` | 读 `ai_ocr_memory_learn_log` 计数：`<3` 回 PENDING 等重试；`≥3` 进 MEMORY_LEARN_FAILED 终态 |
-
-**关键约束**: `MEMORY_LEARN_FAILED` 终态 **不回滚 fi_***（财务数据已 committed，不允许重做）。
-
-### 4.3 OcrSimilarityCheckSqsProducer
-
-| 实现层关注点 | 决策 |
-|------------|------|
-| 触发 | 由 `OcrResultSqsProcessor#handleResult` 通过 `publishEvent(TaskReadyForReviewEvent)` 派发 |
-| 消费 | `@TransactionalEventListener(phase = AFTER_COMMIT)` 才发送 SQS（严禁 BEFORE_COMMIT） |
-| 聚合粒度 | 每个 task 入队**仅 1 条消息**（聚合所有 mapping_result.account_label）；不是 per-file |
-| HMAC-SHA256 签名 | 见 §6.3 |
-
-### 4.4 OcrMemoryLearnSqsProducer
-
-| 实现层关注点 | 决策 |
-|------------|------|
-| 触发时机 | `/tasks/{id}/commit` 事务 **AFTER_COMMIT** 阶段（fi_* 写入成功后） |
-| payload 构建 | 对每个 `extracted_row` 比对 `originalAiCategory` vs `confirmedCategory`，生成 `mappingComparisons[]` 数组 |
-| `wasOverridden` 计算 | Java 端计算 `originalAiCategory != confirmedCategory`；Python 端只学习 `wasOverridden=true` 的条目 |
-| 重试支持 | `attemptNumber` 字段；首次为 1。**v2 注意**：原 Java `/memory-learn/retry` 端点已删除；重试改由 Python 内部 cron 或 Python `/state` 端点暴露 retry 入口（详见 python-design.md） |
-| HMAC-SHA256 签名 | 见 §6.3 |
-
-### 4.5 队列配置
-
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| `visibilityTimeout` | 300s (5 分钟) | 50 页 PDF 处理需要 ~60s |
-| `maxReceiveCount` | 3 | 3 次重试后进 DLQ |
-| `messageRetentionPeriod` | 345600s (4 天) | 与现有队列一致 |
-| DLQ | 共享 `dlq-queue` | 通过 `messageType` 字段区分 |
-
-### 4.6 DocParseTaskSweeper（v2 收窄）
-
-异步消息驱动状态机存在"消息丢失"或"Python/Java 崩溃"导致任务永久停留的风险。`@Scheduled(fixedDelay=120_000)` 每 2 分钟扫描自愈。
-
-| 扫描分支 | 阈值 | 动作 |
-|---------|------|------|
-| `sweepDraftExpired` | DRAFT > 24h | 删 S3 对象 + `status=EXPIRED` + 清理 Imported Statements 占位行 |
-| `sweepZombieProcessing` | file.PROCESSING > 20min | 跨 schema 检查 Python 是否已写 `ai_ocr_extracted_table`：有 → 推进 REVIEW_READY；无 → FILE_FAILED |
-| `sweepStuckMemoryLearn` | MEMORY_LEARN_IN_PROGRESS > 10min | `status=MEMORY_LEARN_FAILED`（fi_* 不回滚） |
-
-**v2 不再扫描的状态**:
-- `VERIFYING` → 由 Python 自身管理（v2 边界变更）
-- `SIMILARITY_CHECKING` → 瞬态，由 SQS DLQ 兜底
-- `COMMITTING` → 事务回滚自动恢复
-
-**实现层关键决策**:
-- 使用 `@Scheduled(fixedDelay)` 而非 `fixedRate`
-- 每个 sweep 分支使用独立事务，失败不影响其他分支
-- 僵尸任务数 > 0 触发 Prometheus 告警
-
-### 4.7 Java/Python 数据库物理部署
+### 5.3 Java/Python 数据库物理部署
 
 **关键决策**: Java 和 Python 共用**同一个** PostgreSQL RDS 实例 + **同一个 schema**（简化部署，避免跨库 JOIN）。通过数据库角色权限实现读写隔离 —— 完整 GRANT 语句见 [database-schema.md §4](./database-schema.md#4-数据库角色与权限)。
 
@@ -490,11 +994,11 @@ GRANT 语句详见 [database-schema.md §4](./database-schema.md#4-数据库角�
 
 ---
 
-## 5. Commit 流程实现层（端点 4 — 核心职责）
+## 6. Commit 流程实现层（端点 4 — 核心职责）
 
-> **业务流程定义** → [system-architecture.md 4 步流程 第 4 步](./system-architecture.md)；**端点 URL/字段** → [api-doc.md #4 /commit](./api-doc.md#4-tasksidcommit-post)；**Proforma/冲突业务规则** → [python-design.md](./python-design.md)。本节聚焦 Java 端事务边界与并发设计。
+> **业务流程定义** → [system-architecture.md 4 步流程 第 4 步](./system-architecture.md)；**端点细节** → §2.4；**Proforma/冲突业务规则** → [python-design.md](./python-design.md)。本节聚焦 Java 端事务边界与并发设计。
 
-### 5.1 v2 Commit 端点重大变更
+### 6.1 v2 Commit 端点重大变更
 
 v1 行为 → v2 简化：
 
@@ -504,7 +1008,7 @@ v1 行为 → v2 简化：
 | `/commit` 后前端轮询 Java `/tasks/{id}/status` 看 MEMORY_LEARN 进度 | 前端轮询 Python `/state.memoryLearn.stage` 看进度 |
 | 前端在 commit 成功后另起逻辑跳 Benchmark | `/commit` 响应内 `benchmarkRedirectUrl` 直接前端 router push |
 
-### 5.2 两阶段事务模型
+### 6.2 两阶段事务模型
 
 ```
 事务内（@Transactional(propagation=REQUIRED, rollbackFor=Exception.class)）:
@@ -528,12 +1032,12 @@ AFTER_COMMIT（@TransactionalEventListener(phase = AFTER_COMMIT)）:
      └─ 把所有 visible=false 的占位行设为 visible=true（含 has_extractable_data=false 文件）
   ⑬ 触发下游 normalization 流程（@Async）
   ⑭ 检测新 closed month → ClosedMonthMailService.notify()（写 state_log NEW_CLOSED_MONTH）
-  ⑮ 构建 mappingComparisons → OcrMemoryLearnSqsProducer.send(...)（参见 §4.4）
+  ⑮ 构建 mappingComparisons → OcrMemoryLearnSqsProducer.send(...)（参见 §3.3）
   ⑯ task.status=MEMORY_LEARN_PENDING
   ⑰ 写 state_log COMMIT_COMPLETE
 ```
 
-### 5.3 关键实现层约束
+### 6.3 关键实现层约束
 
 | 约束 | 实现机制 |
 |------|---------|
@@ -542,7 +1046,7 @@ AFTER_COMMIT（@TransactionalEventListener(phase = AFTER_COMMIT)）:
 | 部分写入禁止 | 任一 metric 写入失败 → 整个 @Transactional 回滚，task.status 自动恢复 |
 | Hard gate 双重校验 | 前端调 commit 前必须先调 Python `/verify` 通过；Java 端再二次校验防绕过 |
 
-### 5.4 Commit 失败的恢复路径（Q7 方案 B）
+### 6.4 Commit 失败的恢复路径
 
 Commit 失败**不置 task.status=FAILED**。事务 rollback 后 task.status 自动回到 `READY_TO_COMMIT` 或 `CONFLICT_RESOLUTION`。
 
@@ -553,7 +1057,7 @@ Commit 失败**不置 task.status=FAILED**。事务 rollback 后 task.status 自
 
 **用户体验**: Java 返回 500 + errorCode=`COMMIT_FAILED_RETRYABLE` → 前端弹 Modal "数据未写入，请稍后重试 [重试]"；点重试再次 POST /commit 即可（幂等可接受）。
 
-### 5.5 v2 ImportedStatementsService 职责（预占位 → 最终化）
+### 6.5 ImportedStatementsService 职责（预占位 → 最终化）
 
 | 阶段 | 触发 | 动作 |
 |------|------|------|
@@ -564,7 +1068,7 @@ Commit 失败**不置 task.status=FAILED**。事务 rollback 后 task.status 自
 
 **为什么预占位**：用户在上传过程中即可在 Documents 视图看到"导入中"状态，提供进度感。文件夹按 `company_id` 全局唯一，首次提交时由 CompanyDocService 自动创建。
 
-### 5.6 边界用例 — 无可提取数据（NO_DATA_BYPASS）
+### 6.6 边界用例 — 无可提取数据（NO_DATA_BYPASS）
 
 > **业务规则** → [requirement-analysis §4.12](./requirement-analysis.md)。本节仅说明 Java 端状态机决策。
 
@@ -580,9 +1084,9 @@ Commit 失败**不置 task.status=FAILED**。事务 rollback 后 task.status 自
 
 ---
 
-## 6. 任务修订实现层（端点 5）
+## 7. 任务修订实现层（端点 5）
 
-> 端点 URL / 请求字段参见 [api-doc.md #5](./api-doc.md#5-tasksidrevise-post)。
+> 端点细节参见 §2.5。
 
 **Java 实现层关键决策**（事务内）:
 - 校验 parent task.status ∈ {COMPLETED, SUPERSEDED}
@@ -591,22 +1095,41 @@ Commit 失败**不置 task.status=FAILED**。事务 rollback 后 task.status 自
   - `ai_ocr_extracted_table/row` 由 Java 直接 COPY（v2：Java 写入 Python 拥有的表是单向例外，仅 revise 场景）—— 或改由 Python 通过 SQS 异步复制（推荐，避免跨域写）
   - `ai_ocr_mapping_result` 由 Java 直接 INSERT（v1 行为不变）
 - `revision_number = parent.revision_number + 1`（受 UNIQUE 约束保护并发）
-- Commit 成功后置 parent.status=SUPERSEDED + parent.superseded_by=self.id（在 §5.2 commit 事务步骤 ⑧ 处理）
+- Commit 成功后置 parent.status=SUPERSEDED + parent.superseded_by=self.id（在 §6.2 commit 事务步骤 ⑧ 处理）
 - 修订原因记录到 `ai_ocr_task.revision_reason`
 
 **Cancel 选项已移除**（Asana 2026-04-19）。用户若要放弃提交直接退出页面，task 状态保持 REVIEWING；Sweeper 24h 后清 DRAFT。
 
 ---
 
-## 7. 安全要求
+## 8. 安全要求
 
-### 7.1 移除 FileController @AnonymousAccess
+### 8.1 上传错误码总表
+
+| 错误码 | 触发场景 | HTTP 状态 |
+|-------|---------|----------|
+| `FILE_TOO_LARGE` | 单文件超 20MB | 400 |
+| `BATCH_TOO_LARGE` | 批次累计超 100MB | 400 |
+| `UNSUPPORTED_TYPE` | 扩展名/Content-Type 不在白名单 | 400 |
+| `MAGIC_BYTES_MISMATCH` | 扩展名与文件头不一致 | 400 |
+| `DUPLICATE_NAME` | 同 company + 同 hash 已存在活跃记录 | 409 |
+| `S3_OBJECT_NOT_FOUND` | `/upload-complete` 但 HeadObject 失败 | 404 |
+| `INVALID_HASH_FORMAT` | hash 不符合 `^[a-f0-9]{64}$` | 400 |
+| `INVALID_STATUS_FOR_PROCESSING` | `/start-processing` 时 task.status 非法 | 409 |
+| `HARD_GATE_FAILED` | `/commit` 时存在 PENDING 冲突或 unmapped row | 409 |
+| `INVALID_STATUS_FOR_COMMIT` | `/commit` 时 task.status 非法 | 409 |
+| `COMMIT_FAILED_RETRYABLE` | `/commit` 技术异常（DB 死锁/网络）| 500 |
+| `PARENT_TASK_INVALID_STATUS` | `/revise` 时 parent 状态不在 COMPLETED/SUPERSEDED | 409 |
+
+错误信息均由 Java 生成（R-2.2 约束：用户可见错误必须由 Java 转换；Python 不直接面向用户）。
+
+### 8.2 移除 FileController @AnonymousAccess
 
 | 问题 | 严重级别 | 修复 |
 |------|---------|------|
 | 上传端点 `@AnonymousAccess` 无认证 | **CRITICAL** | 移除 `@AnonymousAccess`，所有 `/api/v1/docparse/*` 端点必须 JWT 认证 |
 
-### 7.2 上传校验 MIME + magic bytes
+### 8.3 上传校验 MIME + magic bytes
 
 允许的 MIME 类型白名单：
 - `application/pdf`
@@ -616,15 +1139,15 @@ Commit 失败**不置 task.status=FAILED**。事务 rollback 后 task.status 自
 
 校验流程：先检查文件扩展名，再读取首 2KB magic bytes 确认真实类型，两者必须一致。
 
-### 7.3 SQS 消息 HMAC 签名
+### 8.4 SQS 消息 HMAC 签名
 
 每条 SQS 消息附加 `hmacSignature` 字段，使用共享密钥对消息体做 HMAC-SHA256 签名。消费端处理前必须校验签名有效性。Producer 与 Consumer 共享 secret 通过 AWS Secrets Manager 轮换。
 
-### 7.4 SQS 消费时跨公司归属校验
+### 8.5 SQS 消费时跨公司归属校验
 
 `OcrResultSqsProcessor` 消费结果消息时，必须校验 `fileId` 对应的 `ai_ocr_file.task_id → ai_ocr_task.company_id` 与消息中的 `companyId` 一致，防止跨公司数据越权。
 
-### 7.5 S3 Bucket CORS（生产必需）
+### 8.6 S3 Bucket CORS（生产必需）
 
 Presigned URL 直传要求 S3 Bucket 配置 CORS 允许前端 origin。**严禁使用 `*` 或 localhost 作为 AllowedOrigins**。
 
@@ -636,7 +1159,7 @@ Presigned URL 直传要求 S3 Bucket 配置 CORS 允许前端 origin。**严禁�
 | ExposeHeaders | `ETag` | 同上 |
 | MaxAgeSeconds | 3000 | 同上 |
 
-### 7.6 S3 Presigned URL 安全增强（5 项约束）
+### 8.7 S3 Presigned URL 安全增强（5 项约束）
 
 | # | 约束 | 实现机制 |
 |---|------|---------|
@@ -646,7 +1169,7 @@ Presigned URL 直传要求 S3 Bucket 配置 CORS 允许前端 origin。**严禁�
 | 4 | `file_hash` 格式强校验 | DTO 字段加 `@Pattern(regexp = "^[a-f0-9]{64}$")` 防注入 |
 | 5 | CloudTrail S3 Data Events 启用 | 生产 Bucket 启用 PutObject/GetObject/DeleteObject 日志 |
 
-### 7.7 IAM 角色与数据库角色
+### 8.8 IAM 角色与数据库角色
 
 **S3 / SQS IAM 权限划分**:
 
@@ -655,9 +1178,9 @@ Presigned URL 直传要求 S3 Bucket 配置 CORS 允许前端 origin。**严禁�
 | Java IAM Role | `s3:PutObject` + `s3:GetObject` + `s3:DeleteObject` → `ocr-uploads/*` | `sqs:SendMessage` → `ocr-extract-queue` / `ocr-similarity-check-queue` / `ocr-memory-learn-queue`；`sqs:Receive/Delete` → `ocr-result-queue` |
 | Python IAM Role | `s3:GetObject` → `ocr-uploads/*`（只读） | `sqs:Receive/Delete` → `ocr-extract-queue` / `ocr-similarity-check-queue` / `ocr-memory-learn-queue`；`sqs:SendMessage` → `ocr-result-queue` + `ocr-extract-queue`（v2：REMAP_ONLY 触发）|
 
-**数据库角色隔离**: 见 §4.7。
+**数据库角色隔离**: 见 §5.3。
 
-### 7.8 v2 Python 端点的 JWT 共享
+### 8.9 v2 Python 端点的 JWT 共享
 
 v2 Python 端点（`/ocr/*`）需与 Java 共享 JWT secret：
 - Java 签发 JWT（登录时）
