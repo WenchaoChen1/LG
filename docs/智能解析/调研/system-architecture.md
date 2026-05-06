@@ -10,6 +10,36 @@
 
 > 本节是 OCR Agent 系统的**最高级架构契约**。所有详细设计（§2-§16）必须遵循以下边界，违反需在本节增补例外说明。
 
+### 0.0 项目核心流程（4 步抽象）
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  ① 文件上传                  → ② 文件解析                                     │
+│     (Java)                       (Java SQS → Python → Java DB)                │
+│                                                                              │
+│        ↓                            ↓                                        │
+│                                                                              │
+│  ④ 数据保存 + 记忆          ← ③ 数据校验                                     │
+│     (Java commit + Java SQS         (Java，含审核/汇总/冲突)                  │
+│      → Python 记忆学习)                                                       │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+| # | 步骤 | 主体 | 关键动作 | 与详细 Pipeline 的对应 |
+|---|------|------|---------|---------------------|
+| **1** | **文件上传** | **Java** | 校验文件类型/大小/格式/重名 → 写入 S3 → 创建 `ai_ocr_task` + `ai_ocr_file` 行 | Pipeline §1（上传） |
+| **2** | **文件解析** | **Java SQS → Python → Java DB** | Java 入队 `ocr-extract-queue` → Python 消费执行 OCR/AI 提取/AI 映射 → 通过 `ocr-result-queue` 回传结构化数据 → Java 写入 `ai_ocr_extracted_*` / `ai_ocr_mapping_result` → 前端轮询取数据 | Pipeline §2-§3（提取 + 映射） |
+| **3** | **数据校验** | **Java** | 用户在前端审核/编辑/Mapping Summary/冲突解决；**校验前后的数据快照必须落 log**；Java 全程记录每一次状态变更 | Pipeline §4 + §5a + §5b（Review + Summary + Conflict） |
+| **4** | **数据保存** | **Java commit + Java SQS → Python** | Java 整批事务写入 `fi_*` → `@AfterCommit` 入队 `ocr-memory-learn-queue` → Python 消费执行记忆学习（更新 `ai_ocr_mapping_memory`） → 写 `ai_ocr_memory_learn_log` 与 `ai_ocr_mapping_memory_audit` 双重日志 | Pipeline §5c + §6（Commit + Learn） |
+
+**关键约束**:
+
+- **Java 是用户唯一接触面**：上传/校验/保存 3 个用户可见的动作全部由 Java 执行，Python 永远不直接接触用户
+- **Python 是异步引擎**：仅通过 SQS 被动响应，处理结果回传 Java 后由 Java 决定下一步
+- **每一步都有 log**（详见 §0.6）：4 个步骤的每一次状态变更、每一个错误、每一次校验前后的数据快照都必须有持久化日志
+
 ### 0.1 边界划分
 
 | 服务 | 职责 |
@@ -58,6 +88,46 @@ Java 调用 Python 的**唯一方式**是 SQS 消息。当前定义**三个出�
 | `ai_ocr_extraction_skip_log` | INSERT | §4.7 No-Extractable-Data 跳过审计 |
 
 详见 [database-schema.md §4 GRANT](./database-schema.md#4-数据库角色与权限)。
+
+### 0.6 关键规则：全流程状态必须留 log
+
+**强制要求**：4 步流程中的**每一个状态变更**、**每一次外部交互**、**每一次错误**都必须有持久化日志。日志按职责拆分为 5 张表，互不重叠：
+
+| 日志表 | 触发时机 | 内容 |
+|--------|---------|------|
+| 🔴 **`ai_ocr_task_state_log`**（**新增 2026-05-06**，覆盖全流程主线）| `ai_ocr_task.status` 每次变更 | old_status / new_status / event_type / triggered_by（用户 / SQS msg ID / system）/ snapshot_data（关键节点数据快照，校验前后用）/ error_detail |
+| `ai_ocr_extraction_skip_log` | §4.7 解析后无可提取数据 | 跳过的 file_id + 原因 |
+| `ai_ocr_mapping_change_log` | §4.6 用户 Previous 修改 mapping | 老/新 hash + 失效的 conflict_resolutions 数 |
+| `ai_ocr_commit_audit` | 第 4 步 Java 写 fi_* 时 | 每个 row 的 written/overwritten/skipped + old_value/new_value + 关联 conflict_note_id |
+| `ai_ocr_memory_learn_log` + `ai_ocr_mapping_memory_audit` | 第 4 步 Python 学习时（§0.4 已说明）| 任务级摘要 + 行级变更明细 |
+
+**第 3 步"数据校验"前后的数据快照要求**:
+
+- **校验前快照**（写入 `ai_ocr_task_state_log`，event_type=`VALIDATION_START`）:
+  - AI 原始提取的 `account_label` / `cell_values`
+  - AI 原始映射建议（`original_ai_suggestion`）
+  - 进入审核时的整体快照 hash（`mapping_snapshot_hash`）
+- **校验后快照**（写入 `ai_ocr_task_state_log`，event_type=`VALIDATION_END` 或 `COMMIT_START`）:
+  - 用户最终确认的 `account_label` / `cell_values`（含 `user_edited` 标志）
+  - 用户最终确认的 `lg_category`（与 `original_ai_suggestion` 对比即可看出修正）
+  - 校验耗时（`VALIDATION_END.created_at - VALIDATION_START.created_at`）
+
+**事件类型清单（`ai_ocr_task_state_log.event_type`）**:
+
+| Phase | 事件 | 触发主体 |
+|-------|------|---------|
+| 上传 | `UPLOAD_INITIATED` / `UPLOAD_FILE_VALIDATED` / `UPLOAD_S3_PERSISTED` / `UPLOAD_REJECTED` | Java |
+| 解析 | `EXTRACT_QUEUED` / `EXTRACT_STARTED` / `EXTRACT_PROGRESS` / `EXTRACT_COMPLETED` / `EXTRACT_FAILED` / `EXTRACT_NO_DATA` | Java（前 1 个 + 后 1 个）+ Python（`ocr-result-queue` 回传） |
+| 校验 | `VALIDATION_START` / `MAPPING_EDITED` / `SUMMARY_VIEWED` / `VERIFICATION_TRIGGERED` / `CONFLICT_DETECTED` / `CONFLICT_RESOLVED` / `NAVIGATION_BACK` / `REMAP_TRIGGERED` / `VALIDATION_END` | Java |
+| 保存 | `COMMIT_START` / `COMMIT_SUCCESS` / `COMMIT_FAILED` / `MEMORY_LEARN_TRIGGERED` / `MEMORY_LEARN_PROGRESS` / `MEMORY_LEARN_COMPLETE` / `MEMORY_LEARN_FAILED` | Java（前 4 个）+ Python（后 3 个，通过 `ocr-result-queue`） |
+| 终态 | `TASK_COMPLETED` / `TASK_FAILED` / `TASK_SUPERSEDED` / `TASK_EXPIRED` | Java |
+
+**实现要点**:
+
+- Java 端通过 `TaskStateAuditAspect`（AOP 切面）拦截 `ai_ocr_task.status` 的每次更新，自动写一行
+- Python 上报状态后，Java 收到 `ocr-result-queue` 消息时同时写状态日志（不依赖 Python 直接写）
+- `snapshot_data` 字段为 JSONB，仅在关键节点（VALIDATION_START / VALIDATION_END / COMMIT_START）填充，其他事件可为 NULL（节约空间）
+- 表 schema 详见 [database-schema.md §2.9](./database-schema.md#29-ai_ocr_task_state_log新增-2026-05-06)
 
 ---
 
@@ -1915,6 +1985,7 @@ defusedxml>=0.7.1
 | v1.1 | 2026-04-20 | 项目内部补丁：Task 修订（version chain）、Presigned URL 直传 S3、记忆学习 3 子状态、Note Thread RESTful 化 | requirement-analysis §11 |
 | **v1.2** | **2026-05-06** | **Asana EPIC 同步：Step 5 拆分 + 6 个新 subtask** | **requirement-analysis §4.9-4.14** |
 | **v1.3** | **2026-05-06** | **新增 §0 职责边界声明（顶层架构契约）：明确 Java/Python 分工、3 个 SQS 出口队列、记忆处理三层日志要求、Python 跨域写权限例外清单** | **用户口头确认（架构边界澄清）** |
+| **v1.4** | **2026-05-06** | **新增 §0.0 项目核心流程（4 步抽象）+ §0.6 全流程状态日志强制要求 + 新表 `ai_ocr_task_state_log`** | **用户口头确认（4 步流程定义 + 校验前后留 log）** |
 
 ### v1.2 (2026-05-06) 详细变更
 
