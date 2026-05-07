@@ -67,7 +67,7 @@ The following files could not be processed. This may be caused by an upload issu
  [file name] Could not be processed — the file may be corrupted, unsupported, or failed to upload.
  [file name] Could not be processed — the file may be corrupted, unsupported, or failed to upload.
  [file name] Could not be processed — the file may be corrupted, unsupported, or failed to upload.(有几个文件罗列几个）
-按钮： Re-upload(关闭弹窗，打开本地文件夹）Discard Problem Files（关闭弹窗，回到解析页面）
+按钮： Re-upload(关闭弹窗，打开本地文件夹，可以重新选择文件上传）Discard Problem Files（关闭弹窗，回到解析页面,若本批文档全部无法解析，则回到上传页面）
 - 点击Cancel按钮，关闭弹框，回到Financial Entry页面
 
 ---
