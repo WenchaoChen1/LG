@@ -330,6 +330,12 @@ Trend 视图以折线图的形式展示用户指定范围内（ 默认6 个月�
 - 示例：`Actuals - Internal Peers`、`Committed Forecast - KeyBanc`
 ---
 
+##### 计算方法
+
+**Overall score**: 四个板块中有百分位值的板块的平均值。几个板块有分数就除以几
+**Bar上每个点的位置**：该颜色所对应的指标某一维度（如actual-internal peer）所有月份的平均值。
+**板块百分位**：Bar上所有点位的平均值
+
 ##### 折线图的坐标系
 
 **纵轴（Y 轴）**：
