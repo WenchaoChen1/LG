@@ -62,6 +62,12 @@
   
 **返回与继续**
 - 点击Next按钮，系统自动将文件转入处理流水线，进入 3.2 的提取逻辑。
+- 若有提取失败的文件，则在解析完成后显示报错弹窗：File Processing Errors
+The following files could not be processed. This may be caused by an upload issue or a parsing error. You can re-upload each file, or discard them to continue.
+ [file name] Could not be processed — the file may be corrupted, unsupported, or failed to upload.
+ [file name] Could not be processed — the file may be corrupted, unsupported, or failed to upload.
+ [file name] Could not be processed — the file may be corrupted, unsupported, or failed to upload.(有几个文件罗列几个）
+按钮： Re-upload(关闭弹窗，打开本地文件夹）Discard Problem Files（关闭弹窗，回到解析页面）
 - 点击Cancel按钮，关闭弹框，回到Financial Entry页面
 
 ---
@@ -176,6 +182,8 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 - **关键词重叠冲突（COGS 与 R&D）**： 某些术语（例如“cloud”、“hosting”、“AWS”）同时出现在 COGS（销售成本）和 R&D（研发费用）的关键词集中，从而引发潜在的分类冲突。当 AI 检测到此类歧义时：
 默认归类为 COGS，在源条目及对应的 LG 指标旁显示警示图标，以供用户审阅
 
+- **语义重复**：如果在同一时间段内，多个映射至同一 LG 指标的源账户被 AI 判定为语义重复（即含义部分或完全重叠，例如“桌椅费用”与“办公家具费用”），则会在每一条重复的源明细项以及对应的 LG 指标行上显示一个警示图标。若同义的unmapped的项移入mapped项，同样也显示警示图标。
+
 **持久化与可审计**
 - 每条映射存储：建议的 LG 科目、时间戳、来源（AI suggested / User Override）。
 - 若用户在 Side-by-Side Review 中修改科目：用户选择覆盖 AI 建议，供 3.7 学习使用；原 AI 建议作为审计历史保留。
@@ -215,7 +223,9 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
       - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账户名称，即切换显示为“No Date”
       - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
     - 用户可为 UNIDENTIFIED 账户手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
-    - 指派下拉中每个指标都包含Actuals和Forecast两种选择，Forecast显示紫色
+    - 指派下拉中每个指标都包含Actuals和Forecast两种选择，Forecast显示紫色，下拉框上方可输入指标名称筛选
+- 页面小提示：Click to assign this item to an LG Metric，该提示位于第一个可指派LG指标的账户名旁，提示用户可以点击匹配指标。
+  
 **特殊情况**
 - 若该批文件没有任何可用数据，右面版提示 No mapped data
   No mapped amount data was extracted from this file, so nothing can be mapped. Try uploading a clearer file or a different file format.
@@ -224,7 +234,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
   
   - **LG 科目**
   - **底层源行项**
-    - 显示最细粒度行项名；支持多币种并原样显示。
+    - 显示最细粒度行项名；支持多币种并原样显示。总计性的行项不进入匹配流程，如total expenses,只提取其最细颗粒度子项，total expenses本身不提取。
     - 同一 LG 指标多个源账户 → 行可展开，指标名旁显示账户数。
     - 若 LG 指标合计因币种不一致或数据类型冲突（如货币指标下出现百分比）而无法计算 → 默认显示 "-"，不写入 LG；冲突解决不在本需求范围内，由其他 ticket 处理。
     - 同一时间期内映射到同一 LG 指标的多个源账户，若 AI 判定语义部分或完全重复（如 "desk and chair expenses" 与 "office furniture expenses"），在每个重复源行项与对应 LG 行上显示告警图标。
@@ -258,8 +268,9 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
         [50] fields with mismatched LG metric mappings
         [15] unmapped accounts that will not be written to Looking Glass
         Any unmapped data will not be saved. Would you like to continue?
-   Continue to Next Step按钮：点击进入下一步
-   Go Back按钮：点击回到mapping页面
+  - Continue to Next Step按钮：点击进入下一步
+  - Go Back按钮：点击回到mapping页面
+  - 若不存在未匹配的项，则“[15] unmapped accounts that will not be written to Looking Glass Any unmapped data will not be saved. Would you like to continue?”不显示
 - 点击右上角Cancel按钮，会出Cancel Data Mapping?确认弹框，可点击Cancel data mapping回到Financial Entry页面,若点击Continue data mapping,保持在本页不动。
 
 ---
@@ -274,7 +285,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 **Verify Data 摘要页**
 - 冲突检测前显示摘要：本次提交的源文件总数、映射类型（Actuals / Proforma）数量、映射科目数量。
 - 用户点击 "Start Verification" 触发校验。
-- 实时进度指示。
+- 加载时显示loading circle。
 
 **既有数据冲突检测与用户抉择**
 - 按公司、LG 指标、报告期（月+年）维度比对；冲突校验作为后台任务进行，按目标 LG 指标与月份的存储币种进行比较。
