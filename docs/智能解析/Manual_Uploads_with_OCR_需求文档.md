@@ -26,8 +26,8 @@
 
 **入口与权限**
 - 仅手动录入类型公司可见上传按钮；自动对接公司不显示。
-- Company Admin、Company User 可上传本公司文档；Portfolio Manager可上传其有权限的全部公司文档。
-- 按钮位置： Financial Entry 页面 Import Statement按钮，点击按钮即可进入上传流程
+- Company Admin、Company User 可上传本公司文档；Portfolio portal的角色可上传其有权限的全部公司文档。
+- 按钮位置： Financial Entry/Committed Forecast 页面 Import Statement按钮，点击按钮即可进入上传流程
 
 **支持的文件格式**
 - PDF（扫描版或数字版）
@@ -50,10 +50,10 @@
   - `Failed to Upload {File name}. The combined size of your files exceeds the 100MB limit.`
   - `Failed to Upload {File name}. A file with this name already exists.`
   - `Failed to Upload {File name}. `(单纯上传失败，无需解释）
-- 同种类型Error，内容不重复展示,仅罗列File name，error消息展示五秒自动消失
+- 同种类型Error，内容不重复展示,仅罗列File name，error消息展示五秒自动消失，也可以点击X关闭
 - 动态更新：若旧报错消息尚未消失时，新上传文件再次触发同类型错误，应将新文件名追加至现有列表中，并重置 5 秒倒计时。
 - 不同类型隔离：若触发的是不同类型的错误，则正常弹出新的错误消息框，各自独立计时。
-- 若同批文档总大小超过100MB，按照上传速度，速度慢的超过100MB总量的文件不予上传
+- 若同批文档总大小超过100MB，文件不予上传,若二次上传时，第二批与第一批加起来超过100MB，则第二批整批不予上传
 
 **状态与队列管理**
 - 每个文件显示上传进度条, Next按钮在全部上传完成前不可用
@@ -63,12 +63,7 @@
   
 **返回与继续**
 - 点击Next按钮，系统自动将文件转入处理流水线，进入 3.2 的提取逻辑。
-- 若有提取失败的文件，则在解析完成后显示报错弹窗：File Processing Errors
-The following files could not be processed. This may be caused by an upload issue or a parsing error. You can re-upload each file, or discard them to continue.
- [file name] Could not be processed — the file may be corrupted, unsupported, or failed to upload.
- [file name] Could not be processed — the file may be corrupted, unsupported, or failed to upload.
- [file name] Could not be processed — the file may be corrupted, unsupported, or failed to upload.(有几个文件罗列几个）
-按钮： Re-upload(关闭弹窗，打开本地文件夹，可以重新选择文件上传）Discard Problem Files（关闭弹窗，回到解析页面,若本批文档全部无法解析，则回到上传页面）
+
 - 点击Cancel按钮，关闭弹框，回到Financial Entry页面
 
 ---
@@ -79,8 +74,11 @@ The following files could not be processed. This may be caused by an upload issu
 - 每一个提取出的表格都会沿两个维度独立进行分类：报表类型（Statement Type）和数据类型（Data Type）。报表类型与数据类型是独立进行分类的。
 - 数据类型：Actuals、Proforma
  - 关键词：
-  - `Forecast / Proforma / Projection / Budget / Plan` → Proforma（满足其中任一条件即视为预测数据）
-  - 若上述所有信号均未出现，该表格将被归类为“Actuals”
+  - “预测数据”的识别信号（满足其中任一条件即视为预测数据）：
+   - 表格标题、章节标题或邻近文本中包含以下关键词之一：Forecast（预测​​）、Proforma（预测报表）、Projection（推算）、Budget（预算）或 Plan（计划）。
+   - 列标题所指代的报告期属于未来期间（即日期晚于文档上传日期）。
+   - 表格中包含历史日期列与未来日期列的混合数据（即滚动预测）。
+   - 若上述所有信号均未出现，该表格将被归类为“Actuals”
 
 - 报表类型：P&L、Balance sheet
  - 关键词：
@@ -194,6 +192,15 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 ### 3.4 Side-by-Side 审核与内联编辑
 
 呈现左右分屏，供用户在写入前核对、修正抽取数据与映射结果。左屏显示loding circle，解析过程中左右屏均显示灰色。若替换文件或重新上传，同样显示loading circle且左右屏显示灰色。
+- 若有提取失败的文件，则在解析完成后显示报错弹窗：File Processing Errors
+The following files could not be processed. You can re-upload each file, or discard them to continue.
+ [file name] 
+ [file name] 
+ [file name] (有几个文件罗列几个）
+- 按钮：
+-  Re-upload(关闭弹窗，打开本地文件夹，可以重新选择文件上传，,若二次上传时，第二批与第一批加起来超过100MB，则第二批整批不予上传）
+- Discard Problem Files（关闭弹窗，回到解析页面,若本批文档全部无法解析，则回到financial statement页面）
+- ✖（关闭弹窗，回到解析页面,若本批文档全部无法解析，则回到financial statement页面）
 
 **左面板 — 源文档浏览器**
 - 顶部：文件选择下拉，可切换文件或选择 "All Files" ，默认显示"All Files"。
