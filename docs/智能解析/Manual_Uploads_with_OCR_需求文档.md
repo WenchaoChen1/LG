@@ -71,6 +71,7 @@
 ### 3.2 数据提取-Data Mapping步骤
 
 **表格类型识别**
+- 仅提取table中的数据
 - 每一个提取出的表格都会沿两个维度独立进行分类：报表类型（Statement Type）和数据类型（Data Type）。报表类型与数据类型是独立进行分类的。
 - 数据类型：Actuals、Proforma
  - 关键词：
@@ -88,8 +89,8 @@
     - P&L：Revenue、COGS、Gross Margin、EBITDA、Net Income。
     - Balance Sheet：Assets、Liabilities、Equity、Cash、Debt。
   - **结构线索**：Balance Sheet 满足 Assets = Liabilities + Equity；P&L 为按期合计的流量报表。
-- **边缘案例**：如果某个表格类型无法依据既定规则进行明确归类，则意味着该表格中未提取出可映射至 LG 支持指标的财务科目。若整个文件中均未提取出任何财务科目，相关情况将在“数据映射”页面上予以提示。
-- 多页财务可能同时包含多种文档类型。
+- **边缘案例**：如果某个表格类型无法依据既定规则进行明确归类，则意味着该表格中未提取出可映射至 LG 支持指标的财务科目。若整个文件中均未提取出任何财务科目，相关情况将在“数据映射”页面上予以提示，详见3.4特殊情况。
+- 多页财务可能同时包含多种数据类型和财务报表类型。
 
 **报告期识别（按优先级）**
 1. 列头、行标签
@@ -140,11 +141,11 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 **映射规则（语义级 + AI）**
 - 下列关键词是语义指南，AI以自然语言理解进行匹配，不做严格字面匹配；即使措辞不完全一致，只要语义相符即可匹配。
 - AI 须考虑源文档中的父子层级：父账户的类别语境作用于子账户。示例：父账户 "R&D" 下的子项 "Wages" → 映射为 **R&D Payroll**，而非 G&A Payroll。
-- 若规则层面匹配不到，AI 以独立语义推理从支持列表中选一个最合适的 LG 科目。
+- 若规则层面匹配不到，AI 以独立语义推理从支持列表中选一个最合适的 LG 科目。结合它的table的数据类型，报表类型，父子级关系以及该字段本身去推理
 - 若推理后仍无法确定，标记为 Unmapped，并在 Side-by-Side Review 的 Unmapped Accounts 区域呈现。
 
 **各类别关键词（摘要）**
-- **Revenue**：`sales, revenue, income, fees, subscriptions, gross receipts`。特殊情况：若标签含 `refund / returns / contra` → Revenue Contra。
+- **Gross Revenue**：`sales, revenue, income, fees, subscriptions, gross receipts`。特殊情况：若标签含 `refund / returns / contra` → Revenue Contra （收入抵减科目/反向收入账户）是指在会计中用于减少总销售收入的科目，它的本质是一个金额与正常收入账户相反（借方余额）的账户，主要用来记录退货、折让或折扣，从而计算出企业的净销售额。
 
 - **COGS**：`cogs, cost of goods, materials, inventory, supplies used, direct labor, hosting, infrastructure, cloud, server, bandwidth, third-party, api, support`。
 
@@ -162,26 +163,27 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
  - Professional Services:`legal, legal fees, accounting, audit, consulting, professional services`；
  - Admin:`hr, human resources, recruiting, insurance, licenses, permits`。
 
-- **Payroll** `wages, salary, payroll, compensation, benefits, payroll taxes` 如果 AI 无法确定如何将分配至特定的薪资类别，则默认归入“一般及行政费用”（G&A），并标记以供用户复核。
+- **Payroll** `wages, salary, payroll, compensation, benefits, payroll taxes` 如果 AI 无法确定如何将分配至特定的薪资类别，则默认归入“一般及行政费用”（G&A），并在source account和LG account以alert icon标记以供用户复核。
 
 - **Cash**：`cash, bank, checking, savings, cash equivalents, money market, treasury, short-term investments, marketable securities`。
 
 - **Accounts Receivable**：`accounts receivable, a/r, receivables, trade receivables, unbilled revenue, contract asset`。
 
-- **Capitalized R&D（月度）**：需同时出现 资本化信号 + R&D/开发信号 或 摊销信号。关键词：`capitalized, capitalised, capitalized r&d, capitalized research, capitalized development, software development, internal-use software, capitalized engineering`；`amortization, amortization of intangibles, amortization of software, amortized development costs, intangible assets`。
+- **Capitalized R&D（Monthly）**：需同时出现 资本化信号 + R&D/开发信号 或 摊销信号。这三类的关键词如下:
 
-- **Other Assets**：被识别为资产且未映射到 Cash / AR / Capitalized R&D。
+- **Other Assets**：被识别为资产且未映射到 Cash / AR / Capitalized R&D (Monthly)。
 
 - **Accounts Payable**：`accounts payable, a/p, payables, trade payables`。
 
 - **Long Term Debt**：`long term debt, loan, note payable, term loan, debt, convertible note, venture debt, credit facility, line of credit, revolving`。
 
-- **Other Liabilities**：被识别为负债且未映射到 AP / Long Term Debt。
+- **Other Liabilities**：被识别为负债且未映射到 Accounts Payable / Long Term Debt。
 
 - **关键词重叠冲突（COGS 与 R&D）**： 某些术语（例如“cloud”、“hosting”、“AWS”）同时出现在 COGS（销售成本）和 R&D（研发费用）的关键词集中，从而引发潜在的分类冲突。当 AI 检测到此类歧义时：
 默认归类为 COGS，在源条目及对应的 LG 指标旁显示警示图标，以供用户审阅
 
-- **语义重复**：如果在同一时间段内，多个映射至同一 LG 指标的源账户被 AI 判定为语义重复（即含义部分或完全重叠，例如“桌椅费用”与“办公家具费用”），则会在每一条重复的源明细项以及对应的 LG 指标行上显示一个警示图标。若同义的unmapped的项移入mapped项，同样也显示警示图标。
+- **语义重复**：如果在同一月内，多个映射至同一 LG 指标的源账户被 AI 判定为语义重复（即含义部分或完全重叠，例如“桌椅费用”与“办公家具费用”），则会在每一条重复的源明细项以及对应的 LG 指标行上显示一个警示图标。若同义的unmapped的项移入mapped项，同样也显示警示图标。
+ - 在上传文件后，如果用户对unmapped里面确实source account name的字段补充了name，AI不会再次去解析这个字段，即使在用户把这个字段map到LG指标后，系统不会知道这个source account是否和其他的source account存在语义重复。
 
 **持久化与可审计**
 - 每条映射存储：建议的 LG 科目、时间戳、来源（AI suggested / User Override）。
@@ -203,7 +205,7 @@ The following files could not be processed. You can re-upload each file, or disc
 - ✖（关闭弹窗，回到解析页面,若本批文档全部无法解析，则回到financial statement页面）
 
 **左面板 — 源文档浏览器**
-- 顶部：文件选择下拉，可切换文件或选择 "All Files" ，默认显示"All Files"。
+- 顶部：文件选择下拉，若有多个文件，可切换文件或选择 "All Files" ，默认显示"All Files"，左面板显示文件列表。
   - Excel 多 Sheet：下拉下方显示 Sheet Tab 导航。
   - PDF：显示翻页控件。- 点击右上角Cancel按钮，会出Cancel Data Mapping?确认弹框，可点击Cancel data mapping回到Financial Entry页面,若点击Continue data mapping,保持在本页不动。
   - All: 显示文件列表
@@ -220,7 +222,6 @@ The following files could not be processed. You can re-upload each file, or disc
   - 仅 Proforma 数据 → 默认 Proforma。
   - 同时包含 → 默认 Actuals。
   - 切换到所选文件无数据的 Tab → 显示空状态。
-  - 预测数据字体为紫色
 - Tab 下按当前所选文档类型 / 文件列出 LG 财务指标，与 Financial Entry 相同格式；右面板支持水平与垂直滚动。结构：
   - **Unmapped accounts**（位于 Actuals / Proforma Tab 上方）
     - AI 未能映射到任何 LG 指标的源账户。
@@ -228,16 +229,17 @@ The following files could not be processed. You can re-upload each file, or disc
       - 缺账户名 → 显示 "UNIDENTIFIED"，可编辑名称，编辑完后标签消失；
       - 缺值（未识别） → 显示 "NA"；
       - 缺日期 → 显示"No Date"，可从日历下拉选择器中选择开始月份，选择后该数据自动落到相应月份下，若一个account有多个数据，则选择开始月份后，从左到右第一个数据落到开始月份，后面月份依次累加，数据依次落到月份，直到最后一个数据
+       - 特殊情况补充：若解析后某字段数据为非连续月数据且另一字段数据缺日期，另一字段展示规则如下，先排列非连续月，其他缺日期数据从最后一个有日期的数据月后动态增加列，依次排列。例如，解析后，除一个字段外，其它字段都有日期，对应月份是25年2月，5月和8月。没日期的字段有8个月份的数据(可能有数值，也可能没数值为NA)，那这8个月份的数据，第一个数据放到2月那一列，然后往后排，5月和8月，8月之后没有现存的月份了，就动态增加列，9 月10月等，把这几个月的数据放下。
       - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账户名称，即切换显示为“No Date”
       - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
     - 用户可为 UNIDENTIFIED 账户手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
     - 指派下拉中每个指标都包含Actuals和Forecast两种选择，Forecast显示紫色，下拉框上方可输入指标名称筛选
-- 页面小提示：Click to assign this item to an LG Metric，该提示位于第一个可指派LG指标的账户名旁，提示用户可以点击匹配指标。
+- 页面小提示：Click to assign this item to an LG Metric，该提示位于第一个可指派LG指标的账户名旁，提示用户可以点击匹配指标，用户做了第一个source account的map后就消失了。
   
 **特殊情况**
 - 若该批文件没有任何可用数据，右面版提示 No mapped data
   No mapped amount data was extracted from this file, so nothing can be mapped. Try uploading a clearer file or a different file format.
-- 点击Next，弹出Files Uploaded Successfully弹框，显示No financial accounts extracted. [amount] file(s) have been uploaded to the Imported Statements folder in Documentation.该批文件直接提交到Documentation板块，可点击close按钮关闭弹框，或点击Go to Documentation按钮跳转到All Documentation页面，首次提交时，创建文件夹，命名为Imported documents
+ - 点击Next，弹出Files Uploaded Successfully弹框，显示No financial accounts extracted. [amount] file(s) have been uploaded to the Imported Statements folder in Documentation.该批文件直接提交到Documentation板块，可点击close按钮关闭弹框，或点击Go to Documentation按钮跳转到All Documentation页面，首次提交时，创建文件夹，命名为Imported documents
 - 若该批文件只包含一种数据类型，如只有Actuals数据或者只有Proforma数据，则右屏其对应的tab应为空白页，显示 No financial accounts found for this data type 。
   
   - **LG 科目**
@@ -261,8 +263,8 @@ The following files could not be processed. You can re-upload each file, or disc
 - 可编辑项：
   - **数值**：删除数值后默认回填 0，作为有效数据，编辑过的数值灰色背景显示
   - **科目指派**
-   - 只有账户名的所有月份数据都非N/A时（“-”可以）指派下拉按钮才可用
-   - 数据不完整的账户行在补全前，无手动映射的下拉按钮，不能手动指派到LG指标，指派后该账户名下所有的月份（整行数据）数据都被指派到相应月份，非单元格颗粒度。 
+   - 只有账户名的所有月份数据都非N/A时（“-”可以）指派下拉按钮才会出现
+   - 数据不完整的账户行在补全前，无手动映射的下拉按钮，不能手动指派到LG指标，指派后该账户名下所有的月份（整行数据）数据都被指派到相应月份，非单元格颗粒度。 指标名称，月份，数值必须全部完整。
 - 编辑值实时替换提取值
 - 已识别的源账户名称不可编辑
 - 下方已匹配的项也可编辑数值，也可重新指派指标（包括Actuals和Forecast）,也可指派为unmapped，回到unmapped板块
