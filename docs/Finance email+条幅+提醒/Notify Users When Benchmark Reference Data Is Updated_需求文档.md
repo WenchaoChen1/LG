@@ -56,7 +56,7 @@
 
 3. **横幅提示**
    - Admin portal用户首次登录，会在portfolio benchmarking tab页面和company benchmarking tab页面提示；关闭一个页面的横幅，并不影响另一个页面，都是单独显示的。
-   - Company Admin首次登录，会在company benchmarking tab页面提示。
+   - Company portal首次登录，会在company benchmarking tab页面提示。
    - 提示词例如：Benchmark positioning updated. Your company’s placement may have shifted due to changes in benchmark data, not your financial performance.
    - 用户可关闭横幅。若不关闭，则一直显示。
 

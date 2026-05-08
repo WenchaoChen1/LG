@@ -137,7 +137,8 @@ Benchmark是Looking Glass（LG）系统中的一个核心财务分析功能，�
 							
 3. **进度条点位（Benchmark Points）**							
    - **每个点位代表一个维度组合（DATA×BENCHMARK）内所有指标的平均百分位**							
-   - 最多12个点位（3种DATA类型 × 4种BENCHMARK = 12 种维度）												
+   - 最多12个点位（3种DATA类型 × 4种BENCHMARK = 12 种维度）
+   - 点位计算方法：所有有值的板块的同一颜色的点的平均值												
    - **交互**：鼠标悬停显示Tooltip							
  						
      Tooltip内容（两行）：							
