@@ -235,11 +235,22 @@ The following files could not be processed. You can re-upload each file, or disc
     - 用户可为 UNIDENTIFIED 账户手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
     - 指派下拉中每个指标都包含Actuals和Forecast两种选择，Forecast显示紫色，下拉框上方可输入指标名称筛选
 - 页面小提示：Click to assign this item to an LG Metric，该提示位于第一个可指派LG指标的账户名旁，提示用户可以点击匹配指标，用户做了第一个source account的map后就消失了。
+
+  **内联编辑**
+- 可编辑项：
+  - **数值**：删除数值后默认回填 0，作为有效数据，编辑过的数值灰色背景显示
+  - **科目指派**
+   - 只有账户名的所有月份数据都非N/A时（“-”可以）指派下拉按钮才会出现
+   - 数据不完整的账户行在补全前，无手动映射的下拉按钮，不能手动指派到LG指标，指派后该账户名下所有的月份（整行数据）数据都被指派到相应月份，非单元格颗粒度。 指标名称，月份，数值必须全部完整，才会显示指派下拉按钮。
+- 编辑值实时替换提取值
+- 已识别的源账户名称不可编辑
+- 下方已匹配的项也可编辑数值，也可重新指派指标（包括Actuals和Forecast）,也可指派为unmapped，回到unmapped板块
   
 **特殊情况**
 - 若该批文件没有任何可用数据，右面版提示 No mapped data
   No mapped amount data was extracted from this file, so nothing can be mapped. Try uploading a clearer file or a different file format.
- - 点击Next，弹出Files Uploaded Successfully弹框，显示No financial accounts extracted. [amount] file(s) have been uploaded to the Imported Statements folder in Documentation.该批文件直接提交到Documentation板块，可点击close按钮关闭弹框，或点击Go to Documentation按钮跳转到All Documentation页面，首次提交时，创建文件夹，命名为Imported documents
+  - 点击Next，弹出Files Uploaded Successfully弹框，显示No financial accounts extracted. [amount] file(s) have been uploaded to the Imported Statements folder in Documentation.该批文件直接提交到Documentation板块，可点击close按钮关闭弹框，或点击Go to Documentation按钮跳转到All Documentation页面，首次提交时，创建文件夹，命名为Imported documents
+
 - 若该批文件只包含一种数据类型，如只有Actuals数据或者只有Proforma数据，则右屏其对应的tab应为空白页，显示 No financial accounts found for this data type 。
   
   - **LG 科目**
@@ -259,15 +270,6 @@ The following files could not be processed. You can re-upload each file, or disc
 - 切换右侧 Actuals / Proforma Tab 不影响左侧；左侧始终反映当前选中文件，与 Tab 无关。
 - 左右面板比例可调；提供图标隐藏左面板。
 
-**内联编辑**
-- 可编辑项：
-  - **数值**：删除数值后默认回填 0，作为有效数据，编辑过的数值灰色背景显示
-  - **科目指派**
-   - 只有账户名的所有月份数据都非N/A时（“-”可以）指派下拉按钮才会出现
-   - 数据不完整的账户行在补全前，无手动映射的下拉按钮，不能手动指派到LG指标，指派后该账户名下所有的月份（整行数据）数据都被指派到相应月份，非单元格颗粒度。 指标名称，月份，数值必须全部完整。
-- 编辑值实时替换提取值
-- 已识别的源账户名称不可编辑
-- 下方已匹配的项也可编辑数值，也可重新指派指标（包括Actuals和Forecast）,也可指派为unmapped，回到unmapped板块
 
 **返回与继续**
 - 用户可确认已审核数据。
