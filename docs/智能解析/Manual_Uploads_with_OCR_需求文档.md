@@ -316,7 +316,8 @@ The following files could not be processed. You can re-upload each file, or disc
    - ✖按钮，该popup只能通过点击该关闭按钮关闭
    - Next 按钮/ Save 按钮
 - 冲突弹框中所有内容均填完， Next按钮才激活，冲突解决后点击next 按钮，冲突数值变绿色，自动打开下一个冲突的popup，最后一个冲突popup 按钮为Save,跳转顺序为同一个指标从左到右，一个指标完成后跳下一个指标，依旧从左到右。
-
+- 用户点击 "Previous Step" 或右上方“Previous”按钮 回到Verify Data 摘要页
+  
 **特殊情况**
  冲突只对比Actuals数据，预测数据不进行冲突对比。若一批数据只有预测数据，则直接提交，不走冲突检测流程，Mapping Summary页面的按钮名称为Confirm and write to LG
 
