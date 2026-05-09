@@ -298,7 +298,7 @@ The following files could not be processed. You can re-upload each file, or disc
    - Mapping Summary
    Please review the mapped data. Before being submitted, the system will verify that there's no overlapping information
    本次提交的源文件总数、映射类型（Actuals / Proforma）数量、映射科目数量。
-   - 展示源文件列表
+   - 展示源文件列表，包括文件名称，文件大小，文件中已匹配的源账目数量
 - 用户点击 "Previous Step" 回到 Data Mapping页面
 - 用户点击 "Start Verification" 触发校验。
 - 加载时显示loading circle。
