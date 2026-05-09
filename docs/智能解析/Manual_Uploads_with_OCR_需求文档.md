@@ -145,7 +145,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 - 若推理后仍无法确定，标记为 Unmapped，并在 Side-by-Side Review 的 Unmapped Accounts 区域呈现。
 
 **各类别关键词（摘要）**
-- **Gross Revenue**：`sales, revenue, income, fees, subscriptions, gross receipts`。特殊情况：若标签含 `refund / returns / contra` → Revenue Contra （收入抵减科目/反向收入账户）是指在会计中用于减少总销售收入的科目，它的本质是一个金额与正常收入账户相反（借方余额）的账户，主要用来记录退货、折让或折扣，从而计算出企业的净销售额。
+- **Gross Revenue**：`sales, revenue, income, fees, subscriptions, gross receipts`。特殊情况：若标签含 `refund / returns / contra` → Revenue Contra （收入抵减科目/反向收入账户）记录为负值，map到Gross Revenue指标。是指在会计中用于减少总销售收入的科目，它的本质是一个金额与正常收入账户相反（借方余额）的账户，主要用来记录退货、折让或折扣，从而计算出企业的净销售额。
 
 - **COGS**：`cogs, cost of goods, materials, inventory, supplies used, direct labor, hosting, infrastructure, cloud, server, bandwidth, third-party, api, support`。
 
@@ -169,7 +169,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 
 - **Accounts Receivable**：`accounts receivable, a/r, receivables, trade receivables, unbilled revenue, contract asset`。
 
-- **Capitalized R&D（Monthly）**：需同时出现 资本化信号 + R&D/开发信号 或 摊销信号。这三类的关键词如下:
+- **Capitalized R&D（Monthly）**：需同时出现 资本化信号 + R&D/开发信号 或 摊销信号。这三类的关键词如下:"capitalized", "capitalised", "capitalized r&d", "capitalized research", "capitalized development", "software development", "internal-use software", "capitalized engineering"]["amortization", "amortization of intangibles", "amortization of software", "amortized development costs", "intangible assets".
 
 - **Other Assets**：被识别为资产且未映射到 Cash / AR / Capitalized R&D (Monthly)。
 
@@ -200,7 +200,7 @@ The following files could not be processed. You can re-upload each file, or disc
  [file name] 
  [file name] (有几个文件罗列几个）
 - 按钮：
--  Re-upload(关闭弹窗，打开本地文件夹，可以重新选择文件上传，,若二次上传时，第二批与第一批加起来超过100MB，则第二批整批不予上传）
+-  Re-upload(关闭弹窗，打开本地文件夹，可以重新选择文件上传，若二次上传时，第二批与第一批加起来超过100MB，则第二批整批不予上传）
 - Discard Problem Files（关闭弹窗，回到解析页面,若本批文档全部无法解析，则回到financial statement页面）
 - ✖（关闭弹窗，回到解析页面,若本批文档全部无法解析，则回到financial statement页面）
 
