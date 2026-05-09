@@ -140,12 +140,12 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 
 **映射规则（语义级 + AI）**
 - 下列关键词是语义指南，AI以自然语言理解进行匹配，不做严格字面匹配；即使措辞不完全一致，只要语义相符即可匹配。
-- AI 须考虑源文档中的父子层级：父账户的类别语境作用于子账户。示例：父账户 "R&D" 下的子项 "Wages" → 映射为 **R&D Payroll**，而非 G&A Payroll。
+- AI 须考虑源文档中的父子层级：父账目的类别语境作用于子账目。示例：父账目 "R&D" 下的子项 "Wages" → 映射为 **R&D Payroll**，而非 G&A Payroll。
 - 若规则层面匹配不到，AI 以独立语义推理从支持列表中选一个最合适的 LG 科目。结合它的table的数据类型，报表类型，父子级关系以及该字段本身去推理
 - 若推理后仍无法确定，标记为 Unmapped，并在 Side-by-Side Review 的 Unmapped Accounts 区域呈现。
 
 **各类别关键词（摘要）**
-- **Gross Revenue**：`sales, revenue, income, fees, subscriptions, gross receipts`。特殊情况：若标签含 `refund / returns / contra` → Revenue Contra （收入抵减科目/反向收入账户）记录为负值，map到Gross Revenue指标。是指在会计中用于减少总销售收入的科目，它的本质是一个金额与正常收入账户相反（借方余额）的账户，主要用来记录退货、折让或折扣，从而计算出企业的净销售额。
+- **Gross Revenue**：`sales, revenue, income, fees, subscriptions, gross receipts`。特殊情况：若标签含 `refund / returns / contra` → Revenue Contra （收入抵减科目/反向收入账目）记录为负值，map到Gross Revenue指标。是指在会计中用于减少总销售收入的科目，它的本质是一个金额与正常收入账目相反（借方余额）的账目，主要用来记录退货、折让或折扣，从而计算出企业的净销售额。
 
 - **COGS**：`cogs, cost of goods, materials, inventory, supplies used, direct labor, hosting, infrastructure, cloud, server, bandwidth, third-party, api, support`。
 
@@ -182,7 +182,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 - **关键词重叠冲突（COGS 与 R&D）**： 某些术语（例如“cloud”、“hosting”、“AWS”）同时出现在 COGS（销售成本）和 R&D（研发费用）的关键词集中，从而引发潜在的分类冲突。当 AI 检测到此类歧义时：
 默认归类为 COGS，在源条目及对应的 LG 指标旁显示警示图标，以供用户审阅
 
-- **语义重复**：如果在同一月内，多个映射至同一 LG 指标的源账户被 AI 判定为语义重复（即含义部分或完全重叠，例如“桌椅费用”与“办公家具费用”），则会在每一条重复的源明细项以及对应的 LG 指标行上显示一个警示图标。若同义的unmapped的项移入mapped项，同样也显示警示图标。
+- **语义重复**：如果在同一月内，多个映射至同一 LG 指标的源账目被 AI 判定为语义重复（即含义部分或完全重叠，例如“桌椅费用”与“办公家具费用”），则会在每一条重复的源明细项以及对应的 LG 指标行上显示一个警示图标。若同义的unmapped的项移入mapped项，同样也显示警示图标。
  - 在上传文件后，如果用户对unmapped里面确实source account name的字段补充了name，AI不会再次去解析这个字段，即使在用户把这个字段map到LG指标后，系统不会知道这个source account是否和其他的source account存在语义重复。
 
 **持久化与可审计**
@@ -224,26 +224,26 @@ The following files could not be processed. You can re-upload each file, or disc
   - 切换到所选文件无数据的 Tab → 显示空状态。
 - Tab 下按当前所选文档类型 / 文件列出 LG 财务指标，与 Financial Entry 相同格式；右面板支持水平与垂直滚动。结构：
   - **Unmapped accounts**（位于 Actuals / Proforma Tab 上方,受actual/proforma tab控制）
-    - AI 未能映射到任何 LG 指标的源账户。
+    - AI 未能映射到任何 LG 指标的源账目。
     - 数据不完整的源账户：
-      - 缺账户名 → 显示 "UNIDENTIFIED"，可编辑名称，编辑完后标签消失；
+      - 缺账目名 → 显示 "UNIDENTIFIED"，可编辑名称，编辑完后标签消失；
       - 缺值（未识别） → 显示 "NA"；
       - 缺日期 → 显示"No Date"，可从日历下拉选择器中选择开始月份，选择后该数据自动落到相应月份下，若一个account有多个数据，则选择开始月份后，从左到右第一个数据落到开始月份，后面月份依次累加，数据依次落到月份，直到最后一个数据
        - 特殊情况补充：若解析后某字段数据为非连续月数据且另一字段数据缺日期，另一字段展示规则如下，先排列非连续月，其他缺日期数据从最后一个有日期的数据月后动态增加列，依次排列。例如，解析后，除一个字段外，其它字段都有日期，对应月份是25年2月，5月和8月。没日期的字段有8个月份的数据(可能有数值，也可能没数值为NA)，那这8个月份的数据，第一个数据放到2月那一列，然后往后排，5月和8月，8月之后没有现存的月份了，就动态增加列，9 月10月等，把这几个月的数据放下。
-      - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账户名称，即切换显示为“No Date”
+      - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账目名称，即切换显示为“No Date”
       - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
-    - 用户可为 UNIDENTIFIED 账户手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
+    - 用户可为 UNIDENTIFIED 账目手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
     - 指派下拉中每个指标都包含Actuals和Forecast两种选择，Forecast显示紫色，下拉框上方可输入指标名称筛选
-- 页面小提示：Click to assign this item to an LG Metric，该提示位于第一个可指派LG指标的账户名旁，提示用户可以点击匹配指标，用户做了第一个source account的map后就消失了。
+- 页面小提示：Click to assign this item to an LG Metric，该提示位于第一个可指派LG指标的账目名旁，提示用户可以点击匹配指标，用户做了第一个source account的map后就消失了。
 
   **内联编辑**
 - 可编辑项：
   - **数值**：删除数值后默认回填 0，作为有效数据，编辑过的数值灰色背景显示
   - **科目指派**
-   - 只有账户名的所有月份数据都非N/A时（“-”可以）指派下拉按钮才会出现
-   - 数据不完整的账户行在补全前，无手动映射的下拉按钮，不能手动指派到LG指标，指派后该账户名下所有的月份（整行数据）数据都被指派到相应月份，非单元格颗粒度。 指标名称，月份，数值必须全部完整，才会显示指派下拉按钮。
+   - 只有账目名的所有月份数据都非N/A时（“-”可以）指派下拉按钮才会出现
+   - 数据不完整的账户行在补全前，无手动映射的下拉按钮，不能手动指派到LG指标，指派后该账目名下所有的月份（整行数据）数据都被指派到相应月份，非单元格颗粒度。 指标名称，月份，数值必须全部完整，才会显示指派下拉按钮。
 - 编辑值实时替换提取值
-- 源账户名称非空即锁定；若为空可补充，保存后不可更改
+- 源账目名称非空即锁定；若为空可补充，保存后不可更改
 - 下方已匹配的项也可编辑数值，也可重新指派指标（包括Actuals和Forecast）,也可指派为unmapped，回到unmapped板块
   
 **特殊情况**
@@ -256,10 +256,10 @@ The following files could not be processed. You can re-upload each file, or disc
   - **LG 科目**
   - **底层源行项**
     - 显示最细粒度行项名；支持多币种并原样显示。总计性的行项不进入匹配流程，如total expenses,只提取其最细颗粒度子项，total expenses本身不提取。
-    - 若LG指标下只有一个源账户，则直接显示数值，数值可编辑
-    - 同一 LG 指标多个源账户 → 行可展开，指标名旁显示账户数，源账户数值可编辑，LG指标数值为下面源账户的合计金额，合计金额不可编辑。
+    - 若LG指标下只有一个源账目，则直接显示数值，数值可编辑
+    - 同一 LG 指标多个源账目 → 行可展开，指标名旁显示账目数，源账目数值可编辑，LG指标数值为下面源账目的合计金额，合计金额不可编辑。
       - 若 LG 指标合计因币种不一致或数据类型冲突（如货币指标下出现百分比）而无法计算 → 默认显示 "-"，不写入 LG；冲突解决不在本需求范围内，由其他 ticket 处理。
-    - 同一时间期内映射到同一 LG 指标的多个源账户，若 AI 判定语义部分或完全重复（如 "desk and chair expenses" 与 "office furniture expenses"），在每个重复源行项与对应 LG 行上显示告警图标。
+    - 同一时间期内映射到同一 LG 指标的多个源账目，若 AI 判定语义部分或完全重复（如 "desk and chair expenses" 与 "office furniture expenses"），在每个重复源行项与对应 LG 行上显示告警图标。
     - 用户可将源行项改映射到LG两种类型的任意一个指标。
 - 若提取数据为非连续月，会有消息提示，
 - 该面板可左右滑动，首列固定
@@ -274,11 +274,11 @@ The following files could not be processed. You can re-upload each file, or disc
 **返回与继续**
 - 用户可确认已审核数据。
 - 用户可拒绝并重新上传 / 上传新文件。
-- 确认后进入写入schema步骤，如果没有未匹配的源账户，则直接进入mapping summary页面。
-  - 如果存在未匹配的源账户/审核后仍有 Unmapped accounts 时，点击右上角Next按钮，尝试进入下一步，会弹出确认弹窗，告知"Unmapped Accounts 组的数据不会被写入 LG"，须显式确认。
+- 确认后进入写入schema步骤，如果没有未匹配的源账目，则直接进入mapping summary页面。
+  - 如果存在未匹配的源账目/审核后仍有 Unmapped accounts 时，点击右上角Next按钮，尝试进入下一步，会弹出确认弹窗，告知"Unmapped Accounts 组的数据不会被写入 LG"，须显式确认。
  - 内容：The following issues were found in your Data Mapping:
-        [50] fields with mismatched LG metric mappings （解析后未匹配对的账户源的数量（也就是初始时匹配了但未匹配对，又进行了手动匹配）+ unmapped中人工匹配到mapped板块的账户源数量）
-        [15] unmapped accounts that will not be written to Looking Glass（人工审核后仍未匹配的账户源数量）
+        [50] fields with mismatched LG metric mappings （解析后未匹配对的账目源的数量（也就是初始时匹配了但未匹配对，又进行了手动匹配）+ unmapped中人工匹配到mapped板块的账户源数量）
+        [15] unmapped accounts that will not be written to Looking Glass（人工审核后仍未匹配的账目源数量）
         Any unmapped data will not be saved. Would you like to continue?
   - Continue to Next Step按钮：点击进入下一步
   - Go Back按钮：点击回到mapping页面
@@ -306,7 +306,7 @@ The following files could not be processed. You can re-upload each file, or disc
 **既有数据冲突检测与用户抉择**
 - 按公司、LG 指标、报告期（月+年）维度比对；冲突校验作为后台任务进行，按目标 LG 指标与月份的存储币种进行比较。
 - 仅当目标月份有值、且该值不同于映射合计时，才视为冲突。
-- 冲突页面只显示Actuals有冲突的数据；预测数据则直接生成新committed forecast版本，Committed Forecast history 页面的Source 显示Import Statements,User为本次上传文件的用户
+- 冲突页面只显示Actuals有冲突的数据；预测数据则直接生成新committed forecast版本，Committed Forecast history 页面的Source 显示Import Statements,User为本次上传文件的用户，若该用户后期被删除了，系统应保存留痕该上传人信息，以免字段显示错误
 - 冲突页面与 Financial Entry 相同格式展示：列为报告期、行为 LG 指标；冲突单元格字体红色。
 - 若上传数据与LG数据的货币不同，则统一转换为LG货币对比，若选择上传数据，存还是存原始货币和值
 - 点击冲突有详情弹框：
