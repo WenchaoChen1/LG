@@ -169,7 +169,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 
 - **Accounts Receivable**：`accounts receivable, a/r, receivables, trade receivables, unbilled revenue, contract asset`。
 
-- **Capitalized R&D（Monthly）**：需同时出现 资本化信号 + R&D/开发信号 或 摊销信号。这三类的关键词如下:"capitalized", "capitalised", "capitalized r&d", "capitalized research", "capitalized development", "software development", "internal-use software", "capitalized engineering"]["amortization", "amortization of intangibles", "amortization of software", "amortized development costs", "intangible assets".
+- **Capitalized R&D（Monthly）**：需同时出现 资本化信号 + R&D/开发信号 或 摊销信号。这三类的关键词如下:["capitalized", "capitalised", "capitalized r&d", "capitalized research", "capitalized development", "software development", "internal-use software", "capitalized engineering"]["amortization", "amortization of intangibles", "amortization of software", "amortized development costs", "intangible assets"].
 
 - **Other Assets**：被识别为资产且未映射到 Cash / AR / Capitalized R&D (Monthly)。
 
