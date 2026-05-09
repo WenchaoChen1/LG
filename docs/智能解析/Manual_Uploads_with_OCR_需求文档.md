@@ -22,7 +22,7 @@
 
 ## 3. 功能需求
 
-### 3.1 文件上传（Step 1）-Data Mapping步骤
+### 3.1 文件上传-Stepper中属于Data Mapping步骤
 
 **入口与权限**
 - 仅手动录入类型公司可见上传按钮；自动对接公司不显示。
@@ -63,34 +63,34 @@
   
 **返回与继续**
 - 点击Next按钮，系统自动将文件转入处理流水线，进入 3.2 的提取逻辑。
-
 - 点击Cancel按钮，关闭弹框，回到Financial Entry页面
 
 ---
 
-### 3.2 数据提取-Data Mapping步骤
+### 3.2 数据提取-Stepper中属于Data Mapping步骤
+
 
 **表格类型识别**
 - 仅提取table中的数据
 - 每一个提取出的表格都会沿两个维度独立进行分类：报表类型（Statement Type）和数据类型（Data Type）。报表类型与数据类型是独立进行分类的。
 - 数据类型：Actuals、Proforma
  - 关键词：
-  - “预测数据”的识别信号（满足其中任一条件即视为预测数据）：
-   - 表格标题、章节标题或邻近文本中包含以下关键词之一：Forecast（预测​​）、Proforma（预测报表）、Projection（推算）、Budget（预算）或 Plan（计划）。
-   - 列标题所指代的报告期属于未来期间（即日期晚于文档上传日期）。
-   - 表格中包含历史日期列与未来日期列的混合数据（即滚动预测）。
-   - 若上述所有信号均未出现，该表格将被归类为“Actuals”
+   - “预测数据”的识别信号（满足其中任一条件即视为预测数据）：
+    - 表格标题、章节标题或邻近文本中包含以下关键词之一：Forecast（预测​​）、Proforma（预测报表）、Projection（推算）、Budget（预算）或 Plan（计划）。
+    - 列标题所指代的报告期属于未来期间（即日期晚于文档上传日期）。
+    - 表格中包含历史日期列与未来日期列的混合数据（即滚动预测）。
+    - 若上述所有信号均未出现，该表格将被归类为“Actuals”
 
 - 报表类型：P&L、Balance sheet
  - 关键词：
-  - `P&L / Income / Profit` → P&L
-  - `Balance / Assets / Liabilities`  → Balance sheet
-  - **行标签模式**：
-    - P&L：Revenue、COGS、Gross Margin、EBITDA、Net Income。
-    - Balance Sheet：Assets、Liabilities、Equity、Cash、Debt。
-  - **结构线索**：Balance Sheet 满足 Assets = Liabilities + Equity；P&L 为按期合计的流量报表。
-- **边缘案例**：如果某个表格类型无法依据既定规则进行明确归类，则意味着该表格中未提取出可映射至 LG 支持指标的财务科目。若整个文件中均未提取出任何财务科目，相关情况将在“数据映射”页面上予以提示，详见3.4特殊情况。
-- 多页财务可能同时包含多种数据类型和财务报表类型。
+    - `P&L / Income / Profit` → P&L
+    - `Balance / Assets / Liabilities`  → Balance sheet
+    - **行标签模式**：
+      - P&L：Revenue、COGS、Gross Margin、EBITDA、Net Income。
+      - Balance Sheet：Assets、Liabilities、Equity、Cash、Debt。
+    - **结构线索**：Balance Sheet 满足 Assets = Liabilities + Equity；P&L 为按期合计的流量报表。
+  - **边缘案例**：如果某个表格类型无法依据既定规则进行明确归类，则意味着该表格中未提取出可映射至 LG 支持指标的财务科目。若整个文件中均未提取出任何财务科目，相关情况将在“数据映射”页面上予以提示，详见3.4特殊情况。
+  - 多页财务可能同时包含多种数据类型和财务报表类型。
 
 **报告期识别（按优先级）**
 1. 列头、行标签
@@ -129,7 +129,7 @@
 
 ---
 
-### 3.3 AI 辅助账户映射（Step 3，自动后台）
+### 3.3 AI 辅助账户映射（Step 3，自动后台)-Stepper中属于Data Mapping步骤
 
 **执行时机**：数据提取（OCR 或 Excel）完成后自动执行，无独立用户步骤。
 
@@ -140,12 +140,12 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 
 **映射规则（语义级 + AI）**
 - 下列关键词是语义指南，AI以自然语言理解进行匹配，不做严格字面匹配；即使措辞不完全一致，只要语义相符即可匹配。
-- AI 须考虑源文档中的父子层级：父账户的类别语境作用于子账户。示例：父账户 "R&D" 下的子项 "Wages" → 映射为 **R&D Payroll**，而非 G&A Payroll。
+- AI 须考虑源文档中的父子层级：父账目的类别语境作用于子账目。示例：父账目 "R&D" 下的子项 "Wages" → 映射为 **R&D Payroll**，而非 G&A Payroll。
 - 若规则层面匹配不到，AI 以独立语义推理从支持列表中选一个最合适的 LG 科目。结合它的table的数据类型，报表类型，父子级关系以及该字段本身去推理
 - 若推理后仍无法确定，标记为 Unmapped，并在 Side-by-Side Review 的 Unmapped Accounts 区域呈现。
 
 **各类别关键词（摘要）**
-- **Gross Revenue**：`sales, revenue, income, fees, subscriptions, gross receipts`。特殊情况：若标签含 `refund / returns / contra` → Revenue Contra （收入抵减科目/反向收入账户）记录为负值，map到Gross Revenue指标。是指在会计中用于减少总销售收入的科目，它的本质是一个金额与正常收入账户相反（借方余额）的账户，主要用来记录退货、折让或折扣，从而计算出企业的净销售额。
+- **Gross Revenue**：`sales, revenue, income, fees, subscriptions, gross receipts`。特殊情况：若标签含 `refund / returns / contra` → Revenue Contra （收入抵减科目/反向收入账目）记录为负值，map到Gross Revenue指标。是指在会计中用于减少总销售收入的科目，它的本质是一个金额与正常收入账目相反（借方余额）的账目，主要用来记录退货、折让或折扣，从而计算出企业的净销售额。
 
 - **COGS**：`cogs, cost of goods, materials, inventory, supplies used, direct labor, hosting, infrastructure, cloud, server, bandwidth, third-party, api, support`。
 
@@ -182,7 +182,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 - **关键词重叠冲突（COGS 与 R&D）**： 某些术语（例如“cloud”、“hosting”、“AWS”）同时出现在 COGS（销售成本）和 R&D（研发费用）的关键词集中，从而引发潜在的分类冲突。当 AI 检测到此类歧义时：
 默认归类为 COGS，在源条目及对应的 LG 指标旁显示警示图标，以供用户审阅
 
-- **语义重复**：如果在同一月内，多个映射至同一 LG 指标的源账户被 AI 判定为语义重复（即含义部分或完全重叠，例如“桌椅费用”与“办公家具费用”），则会在每一条重复的源明细项以及对应的 LG 指标行上显示一个警示图标。若同义的unmapped的项移入mapped项，同样也显示警示图标。
+- **语义重复**：如果在同一月内，多个映射至同一 LG 指标的源账目被 AI 判定为语义重复（即含义部分或完全重叠，例如“桌椅费用”与“办公家具费用”），则会在每一条重复的源明细项以及对应的 LG 指标行上显示一个警示图标。若同义的unmapped的项移入mapped项，同样也显示警示图标。
  - 在上传文件后，如果用户对unmapped里面确实source account name的字段补充了name，AI不会再次去解析这个字段，即使在用户把这个字段map到LG指标后，系统不会知道这个source account是否和其他的source account存在语义重复。
 
 **持久化与可审计**
@@ -191,7 +191,7 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 
 ---
 
-### 3.4 Side-by-Side 审核与内联编辑
+### 3.4 Side-by-Side 审核与内联编辑-Stepper中属于Data Mapping步骤
 
 呈现左右分屏，供用户在写入前核对、修正抽取数据与映射结果。左屏显示loding circle，解析过程中左右屏均显示灰色。若替换文件或重新上传，同样显示loading circle且左右屏显示灰色。
 - 若有提取失败的文件，则在解析完成后显示报错弹窗：File Processing Errors
@@ -223,62 +223,62 @@ The following files could not be processed. You can re-upload each file, or disc
   - 同时包含 → 默认 Actuals。
   - 切换到所选文件无数据的 Tab → 显示空状态。
 - Tab 下按当前所选文档类型 / 文件列出 LG 财务指标，与 Financial Entry 相同格式；右面板支持水平与垂直滚动。结构：
-  - **Unmapped accounts**（位于 Actuals / Proforma Tab 上方）
-    - AI 未能映射到任何 LG 指标的源账户。
+  - **Unmapped accounts**（位于 Actuals / Proforma Tab 上方,受actual/proforma tab控制）
+    - AI 未能映射到任何 LG 指标的源账目。
     - 数据不完整的源账户：
-      - 缺账户名 → 显示 "UNIDENTIFIED"，可编辑名称，编辑完后标签消失；
+      - 缺账目名 → 显示 "UNIDENTIFIED"，可编辑名称，编辑完后标签消失；
       - 缺值（未识别） → 显示 "NA"；
       - 缺日期 → 显示"No Date"，可从日历下拉选择器中选择开始月份，选择后该数据自动落到相应月份下，若一个account有多个数据，则选择开始月份后，从左到右第一个数据落到开始月份，后面月份依次累加，数据依次落到月份，直到最后一个数据
        - 特殊情况补充：若解析后某字段数据为非连续月数据且另一字段数据缺日期，另一字段展示规则如下，先排列非连续月，其他缺日期数据从最后一个有日期的数据月后动态增加列，依次排列。例如，解析后，除一个字段外，其它字段都有日期，对应月份是25年2月，5月和8月。没日期的字段有8个月份的数据(可能有数值，也可能没数值为NA)，那这8个月份的数据，第一个数据放到2月那一列，然后往后排，5月和8月，8月之后没有现存的月份了，就动态增加列，9 月10月等，把这几个月的数据放下。
-      - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账户名称，即切换显示为“No Date”
+      - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账目名称，即切换显示为“No Date”
       - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
-    - 用户可为 UNIDENTIFIED 账户手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
+    - 用户可为 UNIDENTIFIED 账目手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
     - 指派下拉中每个指标都包含Actuals和Forecast两种选择，Forecast显示紫色，下拉框上方可输入指标名称筛选
-- 页面小提示：Click to assign this item to an LG Metric，该提示位于第一个可指派LG指标的账户名旁，提示用户可以点击匹配指标，用户做了第一个source account的map后就消失了。
+- 页面小提示：Click to assign this item to an LG Metric，该提示位于第一个可指派LG指标的账目名旁，提示用户可以点击匹配指标，用户做了第一个source account的map后就消失了。
 
   **内联编辑**
 - 可编辑项：
   - **数值**：删除数值后默认回填 0，作为有效数据，编辑过的数值灰色背景显示
   - **科目指派**
-   - 只有账户名的所有月份数据都非N/A时（“-”可以）指派下拉按钮才会出现
-   - 数据不完整的账户行在补全前，无手动映射的下拉按钮，不能手动指派到LG指标，指派后该账户名下所有的月份（整行数据）数据都被指派到相应月份，非单元格颗粒度。 指标名称，月份，数值必须全部完整，才会显示指派下拉按钮。
+   - 只有账目名的所有月份数据都非N/A时（“-”可以）指派下拉按钮才会出现
+   - 数据不完整的账户行在补全前，无手动映射的下拉按钮，不能手动指派到LG指标，指派后该账目名下所有的月份（整行数据）数据都被指派到相应月份，非单元格颗粒度。 指标名称，月份，数值必须全部完整，才会显示指派下拉按钮。
 - 编辑值实时替换提取值
-- 已识别的源账户名称不可编辑
+- 源账目名称非空即锁定；若为空可补充，保存后不可更改
 - 下方已匹配的项也可编辑数值，也可重新指派指标（包括Actuals和Forecast）,也可指派为unmapped，回到unmapped板块
   
 **特殊情况**
 - 若该批文件没有任何可用数据，右面版提示 No mapped data
   No mapped amount data was extracted from this file, so nothing can be mapped. Try uploading a clearer file or a different file format.
-  - 点击Next，弹出Files Uploaded Successfully弹框，显示No financial accounts extracted. [amount] file(s) have been uploaded to the Imported Statements folder in Documentation.该批文件直接提交到Documentation板块，可点击close按钮关闭弹框，或点击Go to Documentation按钮跳转到All Documentation页面，首次提交时，创建文件夹，命名为Imported documents
+  - 点击Next，弹出Files Uploaded Successfully弹框，显示No financial accounts extracted. [amount] file(s) have been uploaded to the Imported Statements folder in Documentation.该批文件直接提交到Documentation板块，可点击close按钮关闭弹框，或点击Go to Documentation按钮跳转到All Documentation页面，首次提交时，创建文件夹，命名为Imported Statements
 
 - 若该批文件只包含一种数据类型，如只有Actuals数据或者只有Proforma数据，则右屏其对应的tab应为空白页，显示 No financial accounts found for this data type 。
   
   - **LG 科目**
   - **底层源行项**
     - 显示最细粒度行项名；支持多币种并原样显示。总计性的行项不进入匹配流程，如total expenses,只提取其最细颗粒度子项，total expenses本身不提取。
-    - 同一 LG 指标多个源账户 → 行可展开，指标名旁显示账户数。
-    - 若 LG 指标合计因币种不一致或数据类型冲突（如货币指标下出现百分比）而无法计算 → 默认显示 "-"，不写入 LG；冲突解决不在本需求范围内，由其他 ticket 处理。
-    - 同一时间期内映射到同一 LG 指标的多个源账户，若 AI 判定语义部分或完全重复（如 "desk and chair expenses" 与 "office furniture expenses"），在每个重复源行项与对应 LG 行上显示告警图标。
+    - 若LG指标下只有一个源账目，则直接显示数值，数值可编辑
+    - 同一 LG 指标多个源账目 → 行可展开，指标名旁显示账目数，源账目数值可编辑，LG指标数值为下面源账目的合计金额，合计金额不可编辑。
+      - 若 LG 指标合计因币种不一致或数据类型冲突（如货币指标下出现百分比）而无法计算 → 默认显示 "-"，不写入 LG；冲突解决不在本需求范围内，由其他 ticket 处理。
+    - 同一时间期内映射到同一 LG 指标的多个源账目，若 AI 判定语义部分或完全重复（如 "desk and chair expenses" 与 "office furniture expenses"），在每个重复源行项与对应 LG 行上显示告警图标。
     - 用户可将源行项改映射到LG两种类型的任意一个指标。
-- 若无财务科目可映射到 LG 支持指标，显示相应提示信息。
-- 若提取数据为非连续月，会有消息提示
+- 若提取数据为非连续月，会有消息提示，
 - 该面板可左右滑动，首列固定
 
 **左右面板联动**
 - 左侧选文件 → 右侧同步展示该文件抽取数据。
 - 多文件时左侧下拉出现 "All Files"，选中后右侧展示合并数据。
 - 切换右侧 Actuals / Proforma Tab 不影响左侧；左侧始终反映当前选中文件，与 Tab 无关。
-- 左右面板比例可调；提供图标隐藏左面板。
+- 左右面板比例可调，默认50%；提供图标隐藏左面板。
 
 
 **返回与继续**
 - 用户可确认已审核数据。
 - 用户可拒绝并重新上传 / 上传新文件。
-- 确认后进入写入 LG Schema 步骤。
-- 仍存在 Unmapped accounts 时，点击右上角Next按钮，尝试进入下一步，会弹出确认弹窗，告知"Unmapped Accounts 组的数据不会被写入 LG"，须显式确认。
+- 确认后进入写入schema步骤，如果没有未匹配的源账目，则直接进入mapping summary页面。
+  - 如果存在未匹配的源账目/审核后仍有 Unmapped accounts 时，点击右上角Next按钮，尝试进入下一步，会弹出确认弹窗，告知"Unmapped Accounts 组的数据不会被写入 LG"，须显式确认。
  - 内容：The following issues were found in your Data Mapping:
-        [50] fields with mismatched LG metric mappings
-        [15] unmapped accounts that will not be written to Looking Glass
+        [50] fields with mismatched LG metric mappings （解析后未匹配对的账目源的数量（也就是初始时匹配了但未匹配对，又进行了手动匹配）+ unmapped中人工匹配到mapped板块的账户源数量）
+        [15] unmapped accounts that will not be written to Looking Glass（人工审核后仍未匹配的账目源数量）
         Any unmapped data will not be saved. Would you like to continue?
   - Continue to Next Step按钮：点击进入下一步
   - Go Back按钮：点击回到mapping页面
@@ -287,33 +287,39 @@ The following files could not be processed. You can re-upload each file, or disc
 
 ---
 
-### 3.5 写入 LG Schema（Step 5）
+### 3.5 写入 LG Schema（Step 5）-Stepper中属于Verify and Submit
 
 **前置条件**
-- 仅"已人工审核并批准的映射"数据可写入。
-- 若仍有未映射 / 未审核 / 缺必要元数据的行项，系统阻止写入并明确报错以便用户确认。
+- 只有mapped section中非“-”的项才会进入写入流程。
 - 平台级 USD 显示开关不适用于该流程。
 
 **Verify Data 摘要页**
-- 冲突检测前显示摘要：本次提交的源文件总数、映射类型（Actuals / Proforma）数量、映射科目数量。
+- 冲突检测前显示摘要：
+   - Mapping Summary
+   Please review the mapped data. Before being submitted, the system will verify that there's no overlapping information
+   本次提交的源文件总数、映射类型（Actuals / Proforma）数量、映射科目数量。
+   - 展示源文件列表，包括文件名称，文件大小，文件中已匹配的源账目数量
+- 用户点击 "Previous Step" 回到 Data Mapping页面
 - 用户点击 "Start Verification" 触发校验。
 - 加载时显示loading circle。
 
 **既有数据冲突检测与用户抉择**
 - 按公司、LG 指标、报告期（月+年）维度比对；冲突校验作为后台任务进行，按目标 LG 指标与月份的存储币种进行比较。
 - 仅当目标月份有值、且该值不同于映射合计时，才视为冲突。
-- 冲突页面只显示Actuals有冲突的数据；预测数据则直接覆盖，生成新committed forecast版本，history 页面的Source 显示Import Statements
+- 冲突页面只显示Actuals有冲突的数据；预测数据则直接生成新committed forecast版本，Committed Forecast history 页面的Source 显示Import Statements,User为本次上传文件的用户，若该用户后期被删除了，系统应保存留痕该上传人信息，以免字段显示错误
 - 冲突页面与 Financial Entry 相同格式展示：列为报告期、行为 LG 指标；冲突单元格字体红色。
 - 若上传数据与LG数据的货币不同，则统一转换为LG货币对比，若选择上传数据，存还是存原始货币和值
 - 点击冲突有详情弹框：
-  - 指标-Month Year
-  - Radio 选项：MAPPED VALUE（默认选中），LG VALUE；
-  - Notes 必填，详见3.6
-  - ✖按钮，该popup只能通过点击该关闭按钮关闭
-  - Save and Next 按钮/ Save 按钮
-- 冲突解决后点击Save and next 按钮，冲突数值变绿色，自动打开下一个冲突的popup，最后一个冲突popup 按钮为Save,跳转顺序为同一个指标从左到右，一个指标完成后跳下一个指标，依旧从左到右。
+   - 指标-Month Year
+   - Radio 选项：MAPPED VALUE（默认选中），LG VALUE；
+   - Notes 必填，详见3.6，若未填写note就点击Next,Note文本框报错：A note is required before continuing.
+   - ✖按钮，该popup只能通过点击该关闭按钮关闭
+   - Next 按钮/ Save 按钮
+- 冲突弹框中所有内容均填完， Next按钮才激活，冲突解决后点击next 按钮，冲突数值变绿色，自动打开下一个冲突的popup，最后一个冲突popup 按钮为Save,跳转顺序为同一个指标从左到右，一个指标完成后跳下一个指标，依旧从左到右。
+- 用户点击 "Previous Step" 或右上方“Previous”按钮 回到Verify Data 摘要页
+  
 **特殊情况**
- 冲突只对比Actuals数据，预测数据不进行冲突对比。若一批数据只有预测数据，则直接提交，不走冲突检测流程，上一步mapping的按钮名称为Confirm and write to LG
+ 冲突只对比Actuals数据，预测数据不进行冲突对比。若一批数据只有预测数据，则直接提交，不走冲突检测流程，Mapping Summary页面的按钮名称为Confirm and write to LG
 
 **覆盖与跳过**
 - 选择Mapped Value：新数据替换选定期次与指标的当前版本；原值保留为历史版本。
@@ -326,15 +332,15 @@ The following files could not be processed. You can re-upload each file, or disc
 - 点击Previous Step回到Verify Data页面
 - 点击Confirm & Submit to LG按钮提交数据，跳转到Benchmarking页面，弹出弹窗
 - 提交成功弹窗:
- - 提示信息：Data Submitted Successfully
+  - 提示信息：Data Submitted Successfully
  The following data has been submitted to [company name]:
  [amount] Source Files, [amount]Data Types Updated, [amount]Mapped Accounts
- - Close按钮：点击关闭弹窗
+  - Close按钮：点击关闭弹窗
 
 **特殊情况**
 - 回到上一步的操作：返回上一步过程中，若上下步都未做改变，则已修改/编辑的数据或已解决的冲突都保存，上下步来回切换时展示内容不变
 - 在冲突页面返回到mapping页面时，在mapping页面的mapped板块做了改动，点击Next到mapping summary页面，提示Your mapping changes have been applied. Please review the updated verification results.继续点击start verification,判断对冲突页面数据是否有影响，有变化的展示数据，没变化的不变还是展示用户之前解决的冲突数据。如果此时再回到mapping summary页面，提示消息已经消失。
- - 例如：在解决冲突页面已经解决了部分冲突，回到上一步mapping页面，修改了一些数据，这部分数据有已解决的冲突，则回到冲突页面时要重新检测展示
+  - 例如：在解决冲突页面已经解决了部分冲突，回到上一步mapping页面，修改了一些数据，这部分数据有已解决的冲突，则回到冲突页面时要重新检测展示
 
 **Schema 完整性与错误处理**
 - 所有数据须通过 LG Schema 校验后方可写入。
@@ -347,35 +353,33 @@ The following files could not be processed. You can re-upload each file, or disc
 
 **写入后行为**
 - 已写入数据立即反映至：Financial Entry 页、Committed Forecast 页、下游 normalization 与 benchmarking 流程。
-- 不论是否从中抽取到财务科目，上传的源文档都会出现在 Company Documents 页 "Company" 文件夹下。
-- 新月份关闭触发的邮件通知须正常运行。
+- 不论是否从中抽取到财务科目，上传的源文档都会出现在 Company Documents 页 "Imported Statements" 文件夹下，有该公司权限的人都可查看。
+- 新closed month触发的邮件通知须正常运行。
 - 显示清晰的成功提示。
-- 用户随后进入 Benchmark Info Page（来自单独 ticket 1212956218889125，不在本 EPIC 范围内）。
+- 用户随后进入 Benchmarking Page
 
-**特殊情况**
-- 若整批文件都未提取到有效财务数据，直接弹出成功popup，保存文件，无需进入mapping步骤，上传成功后停 留在原financial statement页面
 ---
 
-### 3.6 数据校验期的备注字段（冲突解决备注）
+### 3.6 数据校验期的备注字段（冲突解决备注）-Stepper中属于Verify and Submit
 
 **使用场景**：写入步骤的冲突解决阶段。当历史已关期财务值被修改，需捕获修改原因以便审计。
 
 **备注字段规则**
-- 在冲突解决步骤中，每个冲突数据值旁提供一个可选的手动输入备注字段（free-form，上限 2000 字符）。
+- 在冲突解决步骤中，每个冲突数据值旁提供一个必填的手动输入备注字段（free-form，上限 2000 字符，超出2000不能继续输入）。
 - 无论用户选择何种解决方案（保留已有 / 采用上传值或手动覆盖），备注字段均可用。
-- 用户可跳过备注直接解决冲突。
 
 **备注可见性与查看**
+- 若Note页面无数据，显示No Data
 - 备注作为上传事件的一部分存储于 financial statement 模块内。
 - Financial Entry 页与 Committed Forecast 页显示 Note 按钮，点击进入备注列表页，按数据映射过程的时间顺序展示：
-  - 表头：Data Mapping Time Stamp（UTC）、Metric、Metric Date、LG Value、Mapped Value、Data Source（"Mapped" 自文件 / "Manually Entered"）、Note Content（无则显示 "-"）。
-  - Select Metric下拉（包含所有LG的Metric)、月历选择器（可选择年月筛选数据）
-  - 超长备注截断显示（最多两行），提供 "See More" 打开弹窗查看完整内容，仅 "X" 或 "Close" 可关闭。
+  - 表头：Data Mapping Time Stamp（UTC）、Metric、Financial Month、LG Value、Mapped Value、Data Source（"Mapped" / "Manually Entered"）、Note Content。
+  - Select Metric下拉（包含列表所含有LG的Metric)、月历选择器（可选择年月筛选数据），这两个filter都有search bar
+  - 超长备注截断显示（最多两行），提供 "See More" 打开弹窗查看完整内容，仅 "X" 或 "Close" 可关闭,若内容过多，弹窗内显示竖向滚动条。
 - 分页与导航：
   - 显示总数与当前范围（如 `1 - 10 of 192 items`）。
   - 页码直选、上/下一页箭头、省略号跳转。
   - 每页行数下拉（10/页、20/页等），默认 10。
-- 面包屑：`Financial Entry > Data Mapping Notes`，可返回上一模块。
+- 面包屑：例如：`Financial Entry > Data Mapping Notes`，可返回上一模块。
 
 **流程影响**：备注功能集成至冲突解决步骤，不影响其他上传流程。
 
@@ -402,5 +406,8 @@ The following files could not be processed. You can re-upload each file, or disc
 - **Core Engine Version**：追踪通用规则与关键词变更，全局共享。
 - **Company Mapping History ID**：追踪该公司用户确认的映射修正；用户每次保存修正即更新。
 
+**补充**
+- 本次记住内容不作用于当次
+- 只有全部完成该流程才会储存学习内容，若流程中退出，如在解决冲突时退出，则mapping中记住的规则不保存
 ---
 
