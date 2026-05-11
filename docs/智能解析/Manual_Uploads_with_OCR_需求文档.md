@@ -185,6 +185,52 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 - **语义重复**：如果在同一月内，多个映射至同一 LG 指标的源账目被 AI 判定为语义重复（即含义部分或完全重叠，例如“桌椅费用”与“办公家具费用”），则会在每一条重复的源明细项以及对应的 LG 指标行上显示一个警示图标。若同义的unmapped的项移入mapped项，同样也显示警示图标。
  - 在上传文件后，如果用户对unmapped里面确实source account name的字段补充了name，AI不会再次去解析这个字段，即使在用户把这个字段map到LG指标后，系统不会知道这个source account是否和其他的source account存在语义重复。
 
+**Source Account 合并规则**
+<img width="609" height="249" alt="image" src="https://github.com/user-attachments/assets/6e30ed19-cf09-420a-8de5-823c99aa9956" />
+示例 1 — 应合并：
+Table A：Gross Revenue | P&L | Actual | 2024-01 ~ 2024-06
+Table B：Gross Revenue | P&L | Actual | 2024-07 ~ 2024-12
+条件
+结果
+
+数据类型：均为 Actual
+✅
+
+报表类型：均为 P&L
+✅
+
+指标名称：均为 Gross Revenue
+✅
+
+时间不重叠：2024-01~06 与 2024-07~12 完全无交集
+✅
+
+不同 Table：Table A vs. Table B
+✅
+
+→ 合并为一行，时间轴连续覆盖 2024-01 ~ 2024-12
+
+示例 2 — 不合并（时间重叠）：
+Table A：Gross Revenue | P&L | Actual | 2024-01 ~ 2024-06
+Table B：Gross Revenue | P&L | Actual | 2024-04 ~ 2024-09
+→ 2024-04 ~ 2024-06 时间段重叠 ❌ → 不合并
+
+示例 3 — 不合并（数据类型不同）：
+Table A：Gross Revenue | P&L | Actual | 2024-01 ~ 2024-06
+Table B：Gross Revenue | P&L | Proforma | 2024-07 ~ 2024-12
+→ Actual ≠ Proforma ❌ → 不合并
+
+示例 4 — 不合并（来自同一 Table）：
+同一 Table 内 Col 1：Gross Revenue | P&L | Actual | 2024-01
+同一 Table 内 Col 2：Gross Revenue | P&L | Actual | 2024-02
+→ 来自同一 Table ❌ → 不合并（同 Table 内数据不触发合并逻辑）
+
+示例 5 — 不合并（指标名称不一致）：
+Table A：Total Gross Revenue | P&L | Actual | 2024-01 ~ 2024-06
+Table B：Gross Revenue | P&L | Actual | 2024-07 ~ 2024-12
+→ “Total Gross Revenue” ≠ “Gross Revenue”，名称不完全匹配 ❌ → 不合并
+
+
 **持久化与可审计**
 - 每条映射存储：建议的 LG 科目、时间戳、来源（AI suggested / User Override）。
 - 若用户在 Side-by-Side Review 中修改科目：用户选择覆盖 AI 建议，供 3.7 学习使用；原 AI 建议作为审计历史保留。
