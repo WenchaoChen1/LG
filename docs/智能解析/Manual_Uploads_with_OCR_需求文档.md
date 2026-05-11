@@ -185,6 +185,26 @@ Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M 
 - **语义重复**：如果在同一月内，多个映射至同一 LG 指标的源账目被 AI 判定为语义重复（即含义部分或完全重叠，例如“桌椅费用”与“办公家具费用”），则会在每一条重复的源明细项以及对应的 LG 指标行上显示一个警示图标。若同义的unmapped的项移入mapped项，同样也显示警示图标。
  - 在上传文件后，如果用户对unmapped里面确实source account name的字段补充了name，AI不会再次去解析这个字段，即使在用户把这个字段map到LG指标后，系统不会知道这个source account是否和其他的source account存在语义重复。
 
+**Source Account 合并规则**
+<img width="609" height="249" alt="image" src="https://github.com/user-attachments/assets/6e30ed19-cf09-420a-8de5-823c99aa9956" />
+<img width="545" height="306" alt="image" src="https://github.com/user-attachments/assets/2fc5c1d2-ab02-43ae-b17f-28168a9fe743" />
+
+- 示例 2 — 不合并（时间重叠）：
+  - Table A：Gross Revenue | P&L | Actual | 2024-01 ~ 2024-06
+  - Table B：Gross Revenue | P&L | Actual | 2024-04 ~ 2024-09 → 2024-04 ~ 2024-06 时间段重叠 ❌ → 不合并
+
+- 示例 3 — 不合并（数据类型不同）：
+  - Table A：Gross Revenue | P&L | Actual | 2024-01 ~ 2024-06
+  - Table B：Gross Revenue | P&L | Proforma | 2024-07 ~ 2024-12 → Actual ≠ Proforma ❌ → 不合并
+
+- 示例 4 — 不合并（来自同一 Table）：
+  - 同一 Table 内 Col 1：Gross Revenue | P&L | Actual | 2024-01
+  - 同一 Table 内 Col 2：Gross Revenue | P&L | Actual | 2024-02 → 来自同一 Table ❌ → 不合并（同 Table 内数据不触发合并逻辑）
+
+- 示例 5 — 不合并（指标名称不一致）：
+  - Table A：Total Gross Revenue | P&L | Actual | 2024-01 ~ 2024-06
+  - Table B：Gross Revenue | P&L | Actual | 2024-07 ~ 2024-12 → “Total Gross Revenue” ≠ “Gross Revenue”，名称不完全匹配 ❌ → 不合并
+
 **持久化与可审计**
 - 每条映射存储：建议的 LG 科目、时间戳、来源（AI suggested / User Override）。
 - 若用户在 Side-by-Side Review 中修改科目：用户选择覆盖 AI 建议，供 3.7 学习使用；原 AI 建议作为审计历史保留。
@@ -200,7 +220,7 @@ The following files could not be processed. You can re-upload each file, or disc
  [file name] 
  [file name] (有几个文件罗列几个）
 - 按钮：
--  Re-upload(关闭弹窗，打开本地文件夹，可以重新选择文件上传，若二次上传时，第二批与第一批加起来超过100MB，则第二批整批不予上传）
+- Re-upload(关闭弹窗，打开本地文件夹，可以重新选择文件上传，若二次上传时，第二批与第一批加起来超过100MB，则第二批整批不予上传）
 - Discard Problem Files（关闭弹窗，回到解析页面,若本批文档全部无法解析，则回到financial statement页面）
 - ✖（关闭弹窗，回到解析页面,若本批文档全部无法解析，则回到financial statement页面）
 
@@ -229,7 +249,17 @@ The following files could not be processed. You can re-upload each file, or disc
       - 缺账目名 → 显示 "UNIDENTIFIED"，可编辑名称，编辑完后标签消失；
       - 缺值（未识别） → 显示 "NA"；
       - 缺日期 → 显示"No Date"，可从日历下拉选择器中选择开始月份，选择后该数据自动落到相应月份下，若一个account有多个数据，则选择开始月份后，从左到右第一个数据落到开始月份，后面月份依次累加，数据依次落到月份，直到最后一个数据
-       - 特殊情况补充：若解析后某字段数据为非连续月数据且另一字段数据缺日期，另一字段展示规则如下，先排列非连续月，其他缺日期数据从最后一个有日期的数据月后动态增加列，依次排列。例如，解析后，除一个字段外，其它字段都有日期，对应月份是25年2月，5月和8月。没日期的字段有8个月份的数据(可能有数值，也可能没数值为NA)，那这8个月份的数据，第一个数据放到2月那一列，然后往后排，5月和8月，8月之后没有现存的月份了，就动态增加列，9 月10月等，把这几个月的数据放下。
+        - 特殊情况补充：若解析后某字段数据为非连续月数据且另一字段数据缺日期，另一字段展示规则如下，先排列非连续月，其他缺日期数据从最后一个有日期的数据月后动态增加列，依次排列。例如，解析后，除一个字段外，其它字段都有日期，对应月份是25年2月，5月和8月。没日期的字段有8个月份的数据(可能有数值，也可能没数值为NA)，那这8个月份的数据，第一个数据放到2月那一列，然后往后排，5月和8月，8月之后没有现存的月份了，就动态增加列，9 月10月等，把这几个月的数据放下。
+        - 特殊情况补充2：部分列有日期 — 以已知日期链式推算相邻月份。当 account 内至少有一列数据有明确年月时，以该已知日期为锚点，向左和向右逐列推算：
+           - 紧邻左列 = 已知月份 − 1
+           - 紧邻右列 = 已知月份 + 1
+           - 可链式传递，不限于直接相邻列
+           - 举例： <img width="614" height="165" alt="image" src="https://github.com/user-attachments/assets/73c4588f-90e2-482e-84b7-04533bd9cdbd" />
+        -  特殊情况补充3：
+           -  无日期列前后均有已知日期 — 以前方（左侧）月份为主
+           - 某列无日期，且其左右紧邻列都有已知日期时，以左侧月份 + 1 为准，忽略右侧推算结果。此规则主要用于解决左右推算结果不一致的冲突。
+           - 举例：<img width="633" height="591" alt="image" src="https://github.com/user-attachments/assets/b55caf78-7e3b-4896-992e-8e6040321b34" />
+
       - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账目名称，即切换显示为“No Date”
       - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
     - 用户可为 UNIDENTIFIED 账目手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
