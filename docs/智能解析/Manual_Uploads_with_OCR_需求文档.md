@@ -43,10 +43,9 @@
 **文件大小限制与校验**
 - 单文件 ≤ 20MB；批量总大小 ≤ 100MB。
 - 文档类型和名字相同的文件判定为重复，仅保留一个，第二个不予上传
-- 无效文件类型、超限、损坏的文件，不可上传，并展示对应错误：
+- 无效文件类型、超限，不可上传，并展示对应错误：
   - `Failed to Upload {File name}. File exceeds the 20MB limit`
   - `Failed to Upload {File name}. File type is not supported`
-  - `Failed to Upload {File name}. File is corrupted`
   - `Failed to Upload {File name}. The combined size of your files exceeds the 100MB limit.`
   - `Failed to Upload {File name}. A file with this name already exists.`
   - `Failed to Upload {File name}. `(单纯上传失败，无需解释）
