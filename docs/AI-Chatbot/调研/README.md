@@ -20,7 +20,7 @@
 
 ## 2. 文档结构
 
-需求按主题分为 4 个分册：
+### 2.1 需求文档（按主题分 4 个分册）
 
 | 分册 | 主题 | 任务数 | 文档链接 |
 |------|------|------|------|
@@ -28,6 +28,15 @@
 | Part B | Memory 与知识库类（Memory & Knowledge Base） | 4 | [part-B-memory-kb.md](./part-B-memory-kb.md) |
 | Part C | 公司端用户体验（Company User UI） | 3 | [part-C-company-ui.md](./part-C-company-ui.md) |
 | Part D | Portfolio 端 UI 与共享功能 | 5 | [part-D-portfolio-shared.md](./part-D-portfolio-shared.md) |
+
+### 2.2 技术方案
+
+| 文档 | 范围 | 链接 |
+|------|------|------|
+| LangGraph 技术方案 | 整体架构、状态模型、节点 / 边、检索层、工具调用、Memory 抽取、Checkpointer、安全 4 层防护、PG schema、部署、实施路线、关键代码骨架 | [langgraph-technical-design.md](./langgraph-technical-design.md) |
+| Python ↔ Java 集成边界 | 服务边界、数据归属、Java 需暴露的接口清单、事件 / Webhook、鉴权传递、缓存策略、失败降级、对账 | [python-java-integration.md](./python-java-integration.md) |
+
+> **服务边界一句话**：所有 AI Chatbot 功能由 Python 服务承担；需要业务数据时通过 Java REST 接口拉取，Python 不直连 Java 业务库。
 
 英文原始内容（Asana 拉取的原文）保存在 `.raw/` 子目录，文件名 `01-...md` 至 `17-...md`。
 
@@ -132,6 +141,8 @@ D:/github-code/LG/docs/AI-Chatbot/
 ├── part-B-memory-kb.md                ← Memory 与知识库类（4 个需求）
 ├── part-C-company-ui.md               ← 公司端 UI（3 个需求）
 ├── part-D-portfolio-shared.md         ← Portfolio 端 UI 与共享功能（5 个需求）
+├── langgraph-technical-design.md      ← LangGraph 技术方案
+├── python-java-integration.md         ← Python ↔ Java 集成边界
 └── .raw/                              ← Asana 原始英文需求（17 份）
     ├── 01-research-ai-models.md
     ├── 02-research-gs-playbook-hosting.md
