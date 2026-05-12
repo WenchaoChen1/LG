@@ -26,65 +26,74 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
 
  - closed month定义： Financial Statements Settings中为Manual的公司，closed month是Financia Entry表中最后一个有Actuals数据的月份； Financial Statements Settings中为Automatic的公司，closed month以15号为界限，如果系统服务器时间过了15号，就是上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有Actuals数据的月份位置）, 如果系统服务器时间没过15号，就是上上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有Actuals数据的月份位置）。
 
-- closed month之后的数据为预测数据，有committed forecast数据则优先使用Committed forecast,没有则使用system generated forecast数据
+- closed month之后数据为N/A的月份用预测数据填充，有committed forecast数据则优先使用Committed forecast,没有则使用system generated forecast数据。（自动公司，closed month 后的月份会存在有拉取的数据的情况，所以不能用预测数据填充）
 
 **数据新增与编辑**
 
-Financial Entry为数据混合表，多数情况下会包含不同的数据类型，所以Edit功能按钮是下拉按钮，包含当前表中可编辑的数据类型，如Actuals，Committed Forecast
+Financial Entry为数据混合表，多数情况下会包含不同的数据类型，所以Edit功能按钮是下拉按钮，包含当前视图下（年度12个月/季度3个月）可编辑的数据类型，如Actuals，Committed Forecast，若无可编辑数据，则Edit按钮置灰，可编辑的数据在编辑状态下均为黑色字体
 
-- 点击Edit下拉按钮，选择Actual，进入编辑状态，仅closed month及之前月可编辑，closed month之后月置灰，不可编辑。若closed month被预测数据填充，则编辑状态下带着预测数据，呈现可编辑状态，而不是置空，用户若点击Cancel退出，预测数据填充的月份依旧显示预测数据；用户若编辑了任意一个可编辑单元格并点击对钩保存后点击了提交，则该月数据变为Actuals黑色字体
+- 点击Edit下拉按钮，选择Actual，进入编辑状态，仅closed month及之前月可编辑，closed month之后月置灰，不可编辑。若closed month被预测数据填充，则编辑状态下带着预测数据，呈现可编辑状态，而不是置空，用户若点击Cancel退出，预测数据填充的月份依旧显示预测数据；用户若编辑了任意一个可编辑单元格并点击对钩保存后点击了提交，则该月数据变为Actuals黑色字体--且该月份之前若存在NA月，那这种NA月份在view模式下不会回显预测。
 
-- 若表格含有Committed forecast数据，点击Edit下拉按钮，选择Committed forecast，进入编辑状态，仅closed month之后月可编辑，closed month及之前月置灰，不可编辑。用户若编辑了任意一个可编辑单元格并点击对钩保存后点击了提交，则该数据被保存为该月的最新版本Committed Forecast 数据，字体颜色为紫色。
+- 若表格含有Committed forecast数据，点击Edit下拉按钮，选择Committed forecast，进入编辑状态，仅closed month之后用committed forecast数据填充的月可编辑，closed month及之前月置灰，不可编辑。用户若编辑了任意一个可编辑单元格并点击对钩保存后点击了提交，则该数据被保存为该月的最新版本Committed Forecast 数据，字体颜色为紫色。
 
-**Cash quick-fill功能说明**：
+- 当前月与closed month之间N/A月份用system generated forecast填充
 
-- 仅对Committed Forecast数据可用（Financial Entry页面的committed forecast数据或committed forecast页面数据）。使用“设为零”（Set to Zero）批量操作按钮，将当前年度或当前季度的预测期内所有包含数据的月份，其对应的现金数值统一重置为 0。使用“快速填充”（Quick-Fill）批量操作按钮，对当前年度或当前季度的预测期内符合以下条件的现金单元格进行计算填充：
+- 特殊情况说明：若7 8 9月份均为committed forecast月份，9月份填了Actual数据，7 8 月份置为N/A,而非继续用committed forecast填充
 
- - 1. 当前数值为 0 的单元格（无论其此前状态是 [手动输入] 还是 [快速填充]），
+**Cash的一键功能**
 
- - 2. 已带有“快速填充”标记的单元格。
-- 系统将依据公式 `Cash_{t+1} = Cash_t + Net_Income_{t+1} − ΔAR_{t+1} − ΔOther_Assets_{t+1} + ΔAP_{t+1}`，按时间顺序（例如，从 1 月至 12 月）逐月进行计算填充。如果月份 t 的数据为 NA（不可用），则公式中的 Cash_t（现金余额）及各项增量（deltas）将均等于 0。
-- 使用批量操作按钮时，受影响月份的状态将自动设置为“已勾选”（即已缓存）。系统会根据用户是否曾手动点击“√”符号，调整其行为逻辑，以此尊重用户的操作意图：
+- 功能UI截图
+<img width="714" height="112" alt="image" src="https://github.com/user-attachments/assets/55605c44-61c6-413a-b864-46d7e7e709d1" />
 
-- 两种情景：
+- 应用点
+1. 应用数据类型：
+   - FE - Edit Actuals: 存在承诺预测或系统预测；
+   - FE - Edit committed forecast: 存在承诺预测
+   - Committed Forecast - Edit: 存在承诺预测
+   - Committed Forecast - Accept as Committed Forecast时
+   - System Generated Forecast - Accept as Committed Forecast时
 
-  - 若未进行过手动“√”操作：
+2. 应用方式：
+- 使用Set to Zero批量操作按钮，将当前年度或当前季度预测范围内所有非N/A数据的月份的Cash数值统一重置为 0。
+- 使用Quick-Fill批量操作按钮，依据公式 'Cash_{t+1} = Cash_t + Net\_Income_{t+1} − \Delta AR_{t+1} − \Delta Other\_Assets_{t+1}   + \Delta AP_{t+1}'，按时间顺序（例如，从 1 月至 12 月）对当前年度或当前季度预测中Cash数值为 0 或带有“快速填充”标记的单元格进行自动 计算与填充。如果月份 t 的数值为 N/A（空值），则公式中的 Cash_t 和各项增量（delta）将等于 0。
+   - 若2025年12月为实际数据，2026年1月份为预测数据，Cash_t用2025年12月份的实际数据。编辑后为哪种数据，t月就用哪种数据，没有用N/A。
+- 注意：该功能可能会涉及汇率换算，因为P&L和B&S取的不同的汇率，他们的原始数据计算后再根据计算月的汇率转换可能会不等于页面显示值直接计算得到的数据
+- 波浪式影响：在本年度/季度视图中，点击quick fill,从第一个可填充月开始波浪式影响后月，到第一个不可填充月结束；从第二个可填充月开始波浪式影响后月，到第二个不可填充月结束，依此类推。在跨年/跨季度中，若波浪影响可以推至次年/次季度，则一直影响，至不可填充月结束，不会再有下一个波浪。
 
-  系统将自动为所有相关月份点击“√”符号。
- 
-  相应的数据将被缓存。
- 
-  - 若已进行过手动“√”操作：
+3.用批量操作按钮时，受影响月份的状态将自动设置为“已勾选”（即已缓存）。系统会根据用户是否曾手动点击“√”符号，调整其行为逻辑，以此尊重用户的操作意图：
+- 若无手动编辑导致“√”被激活时：
+  使用Quick-Fill后，系统将自动为所有相关月份点击“√”按钮。数据将随之被缓存。
+- 若有手动编辑导致“√”被激活时：
+  使用Quick-Fill后，未进行手动编辑的月份正常填充正常自动进缓存，手动编辑过cash的月份cash值静默缓存，若最后提交时，用户手动点击了“√”，则使用手动填入的数据,若未点击“√”，则使用一键填充的值。
+- 当批量操作按钮“一键归零”被触发时，系统将强制对当前年度或季度内所有非N/A月份进行重新计算或重置，无论这些月份此前是否已被标记为 [手动] 或 [快速填充] 状态。标签也将全部清空重置
 
-  系统将仅缓存当前批量操作所涉及的特定指标数据。
-
-  该月份的其他所有指标数据将保持不变。
-
-  “√”符号的状态将保持为未点击。
-
-  在系统后台，这些月份将被自动标记为“手动录入”或“快速填充”状态。
-
-- 系统通过一种“瀑布流式”的重算机制，确保整个时间轴上的数据逻辑保持一致。
-
-正向触发机制：对任一月份所做的任何更改（无论是通过手动编辑还是批量操作），都将触发其后所有被标记为“快速填充”状态的月份进行逐一重新计算。
-
+4.边缘情况与终止规则：
+- 间隙处理（N/A）：如果某个月份不含数据（显示为 N/A），系统会将“Cash”及所有“增量”（Deltas）均视为 0。计算过程不会中断，而是继续推进至下一个包含数据的月份。
+- 尾部终止：若预测期内后续所有月份均显示为 N/A，则公式将停止应用。
 - 逻辑断点（[Manual] 标记中断）：
-
-如果某一月份被标记为 [Manual]（手动录入）状态，则级联更新链条将在此处中断。
-
-情景示例：若修改了五月份的数据，六月份（处于“快速填充”状态）的数据将随之更新；但若七月份被标记为 [Manual] 状态，则七月份及其之后的所有月份数据将不受五月份数据更新的影响，保持不变。
-
-- 起始点设定：一旦某一月份被标记为“已勾选”（Checked）状态，该月份的期末现金余额将自动成为下一月份计算时的强制性期初现金余额。
+  如果某一月份被标记为 [Manual]（手动录入）状态，则级联更新链条将在此处中断。
+  情景示例：若修改了五月份的数据，六月份（处于“快速填充”状态）的数据将随之更新；但若七月份被标记为 [Manual] 状态，则七月份及其之后的所有月份数据将不受五月份数据更新的影响，保持不变。
+- 起始点设定：一旦某一月份点击了“√”按钮进了缓存，该月份的期末现金余额将自动成为下一月份计算时的强制性期初现金余额。
+  
+5.版本生成机制：一旦现金数值或状态标签（“手动输入” vs. “快速填充”）发生任何变动，在正式提交时，系统必须触发生成一个新的“已确认预测”版本。
+- 特殊情境：存在两种预测， 且承诺预测本身已使用quick fill，这个标签会被携带过来。比如26-01是系统预测，26-02和03是承诺预测，整个26年没有actuals数据。那在这个编辑模式下，如果手动更改01月份cash并点击√存入缓存且提交，01月数据变为actuals，02和03月不受影响；但如果手动编辑02月cash，并点击√存入缓存，03月的cash会同步更新（因为tag为quick-fill），且底部按钮变为changes saved，提交之后2月和3月都变成actuals。
 
 **Distribute operating expenses using historical percentages功能**
 
-- 仅对Committed Forecast数据可用（Financial Entry页面的committed forecast数据或committed forecast页面数据）。勾选该选项后，用户可以输入运营费用的总额，系统根据比例自动将总额分配至S&M Expenses，S&M Payroll，Sales Efficiency Ratio，R&D Expenses，R&D Payroll，G&A Expenses，G&A Payroll。分配比例计算规则如下：
+1. 应用数据类型：
+   - FE - Edit Actuals: 存在承诺预测或系统预测；
+   - FE - Edit committed forecast: 存在承诺预测
+   - Committed Forecast - Edit: 存在承诺预测
+   - Committed Forecast - Accept as Committed Forecast时
+   - System Generated Forecast - Accept as Committed Forecast时
+   - 
+2.勾选该选项后，用户可以输入运营费用的总额，系统根据比例自动将总额分配至S&M Expenses，S&M Payroll，R&D Expenses，R&D Payroll，G&A Expenses，G&A Payroll。分配比例计算规则如下：
 
 - 系统以closed month为基准（向前追溯），计算此前连续 6 个月的算术平均值作为分配依据。 0 被视为有效输入，'N/A' 输入则视为无效。
 
-峰值阈值（Spike Threshold）：从Closed Month开始向前追溯，确定最近的连续六个月份；计算这六个月份间“月度环比绝对变化值”的算术平均数，并将峰值阈值（spikeThreshold）设定为该平均数的 2 倍（即 2 × avgAbsMoM）。
+峰值阈值（Spike Threshold）：从Closed Month开始向前追溯，确定最近的连续六个月份；计算这六个月份间“月度环比绝对变化值”的算术平均数，并将峰值阈值（spikeThreshold）设定为该平均数的 2 倍（即 2 × avgAbsMoM）。若超过峰值，则剔除该值，使用平均数代替
 
-如果数据不足，系统将优先使用同行数据，其次使用投资组合基准数据，若两者皆无，则进行平均分配。
+如果数据不足，系统将优先使用同行数据，其次使用LG平台基准数据，若两者皆无，则进行平均分配。
 
 - 勾选该选项后，系统会自动点击“√”以将数据暂存至缓存中；该数据分配功能会尊重用户的意图，根据用户是否已手动点击过“√”来调整其行为逻辑：
 
