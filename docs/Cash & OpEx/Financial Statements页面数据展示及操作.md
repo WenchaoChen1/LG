@@ -76,7 +76,10 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
 - 起始点设定：一旦某一月份点击了“√”按钮进了缓存，该月份的期末现金余额将自动成为下一月份计算时的强制性期初现金余额。
   
 5.版本生成机制：一旦现金数值或状态标签（“手动输入” vs. “快速填充”）发生任何变动，在正式提交时，系统必须触发生成一个新的“已确认预测”版本。
-- 特殊情境：存在两种预测， 且承诺预测本身已使用quick fill，这个标签会被携带过来。比如26-01是系统预测，26-02和03是承诺预测，整个26年没有actuals数据。那在这个编辑模式下，如果手动更改01月份cash并点击√存入缓存且提交，01月数据变为actuals，02和03月不受影响；但如果手动编辑02月cash，并点击√存入缓存，03月的cash会同步更新（因为tag为quick-fill），且底部按钮变为changes saved，提交之后2月和3月都变成actuals。
+
+6. 特殊情况：
+- 存在两种预测， 且承诺预测本身已使用quick fill，这个标签会被携带过来。比如26-01是系统预测，26-02和03是承诺预测，整个26年没有actuals数据。那在这个编辑模式下，如果手动更改01月份cash并点击√存入缓存且提交，01月数据变为actuals，02和03月不受影响；但如果手动编辑02月cash，并点击√存入缓存，03月的cash会同步更新（因为tag为quick-fill），且底部按钮变为changes saved，提交之后2月和3月都变成actuals。
+- 同比（YoY）联动机制：若当前年度 12 月份的cash数据发生变动，且次年 1 月份的设置状态为“[快速填充]”，系统必须自动触发重算流程，并为次年生成一个新的版本，以反映更新后的期初余额。
 
 **Distribute operating expenses using historical percentages功能**
 
@@ -86,7 +89,7 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
    - Committed Forecast - Edit: 存在承诺预测
    - Committed Forecast - Accept as Committed Forecast时
    - System Generated Forecast - Accept as Committed Forecast时
-   - 
+  
 2.勾选该选项后，用户可以输入运营费用的总额，系统根据比例自动将总额分配至S&M Expenses，S&M Payroll，R&D Expenses，R&D Payroll，G&A Expenses，G&A Payroll。分配比例计算规则如下：
 
 - 系统以closed month为基准（向前追溯），计算此前连续 6 个月的算术平均值作为分配依据。 0 被视为有效输入，'N/A' 输入则视为无效。
