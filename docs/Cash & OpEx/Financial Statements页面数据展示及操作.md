@@ -32,13 +32,11 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
 
 Financial Entry为数据混合表，多数情况下会包含不同的数据类型，所以Edit功能按钮是下拉按钮，包含当前视图下（年度12个月/季度3个月）可编辑的数据类型，如Actuals，Committed Forecast，若无可编辑数据，则Edit按钮置灰，可编辑的数据在编辑状态下均为黑色字体
 
-- 点击Edit下拉按钮，选择Actual，进入编辑状态，仅closed month及之前月可编辑，closed month之后月置灰，不可编辑。若closed month被预测数据填充，则编辑状态下带着预测数据，呈现可编辑状态，而不是置空，用户若点击Cancel退出，预测数据填充的月份依旧显示预测数据；用户若编辑了任意一个可编辑单元格并点击对钩保存后点击了提交，则该月数据变为Actuals黑色字体--且该月份之前若存在NA月，那这种NA月份在view模式下不会回显预测。
+- 点击Edit下拉按钮，选择Actual，进入编辑状态，仅closed month及之前月可编辑，closed month之后月置灰，不可编辑。若月份被预测数据填充，则编辑状态下带着预测数据，呈现可编辑状态，而不是置空，用户若点击Cancel退出，预测数据填充的月份依旧显示预测数据；用户若编辑了任意一个可编辑单元格并点击对钩保存后点击了提交，则该月数据变为Actuals黑色字体--且该月份之前若存在NA月，那这种NA月份在view模式下不会回显预测。（若7 8 9月份均为committed forecast月份，9月份填了Actual数据，7 8 月份置为N/A,而非继续用committed forecast填充）
 
 - 若表格含有Committed forecast数据，点击Edit下拉按钮，选择Committed forecast，进入编辑状态，仅closed month之后用committed forecast数据填充的月可编辑，closed month及之前月置灰，不可编辑。用户若编辑了任意一个可编辑单元格并点击对钩保存后点击了提交，则该数据被保存为该月的最新版本Committed Forecast 数据，字体颜色为紫色。
 
 - 当前月与closed month之间N/A月份用system generated forecast填充
-
-- 特殊情况说明：若7 8 9月份均为committed forecast月份，9月份填了Actual数据，7 8 月份置为N/A,而非继续用committed forecast填充
 
 **Cash的一键功能**
 
@@ -54,8 +52,8 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
    - System Generated Forecast - Accept as Committed Forecast时
 
 2. 应用方式：
-- 使用Set to Zero批量操作按钮，将当前年度或当前季度预测范围内所有非N/A数据的月份的Cash数值统一重置为 0。
-- 使用Quick-Fill批量操作按钮，依据公式 'Cash_{t+1} = Cash_t + Net\_Income_{t+1} − \Delta AR_{t+1} − \Delta Other\_Assets_{t+1}   + \Delta AP_{t+1}'，按时间顺序（例如，从 1 月至 12 月）对当前年度或当前季度预测中Cash数值为 0 或带有“快速填充”标记的单元格进行自动 计算与填充。如果月份 t 的数值为 N/A（空值），则公式中的 Cash_t 和各项增量（delta）将等于 0。
+- Set to Zero批量操作按钮，可将当前年度或当前季度预测范围内所有非N/A数据的月份的Cash数值统一重置为 0。
+- 使用Quick-Fill批量操作按钮，依据公式 'Cash_{t+1} = Cash_t + Net\_Income_{t+1} − \Delta AR_{t+1} − \Delta Other\_Assets_{t+1} + \Delta AP_{t+1}'，按时间顺序（例如，从 1 月至 12 月）对当前年度或当前季度预测中Cash数值为 0 或带有“快速填充”标记的单元格进行自动 计算与填充。如果月份 t 的数值为 N/A（空值），则公式中的 Cash_t 和各项增量（delta）将等于 0。
    - 若2025年12月为实际数据，2026年1月份为预测数据，Cash_t用2025年12月份的实际数据。编辑后为哪种数据，t月就用哪种数据，没有用N/A。
 - 注意：该功能可能会涉及汇率换算，因为P&L和B&S取的不同的汇率，他们的原始数据计算后再根据计算月的汇率转换可能会不等于页面显示值直接计算得到的数据
 - 波浪式影响：在本年度/季度视图中，点击quick fill,从第一个可填充月开始波浪式影响后月，到第一个不可填充月结束；从第二个可填充月开始波浪式影响后月，到第二个不可填充月结束，依此类推。在跨年/跨季度中，若波浪影响可以推至次年/次季度，则一直影响，至不可填充月结束，不会再有下一个波浪。
