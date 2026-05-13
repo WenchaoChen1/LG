@@ -47,6 +47,7 @@
   - `Failed to Upload {File name}. File exceeds the 20MB limit`
   - `Failed to Upload {File name}. File type is not supported`
   - `Failed to Upload {File name}. The combined size of your files exceeds the 100MB limit.`
+  - `Failed to Upload {File name}. File is corrupted`
   - `Failed to Upload {File name}. A file with this name already exists.`
   - `Failed to Upload {File name}. `(单纯上传失败，无需解释）
 - 同种类型Error，内容不重复展示,仅罗列File name，error消息展示五秒自动消失，也可以点击X关闭
