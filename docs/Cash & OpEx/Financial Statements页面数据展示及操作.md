@@ -102,19 +102,14 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
 
 - 两种情景：
 
-  - 若未进行手动“√”操作：
+  - 若无手动“√”数据：
 
   系统将自动为所有相关月份点击“√”。
 
   相应的数据将被缓存。
 
-  - 若已进行手动“√”操作：
-
-  系统将仅缓存当前批量处理的特定指标数据。
-
-  该月份内的所有其他指标数据将保持不变（不受影响）。
-
-  “√”状态保持不变（即未被自动点击）。
+  - 若有手动“√”的数据：
+    使用自动分配功能后，未进行手动编辑的月份正常填充正常自动进缓存，手动编辑过的月份数据静默缓存，若最后提交时，用户手动点击了“√”，则使用手动填入的数据,若未点击“√”，则使用一键填充的值。
 
 对于介于“closed month”与“当前日历月份”之间的月份（这些月份的数据由“已确认预测”[Committed Forecast] 进行回填），分配操作将以预测的运营费用（OpEx）为基准；分配完成后，相关数据将被缓存并视为“财务实际值”（Financial Actuals）。
 
@@ -131,6 +126,24 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
 **数据对比**
 
 - Compare下拉选项包括Committed Forecast, System Generated Forecast, Confidence Intervals。选中的数据类型会展示在Actuals数据下，Committed Forecast为紫色字体, System Generated Forecast为紫色字体加图标, Confidence Intervals在System Generated Forecast下方显示System Generated Forecast 数据25%，50%，75%百分位的数据。
+
+**数据更新影响页面**
+-Actuals数据更新：
+  - Benchmarking 页面（实时）
+  - Company overview 页面(实时）
+  - Portfolio list（每日定时）
+  - Normalization Tracing（每日定时）
+  - System generated forecast（实时）
+  - Performance tab（实时）
+  - Peer Group Management（实时，可能会影响）
+  - Financial Metrics Tracing（实时）
+- Committed forecast数据更新：
+  - Benchmarking 页面（实时）
+  - Normalization Tracing（每日定时）
+  - Performance tab（实时）
+- System generated forecast数据更新：
+  -  Benchmarking 页面（实时）
+  -  Financial Metrics Tracing（实时）
 
 ### 2.2 Committed Forecast表
 
