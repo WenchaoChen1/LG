@@ -139,10 +139,12 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
   - Performance tab（实时）
   - Peer Group Management（实时，可能会影响）
   - Financial Metrics Tracing（实时）
+
 - Committed forecast数据更新：
   - Benchmarking 页面（实时）
   - Normalization Tracing（每日定时）
   - Performance tab（实时）
+
 - System generated forecast数据更新：
   -  Benchmarking 页面（实时）
   -  Financial Metrics Tracing（实时）
