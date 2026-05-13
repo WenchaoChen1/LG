@@ -130,7 +130,7 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
 - Compare下拉选项包括Committed Forecast, System Generated Forecast, Confidence Intervals。选中的数据类型会展示在Actuals数据下，Committed Forecast为紫色字体, System Generated Forecast为紫色字体加图标, Confidence Intervals在System Generated Forecast下方显示System Generated Forecast 数据25%，50%，75%百分位的数据。
 
 **数据更新影响页面**
--Actuals数据更新：
+- Actuals数据更新：
   - Benchmarking 页面（实时）
   - Company overview 页面(实时）
   - Portfolio list（每日定时）
