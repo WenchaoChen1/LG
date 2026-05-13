@@ -84,6 +84,7 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
 - 同比（YoY）联动机制：若当前年度 12 月份的cash数据发生变动，且次年 1 月份的设置状态为“[快速填充]”，系统必须自动触发重算流程，并为次年生成一个新的版本，以反映更新后的期初余额。
 
 **Distribute operating expenses using historical percentages功能**
+<img width="1126" height="215" alt="image" src="https://github.com/user-attachments/assets/10db30d0-2c24-4ede-a2b8-30b4b295238d" />
 
 1. 应用数据类型：
    - FE - Edit Actuals: 存在承诺预测或系统预测；
