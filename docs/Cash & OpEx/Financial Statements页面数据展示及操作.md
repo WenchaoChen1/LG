@@ -20,23 +20,36 @@
 
 **数据展示**
 
-Financial Entry为数据混合表，多数情况下会包含不同的数据类型，保证整年的数据衔接，以供用户审阅参考
+Financial Entry为数据混合表，多数情况下会包含不同的数据类型，保证数据衔接，便于用户查看。
 
-- closed month及之前月数据为真实数据。若无真实数据，则无真实数据的月份使用预测数据填充，若有committed forecast数据则使用committed forecast，若无则使用system generated forecast数据。实际数据为黑色字体，committed forecast数据为紫色字体，system generated forecast数据为紫色字体且带有小图标。
+- closed month及之前月数据为真实数据。closed month之后数据为N/A的月份用预测数据填充，有committed forecast数据则优先使用Committed forecast,没有则使用system generated forecast数据（逐月判断）。（自动公司，closed month 后的月份会存在有拉取的数据的情况，所以不能简单定义为closed month后的月份用预测数据填充，必须是closed month之后的NA月才能用预测数据填充。实际数据为黑色字体，committed forecast数据为紫色字体，system generated forecast数据为紫色字体且带有小图标。
 
  - closed month定义： Financial Statements Settings中为Manual的公司，closed month是Financia Entry表中最后一个有Actuals数据的月份； Financial Statements Settings中为Automatic的公司，closed month以15号为界限，如果系统服务器时间过了15号，就是上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有Actuals数据的月份位置）, 如果系统服务器时间没过15号，就是上上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有Actuals数据的月份位置）。
 
-- closed month之后数据为N/A的月份用预测数据填充，有committed forecast数据则优先使用Committed forecast,没有则使用system generated forecast数据。（自动公司，closed month 后的月份会存在有拉取的数据的情况，所以不能用预测数据填充）
-
 **数据新增与编辑**
 
-Financial Entry为数据混合表，多数情况下会包含不同的数据类型，所以Edit功能按钮是下拉按钮，包含当前视图下（年度12个月/季度3个月）可编辑的数据类型，如Actuals，Committed Forecast，若无可编辑数据，则Edit按钮置灰，可编辑的数据在编辑状态下均为黑色字体
-
-- 点击Edit下拉按钮，选择Actual，进入编辑状态，仅closed month及之前月可编辑，closed month之后月置灰，不可编辑。若月份被预测数据填充，则编辑状态下带着预测数据，呈现可编辑状态，而不是置空，用户若点击Cancel退出，预测数据填充的月份依旧显示预测数据；用户若编辑了任意一个可编辑单元格并点击对钩保存后点击了提交，则该月数据变为Actuals黑色字体--且该月份之前若存在NA月，那这种NA月份在view模式下不会回显预测。（若7 8 9月份均为committed forecast月份，9月份填了Actual数据，7 8 月份置为N/A,而非继续用committed forecast填充）
-
-- 若表格含有Committed forecast数据，点击Edit下拉按钮，选择Committed forecast，进入编辑状态，仅closed month之后用committed forecast数据填充的月可编辑，closed month及之前月置灰，不可编辑。用户若编辑了任意一个可编辑单元格并点击对钩保存后点击了提交，则该数据被保存为该月的最新版本Committed Forecast 数据，字体颜色为紫色。
-
-- 当前月与closed month之间N/A月份用system generated forecast填充
+根据上述内容，Financial Entry为数据混合表。下面是Financial Entry 编辑逻辑规范
+- 编辑入口与权限控制
+  - 交互形式：Edit 按钮采用下拉设计，包含 Edit Financial Actuals 和 Edit Committed Forecast。
+  - 显隐逻辑：系统根据当前视图（年度/季度）内是否存在可编辑的数据类型，动态显示或隐藏对应选项。
+  - 置灰逻辑：若当前视图下两类数据均不可编辑（例如：QBO公司Actuals不可编辑，且仅有系统预测），则 Edit 总入口置灰。
+  - 视觉规范：进入编辑模式后，所有可编辑单元格的数值均以黑色字体显示，且不显示任何辅助图标。
+- Edit Financial Actuals（只有手动公司才有这个选项）
+  - 时间范围限制：仅限当前日历月（不含）之前的月份可编辑；日历月之后的月份锁定置灰。
+  - 数据保存机制（√ 逻辑）：
+      - 缓存触发：手动修改数据后“√”图标激活。用户必须手动点击“√”，数据方可进入缓存并显示为“Changes Saved”。
+      - 提交确认：点击 Submit 时，若存在激活但未点击的“√”，系统将弹出确认窗。未存入缓存（未点√）的数据将不会被保存。
+  - 预测回填月的特殊逻辑：
+    - 状态展示：若 Actuals 月份被预测数据（承诺/系统/混合预测）填充，编辑时保留该预测值作为底数，但不显示“比例分摊”或“Quick Fill”标签。
+    - 数据转化：编辑并确认（点√并提交）预测回填月的数据后，该数据将转换为 Actuals 属性并持久化保存。
+    - 独立性：手动编辑预测回填月仅对当月生效，不会对其他月份产生联动影响（无波浪影响）。
+- Edit Committed Forecast（承诺预测编辑模式）
+  - 可编辑范围：
+    - 手动公司 ：当前日历月及之后的 Committed Forecast 月份可编辑，其余置灰。
+    - 自动公司 ：当前日历月之后的 Committed Forecast 月份可编辑，其余置灰。
+  - 版本控制与呈现：
+  - 保存逻辑：用户编辑单元格并完成“点击√ + 点击 Submit”的操作后，系统将生成一个全新的 Committed Forecast 版本。该版本由当前编辑月的最新数据与该年度上一版本中其余月份的数据合并而成。若上一版本中其他月份没有数据，则在合并后的新版本中，这些月份将记录为 N/A。
+  - 视觉反馈：提交成功后，该数据在 View 模式下显示为紫色字体。
 
 **Cash的一键功能**
 
@@ -45,76 +58,63 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
 
 - 应用点
 1. 应用数据类型：
-   - FE - Edit Actuals: 存在承诺预测或系统预测；
-   - FE - Edit committed forecast: 存在承诺预测
-   - Committed Forecast - Edit: 存在承诺预测
+   - FE - Edit Actuals: 只要预测数据（承诺预测或系统预测）尚未被正式转化为 Actuals 数据，Cash 的两个批量操作按钮均可对这些预测回填月生效（按业务逻辑执行），用于快速调整预测值。
+   - FE - Edit committed forecast: 存在已有的承诺预测数据（Committed Forecast）时，批量操作按钮才可对相应月份生效。
+   - Committed Forecast - Edit: 只要承诺预测表或当前编辑缓存中存在数据，批量操作按钮就可对对应月份生效（按业务逻辑执行）。比如某年度（如 2027 年）初始数据全为空，批量操作按钮初始虽可见但是点击不生效。一旦用户为某月（如 1 月）手动输入数据并点击“√”存入缓存，再次点击批量操作按钮，比如Set to Zero,将立即对该月按逻辑执行。
    - Committed Forecast - Accept as Committed Forecast时
    - System Generated Forecast - Accept as Committed Forecast时
 
 2. 应用方式：
 - Set to Zero批量操作按钮，可将当前年度或当前季度预测范围内所有非N/A数据的月份的Cash数值统一重置为 0。
-- 使用Quick-Fill批量操作按钮，依据公式`Cash_{t+1} = Cash_t + Net\_Income_{t+1} − \Delta AR_{t+1} − \Delta Other\_Assets_{t+1} + \Delta AP_{t+1} ` ，按时间顺序（例如，从 1 月至 12 月）对当前年度或当前季度预测中Cash数值为 0 或带有“快速填充”标记的单元格进行自动 计算与填充。如果月份 t 的数值为 N/A（空值），则公式中的 Cash_t 和各项增量（delta）将等于 0。
-   - 若2025年12月为实际数据，2026年1月份为预测数据，Cash_t用2025年12月份的实际数据。编辑后为哪种数据，t月就用哪种数据，没有用N/A。
-- 注意：该功能可能会涉及汇率换算，因为P&L和B&S取的不同的汇率，他们的原始数据计算后再根据计算月的汇率转换可能会不等于页面显示值直接计算得到的数据
-- 波浪式影响：在本年度/季度视图中，点击quick fill,从第一个可填充月开始波浪式影响后月，到第一个不可填充月结束；从第二个可填充月开始波浪式影响后月，到第二个不可填充月结束，依此类推。在跨年/跨季度中，若波浪影响可以推至次年/次季度，则一直影响，至不可填充月结束，不会再有下一个波浪。
+- 使用Quick-Fill批量操作按钮，依据公式`Cash_{t+1} = Cash_t + Net\_Income_{t+1} − \Delta AR_{t+1} − \Delta Other\_Assets_{t+1} + \Delta AP_{t+1} ` ，按时间顺序（例如，从 1 月至 12 月）对当前年度或当前季度预测中Cash数值为 0 或带有“快速填充”标记的单元格进行自动计算与填充。如果月份 t 的数值为 N/A（空值），则公式中的 Cash_t 和各项增量（delta）将等于 0。
+   - 若2025年12月为实际数据，2026年1月份为预测数据，如果在2026年edit financial actuals模式下，点击Set to Zero后，再点击Quick Fill, 计算2026年1月份cash的时候，Cash_t用2025年12月份的实际数据。所以逻辑为：要把目标月保存为哪种数据，t月就用哪种数据，没有用N/A。
+- 注意：该功能可能会涉及汇率换算，因为涉及到不同月且P&L和B&S取的不同的汇率，他们的原始数据计算后再根据计算月的汇率转换可能会不等于页面显示值直接计算得到的数据
+- 波浪式影响：在年度或季度视图中，点击 Quick Fill 将触发波浪式级联影响。该影响自首个可填充月份开始，向后延伸直至遭遇首个不可填充月份为止。若后续仍存在可填充区间，则开启下一轮波浪，依此类推。在跨年/跨季度中，若波浪影响可以推至次年/次季度，则一直影响，至不可填充月结束，不会再有下一个波浪。
+- 手动编辑触发的波浪联动逻辑 (Ripple Effect via Manual Edit)：在 FE - Edit Committed Forecast、Committed Forecast - Edit 以及 Accept as Committed Forecast（系统生成转承诺）等模式下，波浪影响的触发逻辑如下：
+  - 触发前提：
+    - 用户手动修改了某月份的数据。
+    - 被修改的数据属于 Cash Quick Fill 计算公式的变量。
+    - 该月份的紧后月份已被标记为 Quick Fill 状态。
+  - 级联机制：
+    - 联动开启：一旦满足上述条件，手动修改产生的影响将如同“波浪”一般，自动推送到后续连续标记为 Quick Fill 的月份中，并重新计算它们的数据。
+    - 中断即止：这种联动具有“一次性”特征。波浪会沿着 Quick Fill 链条持续传递，但一旦遭遇第一个非 Quick Fill 月份（联动中断），该波浪即刻终止。
+    - 无后续波浪：即使在该中断点之后的更远月份仍存在 Quick Fill 标记，手动编辑引发的波浪也不会跳过中断点去影响那些月份。
+    - 跨期规则：若此联动影响已延伸至次年或次季度，波浪将继续跨期传递，直至遇到首个不可填充月份或非 Quick Fill 月份为止。
 
-3.用批量操作按钮时，受影响月份的状态将自动设置为“已勾选”（即已缓存）。系统会根据用户是否曾手动点击“√”符号，调整其行为逻辑，以此尊重用户的操作意图：
-- 两种情景：
-  - 若无手动点击“√”的数据：
-    系统将自动为所有相关月份点击“√”符号。
-    相应的数据将被缓存。
-  - 若有手动点击“√”的数据：
-    系统将仅缓存当前批量操作所涉及的特定指标数据。
-    该月份的其他所有指标数据将保持不变。
-    “√”按钮的状态将保持为未点击，提交时若用户手动点击了“√”按钮，则手动输入数据将被保存；提交时若用户未点击“√”按钮，则自动填充数据将被保存。
-- 当批量操作按钮“一键归零”被触发时，系统将强制对当前年度或季度内所有非N/A月份进行重新计算或重置，无论这些月份此前是否已被标记为 [手动] 或 [快速填充] 状态。标签也将全部清空重置
+3.使用批量操作时，受影响月份通常会自动标记为“Changes Saved”。但为尊重用户的操作意图，系统会根据 “√”按钮是否已被激活（即是否有未提交的手动编辑） 调整逻辑：
+- 若该月“√”未被激活（无手动编辑）： 系统将自动激活“√”符号并缓存数据，状态更新为“Changes Saved”。
+- 若该月“√”已被激活（已有手动编辑）： 系统仅对批量操作涉及的特定指标进行后台缓存，该月状态不自动跳转为“Changes Saved”，且“√”保持未点击状态。此时若用户手动勾选“√”并提交，则保存手输数据；若直接提交，则手动编辑失效，系统最终保存批量操作生成的缓存数据。
+“一键归零”强制逻辑：一旦触发，系统将强制重置当期所有非 N/A 月份的预测数据为 0，并清空所有 [快速填充] 标签，无论该月份此前处于何种状态。
 
 4.边缘情况与终止规则：
 - 间隙处理（N/A）：如果某个月份不含数据（显示为 N/A），系统会将“Cash”及所有“增量”（Deltas）均视为 0。计算过程不会中断，而是继续推进至下一个包含数据的月份。
 - 尾部终止：若预测期内后续所有月份均显示为 N/A，则公式将停止应用。
 - 逻辑断点（[Manual] 标记中断）：
   如果某一月份被标记为 [Manual]（手动录入）状态，则级联更新链条将在此处中断。
-  情景示例：若修改了五月份的数据，六月份（处于“快速填充”状态）的数据将随之更新；但若七月份被标记为 [Manual] 状态，则七月份及其之后的所有月份数据将不受五月份数据更新的影响，保持不变。
+  情景示例：若手动修改了五月份的数据，且被修改的数据属于 Cash Quick Fill 计算公式的变量，六月份（处于“快速填充”状态）的数据将随之更新；但若七月份被标记为 [Manual] 状态，则七月份及其之后的所有月份数据将不受五月份数据更新的影响，保持不变。
 - 起始点设定：一旦某一月份点击了“√”按钮进了缓存，该月份的期末现金余额将自动成为下一月份计算时的强制性期初现金余额。
-  
-5.版本生成机制：一旦现金数值或状态标签（“手动输入” vs. “快速填充”）发生任何变动，在正式提交时，系统必须触发生成一个新的“已确认预测”版本。
 
-6. 特殊情况：
-- 存在两种预测， 且承诺预测本身已使用quick fill，这个标签会被携带过来。比如26-01是系统预测，26-02和03是承诺预测，整个26年没有actuals数据。那在这个编辑模式下，如果手动更改01月份cash并点击√存入缓存且提交，01月数据变为actuals，02和03月不受影响；但如果手动编辑02月cash，并点击√存入缓存，03月的cash会同步更新（因为tag为quick-fill），且底部按钮变为changes saved，提交之后2月和3月都变成actuals。
-- 同比（YoY）联动机制：若当前年度 12 月份的cash数据发生变动，且次年 1 月份的设置状态为“[快速填充]”，系统必须自动触发重算流程，并为次年生成一个新的版本，以反映更新后的期初余额。
+5.预测版本生成机制：一旦某年度内任意月份的Cash数值或状态标签（“手动输入” vs. “快速填充”）发生任何变动，在正式提交时，系统必须触发生成一个新的“已确认预测”版本。
 
 **Distribute operating expenses using historical percentages功能**
 <img width="1126" height="215" alt="image" src="https://github.com/user-attachments/assets/10db30d0-2c24-4ede-a2b8-30b4b295238d" />
 
 1. 应用数据类型：
-   - FE - Edit Actuals: 存在承诺预测或系统预测；
-   - FE - Edit committed forecast: 存在承诺预测
-   - Committed Forecast - Edit: 存在承诺预测
+   - FE - Edit Actuals: 只要预测数据（承诺预测或系统预测）尚未被正式转化为 Actuals 数据，Distribute operating expenses using historical percentages功能均可对这些预测回填月生效（按业务逻辑执行），用于快速调整预测值。
+   - FE - Edit committed forecast: 存在已有的承诺预测数据（Committed Forecast）时，Distribute operating expenses using historical percentages功能才可对相应月份生效。
+   - Committed Forecast - Edit: 只要承诺预测表或当前编辑缓存中存在数据，Distribute operating expenses using historical percentages功能就可对对应月份生效（按业务逻辑执行）。比如某年度（如 2027 年）初始数据全为空，Distribute operating expenses using historical percentages功能初始虽可见但是勾选后数据并没有任何变化。一旦用户为某月（如 1 月）手动输入数据并点击“√”存入缓存，再次成功勾选，将立即对该月按逻辑执行。
    - Committed Forecast - Accept as Committed Forecast时
    - System Generated Forecast - Accept as Committed Forecast时
-  
-2.勾选该选项后，用户可以输入运营费用的总额，系统根据比例自动将总额分配至S&M Expenses，S&M Payroll，R&D Expenses，R&D Payroll，G&A Expenses，G&A Payroll。分配比例计算规则如下：
+
+2.勾选该选项后，用户可以输入运营费用的总额，系统根据比例自动将总额分配至S&M Expenses，S&M Payroll，R&D Expenses，R&D Payroll，G&A Expenses，G&A Payroll，且这些月份的这6个指标变为实时计算的指标，不再存入数据库，在edit模式，这些指标置灰显示，不可手动编辑。分配比例计算规则如下：
 
 - 系统以closed month为基准（向前追溯），计算此前连续 6 个月的算术平均值作为分配依据。 0 被视为有效输入，'N/A' 输入则视为无效。
+  - 峰值阈值（Spike Threshold）：从Closed Month开始向前追溯，确定最近的连续六个月份；计算这六个月份间“月度环比绝对变化值”的算术平均数，并将峰值阈值（spikeThreshold）设定为该平均数的 2 倍（即 2 × avgAbsMoM）。若超过峰值，则剔除该值，使用平均数代替。
+  - 如果数据不足，系统将优先使用同行数据，其次使用LG平台基准数据，若两者皆无，则进行平均分配。
 
-峰值阈值（Spike Threshold）：从Closed Month开始向前追溯，确定最近的连续六个月份；计算这六个月份间“月度环比绝对变化值”的算术平均数，并将峰值阈值（spikeThreshold）设定为该平均数的 2 倍（即 2 × avgAbsMoM）。若超过峰值，则剔除该值，使用平均数代替
-
-如果数据不足，系统将优先使用同行数据，其次使用LG平台基准数据，若两者皆无，则进行平均分配。
-
-- 勾选该选项后，系统会自动点击“√”以将数据暂存至缓存中；该数据分配功能会尊重用户的意图，根据用户是否已手动点击过“√”来调整其行为逻辑：
-
-- 两种情景：
-  - 若无手动“√”的数据：
-    系统将自动为所有相关月份点击“√”。
-    相应的数据将被缓存。
-  - 若有手动“√”的数据：
-    系统将仅缓存当前批量处理所涉及的特定指标。
-    该月份的其他所有指标将保持不变（不受影响）。
-    “√”状态保持不变（即未被自动点击）。
-    
-- 使用自动分配功能后，未进行手动编辑的月份正常填充正常自动进缓存，手动编辑过的月份数据静默缓存，若最后提交时，用户手动点击了“√”，则使用手动填入的数据,若未点击“√”，则使用一键填充的值。
-
-- 对于介于“closed month”与“当前日历月份”之间的月份（这些月份的数据由“已确认预测”[Committed Forecast] 进行回填），分配操作将以预测的运营费用（OpEx）为基准；分配完成后，相关数据将被缓存并视为“财务实际值”（Financial Actuals）。
+- 勾选该选项后，受影响月份通常会自动标记为“Changes Saved”。但为尊重用户的操作意图，系统会根据 月份的“√”是否已被激活（即是否有未提交的手动编辑） 调整逻辑：
+- 若该月“√”未被激活（无手动编辑）： 系统将自动激活“√”符号并缓存数据，状态更新为“Changes Saved”。
+- 若该月“√”已被激活（已有手动编辑）： 系统仅对Distribute operating expenses using historical percentages涉及的特定指标进行后台缓存，该月状态不自动跳转为“Changes Saved”，且“√”保持未点击状态。此时若用户手动勾选“√”并提交，则保存手输数据；若直接提交，则手动编辑失效，系统最终保存Distribute operating expenses using historical percentages操作生成的缓存数据。
 
 - 取消选中时：
 
@@ -124,7 +124,7 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
 
   - 数据持久化：取消选中时，数值将首先被保存至缓存中；当用户点击“提交/接受”（Submit/Accept）按钮时，数值将按序正式保存至数据库中。
 
-  - 版本控制：若取消勾选该切换开关并执行提交操作，系统将触发生成一个新的“已确认预测”版本。
+  - 预测版本生成机制：一旦某年度内committed forecast任意月份的Distribute operating expenses using historical percentages状态标签发生任何变动，在正式提交时，系统必须触发生成一个新的“committed forecast”版本。
 
 **数据对比**
 
