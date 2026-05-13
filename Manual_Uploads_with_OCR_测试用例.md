@@ -13,7 +13,7 @@
 
 | # | 需求类型 | 需求描述 |
 |---|---------|---------|
-| R1.1 | 功能需求 | 仅手动录入类型公司可见 Import Statement 上传按钮；自动对接公司aaa不显示 |
+| R1.1 | 功能需求 | 仅手动录入类型公司可见 Import Statement 上传按钮；自动对接公司不显示 |
 | R1.2 | 业务规则 | Company Admin / Company User 可上传本公司文档；Portfolio portal 角色可上传其有权限的全部公司文档 |
 | R1.3 | UI 需求 | 上传按钮位置：Financial Entry / Committed Forecast 页面的 Import Statement 按钮，点击进入上传流程 |
 | R1.4 | 功能需求 | 支持上传 PDF（扫描/数字）、Excel（.xlsx/.xls）、CSV、图片（JPG/JPEG/PNG/TIFF） |
