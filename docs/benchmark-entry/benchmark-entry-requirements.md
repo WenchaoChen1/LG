@@ -141,7 +141,7 @@ Benchmark Entry 是面向投资分析团队的 SaaS 行业基准指标管理工�
 - 处理方法：
   - 极性翻转转换（Polarity Flip Conversion）
 对于任何“外部基准数据源与报告年份”的组合中，若该数据源所遵循的极性惯例与 LG 针对该特定指标所遵循的惯例正好相反，系统将在把该指标的所有百分位数值存入 LG 的基准数据架构（Benchmark Schema）之前，对这些数值应用 1 − P 的百分位翻转公式进行转换处理。所采用的公式为：转换后的百分位数 = 1 − 原始百分位数（例如，外部 P75 在 LG 系统中存储为 P25）。
-  - 列表P75栏后添加一栏名为 Inverted的列，作为标记，若该指标需要翻转处理，则勾选该选项
+  - 列表P75栏后添加一栏名为 Inverted的下拉Yes/No选项栏，默认选择No，若该指标需要翻转处理，则勾选Yes
   - Benchmark页面的tooltip中，指标下方加标记，例如：[2024] percentiles inverted to align with LG conventions.
 
 ---
