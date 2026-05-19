@@ -68,7 +68,15 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
 - Set to Zero批量操作按钮，可将当前年度或当前季度预测范围内所有非N/A数据的月份的Cash数值统一重置为 0。
 - 使用Quick-Fill批量操作按钮，依据公式`Cash_{t+1} = Cash_t + Net\_Income_{t+1} − \Delta AR_{t+1} − \Delta Other\_Assets_{t+1} + \Delta AP_{t+1} + \Delta Long-term debt_{t+1} ` ，按时间顺序（例如，从 1 月至 12 月）对当前年度或当前季度预测中Cash数值为 0 或带有“快速填充”标记的单元格进行自动计算与填充。如果月份 t 的数值为 N/A（空值），则公式中的 Cash_t 和各项增量（delta）将等于 0。
    - 若2025年12月为实际数据，2026年1月份为预测数据，如果在2026年edit financial actuals模式下，点击Set to Zero后，再点击Quick Fill, 计算2026年1月份cash的时候，Cash_t用2025年12月份的实际数据。所以逻辑为：要把目标月保存为哪种数据，t月就用哪种数据，没有用N/A。
-   - 若
+   - 若该表存在非可填充月，则会显示弹框:
+   - Manually Modified Months Detedted
+     The following months contain manually entered Cash values:
+     - Month year
+     - Month year
+     - ...
+     - Quick Fill will preserve these and only calculate Cash values for moths set to zero or that have already been marked         as Quick Fill.
+       To Quick Fill all values, set to zero all months before proceeding.
+     - 两个按钮： Cancel, Proceed with Quick Fill
 - 注意：该功能可能会涉及汇率换算，因为涉及到不同月且P&L和B&S取的不同的汇率，他们的原始数据计算后再根据计算月的汇率转换可能会不等于页面显示值直接计算得到的数据
 - 波浪式影响：在年度或季度视图中，点击 Quick Fill 将触发波浪式级联影响。该影响自首个可填充月份开始，向后延伸直至遭遇首个不可填充月份为止。若后续仍存在可填充区间，则开启下一轮波浪，依此类推。在跨年/跨季度中，若波浪影响可以推至次年/次季度，则一直影响，至不可填充月结束，不会再有下一个波浪。
 - 手动编辑触发的波浪联动逻辑 (Ripple Effect via Manual Edit)：在 FE - Edit Committed Forecast、Committed Forecast - Edit 以及 Accept as Committed Forecast（系统生成转承诺）等模式下，波浪影响的触发逻辑如下：
