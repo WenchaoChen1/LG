@@ -1,6 +1,6 @@
 # AI 财务智能解析 —— 验证与冲突解决接口文档
 
-> **版本**: v1.4.0 · **更新日期**: 2026-05-19
+> **版本**: v1.5.0 · **更新日期**: 2026-05-19
 > **作用范围**: 接口 ⑥ 验证（verify） + 接口 ⑦ 冲突解决与提交（resolve）
 > **包路径**: `com.gstdev.cioaas.web.ai.financial.extract`
 > **关联文档**:
@@ -10,7 +10,17 @@
 
 ---
 
-## 📌 v1.4.0 主要变更
+## 📌 v1.5.0 主要变更
+
+1. **resolve 接收 Proforma 数据**：新增 `proformaData[]` 字段；Proforma 不参与冲突检测，直接写入新 committed forecast 版本（PRD §3.5）。
+2. **resolve 状态机扩容**：原 `{CONFLICT_RESOLUTION, READY_TO_COMMIT}` → 增加 `{REVIEWING, MAPPING_SUMMARY}`，允许"仅 Proforma"场景前端跳过 verify 直接调 resolve。
+3. **跨年自动分组**：Proforma 按年聚合，每年生成一个新 committed forecast 版本，`source="Import Statements"`、`versionName="Imported YYYY-MM-DD"`、`versionNote="From task {taskId}"`。
+4. **响应字段语义扩展**：`writtenDataTypes` 现可含 `["ACTUALS", "PROFORMA"]`；`writtenPeriods` 含两种数据的所有报告期；`writtenAccounts` 累加 Actuals fi_\* 写入 + Proforma 写入条目数。
+5. **币种 / 单位换算复用**：Proforma 与 Actuals 共用同一份 FX 换算 + 同 key SUM 兜底逻辑。
+
+---
+
+## 📌 v1.4.0 主要变更（历史）
 
 1. **verify 增强响应**：响应增加 `nonConflicts[]`（LG 为空 → 待自动写入；LG 与上传一致 → 跳过）；冲突项增加 `contributingCellIds: string[]`（前端用于在冲突弹窗展示明细）。
 2. **mappedData 增加 `cellIds?: string[]`** 可选字段：前端传入贡献该聚合值的 cell 列表，后端在响应中透传到 `contributingCellIds`。
@@ -105,11 +115,17 @@
 - 同 cell 的 `edit*` 优先 / 否则用 `source*`（前端 fallback；verify 看到的是用户最终值）
 - Proforma 数据排除（不传入 verify；Proforma 不走冲突检测）
 
-**resolve（passthrough verify 响应）**
+**resolve（passthrough verify 响应 + Proforma）**
 
-- 把 verify 响应中的 `nonConflicts[]` 原样回传（不需要任何加工）
+- 把 verify 响应中的 `nonConflicts[]` 原样回传（Actuals；不需要任何加工）
 - `resolutions[]` 携带用户对每条 PENDING 冲突的决定（OVERWRITE/SKIP + note）
-- 后端用 `nonConflicts` 写非冲突指标，用 `conflict_record.mapped_value` 写冲突指标
+- `proformaData[]` 携带预测数据（**不参与冲突检测**，直接写入 committed forecast）
+- 后端：Actuals 用 `nonConflicts` 写非冲突指标 + `conflict_record.mapped_value` 写冲突指标；Proforma 按年分组各生成一个新 committed forecast 版本
+
+**"仅 Proforma" 场景（PRD §3.5）**
+
+- 前端**跳过 verify**，直接调 resolve；body 中 `nonConflicts=[]`、`resolutions=[]`、`proformaData=[...]`
+- 任务状态从 `REVIEWING` / `MAPPING_SUMMARY` 直接进入 `COMPLETED`
 
 **通用**
 
@@ -390,7 +406,7 @@ type NonConflictItem = {
 | 接口路径 | `POST /api/web/ai/financialExtraction/conflicts/{taskId}/resolve` |
 | 调用时机 | 1) 有冲突场景：用户在 Conflict Resolution 页对所有冲突选择 OVERWRITE/SKIP + 填写 note 后点击 **Save** <br/>2) 无冲突场景：verify 返回 `conflicts=[]` 时前端自动调用（`resolutions` 传 `[]`） |
 | 幂等性 | **非幂等**：成功后任务进入 `COMPLETED` 终态，重复调用会因状态不允许而失败 |
-| 核心职责 | 1) UPDATE `conflict_record` + INSERT `conflict_note`<br/>2) 按 `nonConflicts[]` 与 `conflict_record.mapped_value` 写入 `finance_manual_data`（新版本行）<br/>3) 写 `commit_audit`（WRITTEN/OVERWRITTEN/SKIPPED 全记录）<br/>4) 推进任务状态到 `COMPLETED` |
+| 核心职责 | 1) UPDATE `conflict_record` + INSERT `conflict_note`<br/>2) Actuals：按 `nonConflicts[]` 与 `conflict_record.mapped_value` 写入 `finance_manual_data`（新版本行）<br/>3) 写 `commit_audit`（WRITTEN/OVERWRITTEN/SKIPPED 全记录）<br/>4) Proforma：按年分组 `proformaData[]` → 每年一个新 committed forecast 版本（写 `FinancialForecastHistory` + `FinancialForecastCurrent`，`source="Import Statements"`）<br/>5) 推进任务状态到 `COMPLETED` |
 
 > ⚠️ **memory-learn 暂未启用**：本期 resolve 成功后**不**触发 Python 端 mapping memory 学习；后续启用时由后端无痛接入，前端契约不变。
 
@@ -441,6 +457,18 @@ type ResolutionItem = {
 | `resolutions[].note` | 是 | trim 后非空，1-2000 字符 |
 
 > 💡 **冲突指标的最终写入值**：取 `conflict_record.mapped_value`（verify 时固化），**不**取本次请求里任何字段 —— 保证用户决策与最终写入一致。`nonConflicts[]` 仅用于驱动**非冲突指标**的 fi_\* 写入。
+
+#### `ProformaItem` 字段详解
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `lgCategory` | 是 | 15 类之一；非 15 类（含 `UNMAPPED`）被静默丢弃 |
+| `columnMonth` | 是 | `YYYY-MM`；月份 01-12 必须补零 |
+| `value` | 是 | 前端聚合后的预测值 |
+| `currency` | 否 | 与公司当前币种不一致时按汇率换算 |
+| `unitType` | 否 | `CURRENCY`（默认）/ `PERCENT`；PERCENT 不参与币种换算 |
+
+> 💡 **Proforma 写入路径**：每条 `(lgCategory, columnMonth)` 同 key 多条会被后端 SUM；按年分组后，每年调一次 `FinancialForecastDataService.acceptForecastDataSave`，**每年生成一个新 committed forecast 版本**：`source="Import Statements"`、`versionName="Imported YYYY-MM-DD"`（YYYY-MM-DD 为接口调用日期 UTC）、`versionNote="From task {taskId}"`。同年同月同指标的 LG 列被覆盖；type=Manual (0)。
 
 #### 请求示例（有冲突）
 
@@ -555,7 +583,7 @@ type ResolutionItem = {
 
 ### 业务规则细节
 
-1. **状态机入口**：必须 ∈ `{CONFLICT_RESOLUTION, READY_TO_COMMIT}`。
+1. **状态机入口**：必须 ∈ `{REVIEWING, MAPPING_SUMMARY, CONFLICT_RESOLUTION, READY_TO_COMMIT}`。`REVIEWING`/`MAPPING_SUMMARY` 仅用于"仅 Proforma"场景（前端跳过 verify）。
 2. **必须解决所有 PENDING 冲突**：请求 `resolutions[]` 必须包含 `conflict_record` 中所有 `resolution=PENDING` 的项；缺一即整批拒绝。
 3. **extracted_data UPDATE**：**本接口不处理**（v1.4.0 起移出 resolve 流程）；cell 级 edit_\* 字段的入库由独立流程负责。
 4. **写入值来源**：
