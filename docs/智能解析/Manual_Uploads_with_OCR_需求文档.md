@@ -276,6 +276,8 @@ The following files could not be processed. You can re-upload each file, or disc
            -  无日期列前后均有已知日期 — 以前方（左侧）月份为主
            - 某列无日期，且其左右紧邻列都有已知日期时，以左侧月份 + 1 为准，忽略右侧推算结果。此规则主要用于解决左右推算结果不一致的冲突。
            - 举例：<img width="633" height="591" alt="image" src="https://github.com/user-attachments/assets/b55caf78-7e3b-4896-992e-8e6040321b34" />
+        - 特殊情况补充4：
+           - 上传的这批文件有财务数据，但是AI没能map到LG的任何给定的指标上，所以只存在unmapped内容。这个时候在map页面点击next，会出现 Data Mapping Issues Detected窗口，在窗口再点击next，就应该走文件上传，出来文件上传成功的那个窗口。
 
       - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账目名称，即切换显示为“No Date”
       - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
