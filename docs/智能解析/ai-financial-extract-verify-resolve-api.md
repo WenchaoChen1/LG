@@ -1,6 +1,6 @@
 # AI 财务智能解析 —— 验证与冲突解决接口文档
 
-> **版本**: v1.3.0 · **更新日期**: 2026-05-19
+> **版本**: v1.4.0 · **更新日期**: 2026-05-19
 > **作用范围**: 接口 ⑥ 验证（verify） + 接口 ⑦ 冲突解决与提交（resolve）
 > **包路径**: `com.gstdev.cioaas.web.ai.financial.extract`
 > **关联文档**:
@@ -10,12 +10,20 @@
 
 ---
 
-## 📌 v1.3.0 主要变更
+## 📌 v1.4.0 主要变更
 
-1. **resolve 请求结构调整**：原 `mappedData[]`（聚合）+ `resolutions[]` 改为 `cellSnapshots[]`（cell 级，含 mapped + unmapped）+ `resolutions[]`。
-2. **新增 extracted_data UPDATE 逻辑**：resolve 阶段把用户的最终 cell 状态（{@code edit_*} 字段、`edit_is_mapped`、`user_edited`、`edit_at`）UPDATE 回 `ai_financial_extraction_extracted_data`；表本身在 AI 解析阶段已 INSERT，本接口只做 UPDATE。
-3. **后端自行聚合**：从 `cellSnapshots` 中 `editIsMapped=true` 的 cell 按 `(lgCategory, columnMonth)` 聚合，用于写入 fi_*（非冲突指标）。
-4. **verify 契约不变**：仍接收聚合 `mappedData[]`，不入 extracted_data。
+1. **verify 增强响应**：响应增加 `nonConflicts[]`（LG 为空 → 待自动写入；LG 与上传一致 → 跳过）；冲突项增加 `contributingCellIds: string[]`（前端用于在冲突弹窗展示明细）。
+2. **mappedData 增加 `cellIds?: string[]`** 可选字段：前端传入贡献该聚合值的 cell 列表，后端在响应中透传到 `contributingCellIds`。
+3. **resolve 请求结构简化**：原 `cellSnapshots[]` 替换为 `nonConflicts[]`（直接 passthrough verify 响应）+ `resolutions[]`；前端无需再准备 cell 级数据。
+4. **暂不更新 `ai_financial_extraction_extracted_data`**：cell 级 `edit_*` 字段的入库由独立流程负责，本批接口不涉及。
+5. **冲突解决业务正常工作**：fi_\* 写入、commit_audit 留痕、状态推进逻辑完整保留。
+
+---
+
+## 📌 v1.3.0 主要变更（历史 - 已撤销）
+
+1. resolve 曾改为接收 `cellSnapshots[]`（cell 级），后端按 cellId UPDATE `ai_financial_extraction_extracted_data`。
+2. v1.4.0 已撤销该方案 —— extracted_data UPDATE 由独立流程负责，resolve 不再需要 cell 级数据。
 
 ---
 
@@ -97,15 +105,16 @@
 - 同 cell 的 `edit*` 优先 / 否则用 `source*`（前端 fallback；verify 看到的是用户最终值）
 - Proforma 数据排除（不传入 verify；Proforma 不走冲突检测）
 
-**resolve（接收 cell 级）**
+**resolve（passthrough verify 响应）**
 
-- 全量 cell 都要传（**含 Mapped 区 + Unmapped 区**），每条携带 `cellId`（来自 `pullExtractData` 的 `cellId`）
-- 用 `editIsMapped` 区分：Mapped 区 cell 传 `true`，Unmapped 区 cell 传 `false`
-- 后端按 cellId UPDATE `extracted_data` 的 `edit_*` 字段；并从 `editIsMapped=true` 的 cell 自行聚合后写 fi_\*
+- 把 verify 响应中的 `nonConflicts[]` 原样回传（不需要任何加工）
+- `resolutions[]` 携带用户对每条 PENDING 冲突的决定（OVERWRITE/SKIP + note）
+- 后端用 `nonConflicts` 写非冲突指标，用 `conflict_record.mapped_value` 写冲突指标
 
 **通用**
 
-- 用户的 cell 级编辑由前端 state 管理，verify 阶段不需要回写后端；直到 resolve 时才把最终状态一次性提交并入库
+- 用户的 cell 级编辑由前端 state 管理；verify 阶段不入库 cell；resolve 阶段也**不**入库 cell（extracted_data UPDATE 由独立流程处理）
+- 冲突弹窗里要展示"哪些 cell 贡献了这个聚合值"时，用 verify 响应中 conflict 的 `contributingCellIds` 反查前端 state 即可
 
 ---
 
@@ -263,7 +272,7 @@
 }
 ```
 
-> 🟢 **无冲突时**：任务状态自动推进为 `READY_TO_COMMIT`，前端应直接调用接口 ⑦ resolve（body 中 `resolutions` 传空数组 `[]`，`cellSnapshots` 传 cell 级最终状态）触发 fi\_\* 写入。
+> 🟢 **无冲突时**：任务状态自动推进为 `READY_TO_COMMIT`，前端应直接调用接口 ⑦ resolve（body 中 `resolutions` 传空数组 `[]`，`nonConflicts` 把 verify 响应的 `nonConflicts[]` 原样回传）触发 fi\_\* 写入。
 
 ### 错误响应
 
@@ -303,7 +312,7 @@
 | 接口路径 | `POST /api/web/ai/financialExtraction/conflicts/{taskId}/resolve` |
 | 调用时机 | 1) 有冲突场景：用户在 Conflict Resolution 页对所有冲突选择 OVERWRITE/SKIP + 填写 note 后点击 **Save** <br/>2) 无冲突场景：verify 返回 `conflicts=[]` 时前端自动调用（`resolutions` 传 `[]`） |
 | 幂等性 | **非幂等**：成功后任务进入 `COMPLETED` 终态，重复调用会因状态不允许而失败 |
-| 核心职责 | 1) UPDATE `conflict_record` + INSERT `conflict_note`<br/>2) UPDATE `ai_financial_extraction_extracted_data`（按 cellId 写入 `edit_*` 字段 + `user_edited=true` + `edit_at`）<br/>3) 后端聚合 `editIsMapped=true` 的 cell，写入 `finance_manual_data`（新版本行）<br/>4) 写 `commit_audit`（WRITTEN/OVERWRITTEN/SKIPPED 全记录）<br/>5) 推进任务状态到 `COMPLETED` |
+| 核心职责 | 1) UPDATE `conflict_record` + INSERT `conflict_note`<br/>2) 按 `nonConflicts[]` 与 `conflict_record.mapped_value` 写入 `finance_manual_data`（新版本行）<br/>3) 写 `commit_audit`（WRITTEN/OVERWRITTEN/SKIPPED 全记录）<br/>4) 推进任务状态到 `COMPLETED` |
 
 > ⚠️ **memory-learn 暂未启用**：本期 resolve 成功后**不**触发 Python 端 mapping memory 学习；后续启用时由后端无痛接入，前端契约不变。
 
@@ -319,19 +328,17 @@
 
 ```typescript
 {
-  cellSnapshots: Array<CellSnapshot>;       // 必填，全量 cell（含 mapped + unmapped）的最终状态
+  nonConflicts: Array<NonConflictItem>;     // verify 响应中的 nonConflicts，原样 passthrough
   resolutions: Array<ResolutionItem>;        // 必填字段（可为空数组 []）
 }
 
-type CellSnapshot = {
-  cellId: string;                            // 必填，对应 ai_financial_extraction_extracted_data.id
-  editIsMapped: boolean;                     // 必填，true=映射到 LG 指标，false=未映射
-  editSourceDataType?: "ACTUALS" | "PROFORMA";
-  editAccountLabel?: string;                 // 用户编辑后的条目名（UNIDENTIFIED 行补名也走这里）
-  editColumnMonth?: string;                  // "YYYY-MM"；空则回退 source_column_month
-  editLgCategory?: string;                   // editIsMapped=true 时建议填 15 类之一
-  editUnitType?: "CURRENCY" | "PERCENT";     // 空则回退 source_unit_type
-  editValue?: number;                        // 空则回退 source_value
+type NonConflictItem = {
+  lgCategory: string;                        // LG 标准科目
+  columnMonth: string;                       // "YYYY-MM"
+  mappedValue: number;                       // 后端写入 fi_* 的值（仅 willAction=WRITTEN 时生效）
+  existingValue?: number | null;             // 可选，仅日志/审计用
+  willAction?: "WRITTEN" | "CONSISTENT";     // 可选，仅日志/审计用
+  contributingCellIds?: string[];            // 可选，仅日志/审计用
 };
 
 type ResolutionItem = {
@@ -341,72 +348,36 @@ type ResolutionItem = {
 };
 ```
 
-#### `CellSnapshot` 字段详解
+#### 字段语义
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `cellId` | 是 | 对应 `ai_financial_extraction_extracted_data.id`（AI 解析阶段已 INSERT 进表）。cellId 在库不存在 / 不属于当前 task 文件 → 后端跳过该项并打 WARN，**不**抛错整体接口 |
-| `editIsMapped` | 是 | 用户最终是否把该 cell 映射到 LG 指标。`true` 的 cell 参与 fi_\* 聚合写入；`false` 的 cell 仅 UPDATE extracted_data 留痕 |
-| `editSourceDataType` | 否 | `ACTUALS` / `PROFORMA`；空则回退 `source_data_type` |
-| `editAccountLabel` | 否 | 用户编辑后的条目名 |
-| `editColumnMonth` | 否 | 格式 `YYYY-MM`；空则回退 `source_column_month` |
-| `editLgCategory` | 否 | `editIsMapped=true` 且非 15 类时，该 cell 不参与 fi_\* 聚合（但仍 UPDATE 落盘） |
-| `editUnitType` | 否 | `CURRENCY`（默认） / `PERCENT`；空则回退 `source_unit_type` |
-| `editValue` | 否 | 空则回退 `source_value` |
+| `nonConflicts[]` | 是 | 直接 passthrough verify 响应的 `nonConflicts[]`；前端不需要做任何加工。后端根据每项的 `(lgCategory, columnMonth)` + `mappedValue` 写入 fi_\* 的对应列 |
+| `nonConflicts[].lgCategory` | 是 | LG 标准科目；非 15 类的项被静默丢弃 |
+| `nonConflicts[].columnMonth` | 是 | 格式 `YYYY-MM`；非法的项被静默丢弃 |
+| `nonConflicts[].mappedValue` | 是 | 写入 fi_\* 的值（已是公司币种） |
+| `nonConflicts[].existingValue` / `willAction` / `contributingCellIds` | 否 | 可选 passthrough；后端不依赖这些字段做决策，仅用于日志便于排查 |
+| `resolutions[]` | 是（可空数组） | 每条 PENDING 冲突必须出现一次；无冲突场景传 `[]` |
+| `resolutions[].conflictId` | 是 | 必须属于本 task；重复抛 400 |
+| `resolutions[].action` | 是 | `OVERWRITE`（用 verify 时的 mappedValue 覆盖 LG）/ `SKIP`（保留 LG 现值） |
+| `resolutions[].note` | 是 | trim 后非空，1-2000 字符 |
 
-> 💡 **币种来源**：cell 币种从 `extracted_data.source_currency_type` 读取（前端不需要在 snapshot 中提供）；与公司当前币种不一致且 `unitType ≠ PERCENT` 时后端按汇率换算。
-
-#### 字段语义补充
-
-| 关注点 | 说明 |
-|---|---|
-| **mapped 与 unmapped 的区分** | 用单个 `editIsMapped` 标志区分；用户在 Unmapped 区的 cell 传 `false`，在 Mapped 区的 cell 传 `true` |
-| **`extracted_data` 表的写入** | 所有 cellSnapshots 都会触发对应行的 UPDATE：`edit_*` 字段、`edit_is_mapped`、`user_edited=true`、`edit_at=now`；`source_*` 字段不变 |
-| **fi_\* 聚合范围** | 仅 `editIsMapped=true` 且字段齐全（lgCategory ∈ 15 类、columnMonth 合法、value 非空、dataType=ACTUALS）的 cell 参与聚合 |
-| **冲突指标的最终写入值** | 取 `conflict_record.mapped_value`（verify 时固化），**不**取本次 cellSnapshots 的最新聚合值 —— 防止用户决策时看到的值与最终写入不一致 |
-| **`resolutions[]`** | 每条 `PENDING` 冲突必须出现一次；无冲突场景传 `[]`；缺一即整批拒绝 |
+> 💡 **冲突指标的最终写入值**：取 `conflict_record.mapped_value`（verify 时固化），**不**取本次请求里任何字段 —— 保证用户决策与最终写入一致。`nonConflicts[]` 仅用于驱动**非冲突指标**的 fi_\* 写入。
 
 #### 请求示例（有冲突）
 
+> 假设 verify 返回的 `nonConflicts[]` 含 1 条（Cash 2025-09 待自动写入），冲突 2 条（Revenue 2025-09 / 2025-10）。前端把 nonConflicts 原样回传，加上对每条冲突的决定。
+
 ```json
 {
-  "cellSnapshots": [
+  "nonConflicts": [
     {
-      "cellId": "c-001",
-      "editIsMapped": true,
-      "editSourceDataType": "ACTUALS",
-      "editAccountLabel": "Service Revenue",
-      "editColumnMonth": "2025-09",
-      "editLgCategory": "Revenue",
-      "editUnitType": "CURRENCY",
-      "editValue": 123000.50
-    },
-    {
-      "cellId": "c-002",
-      "editIsMapped": true,
-      "editSourceDataType": "ACTUALS",
-      "editAccountLabel": "Service Revenue",
-      "editColumnMonth": "2025-10",
-      "editLgCategory": "Revenue",
-      "editUnitType": "CURRENCY",
-      "editValue": 98000.50
-    },
-    {
-      "cellId": "c-003",
-      "editIsMapped": true,
-      "editSourceDataType": "ACTUALS",
-      "editAccountLabel": "Cash on hand",
-      "editColumnMonth": "2025-09",
-      "editLgCategory": "Cash",
-      "editUnitType": "CURRENCY",
-      "editValue": 500000.00
-    },
-    {
-      "cellId": "c-099",
-      "editIsMapped": false,
-      "editAccountLabel": "Misc Receipts",
-      "editColumnMonth": "2025-09",
-      "editValue": 42.00
+      "lgCategory": "Cash",
+      "columnMonth": "2025-09",
+      "mappedValue": 500000.00,
+      "existingValue": null,
+      "willAction": "WRITTEN",
+      "contributingCellIds": ["c-003"]
     }
   ],
   "resolutions": [
@@ -426,26 +397,26 @@ type ResolutionItem = {
 
 #### 请求示例（无冲突场景）
 
+> verify 返回 `conflicts=[]`，`nonConflicts=[...]`。前端把 nonConflicts 原样回传，resolutions 传空数组。
+
 ```json
 {
-  "cellSnapshots": [
+  "nonConflicts": [
     {
-      "cellId": "c-001",
-      "editIsMapped": true,
-      "editSourceDataType": "ACTUALS",
-      "editColumnMonth": "2025-09",
-      "editLgCategory": "Revenue",
-      "editUnitType": "CURRENCY",
-      "editValue": 200.00
+      "lgCategory": "Revenue",
+      "columnMonth": "2025-09",
+      "mappedValue": 200.00,
+      "existingValue": null,
+      "willAction": "WRITTEN",
+      "contributingCellIds": ["c-001"]
     },
     {
-      "cellId": "c-002",
-      "editIsMapped": true,
-      "editSourceDataType": "ACTUALS",
-      "editColumnMonth": "2025-09",
-      "editLgCategory": "Cash",
-      "editUnitType": "CURRENCY",
-      "editValue": 500000.00
+      "lgCategory": "Cash",
+      "columnMonth": "2025-09",
+      "mappedValue": 500000.00,
+      "existingValue": null,
+      "willAction": "WRITTEN",
+      "contributingCellIds": ["c-002"]
     }
   ],
   "resolutions": []
@@ -495,10 +466,7 @@ type ResolutionItem = {
 | 400 | `taskId` 为空 | `taskId is required` |
 | 400 | 任务不存在 / 已删除 | `Task not found: {taskId}` |
 | 400 | 状态不允许 resolve | `Task cannot be committed in current state (current=...)` |
-| 400 | `cellSnapshots` 缺失或为空 | `cellSnapshots must not be empty` |
-| 400 | 某项 `cellId` 为空 / `editIsMapped` 为 null | `must not be null/blank` |
-| 400 | `editColumnMonth` 格式非法 | `editColumnMonth must be empty or in YYYY-MM format` |
-| 400 | `resolutions` 缺失 | `resolutions must not be null` |
+| 400 | `resolutions` 中 `note` 缺失 / 空白 | `Please provide a note before saving` |
 | 400 | 某项 `conflictId` 为空 | `conflictId is required for each item` |
 | 400 | 某项 `note` 为空或纯空白 | `Please provide a note before saving` |
 | 400 | `resolutions` 中 `conflictId` 重复 | `Duplicate conflictId in resolve payload: {id}` |
@@ -511,24 +479,21 @@ type ResolutionItem = {
 
 1. **状态机入口**：必须 ∈ `{CONFLICT_RESOLUTION, READY_TO_COMMIT}`。
 2. **必须解决所有 PENDING 冲突**：请求 `resolutions[]` 必须包含 `conflict_record` 中所有 `resolution=PENDING` 的项；缺一即整批拒绝。
-3. **extracted_data UPDATE 策略**：
-   - 对每个 cellSnapshot，按 `cellId` 找现有行，写 `edit_*` 字段 + `edit_is_mapped` + `user_edited=true` + `edit_at=now`；`source_*` 保持不变
-   - cellId 在库不存在 / 不属于当前 task 文件 → 跳过并打 WARN（不抛错）
-4. **fi\_\* 聚合**：从 `cellSnapshots` 中筛选 `editIsMapped=true` 的项 → 按字段优先级 `edit_* ?: source_*` 还原 → 过滤（lgCategory ∈ 15 类、columnMonth 合法、value 非空、dataType=ACTUALS） → 币种换算后按 `(lgCategory, columnMonth)` 求和
-5. **写入值来源**：
-   - **冲突指标**（在 `conflict_record` 中存在）：写入值取自 `conflict_record.mapped_value`（verify 时固化）。即使本次 cellSnapshots 中相同 key 的聚合值变了，仍以 verify 时的为准 —— 保证用户决策与最终写入一致
-   - **非冲突指标**：写入值取自本次 cellSnapshots 聚合后的值
-6. **fi\_\* 写入策略**：
+3. **extracted_data UPDATE**：**本接口不处理**（v1.4.0 起移出 resolve 流程）；cell 级 edit_\* 字段的入库由独立流程负责。
+4. **写入值来源**：
+   - **冲突指标**（在 `conflict_record` 中存在）：写入值取自 `conflict_record.mapped_value`（verify 时固化）。保证用户决策与最终写入一致
+   - **非冲突指标**（在请求 `nonConflicts[]` 中）：写入值取自 `nonConflicts[].mappedValue`
+5. **fi\_\* 写入策略**：
    - 取最新 `finance_manual_data WHERE company_id AND date='YYYY-MM-01' AND state IS NULL ORDER BY version_at DESC LIMIT 1` 作为底版
    - 复制所有字段到一个**新行**，分配新 `id`、`version_at=now()`、`state=NULL`、`is_forecast=false`
    - 按 `(lgCategory, columnMonth)` 写入对应列（覆盖底版的同列值）
    - 旧行因 `version_at` 更早自动变历史版本（PRD §3.5 "被覆盖的数据保留历史版本"）
-7. **OVERWRITE / SKIP / WRITTEN 三种 audit 全部留痕**：
+6. **OVERWRITE / SKIP / WRITTEN 三种 audit 全部留痕**：
    - `WRITTEN` —— LG 本月无数据，本次写入新值（非冲突指标）
    - `OVERWRITTEN` —— LG 有值且与上传不同，用户选 OVERWRITE
    - `SKIPPED` —— LG 有值且与上传不同，用户选 SKIP（保留 LG，fi\_\* 不变但仍留痕）
    - LG 一致（`existing == mapped`） —— **不写 fi\_\*，也不写 audit**
-8. **币种换算**：与 verify 一致；同 task 同 (date) 内多次写入合并到一个新版本行。
+7. **币种换算**：verify 阶段已经把 mappedValue 换算到公司币种；resolve 直接使用，无需再次换算。同 task 同 (date) 内多次写入合并到一个新版本行。
 9. **memory-learn**：暂未启用。代码以 `TODO(memory-learn)` 注释保留，后续启用时由后端取消注释即可，前端契约不变。
 10. **`writtenAccounts` 计数语义**：每条 `(lgCategory, columnMonth)` 写入操作算 1；SKIPPED 不计；一致不计。
 
@@ -628,11 +593,9 @@ type ResolutionItem = {
 
 ### 3. resolve 调用准备
 
-- [ ] `cellSnapshots[]` 包含所有用户在 mapping 页面（Mapped + Unmapped 区）见到的 cell，每个携带 `cellId`（来自 `pullExtractData` 的 `cellId`）
-- [ ] `editIsMapped` 必须明确：Mapped 区的 cell 传 `true`，Unmapped 区的 cell 传 `false`
-- [ ] `editIsMapped=true` 的 cell 建议补齐 `editLgCategory`、`editColumnMonth`、`editValue`，否则后端会回退 `source_*`
-- [ ] `resolutions[]` 必须为每条 `PENDING` 冲突提供决定，不能跳过；缺一会被后端拒绝整批
-- [ ] **无冲突场景**：`resolutions` 传 `[]`（空数组）；`cellSnapshots` 仍要传
+- [ ] `nonConflicts` 把 verify 响应的 `nonConflicts[]` **原样回传**（passthrough，前端不需要加工）
+- [ ] `resolutions[]` 为每条 `PENDING` 冲突提供 OVERWRITE/SKIP + note；缺一会被后端拒绝整批
+- [ ] **无冲突场景**：`resolutions` 传 `[]`（空数组）；`nonConflicts` 仍要传（驱动 fi_\* 自动写入）
 
 ### 4. resolve 响应处理
 
@@ -684,22 +647,22 @@ POST /api/web/ai/financialExtraction/conflicts/7c9e6679-7425-40de-944b-e07fc1f90
 
 ```json
 {
-  "cellSnapshots": [
+  "nonConflicts": [
     {
-      "cellId": "c-001",
-      "editIsMapped": true,
-      "editSourceDataType": "ACTUALS",
-      "editColumnMonth": "2025-09",
-      "editLgCategory": "Revenue",
-      "editValue": 200
+      "lgCategory": "Revenue",
+      "columnMonth": "2025-09",
+      "mappedValue": 200,
+      "existingValue": null,
+      "willAction": "WRITTEN",
+      "contributingCellIds": ["c-001"]
     },
     {
-      "cellId": "c-002",
-      "editIsMapped": true,
-      "editSourceDataType": "ACTUALS",
-      "editColumnMonth": "2025-09",
-      "editLgCategory": "Cash",
-      "editValue": 500000
+      "lgCategory": "Cash",
+      "columnMonth": "2025-09",
+      "mappedValue": 500000,
+      "existingValue": null,
+      "willAction": "WRITTEN",
+      "contributingCellIds": ["c-002"]
     }
   ],
   "resolutions": []
@@ -760,16 +723,7 @@ verify 响应（LG 已有 Revenue 2025-09=100000，与上传 123 不同 → 冲�
 
 ```json
 {
-  "cellSnapshots": [
-    {
-      "cellId": "c-001",
-      "editIsMapped": true,
-      "editSourceDataType": "ACTUALS",
-      "editColumnMonth": "2025-09",
-      "editLgCategory": "Revenue",
-      "editValue": 123
-    }
-  ],
+  "nonConflicts": [],
   "resolutions": [
     {
       "conflictId": "8f2e1d0c-9b8a-7654-3210-fedcba987654",
@@ -782,7 +736,6 @@ verify 响应（LG 已有 Revenue 2025-09=100000，与上传 123 不同 → 冲�
 
 后端动作：
 
-- `extracted_data` 行 `c-001` UPDATE：`edit_value=123`、`edit_lg_category=Revenue`、`edit_is_mapped=true`、`user_edited=true`、`edit_at=now`
 - `conflict_record.resolution = OVERWRITE`，`resolved_by/_at` 填充
 - `conflict_note` 顶层 INSERT 一条（`auto_generated=false`，`resolution=OVERWRITE`）
 - `finance_manual_data` 写入新行，`gross_revenue = 123.0000`（取自 verify 时固化的 `conflict_record.mapped_value`）
@@ -841,7 +794,7 @@ verify 请求（同 `(Revenue, 2025-09)` 来自 3 个不同文件）：
 3. 查 LG `finance_manual_data.gross_revenue` 对应 2025-09 的现存值
 4. 若 LG 现存 = 100000 → 无冲突；若 LG 现存 ≠ 100000 → 入冲突表，`mappedValue=100000`
 
-> 💡 同样适用于 resolve：`cellSnapshots` 中 `editIsMapped=true` 的多个 cell 若解析到同一 `(lgCategory, columnMonth)`，后端会自动合并后写 fi_\*。
+> 💡 verify 把多文件来源合并后返回 `nonConflicts[]`，前端 passthrough 给 resolve 即可；resolve 不再做聚合。
 
 ### 场景 D：用户在 ConflictPage 回退修改 Mapping 后重跑 verify
 
@@ -898,3 +851,4 @@ POST /api/web/ai/financialExtraction/tasks/{taskId}/verify
 | 2026-05-18 | v1.1.0 | verify 改为接收 `mappedData[]`（前端预聚合）；resolve 改为对象 `{mappedData, resolutions}`；memory-learn 暂停启用（保留 TODO 注释） |
 | 2026-05-19 | v1.2.0 | `year` + `month` 合并为 `columnMonth: "YYYY-MM"`（请求 / 响应统一） |
 | 2026-05-19 | v1.3.0 | resolve body 从聚合 `mappedData[]` 改为 cell 级 `cellSnapshots[]`（cellId 驱动 UPDATE extracted_data）；后端从 `editIsMapped=true` 的 cell 自行聚合写 fi_\*；verify 契约不变 |
+| 2026-05-19 | v1.4.0 | verify 响应新增 `nonConflicts[]`、`contributingCellIds`；mappedData 增加可选 `cellIds`；resolve 简化为 `{ nonConflicts (passthrough), resolutions }`；extracted_data UPDATE 移出本接口由独立流程负责 |
