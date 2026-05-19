@@ -147,6 +147,7 @@
     value: number;          // 必填，聚合后的最终值
     currency?: string;      // 选填，如 "USD"；省略或等于公司币种则不换算
     unitType?: "CURRENCY" | "PERCENT";   // 选填，默认 "CURRENCY"；PERCENT 不参与币种换算
+    cellIds?: string[];     // 选填，贡献该聚合值的 cell ID 列表；后端会在响应 contributingCellIds 中合并同 key 多条
   }>;
 }
 ```
@@ -156,11 +157,11 @@
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `lgCategory` | string(≤50) | 是 | 必须是 [LG 映射表](#lg-标准科目映射表) 中的 API Code（大小写不敏感）。`UNMAPPED` 或不在 15 类中将被**静默丢弃**，不入冲突表 |
-| `year` | int | 是 | 报告年（1900-9999） |
-| `month` | int | 是 | 报告月（1-12） |
+| `columnMonth` | string | 是 | 报告期，格式严格为 `YYYY-MM`（如 `"2025-09"`）。年份范围 1900-9999，月份 01-12，必须补零 |
 | `value` | number(BigDecimal) | 是 | 前端已聚合的最终值。CURRENCY 单位传金额数值；PERCENT 单位传小数（如 0.30 表示 30%） |
 | `currency` | string | 否 | 该值所代表的币种（如 `USD`）。空值或等于公司当前币种时不换算；不一致时后端按 (P&L→月均 / BS→月末) 汇率换算到公司币种 |
 | `unitType` | string | 否 | `CURRENCY`（默认） 或 `PERCENT`；`PERCENT` 不进行币种换算 |
+| `cellIds` | string[] | 否 | 贡献该聚合值的 cell ID 列表（来自 `pullExtractData` 的 `cellId`）。后端把同 key 多条的 cellIds 合并后透传到响应的 `contributingCellIds`，便于前端在冲突弹窗中展示明细 |
 
 > ✅ **多文件同 key 自动合并**：同一 `(lgCategory, columnMonth)` 出现多次时（典型场景：同一指标的数据分散在多个文件中），后端会自动 SUM 求和后再与 LG 现存值对比，前端不需要预先合并。币种不一致的多条会先按汇率换算到公司币种再求和；`unitType=PERCENT` 的条目不参与币种换算。
 
@@ -174,19 +175,22 @@
       "columnMonth": "2025-09",
       "value": 123000.50,
       "currency": "USD",
-      "unitType": "CURRENCY"
+      "unitType": "CURRENCY",
+      "cellIds": ["c-001", "c-002"]
     },
     {
       "lgCategory": "Cash",
       "columnMonth": "2025-09",
       "value": 500000.00,
-      "currency": "USD"
+      "currency": "USD",
+      "cellIds": ["c-010"]
     },
     {
       "lgCategory": "R&D Expenses",
       "columnMonth": "2025-09",
       "value": 0.30,
-      "unitType": "PERCENT"
+      "unitType": "PERCENT",
+      "cellIds": ["c-020"]
     }
   ]
 }
@@ -202,8 +206,32 @@
   message: "success",
   data: {
     conflicts: Array<ConflictItem>;
+    nonConflicts: Array<NonConflictItem>;
   }
 }
+
+type ConflictItem = {
+  conflictId: string;
+  taskId: string;
+  lgCategory: string;
+  dataClassification: string;        // 本期固定 "ACTUALS"
+  columnMonth: string;               // "YYYY-MM"
+  existingValue: number;
+  mappedValue: number;
+  resolution: "PENDING";              // 初始；resolve 后变为 OVERWRITE/SKIP
+  note: string;                       // PENDING 时为空串
+  resolvedOrder: number;
+  contributingCellIds: string[];
+};
+
+type NonConflictItem = {
+  lgCategory: string;
+  columnMonth: string;                // "YYYY-MM"
+  mappedValue: number;                // 本次映射聚合值（已换算为公司币种）
+  existingValue: number | null;       // null 表示 LG 该指标本月无数据
+  willAction: "WRITTEN" | "CONSISTENT";   // WRITTEN=自动写入；CONSISTENT=与 LG 一致跳过
+  contributingCellIds: string[];
+};
 ```
 
 #### `ConflictItem` 字段详解
@@ -220,8 +248,20 @@
 | `resolution` | string | 初始为 `"PENDING"`；用户解决后变为 `"OVERWRITE"` 或 `"SKIP"` |
 | `note` | string | 备注；`PENDING` 时为空串 |
 | `resolvedOrder` | number | Save & Next 跳转排序序号（LG 15 类 enum 顺序 × columnMonth 升序，从 1 开始） |
+| `contributingCellIds` | string[] | 贡献该聚合值的 cell ID 列表（来自请求 `mappedData[].cellIds`）；前端可用于在冲突弹窗中展示明细 |
 
-> 📌 **响应中只包含真正的冲突项**：LG 为空的指标 / LG 与上传一致的指标都**不出现**在 `conflicts[]` 中（它们会在 resolve 阶段自动处理或忽略）。
+#### `NonConflictItem` 字段详解
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `lgCategory` | string | LG 标准科目 |
+| `columnMonth` | string | 报告期，格式 `YYYY-MM` |
+| `mappedValue` | number | 本次映射聚合值（已换算为公司币种）。resolve 阶段写入 fi_\* 用的就是此值 |
+| `existingValue` | number \| null | LG 现有值；`null` 表示 LG 该指标本月无数据 |
+| `willAction` | string | `WRITTEN`（LG 为空 → 自动写入） / `CONSISTENT`（LG 与上传一致 → 跳过） |
+| `contributingCellIds` | string[] | 贡献该聚合值的 cell ID 列表 |
+
+> 📌 **conflicts vs nonConflicts**：所有参与冲突检测的 `(lgCategory, columnMonth)` 都会出现在响应里 —— LG 与上传不一致 → 入 `conflicts`；LG 为空 / 一致 → 入 `nonConflicts`。前端把 `nonConflicts` 原样 passthrough 给 resolve 接口即可触发 fi_\* 写入。
 
 #### 响应示例（有冲突）
 
@@ -241,7 +281,8 @@
         "mappedValue": 123000.5000,
         "resolution": "PENDING",
         "note": "",
-        "resolvedOrder": 1
+        "resolvedOrder": 1,
+        "contributingCellIds": ["c-001", "c-002"]
       },
       {
         "conflictId": "7e1d0c9b-8a76-5432-10fe-dcba98765432",
@@ -253,7 +294,26 @@
         "mappedValue": 34.7600,
         "resolution": "PENDING",
         "note": "",
-        "resolvedOrder": 2
+        "resolvedOrder": 2,
+        "contributingCellIds": ["c-003"]
+      }
+    ],
+    "nonConflicts": [
+      {
+        "lgCategory": "Cash",
+        "columnMonth": "2025-09",
+        "mappedValue": 500000.0000,
+        "existingValue": null,
+        "willAction": "WRITTEN",
+        "contributingCellIds": ["c-010"]
+      },
+      {
+        "lgCategory": "R&D Expenses",
+        "columnMonth": "2025-09",
+        "mappedValue": 0.3000,
+        "existingValue": 0.3000,
+        "willAction": "CONSISTENT",
+        "contributingCellIds": ["c-020"]
       }
     ]
   }
@@ -267,7 +327,25 @@
   "code": 200,
   "message": "success",
   "data": {
-    "conflicts": []
+    "conflicts": [],
+    "nonConflicts": [
+      {
+        "lgCategory": "Revenue",
+        "columnMonth": "2025-09",
+        "mappedValue": 200.0000,
+        "existingValue": null,
+        "willAction": "WRITTEN",
+        "contributingCellIds": ["c-001"]
+      },
+      {
+        "lgCategory": "Cash",
+        "columnMonth": "2025-09",
+        "mappedValue": 500000.0000,
+        "existingValue": null,
+        "willAction": "WRITTEN",
+        "contributingCellIds": ["c-010"]
+      }
+    ]
   }
 }
 ```
@@ -627,8 +705,8 @@ POST /api/web/ai/financialExtraction/tasks/7c9e6679-7425-40de-944b-e07fc1f90ae7/
 ```json
 {
   "mappedData": [
-    { "lgCategory": "Revenue", "columnMonth": "2025-09", "value": 200, "currency": "USD" },
-    { "lgCategory": "Cash",    "columnMonth": "2025-09", "value": 500000, "currency": "USD" }
+    { "lgCategory": "Revenue", "columnMonth": "2025-09", "value": 200,    "currency": "USD", "cellIds": ["c-001"] },
+    { "lgCategory": "Cash",    "columnMonth": "2025-09", "value": 500000, "currency": "USD", "cellIds": ["c-002"] }
   ]
 }
 ```
@@ -636,7 +714,17 @@ POST /api/web/ai/financialExtraction/tasks/7c9e6679-7425-40de-944b-e07fc1f90ae7/
 响应：
 
 ```json
-{ "code": 200, "message": "success", "data": { "conflicts": [] } }
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "conflicts": [],
+    "nonConflicts": [
+      { "lgCategory": "Revenue", "columnMonth": "2025-09", "mappedValue": 200,    "existingValue": null, "willAction": "WRITTEN", "contributingCellIds": ["c-001"] },
+      { "lgCategory": "Cash",    "columnMonth": "2025-09", "mappedValue": 500000, "existingValue": null, "willAction": "WRITTEN", "contributingCellIds": ["c-002"] }
+    ]
+  }
+}
 ```
 
 前端直接调：
@@ -693,7 +781,7 @@ verify 请求：
 ```json
 {
   "mappedData": [
-    { "lgCategory": "Revenue", "columnMonth": "2025-09", "value": 123, "currency": "USD" }
+    { "lgCategory": "Revenue", "columnMonth": "2025-09", "value": 123, "currency": "USD", "cellIds": ["c-001"] }
   ]
 }
 ```
@@ -712,9 +800,11 @@ verify 响应（LG 已有 Revenue 2025-09=100000，与上传 123 不同 → 冲�
         "existingValue": 100000.0000,
         "mappedValue": 123.0000,
         "resolution": "PENDING",
-        "resolvedOrder": 1
+        "resolvedOrder": 1,
+        "contributingCellIds": ["c-001"]
       }
-    ]
+    ],
+    "nonConflicts": []
   }
 }
 ```
