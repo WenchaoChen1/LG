@@ -136,7 +136,24 @@
 **映射产物**：每个被抽取的行项均生成一个建议 LG 科目。
 
 **支持的 LG 标准科目**
-Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M Payroll、R&D Payroll、G&A Payroll、Cash、Accounts Receivable、R&D Capitalized、Other Assets、Accounts Payable、Long Term Debt、Other Liabilities。
+- P&L
+  - Gross Revenue
+  - COGS
+  - S&M Expenses
+  - S&M Payroll
+  - R&D Expenses
+  - R&D Payroll
+  - G&A Expenses
+  - G&A Payroll
+  - Capitalized R&D (Monthly)
+
+- Balance Sheet
+  - Cash
+  - Accounts Receivable
+  - Other Assets
+  - Accounts Payable
+  - Long-Term Debt
+  - Other Liabilities
 
 **映射规则（语义级 + AI）**
 - 下列关键词是语义指南，AI以自然语言理解进行匹配，不做严格字面匹配；即使措辞不完全一致，只要语义相符即可匹配。
@@ -259,6 +276,8 @@ The following files could not be processed. You can re-upload each file, or disc
            -  无日期列前后均有已知日期 — 以前方（左侧）月份为主
            - 某列无日期，且其左右紧邻列都有已知日期时，以左侧月份 + 1 为准，忽略右侧推算结果。此规则主要用于解决左右推算结果不一致的冲突。
            - 举例：<img width="633" height="591" alt="image" src="https://github.com/user-attachments/assets/b55caf78-7e3b-4896-992e-8e6040321b34" />
+        - 特殊情况补充4：
+           - 上传的这批文件有财务数据，但是AI没能map到LG的任何给定的指标上，所以只存在unmapped内容。这个时候在map页面点击next，会出现 Data Mapping Issues Detected窗口，在窗口再点击next，就应该走文件上传，出来文件上传成功的那个窗口。
 
       - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账目名称，即切换显示为“No Date”
       - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
@@ -305,8 +324,8 @@ The following files could not be processed. You can re-upload each file, or disc
 - 用户可确认已审核数据。
 - 用户可拒绝并重新上传 / 上传新文件。
 - 确认后进入写入schema步骤，如果没有未匹配的源账目，则直接进入mapping summary页面。
-  - 如果存在未匹配的源账目/审核后仍有 Unmapped accounts 时，点击右上角Next按钮，尝试进入下一步，会弹出确认弹窗，告知"Unmapped Accounts 组的数据不会被写入 LG"，须显式确认。
- - 内容：The following issues were found in your Data Mapping:
+  - 如果存在Mismatched 或 Unmapped accounts 时，点击右上角Next按钮，尝试进入下一步，会弹出确认弹窗，告知"Unmapped Accounts 组的数据不会被写入 LG"，须显式确认。
+ - 内容：Data Mapping Issues Detected:
         [50] fields with mismatched LG metric mappings （解析后未匹配对的账目源的数量（也就是初始时匹配了但未匹配对，又进行了手动匹配）+ unmapped中人工匹配到mapped板块的账户源数量）
         [15] unmapped accounts that will not be written to Looking Glass（人工审核后仍未匹配的账目源数量）
         Any unmapped data will not be saved. Would you like to continue?
