@@ -70,7 +70,7 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
    - 若2025年12月为实际数据，2026年1月份为预测数据，如果在2026年edit financial actuals模式下，点击Set to Zero后，再点击Quick Fill, 计算2026年1月份cash的时候，Cash_t用2025年12月份的实际数据。所以逻辑为：要把目标月保存为哪种数据，t月就用哪种数据，没有用N/A。
    - 若该表存在非可填充月，则会显示弹框:
    - Manually Modified Months Detedted
-     The following months contain manually entered Cash values:
+   - The following months contain manually entered Cash values:
      - Month year
      - Month year
      - ...
