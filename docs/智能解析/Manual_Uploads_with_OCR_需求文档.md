@@ -136,7 +136,24 @@
 **映射产物**：每个被抽取的行项均生成一个建议 LG 科目。
 
 **支持的 LG 标准科目**
-Revenue、COGS、Sales & Marketing Expenses、R&D Expenses、G&A Expenses、S&M Payroll、R&D Payroll、G&A Payroll、Cash、Accounts Receivable、R&D Capitalized、Other Assets、Accounts Payable、Long Term Debt、Other Liabilities。
+- P&L
+  - Gross Revenue
+  - COGS
+  - S&M Expenses
+  - S&M Payroll
+  - R&D Expenses
+  - R&D Payroll
+  - G&A Expenses
+  - G&A Payroll
+  - Capitalized R&D (Monthly)
+
+- Balance Sheet
+  - Cash
+  - Accounts Receivable
+  - Other Assets
+  - Accounts Payable
+  - Long-Term Debt
+  - Other Liabilities
 
 **映射规则（语义级 + AI）**
 - 下列关键词是语义指南，AI以自然语言理解进行匹配，不做严格字面匹配；即使措辞不完全一致，只要语义相符即可匹配。
