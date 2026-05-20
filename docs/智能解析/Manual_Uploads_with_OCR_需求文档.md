@@ -33,7 +33,7 @@
 - PDF（扫描版或数字版）
 - Excel（.xlsx、.xls）
 - CSV
-- 图片：JPG、JPEG、PNG、TIFF
+- 图片：JPG、JPEG、PNG、TIFF（TIFF：浏览器原生不支持 TIFF 显示，预览时把 TIFF 转 PNG/JPG，实际存储还是TIFF。）
 
 **上传方式**
 - 桌面端：拖拽至上传区域；或点击上传按钮选择文件。点击Cancel按钮或右上角✖按钮可以退出该上传流程
@@ -246,6 +246,7 @@ The following files could not be processed. You can re-upload each file, or disc
   - Excel 多 Sheet：下拉下方显示 Sheet Tab 导航。
   - PDF：显示翻页控件。- 点击右上角Cancel按钮，会出Cancel Data Mapping?确认弹框，可点击Cancel data mapping回到Financial Entry页面,若点击Continue data mapping,保持在本页不动。
   - All: 显示文件列表
+- 特殊情况：TIFF：浏览器原生不支持 TIFF 显示，预览时把 TIFF 转 PNG/JPG，实际存储还是TIFF，文件下拉里显示PNG/JPG后缀
 
 - 右上角处有选项可新增文件 / 替换与删除已上传文件，若文件下拉处选择的ALL选项，则仅显示新增选项。
 - 有 Excel / CSV 时可切换 Tab。
