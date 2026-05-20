@@ -368,7 +368,8 @@ The following files could not be processed. You can re-upload each file, or disc
 - 用户点击 "Previous Step" 或右上方“Previous”按钮 回到Verify Data 摘要页
   
 **特殊情况**
- 冲突只对比Actuals数据，预测数据不进行冲突对比。若一批数据只有预测数据，则直接提交，不走冲突检测流程，Mapping Summary页面的按钮名称为Confirm and write to LG
+ - 冲突只对比Actuals数据，预测数据不进行冲突对比。若一批数据只有预测数据，则直接提交，不走冲突检测流程，Mapping Summary页面的按钮名称为Confirm and write to LG
+ - 若有十几数据，但无冲突，则直接提交，不走冲突检测流程，Mapping Summary页面的按钮名称为Confirm and write to LG
 
 **覆盖与跳过**
 - 选择Mapped Value：新数据替换选定期次与指标的当前版本；原值保留为历史版本。
