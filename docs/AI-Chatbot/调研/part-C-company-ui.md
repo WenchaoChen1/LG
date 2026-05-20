@@ -7,7 +7,9 @@
 ## 1. AI Chatbot - 公司用户核心聊天界面（Company User Core Chat UI）
 
 - **Asana ID**: 1214057483533662
-- **状态**: 待开发
+- **LG 编号**: LG-1332
+- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = M）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214057483533662
 
 ### 业务需求
@@ -44,7 +46,9 @@ Looking Glass 必须为公司端用户（包括 Company User 与 Company Admin �
 ## 2. AI Chatbot - 公司用户记忆文件访问界面（Company User Memory File Access UI）
 
 - **Asana ID**: 1214147930023561
-- **状态**: 待开发
+- **LG 编号**: LG-1333
+- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = M）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214147930023561
 
 ### 业务需求
@@ -86,7 +90,9 @@ Memory Settings 面板仅展示 Layer 1a 的内容——即 Company Memory File�
 ## 3. AI Chatbot - 公司用户财务与 Benchmark 问答（Company User Financial & Benchmark Q&A）
 
 - **Asana ID**: 1214081544026464
-- **状态**: 待开发
+- **LG 编号**: LG-1334
+- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = L）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214081544026464
 
 ### 业务需求

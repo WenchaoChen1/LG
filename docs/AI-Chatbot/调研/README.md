@@ -2,13 +2,13 @@
 
 > 本文档是 Looking Glass（LG）平台 AI Chatbot 史诗（Epic）的中文需求汇总索引。
 > 数据来源：Asana Workspace `Golden Section` → `EPIC: AI Chatbot`（gid: 1211653019675507）。
-> 拉取时间：2026-05-06。
+> 拉取时间：**2026-05-12**（上一次：2026-05-06）。
 
 ---
 
 ## 1. Epic 概述
 
-**EPIC: AI Chatbot** 包含 **17 个子任务**（其中 1 个已完成、16 个待开发），目标是在 Looking Glass 平台中构建一个面向公司端用户和 Portfolio 端用户的对话式 AI 助手，支持：
+**EPIC: AI Chatbot** 包含 **18 个子任务**（其中 1 个已完成、17 个待开发；2026-05-12 新增 LG-1381 AI Model Hosting Strategy），目标是在 Looking Glass 平台中构建一个面向公司端用户和 Portfolio 端用户的对话式 AI 助手，支持：
 
 - **双层知识架构**：Layer 1（公司专属 Memory File，分 1a 与 1b 两份）+ Layer 2（GS Knowledge Base / 组织级 playbooks）。
 - **基于角色的访问隔离**：Company User / Company Admin 仅可访问 Layer 1a 与 Layer 2；Portfolio Manager / PGM / Admin 可同时访问 Layer 1a、Layer 1b 与 Layer 2。
@@ -24,62 +24,75 @@
 
 | 分册 | 主题 | 任务数 | 文档链接 |
 |------|------|------|------|
-| Part A | 基础与研究类（Foundation & Research） | 5 | [part-A-foundation.md](./part-A-foundation.md) |
+| Part A | 基础与研究类（Foundation & Research） | 6 | [part-A-foundation.md](./part-A-foundation.md) |
 | Part B | Memory 与知识库类（Memory & Knowledge Base） | 4 | [part-B-memory-kb.md](./part-B-memory-kb.md) |
 | Part C | 公司端用户体验（Company User UI） | 3 | [part-C-company-ui.md](./part-C-company-ui.md) |
 | Part D | Portfolio 端 UI 与共享功能 | 5 | [part-D-portfolio-shared.md](./part-D-portfolio-shared.md) |
 
-### 2.2 技术方案
+### 2.2 总体需求（看一份就够）
+
+| 文档 | 范围 | 链接 |
+|------|------|------|
+| **总体需求** | 18 个任务的核心需求汇总：角色矩阵、知识架构、模型路由、数据源、UI 总览、MVP/Post-MVP 范围、Open Questions | [overall-requirements.md](./overall-requirements.md) |
+
+### 2.3 技术方案
 
 | 文档 | 范围 | 链接 |
 |------|------|------|
 | LangGraph 技术方案 | 整体架构、状态模型、节点 / 边、检索层、工具调用、Memory 抽取、Checkpointer、安全 4 层防护、PG schema、部署、实施路线、关键代码骨架 | [langgraph-technical-design.md](./langgraph-technical-design.md) |
-| Python ↔ Java 集成边界 | 服务边界、数据归属、Java 需暴露的接口清单、事件 / Webhook、鉴权传递、缓存策略、失败降级、对账 | [python-java-integration.md](./python-java-integration.md) |
+| Python ↔ Java 集成边界 | Java 仅负责文件上传通道；其他业务数据由 Python 直读 PG + SQS 事件；服务边界、缓存、失败降级、对账 | [python-java-integration.md](./python-java-integration.md) |
 
 > **服务边界一句话**：所有 AI Chatbot 功能由 Python 服务承担；需要业务数据时通过 Java REST 接口拉取，Python 不直连 Java 业务库。
 
-英文原始内容（Asana 拉取的原文）保存在 `.raw/` 子目录，文件名 `01-...md` 至 `17-...md`。
+**双语原始内容**保存在 `.raw/` 子目录（共 18 个文件，`01-…md` 至 `18-…md`），每份含三段：
+1. YAML 头（Asana 元数据）
+2. **英文原文**（Asana notes 原文）
+3. **Asana 业务讨论**（过滤后的 comments，按时间倒序）
+4. **中文版需求整理**（从对应 part-*.md 抽取，保持一致）
 
 ---
 
-## 3. 全部 17 个需求清单（按 Part 分组）
+## 3. 全部 18 个需求清单（按 Part 分组）
+
+> 状态字段以 Asana **LG Status** 为主，若在 Sprint 内则用 **Working Status** 补充；T-Shirt 为 Sizing 字段；最近修改取自 Asana `modified_at`。
 
 ### Part A：基础与研究类（Foundation & Research）
 
-| # | 任务名称 | 状态 | Asana ID |
-|---|----------|------|----------|
-| 1 | Research AI Models for Chatbot Use（聊天机器人 AI 模型评估） | ✅ 已完成 | 1213876002981172 |
-| 2 | Research: GS Playbook Hosting Strategy（GS Playbook 托管策略调研） | ⏳ 待开发 | 1214147930023558 |
-| 3 | Company Profile Expansion - Enhanced Description（公司资料字段扩展） | ⏳ 待开发 | 1214057483533667 |
-| 4 | AI Architecture & Model Routing Foundation（AI 架构与模型路由基础） | ⏳ 待开发 | 1214057483533668 |
-| 5 | AI Chatbot - Skills/Report Builder（Post-MVP 技能与报表生成） | ⏳ 待开发 | 1214110731636985 |
+| # | LG | 任务名称 | LG Status | Working | T-Shirt | Modified | Asana ID |
+|---|---|---------|----------|---------|---------|---------|----------|
+| 1 | LG-1311 | Research AI Models for Chatbot Use | ✅ UAT Passed | Complete | M (8) | 2026-04-27 | 1213876002981172 |
+| 2 | LG-1326 | Research: GS Playbook Hosting Strategy | Product Approved (Sprint On-Deck) | — | M (8) | 2026-05-11 | 1214147930023558 |
+| 3 | LG-1327 | Company Profile Expansion - Enhanced Description | Product Review | In Progress | M (2) | 2026-05-07 | 1214057483533667 |
+| 4 | LG-1328 | AI Architecture & Model Routing Foundation | Product Review | In Progress | L (13) | 2026-05-11 | 1214057483533668 |
+| 5 | —     | AI Chatbot - Skills/Report Builder | — (Post-MVP) | — | — | 2026-04-17 | 1214110731636985 |
+| 6 | **LG-1381** | **AI Model Hosting Strategy（新增）** | Needs Sizing | Not Started | — | 2026-05-11 | 1214717456780780 |
 
 ### Part B：Memory 与知识库类（Memory & Knowledge Base）
 
-| # | 任务名称 | 状态 | Asana ID |
-|---|----------|------|----------|
-| 1 | Company Memory File - Layer 1a Backend（公司用户上下文） | ⏳ 待开发 | 1214057483533664 |
-| 2 | Company Memory File - Layer 1b Backend（Portfolio Admin 上下文） | ⏳ 待开发 | 1214147930023560 |
-| 3 | GS Knowledge Base - Layer 2 Ingestion & Management（Layer 2 摄取与管理） | ⏳ 待开发 | 1214057483533665 |
-| 4 | GS Knowledge Base Access for All Users（Layer 2 全用户访问） | ⏳ 待开发 | 1214081544026467 |
+| # | LG | 任务名称 | LG Status | Working | T-Shirt | Modified | Asana ID |
+|---|---|---------|----------|---------|---------|---------|----------|
+| 1 | LG-1329 | Company Memory File - Layer 1a Backend | Needs Sizing | Not Started | L | 2026-05-11 | 1214057483533664 |
+| 2 | LG-1330 | Company Memory File - Layer 1b Backend | Prioritization Complete | Not Started | M | 2026-05-09 | 1214147930023560 |
+| 3 | LG-1331 | GS Knowledge Base - Layer 2 Ingestion & Management | Prioritization In Progress | Not Started | M | 2026-05-08 | 1214057483533665 |
+| 4 | LG-1338 | GS Knowledge Base Access for All Users（Layer 2） | Prioritization In Progress | Not Started | L | 2026-05-11 | 1214081544026467 |
 
 ### Part C：公司端用户体验（Company User UI）
 
-| # | 任务名称 | 状态 | Asana ID |
-|---|----------|------|----------|
-| 1 | Company User Core Chat UI（公司端核心聊天界面） | ⏳ 待开发 | 1214057483533662 |
-| 2 | Company User Memory File Access UI（公司端 Memory Settings 面板） | ⏳ 待开发 | 1214147930023561 |
-| 3 | Company User Financial & Benchmark Q&A（公司端财务与 Benchmark 问答） | ⏳ 待开发 | 1214081544026464 |
+| # | LG | 任务名称 | LG Status | Working | T-Shirt | Modified | Asana ID |
+|---|---|---------|----------|---------|---------|---------|----------|
+| 1 | LG-1332 | Company User Core Chat UI | Prioritization In Progress | Not Started | M | 2026-05-11 | 1214057483533662 |
+| 2 | LG-1333 | Company User Memory File Access UI | Prioritization In Progress | Not Started | M | 2026-05-11 | 1214147930023561 |
+| 3 | LG-1334 | Company User Financial & Benchmark Q&A | Prioritization In Progress | Not Started | L | 2026-05-11 | 1214081544026464 |
 
 ### Part D：Portfolio 端 UI 与共享功能
 
-| # | 任务名称 | 状态 | Asana ID |
-|---|----------|------|----------|
-| 1 | Portfolio Manager Core Chat UI（Portfolio 端核心聊天界面） | ⏳ 待开发 | 1214057483533663 |
-| 2 | Portfolio Manager Memory File Access UI（Portfolio 端 Memory Settings 面板） | ⏳ 待开发 | 1214081544026466 |
-| 3 | Portfolio Manager Financial & Benchmark Q&A（Portfolio 端跨公司问答） | ⏳ 待开发 | 1214081544026465 |
-| 4 | Chat History for All Users（所有用户的聊天历史） | ⏳ 待开发 | 1214081544026468 |
-| 5 | Document Upload for Chat Analysis（聊天分析的文档上传） | ⏳ 待开发 | 1214057483533666 |
+| # | LG | 任务名称 | LG Status | Working | T-Shirt | Modified | Asana ID |
+|---|---|---------|----------|---------|---------|---------|----------|
+| 1 | LG-1335 | Portfolio Manager Core Chat UI | Prioritization In Progress | Not Started | L | 2026-05-11 | 1214057483533663 |
+| 2 | LG-1336 | Portfolio Manager Memory File Access UI | Prioritization In Progress | Not Started | M | 2026-05-11 | 1214081544026466 |
+| 3 | LG-1337 | Portfolio Manager Financial & Benchmark Q&A | Prioritization In Progress | Not Started | L | 2026-05-11 | 1214081544026465 |
+| 4 | LG-1339 | Chat History for All Users | Prioritization In Progress | Not Started | M | 2026-05-11 | 1214081544026468 |
+| 5 | LG-1340 | Document Upload for Chat Analysis | Prioritization In Progress | Not Started | XL | 2026-05-11 | 1214057483533666 |
 
 ---
 
@@ -137,7 +150,8 @@
 ```
 D:/github-code/LG/docs/AI-Chatbot/
 ├── README.md                          ← 本文件（中文索引）
-├── part-A-foundation.md               ← 基础与研究类（5 个需求）
+├── overall-requirements.md            ← 总体需求（一份看完）
+├── part-A-foundation.md               ← 基础与研究类（6 个需求）
 ├── part-B-memory-kb.md                ← Memory 与知识库类（4 个需求）
 ├── part-C-company-ui.md               ← 公司端 UI（3 个需求）
 ├── part-D-portfolio-shared.md         ← Portfolio 端 UI 与共享功能（5 个需求）
@@ -160,7 +174,8 @@ D:/github-code/LG/docs/AI-Chatbot/
     ├── 14-portfolio-manager-memory-file-access-ui.md
     ├── 15-portfolio-manager-financial-benchmark-qa.md
     ├── 16-chat-history-for-all-users.md
-    └── 17-document-upload-for-chat-analysis.md
+    ├── 17-document-upload-for-chat-analysis.md
+    └── 18-ai-model-hosting-strategy.md         ← 2026-05-12 新增
 ```
 
 ---

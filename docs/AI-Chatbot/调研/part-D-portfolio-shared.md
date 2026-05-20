@@ -7,7 +7,9 @@
 ## 1. AI Chatbot - Portfolio Manager 核心聊天界面（Portfolio Manager Core Chat UI）
 
 - **Asana ID**: 1214057483533663
-- **状态**: ⏳ 待开发
+- **LG 编号**: LG-1335
+- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = L）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214057483533663
 
 ### 业务需求
@@ -43,7 +45,9 @@ Portfolio Manager 界面必须在框架结构、建议提示语以及整体定�
 ## 2. AI Chatbot - Portfolio Manager Memory File 访问 UI（Portfolio Manager Memory File Access UI）
 
 - **Asana ID**: 1214081544026466
-- **状态**: ⏳ 待开发
+- **LG 编号**: LG-1336
+- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = M）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214081544026466
 
 ### 业务需求
@@ -87,7 +91,9 @@ Company Memory File 区域展示 Company Admin 也能看到的上下文——包
 ## 3. AI Chatbot - Portfolio Manager 财务与 Benchmark 问答（Portfolio Manager Financial & Benchmark Q&A）
 
 - **Asana ID**: 1214081544026465
-- **状态**: ⏳ 待开发
+- **LG 编号**: LG-1337
+- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = L）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214081544026465
 
 ### 业务需求
@@ -127,7 +133,9 @@ Company Memory File 区域展示 Company Admin 也能看到的上下文——包
 ## 4. AI Chatbot - 所有用户的聊天历史（Chat History for All Users）
 
 - **Asana ID**: 1214081544026468
-- **状态**: ⏳ 待开发
+- **LG 编号**: LG-1339
+- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = M）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214081544026468
 
 ### 业务需求
@@ -167,7 +175,9 @@ AI Chatbot 必须为所有用户角色——Company User、Company Admin、Portf
 ## 5. AI Chatbot - 用于聊天分析的文档上传（Document Upload for Chat Analysis）
 
 - **Asana ID**: 1214057483533666
-- **状态**: ⏳ 待开发
+- **LG 编号**: LG-1340
+- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = XL）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214057483533666
 
 ### 业务需求

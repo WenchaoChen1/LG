@@ -7,7 +7,9 @@
 ## 1. Company Memory File - Layer 1a 后端（公司用户上下文）
 
 - **Asana ID**: 1214057483533664
-- **状态**: ⏳ 待开发
+- **LG 编号**: LG-1329
+- **状态**: Needs Sizing（Working Status = Not Started，T-Shirt = L，Priority = High，Type = User Story）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214057483533664
 
 ### 业务需求
@@ -71,7 +73,9 @@ Company Memory File 由以下三个来源填充：
 ## 2. Company Memory File - Layer 1b 后端（Portfolio Admin 上下文）
 
 - **Asana ID**: 1214147930023560
-- **状态**: ⏳ 待开发
+- **LG 编号**: LG-1330
+- **状态**: Prioritization Complete（Working Status = Not Started，T-Shirt = M，Priority = High）
+- **最近修改**: 2026-05-09
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214147930023560
 
 ### 业务需求
@@ -129,7 +133,9 @@ Portfolio Admin Memory File 仅由 Portfolio Manager 的聊天会话填充。当
 ## 3. GS Knowledge Base - Layer 2 摄取与管理（Layer 2 Ingestion & Management）
 
 - **Asana ID**: 1214057483533665
-- **状态**: ⏳ 待开发
+- **LG 编号**: LG-1331
+- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = M）
+- **最近修改**: 2026-05-08
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214057483533665
 
 ### 业务需求
@@ -201,7 +207,9 @@ GS Knowledge Base 与任何单家公司的 Layer 1 Memory File 完全隔离。�
 ## 4. AI Chatbot - 所有用户的 GS Knowledge Base 访问（Layer 2）
 
 - **Asana ID**: 1214081544026467
-- **状态**: ⏳ 待开发
+- **LG 编号**: LG-1338
+- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = L）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214081544026467
 
 ### 业务需求

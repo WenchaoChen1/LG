@@ -1,6 +1,6 @@
 # 第 1 部分：基础与研究类需求（Foundation & Research）
 
-> 本部分包含 5 个基础研究和架构类需求
+> 本部分包含 **6** 个基础研究和架构类需求（含 2026-05-12 拉取新增的 LG-1381 AI Model Hosting Strategy）
 
 ---
 
@@ -186,7 +186,9 @@
 ## 2. 研究：GS Playbook 托管策略 —— 外部托管（GEO 视角）vs LG 内部托管（Research: GS Playbook Hosting Strategy - External (GEO) vs. Internal LG Management）
 
 - **Asana ID**: 1214147930023558
-- **状态**: 进行中（未完成）
+- **LG 编号**: LG-1326
+- **状态**: Product Approved（Sprint On-Deck，Story Points = 8，T-Shirt = M，Priority = High）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214147930023558
 
 ### 业务需求
@@ -238,7 +240,9 @@ Golden Section（GS）的 playbooks 是 AI 聊天机器人 Layer 2 知识库的�
 ## 3. 公司档案扩展 —— 增强描述（Company Profile Expansion - Enhanced Description）
 
 - **Asana ID**: 1214057483533667
-- **状态**: 进行中（未完成）
+- **LG 编号**: LG-1327
+- **状态**: Product Review（Working Status = In Progress，Story Points = 2，T-Shirt = M，Priority = High）
+- **最近修改**: 2026-05-07
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214057483533667
 
 ### 业务需求
@@ -275,7 +279,9 @@ AI 聊天机器人的公司 Memory File（Layer 1，公司记忆文件）会以 
 ## 4. AI 架构与模型路由基础设施（AI Architecture & Model Routing Foundation，技术 Story）
 
 - **Asana ID**: 1214057483533668
-- **状态**: 进行中（未完成）
+- **LG 编号**: LG-1328
+- **状态**: Product Review（Working Status = In Progress，Story Points = 13，T-Shirt = L，Priority = High）
+- **最近修改**: 2026-05-11
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214057483533668
 
 ### 业务需求
@@ -374,7 +380,8 @@ MVP 数据源包含以下内容：
 ## 5. AI 聊天机器人 —— Skills / Report Builder（AI Chatbot - Skills/Report Builder）
 
 - **Asana ID**: 1214110731636985
-- **状态**: 进行中（未完成）
+- **LG 编号**: —（暂未分配）
+- **状态**: 待定（无 LG Status；Post-MVP；最近修改 2026-04-17）
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/task/1214110731636985
 
 ### 业务需求
@@ -394,3 +401,66 @@ MVP 数据源包含以下内容：
 - 该功能明确属于 post-MVP 范围，MVP 不实现
 - 在 AI Architecture & Model Routing Foundation（任务 4）中已说明：MVP 架构不强制为 Skills 做适配，但需在 post-MVP 阶段统一考量
 - 后续需补充：skills 体系的具体能力清单、report builder 的过滤器规则、用户角色与权限模型，以及与 Layer 1a/1b/Layer 2 的交互关系
+
+---
+
+## 6. AI 模型托管策略（AI Model Hosting Strategy）— 新增
+
+- **Asana ID**: 1214717456780780
+- **LG 编号**: LG-1381
+- **状态**: Needs Sizing（Backlog，Priority = High，Type = Research task）
+- **最近修改**: 2026-05-11
+- **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214717456780780
+
+### 业务需求
+
+AI 聊天机器人 epic 当前计划基于第三方 API 路由层（OpenRouter）连接到外部模型服务商（如 Anthropic Claude）。这一方案对 MVP 是合适的，并能提供所需的成本优化与模型路由灵活性，但在架构最终确定、开发正式启动之前，团队提出了一个需要先调研的关切。
+
+该关切包含两个相关维度：
+
+#### 1. 会话隔离与平台风险
+
+在使用共享第三方 API 时，需要回答：一个用户的会话被模型服务商的内容审核系统标记、限制或关闭，是否会以任何方式影响平台上其他用户？例如：某位创始人提出了一个无意触发内容过滤器的问题（如询问竞品替换策略或激进定价策略），模型可能拒绝回复，极端情况下还可能标记该会话。在一个构建于 enterprise API 之上的面向用户应用中，必须明确：该响应是会话级别（仅影响该用户当前交互）还是会广泛影响平台的 API 接入？另外，当用户的聊天会话触发内容审核事件时，Looking Glass 作为平台运营方承担怎样的责任，有何救济渠道，也需要厘清。
+
+#### 2. 长期策略：自托管模型
+
+第二个维度是长期战略问题：考虑到产品聚焦于一个狭窄的垂直业务场景，将模型托管在 Looking Glass 自己的防火墙之内（而非通过第三方 API 路由）是否更合适。私有部署的自托管模型可让团队对内容策略、回复行为与用户体验拥有更大控制力 —— 这对一个聚焦商业场景的垂直应用尤为相关，因为创始人会频繁询问竞争策略、定价、合同谈判等通用公共模型处理可能不一致的话题。私有部署也消除了模型内容策略未来变得更受限以致干扰合法商业对话的风险，并可能在用户规模扩张时提供更可预测的 token 成本管理。
+
+团队应理解风险全貌，确保当前架构不会阻断未来转向私有模型托管的路径。如果当前 MVP 架构中需要做出与未来私有托管兼容的特殊决策，应当现在就识别并标注出来，而不是在未来迁移时才发现。
+
+### 验收标准
+
+#### 会话隔离调研（Session Isolation Research）
+
+- 团队需调研并以书面方式回答：当一个用户的会话被模型服务商内容审核系统标记、限制或关闭时，是否会以任何形式影响该 API key 的其他会话或整个 LG 平台
+- 明确平台级 API 接入风险（speed-limit、quota、ban）的触发条件与边界
+- 评估 Looking Glass 作为平台运营方在用户会话触发内容审核事件时承担的法律责任与商业责任
+- 给出运营层面的应对建议（如：日志、用户教育、内容过滤前置等）
+
+#### 私有/自托管模型调研（Private Hosting Research）
+
+- 调研主流可选私有部署方案（如 LLaMA、Mistral、Mixtral 等开源模型）及其在 LG 垂直商业场景下的能力契合度
+- 评估自托管的总拥有成本（TCO），包括基础设施、运维、监控、模型微调等
+- 评估自托管在内容策略可控性、token 成本可预测性、数据隐私方面的具体收益
+- 评估自托管的弊端：模型迭代滞后、运维负担、初始投入
+
+#### 架构兼容性评估（Architecture Compatibility）
+
+- 评估当前 MVP 架构（OpenRouter + 多 agent）是否预留了"未来切换到自托管模型"的扩展点
+- 标注需要在 MVP 阶段就采取的"非阻断性"决策，避免未来迁移时出现不可逆的设计债
+
+#### 最终推荐（Executive Recommendation）
+
+- 给出明确推荐：MVP 阶段坚持 OpenRouter；何时（基于哪些触发条件，如用户数、合规要求、成本阈值等）应启动私有托管迁移
+- 列出 MVP 阶段需要规避的架构决策（如：硬编码服务商 SDK、单一模型假设等）
+
+### UX 设计要点
+
+- 本任务为研究性 story，无直接 UI 影响
+
+### 依赖与备注
+
+- **依赖**：与 LG-1311 Research AI Models for Chatbot Use（已完成）的结论保持一致；本任务在其结论基础上进一步针对"托管位置"做评估
+- **影响**：本任务的结论将影响 LG-1328 AI Architecture & Model Routing Foundation 的最终架构形态
+- **优先级**：High（Backlog，待 Sizing）
+- **范围**：研究产出 + 架构兼容性 checklist，不涉及代码实现
