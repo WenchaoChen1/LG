@@ -297,6 +297,10 @@ The following files could not be processed. You can re-upload each file, or disc
   - Unclear payroll type; defaulted to G&A Payroll. 
   - Keyword conflict between COGS and R&D Expenses; defaulted to COGS.
   - Duplicate or overlapping source accounts detected.
+- 若一个指标涉及多种提示，tooltip里面就按那个字母升序展示就行，也就是
+   - Duplicate or overlapping source accounts detected.
+   - Keyword conflict between COGS and R&D Expenses; defaulted to COGS.
+   - Unclear payroll type; defaulted to G&A Payroll.
 
   **内联编辑**
 - 可编辑项：
