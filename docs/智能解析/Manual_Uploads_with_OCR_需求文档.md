@@ -295,7 +295,7 @@ The following files could not be processed. You can re-upload each file, or disc
 - 页面小提示：Click to assign this item to an LG Metric，该提示位于第一个可指派LG指标的账目名旁，提示用户可以点击匹配指标，用户做了第一个source account的map后就消失了。
 - alert的tooltip：mapped section里面会有三种alert情况，鼠标悬停提示消息：
   - Unclear payroll type; defaulted to G&A Payroll. 
-  - Keyword conflict between COGS and Capitalized R&D (Monthly); defaulted to COGS.
+  - Keyword conflict between COGS and R&D Expenses; defaulted to COGS.
   - Duplicate or overlapping source accounts detected.
 
   **内联编辑**
