@@ -332,7 +332,7 @@ type ConflictItem = {
 }
 ```
 
-> 🟢 **无冲突时**：任务状态自动推进为 `READY_TO_COMMIT`，前端应直接调用接口 ⑦ resolve（body 中 `resolutions` 传空数组 `[]`，`nonConflicts` 把 verify 响应的 `nonConflicts[]` 原样回传）触发 fi\_\* 写入。
+> 🟢 **无冲突时**：任务状态自动推进为 `READY_TO_COMMIT`，前端应直接调用接口 ⑦ completeTask（body 中 `resolutions` 传空数组 `[]`，`nonConflicts` 把 verify 响应的 `nonConflicts[]` 原样回传）触发 fi\_\* 写入。
 
 ### 错误响应
 
@@ -375,11 +375,11 @@ type ConflictItem = {
 | 项 | 值 |
 |---|---|
 | 接口路径 | `POST /api/web/ai/financialExtraction/tasks/{taskId}/complete` |
-| 调用时机 | 1) 有冲突场景：用户在 Conflict Resolution 页对所有冲突选择 OVERWRITE/SKIP + 填写 note 后点击 **Save** <br/>2) 无冲突场景：verify 返回 `conflicts=[]` 时前端自动调用（`resolutions` 传 `[]`） |
+| 调用时机 | 1) 有冲突场景：用户在 Conflict Resolution 页对所有冲突选择 OVERWRITE/SKIP + 填写 note 后点击 **Save** <br/>2) 无冲突场景：verify 返回 `conflicts=[]` 时前端自动调用（`resolutions` 传 `[]`）<br/>3) 退化场景：OCR 未识别出有效财务指标（PRD §3.4），三个数组都传 `[]` |
 | 幂等性 | **非幂等**：成功后任务进入 `COMPLETED` 终态，重复调用会因状态不允许而失败 |
-| 核心职责 | 1) UPDATE `conflict_record` + INSERT `conflict_note`<br/>2) Actuals：按 `nonConflicts[]` 与 `conflict_record.mapped_value` 写入 `finance_manual_data`（新版本行）<br/>3) 写 `commit_audit`（WRITTEN/OVERWRITTEN/SKIPPED 全记录）<br/>4) Proforma：按年分组 `proformaData[]` → 每年一个新 committed forecast 版本（写 `FinancialForecastHistory` + `FinancialForecastCurrent`，`source="Import Statements"`）<br/>5) 推进任务状态到 `COMPLETED` |
+| 核心职责 | 1) UPDATE `conflict_record` + INSERT `conflict_note`<br/>2) Actuals：按 `nonConflicts[]` 与 `conflict_record.mapped_value` 写入 `finance_manual_data`（新版本行）<br/>3) 写 `commit_audit`（WRITTEN/OVERWRITTEN/SKIPPED 全记录）<br/>4) Proforma：按年分组 `proformaData[]` → 每年一个新 committed forecast 版本（写 `FinancialForecastHistory` + `FinancialForecastCurrent`，`source="Import Statements"`）<br/>5) 把 task 原始文件登记到公司 Documentation 的 "Imported Statements" 文件夹（去重）<br/>6) 推进任务状态到 `COMPLETED` |
 
-> ⚠️ **memory-learn 暂未启用**：本期 resolve 成功后**不**触发 Python 端 mapping memory 学习；后续启用时由后端无痛接入，前端契约不变。
+> ⚠️ **memory-learn 暂未启用**：本期 completeTask 成功后**不**触发 Python 端 mapping memory 学习；后续启用时由后端无痛接入，前端契约不变。
 
 ### 请求
 
@@ -714,7 +714,7 @@ type ProformaItem = {
 
 ### 2. verify 响应处理
 
-- [ ] `conflicts.length === 0` → 跳过 ConflictPage，直接调用 resolve（resolutions=[]）
+- [ ] `conflicts.length === 0` → 跳过 ConflictPage，直接调用 completeTask（resolutions=[]）
 - [ ] `conflicts.length > 0` → 进入 ConflictPage，按 `resolvedOrder` 顺序展示冲突详情弹窗
 - [ ] 每条冲突展示：`lgCategory` + `columnMonth` + `existingValue` vs `mappedValue` + Radio + Note 输入框
 - [ ] Note 输入框校验：trim 后非空，长度 ≤ 2000
@@ -780,7 +780,7 @@ POST /api/web/ai/financialExtraction/tasks/7c9e6679-7425-40de-944b-e07fc1f90ae7/
 前端直接调：
 
 ```http
-POST /api/web/ai/financialExtraction/conflicts/7c9e6679-7425-40de-944b-e07fc1f90ae7/resolve
+POST /api/web/ai/financialExtraction/tasks/7c9e6679-7425-40de-944b-e07fc1f90ae7/complete
 ```
 
 ```json
