@@ -287,7 +287,8 @@ The following files could not be processed. You can re-upload each file, or disc
            -  无日期列前后均有已知日期 — 以前方（左侧）月份为主
            - 某列无日期，且其左右紧邻列都有已知日期时，以左侧月份 + 1 为准，忽略右侧推算结果。此规则主要用于解决左右推算结果不一致的冲突。
            - 举例：<img width="633" height="591" alt="image" src="https://github.com/user-attachments/assets/b55caf78-7e3b-4896-992e-8e6040321b34" />
-
+        - 特殊情况补充4：
+           - 如果在这个页面，整批没有提取出财务数据或者没有mapped板块，右上角Next按钮就叫Confirm & Commit to LG。若没有mapped内容，那按钮叫这个名字，但是我给unmapped里面的一个字段map下来了，那这个按钮又会变成Next
       - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账目名称，即切换显示为“No Date”
       - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
     - 用户可为 UNIDENTIFIED 账目手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
