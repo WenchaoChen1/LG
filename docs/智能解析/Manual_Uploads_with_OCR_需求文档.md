@@ -227,6 +227,15 @@
 - 每条映射存储：建议的 LG 科目、时间戳、来源（AI suggested / User Override）。
 - 若用户在 Side-by-Side Review 中修改科目：用户选择覆盖 AI 建议，供 3.7 学习使用；原 AI 建议作为审计历史保留。
 
+**文件直接上传到Documentation板块的情况**
+
+- 上传的这批文件有财务数据，但是AI没能map到LG的任何给定的指标上，所以只存在unmapped内容。这个时候在map页面点击next，会出现 Data Mapping Issues Detected窗口，在窗口再点击next，文件就应该直接上传Documentation板块，出来文件上传成功的那个窗口。
+- 冲突只对比Actuals数据，预测数据不进行冲突对比。若一批数据只有预测数据，则直接提交文件至Documentation模块，不走冲突检测流程，Mapping Summary页面的按钮名称为Confirm and write to LG
+- 若有实际数据，但无冲突，则直接提交文件至Documentation模块，不走冲突检测流程，Mapping Summary页面的按钮名称为Confirm and write to LG
+- 若该批文件没有任何可用数据，右面版提示 No mapped data
+  No mapped amount data was extracted from this file, so nothing can be mapped. Try uploading a clearer file or a different file format.
+  - 点击Next，弹出Files Uploaded Successfully弹框，显示No financial accounts extracted. [amount] file(s) have been uploaded to the Imported Statements folder in Documentation.该批文件直接提交到Documentation板块，可点击close按钮关闭弹框，或点击Go to Documentation按钮跳转到All Documentation页面，文件夹提前建好，命名为Imported Statements
+
 ---
 
 ### 3.4 Side-by-Side 审核与内联编辑-Stepper中属于Data Mapping步骤
@@ -278,8 +287,6 @@ The following files could not be processed. You can re-upload each file, or disc
            -  无日期列前后均有已知日期 — 以前方（左侧）月份为主
            - 某列无日期，且其左右紧邻列都有已知日期时，以左侧月份 + 1 为准，忽略右侧推算结果。此规则主要用于解决左右推算结果不一致的冲突。
            - 举例：<img width="633" height="591" alt="image" src="https://github.com/user-attachments/assets/b55caf78-7e3b-4896-992e-8e6040321b34" />
-        - 特殊情况补充4：
-           - 上传的这批文件有财务数据，但是AI没能map到LG的任何给定的指标上，所以只存在unmapped内容。这个时候在map页面点击next，会出现 Data Mapping Issues Detected窗口，在窗口再点击next，就应该走文件上传，出来文件上传成功的那个窗口。
 
       - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账目名称，即切换显示为“No Date”
       - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
@@ -302,11 +309,7 @@ The following files could not be processed. You can re-upload each file, or disc
 - 下方已匹配的项也可编辑数值，也可重新指派指标（包括Actuals和Forecast）,也可指派为unmapped，回到unmapped板块
 - map页面源字段展示：最多两行展示，如果仍展示不全，用...示意
   
-**特殊情况**
-- 若该批文件没有任何可用数据，右面版提示 No mapped data
-  No mapped amount data was extracted from this file, so nothing can be mapped. Try uploading a clearer file or a different file format.
-  - 点击Next，弹出Files Uploaded Successfully弹框，显示No financial accounts extracted. [amount] file(s) have been uploaded to the Imported Statements folder in Documentation.该批文件直接提交到Documentation板块，可点击close按钮关闭弹框，或点击Go to Documentation按钮跳转到All Documentation页面，首次提交时，创建文件夹，命名为Imported Statements
-
+**特殊情况** 
 - 若该批文件只包含一种数据类型，如只有Actuals数据或者只有Proforma数据，则右屏其对应的tab应为空白页，显示 No financial accounts found for this data type 。
   
   - **LG 科目**
@@ -373,10 +376,6 @@ The following files could not be processed. You can re-upload each file, or disc
    - Next 按钮/ Save 按钮
 - 冲突弹框中所有内容均填完， Next按钮才激活，冲突解决后点击next 按钮，冲突数值变绿色，自动打开下一个冲突的popup，最后一个冲突popup 按钮为Save,跳转顺序为同一个指标从左到右，一个指标完成后跳下一个指标，依旧从左到右。
 - 用户点击 "Previous Step" 或右上方“Previous”按钮 回到Verify Data 摘要页
-  
-**特殊情况**
- - 冲突只对比Actuals数据，预测数据不进行冲突对比。若一批数据只有预测数据，则直接提交，不走冲突检测流程，Mapping Summary页面的按钮名称为Confirm and write to LG
- - 若有实际数据，但无冲突，则直接提交，不走冲突检测流程，Mapping Summary页面的按钮名称为Confirm and write to LG
 
 **覆盖与跳过**
 - 选择Mapped Value：新数据替换选定期次与指标的当前版本；原值保留为历史版本。
