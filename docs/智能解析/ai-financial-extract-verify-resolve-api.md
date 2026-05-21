@@ -1,6 +1,6 @@
 # AI 财务智能解析 —— 验证与冲突解决接口文档
 
-> **版本**: v1.5.0 · **更新日期**: 2026-05-19
+> **版本**: v1.7.0 · **更新日期**: 2026-05-21
 > **作用范围**: 接口 ⑥ 验证（verify） + 接口 ⑦ 冲突解决与提交（resolve）
 > **包路径**: `com.gstdev.cioaas.web.ai.financial.extract`
 > **关联文档**:
@@ -10,7 +10,25 @@
 
 ---
 
-## 📌 v1.5.0 主要变更
+## 📌 v1.7.0 主要变更
+
+1. **新增 fileSave 接口** `POST /ai/financialExtraction/tasks/{taskId}/fileSave`：未解析出有效财务指标时，前端调用本接口把 task 原始文件直接登记到公司 Documentation 页的 "Imported Statements" 文件夹下，task 进入 `COMPLETED`（PRD §3.4）。
+2. **resolve 末尾自动登记原始文件**：常规 commit 流程在写完 fi_\* 与 Proforma 之后，自动把 task 关联的所有未删原始文件登记到 "Imported Statements" 文件夹（PRD §3.5 "不论是否抽取到财务科目，上传的源文档都会出现在 Imported Statements 文件夹下"）。
+3. **`importedStatementsFolderId` 字段含真实 ID**：从 v1.4–v1.6 的 placeholder `"imported-statements"` 改为 `"ImportedStatements"`（与 V3 SQL 预置的 `company_documentation_folder.id` 一致）。
+4. **新增 V3 SQL migration**：`sprint110/V3_imported_statements_folder.sql` 预置 Imported Statements 全局文件夹（permission=`"1,2,3"`、show_in_add=false）。
+5. **幂等去重**：`(companyId, folderId, fileId)` 维度去重，resolve / fileSave 多次调用安全。
+
+---
+
+## 📌 v1.6.0 主要变更（历史）
+
+1. **verify 响应扁平化**：`data` 直接是 `Array<ConflictItem>`，**移除**外层 `{conflicts, nonConflicts}` 包裹；ConflictItem 内字段（含 `contributingCellIds`）保持不变。
+2. **`nonConflicts` 不再返回**：原 v1.4/v1.5 verify 响应里的 `nonConflicts[]` 字段移除（前端反馈无用）。
+3. **resolve 接口保持不变**：仍接收 `{ nonConflicts, resolutions, proformaData }`。前端需自行计算 nonConflicts（典型做法：从本地 mappedData 中过滤掉 verify 返回的冲突 key）后传给 resolve。
+
+---
+
+## 📌 v1.5.0 主要变更（历史）
 
 1. **resolve 接收 Proforma 数据**：新增 `proformaData[]` 字段；Proforma 不参与冲突检测，直接写入新 committed forecast 版本（PRD §3.5）。
 2. **resolve 状态机扩容**：原 `{CONFLICT_RESOLUTION, READY_TO_COMMIT}` → 增加 `{REVIEWING, MAPPING_SUMMARY}`，允许"仅 Proforma"场景前端跳过 verify 直接调 resolve。
@@ -58,10 +76,11 @@
 2. [流程总览](#流程总览)
 3. [接口 ⑥：验证（verify）](#接口-验证verify)
 4. [接口 ⑦：冲突解决与提交（resolve）](#接口-冲突解决与提交resolve)
-5. [状态机](#状态机)
-6. [LG 标准科目映射表](#lg-标准科目映射表)
-7. [前端联调清单](#前端联调清单)
-8. [典型场景示例](#典型场景示例)
+5. [接口 ⑧：直存文档（fileSave）](#接口-直存文档filesave)
+6. [状态机](#状态机)
+7. [LG 标准科目映射表](#lg-标准科目映射表)
+8. [前端联调清单](#前端联调清单)
+9. [典型场景示例](#典型场景示例)
 
 ---
 
@@ -143,7 +162,7 @@
 | 接口路径 | `POST /api/web/ai/financialExtraction/tasks/{taskId}/verify` |
 | 调用时机 | 用户在 Mapping Summary 页点击 **Start Verification** 按钮 |
 | 幂等性 | **可重复调用**（每次会清空旧冲突重新生成；用户回退修改 mapping 后重跑安全） |
-| 核心职责 | 1) 把 `mappedData[]` 按公司币种换算 + 按 `(lgCategory, columnMonth)` 自动 SUM 合并多文件来源的同 key 项<br/>2) 与 `finance_manual_data` 现存值逐项比对<br/>3) 清空旧 `conflict_record` 并写入新冲突列表<br/>4) 按 LG enum × columnMonth 升序填 `resolved_order`<br/>5) 推进任务状态 |
+| 核心职责 | 1) 把 `mappedData[]` 按公司币种换算 + 按 `(lgCategory, columnMonth)` 自动 SUM 合并多文件来源的同 key 项<br/>2) 与 `finance_manual_data` 现存值逐项比对<br/>3) 清空旧 `conflict_record` 并写入新冲突列表<br/>4) 按 LG enum × columnMonth 升序填 `resolved_order`<br/>5) 推进任务状态<br/>**6) 响应 `data` 直接是 `Array<ConflictItem>`（v1.6.0）** |
 
 ### 请求
 
@@ -220,10 +239,7 @@
 {
   code: 200,
   message: "success",
-  data: {
-    conflicts: Array<ConflictItem>;
-    nonConflicts: Array<NonConflictItem>;
-  }
+  data: Array<ConflictItem>;       // v1.6.0 起 data 直接是冲突列表（不再嵌套 conflicts/nonConflicts）
 }
 
 type ConflictItem = {
@@ -239,16 +255,9 @@ type ConflictItem = {
   resolvedOrder: number;
   contributingCellIds: string[];
 };
-
-type NonConflictItem = {
-  lgCategory: string;
-  columnMonth: string;                // "YYYY-MM"
-  mappedValue: number;                // 本次映射聚合值（已换算为公司币种）
-  existingValue: number | null;       // null 表示 LG 该指标本月无数据
-  willAction: "WRITTEN" | "CONSISTENT";   // WRITTEN=自动写入；CONSISTENT=与 LG 一致跳过
-  contributingCellIds: string[];
-};
 ```
+
+> ⚠️ v1.6.0 起 verify 不再返回 `nonConflicts`。如果 resolve 仍需要 `nonConflicts[]`（用于驱动非冲突指标的 fi_\* 写入），由**前端自行计算**：从本地 mappedData 中过滤掉响应里出现的所有 `(lgCategory, columnMonth)` 冲突 key，剩余的就是 nonConflicts。
 
 #### `ConflictItem` 字段详解
 
@@ -266,18 +275,7 @@ type NonConflictItem = {
 | `resolvedOrder` | number | Save & Next 跳转排序序号（LG 15 类 enum 顺序 × columnMonth 升序，从 1 开始） |
 | `contributingCellIds` | string[] | 贡献该聚合值的 cell ID 列表（来自请求 `mappedData[].cellIds`）；前端可用于在冲突弹窗中展示明细 |
 
-#### `NonConflictItem` 字段详解
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `lgCategory` | string | LG 标准科目 |
-| `columnMonth` | string | 报告期，格式 `YYYY-MM` |
-| `mappedValue` | number | 本次映射聚合值（已换算为公司币种）。resolve 阶段写入 fi_\* 用的就是此值 |
-| `existingValue` | number \| null | LG 现有值；`null` 表示 LG 该指标本月无数据 |
-| `willAction` | string | `WRITTEN`（LG 为空 → 自动写入） / `CONSISTENT`（LG 与上传一致 → 跳过） |
-| `contributingCellIds` | string[] | 贡献该聚合值的 cell ID 列表 |
-
-> 📌 **conflicts vs nonConflicts**：所有参与冲突检测的 `(lgCategory, columnMonth)` 都会出现在响应里 —— LG 与上传不一致 → 入 `conflicts`；LG 为空 / 一致 → 入 `nonConflicts`。前端把 `nonConflicts` 原样 passthrough 给 resolve 接口即可触发 fi_\* 写入。
+> 📌 **响应只含冲突项**：LG 与上传不一致的 `(lgCategory, columnMonth)` → 入 `data[]`；LG 为空 / 一致 → 不在响应中出现（前端从本地 mappedData 自行计算 nonConflicts 给 resolve）。
 
 #### 响应示例（有冲突）
 
@@ -285,54 +283,34 @@ type NonConflictItem = {
 {
   "code": 200,
   "message": "success",
-  "data": {
-    "conflicts": [
-      {
-        "conflictId": "8f2e1d0c-9b8a-7654-3210-fedcba987654",
-        "taskId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
-        "lgCategory": "Revenue",
-        "dataClassification": "ACTUALS",
-        "columnMonth": "2025-09",
-        "existingValue": 100000.0000,
-        "mappedValue": 123000.5000,
-        "resolution": "PENDING",
-        "note": "",
-        "resolvedOrder": 1,
-        "contributingCellIds": ["c-001", "c-002"]
-      },
-      {
-        "conflictId": "7e1d0c9b-8a76-5432-10fe-dcba98765432",
-        "taskId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
-        "lgCategory": "Revenue",
-        "dataClassification": "ACTUALS",
-        "columnMonth": "2025-10",
-        "existingValue": 98000.5000,
-        "mappedValue": 34.7600,
-        "resolution": "PENDING",
-        "note": "",
-        "resolvedOrder": 2,
-        "contributingCellIds": ["c-003"]
-      }
-    ],
-    "nonConflicts": [
-      {
-        "lgCategory": "Cash",
-        "columnMonth": "2025-09",
-        "mappedValue": 500000.0000,
-        "existingValue": null,
-        "willAction": "WRITTEN",
-        "contributingCellIds": ["c-010"]
-      },
-      {
-        "lgCategory": "R&D Expenses",
-        "columnMonth": "2025-09",
-        "mappedValue": 0.3000,
-        "existingValue": 0.3000,
-        "willAction": "CONSISTENT",
-        "contributingCellIds": ["c-020"]
-      }
-    ]
-  }
+  "data": [
+    {
+      "conflictId": "8f2e1d0c-9b8a-7654-3210-fedcba987654",
+      "taskId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "lgCategory": "Revenue",
+      "dataClassification": "ACTUALS",
+      "columnMonth": "2025-09",
+      "existingValue": 100000.0000,
+      "mappedValue": 123000.5000,
+      "resolution": "PENDING",
+      "note": "",
+      "resolvedOrder": 1,
+      "contributingCellIds": ["c-001", "c-002"]
+    },
+    {
+      "conflictId": "7e1d0c9b-8a76-5432-10fe-dcba98765432",
+      "taskId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "lgCategory": "Revenue",
+      "dataClassification": "ACTUALS",
+      "columnMonth": "2025-10",
+      "existingValue": 98000.5000,
+      "mappedValue": 34.7600,
+      "resolution": "PENDING",
+      "note": "",
+      "resolvedOrder": 2,
+      "contributingCellIds": ["c-003"]
+    }
+  ]
 }
 ```
 
@@ -342,27 +320,7 @@ type NonConflictItem = {
 {
   "code": 200,
   "message": "success",
-  "data": {
-    "conflicts": [],
-    "nonConflicts": [
-      {
-        "lgCategory": "Revenue",
-        "columnMonth": "2025-09",
-        "mappedValue": 200.0000,
-        "existingValue": null,
-        "willAction": "WRITTEN",
-        "contributingCellIds": ["c-001"]
-      },
-      {
-        "lgCategory": "Cash",
-        "columnMonth": "2025-09",
-        "mappedValue": 500000.0000,
-        "existingValue": null,
-        "willAction": "WRITTEN",
-        "contributingCellIds": ["c-010"]
-      }
-    ]
-  }
+  "data": []
 }
 ```
 
@@ -422,8 +380,9 @@ type NonConflictItem = {
 
 ```typescript
 {
-  nonConflicts: Array<NonConflictItem>;     // verify 响应中的 nonConflicts，原样 passthrough
-  resolutions: Array<ResolutionItem>;        // 必填字段（可为空数组 []）
+  nonConflicts: Array<NonConflictItem>;     // verify 响应中的 nonConflicts，原样 passthrough；仅 Proforma 场景传 []
+  resolutions: Array<ResolutionItem>;        // 每条 PENDING 冲突的处理；仅 Proforma 场景传 []
+  proformaData: Array<ProformaItem>;        // Proforma 数据；无 Proforma 时传 []
 }
 
 type NonConflictItem = {
@@ -440,21 +399,30 @@ type ResolutionItem = {
   action: "OVERWRITE" | "SKIP";              // 必填
   note: string;                              // 必填，trim 后长度 1-2000
 };
+
+type ProformaItem = {
+  lgCategory: string;                        // 必填，15 类之一；UNMAPPED / 非 15 类被静默丢弃
+  columnMonth: string;                       // 必填，"YYYY-MM"
+  value: number;                             // 必填，聚合后的预测值
+  currency?: string;                         // 选填；与公司币种不一致时换算
+  unitType?: "CURRENCY" | "PERCENT";         // 选填，默认 CURRENCY
+};
 ```
 
 #### 字段语义
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `nonConflicts[]` | 是 | 直接 passthrough verify 响应的 `nonConflicts[]`；前端不需要做任何加工。后端根据每项的 `(lgCategory, columnMonth)` + `mappedValue` 写入 fi_\* 的对应列 |
+| `nonConflicts[]` | 是 | 直接 passthrough verify 响应的 `nonConflicts[]`；前端不需要做任何加工。后端根据每项的 `(lgCategory, columnMonth)` + `mappedValue` 写入 fi_\* 的对应列。仅 Proforma 场景传 `[]` |
 | `nonConflicts[].lgCategory` | 是 | LG 标准科目；非 15 类的项被静默丢弃 |
 | `nonConflicts[].columnMonth` | 是 | 格式 `YYYY-MM`；非法的项被静默丢弃 |
 | `nonConflicts[].mappedValue` | 是 | 写入 fi_\* 的值（已是公司币种） |
 | `nonConflicts[].existingValue` / `willAction` / `contributingCellIds` | 否 | 可选 passthrough；后端不依赖这些字段做决策，仅用于日志便于排查 |
-| `resolutions[]` | 是（可空数组） | 每条 PENDING 冲突必须出现一次；无冲突场景传 `[]` |
+| `resolutions[]` | 是（可空数组） | 每条 PENDING 冲突必须出现一次；无冲突 / 仅 Proforma 场景传 `[]` |
 | `resolutions[].conflictId` | 是 | 必须属于本 task；重复抛 400 |
 | `resolutions[].action` | 是 | `OVERWRITE`（用 verify 时的 mappedValue 覆盖 LG）/ `SKIP`（保留 LG 现值） |
 | `resolutions[].note` | 是 | trim 后非空，1-2000 字符 |
+| `proformaData[]` | 是（可空数组） | Proforma 数据；按年分组写入新 committed forecast 版本。无 Proforma 时传 `[]` |
 
 > 💡 **冲突指标的最终写入值**：取 `conflict_record.mapped_value`（verify 时固化），**不**取本次请求里任何字段 —— 保证用户决策与最终写入一致。`nonConflicts[]` 仅用于驱动**非冲突指标**的 fi_\* 写入。
 
@@ -599,9 +567,111 @@ type ResolutionItem = {
    - `OVERWRITTEN` —— LG 有值且与上传不同，用户选 OVERWRITE
    - `SKIPPED` —— LG 有值且与上传不同，用户选 SKIP（保留 LG，fi\_\* 不变但仍留痕）
    - LG 一致（`existing == mapped`） —— **不写 fi\_\*，也不写 audit**
-7. **币种换算**：verify 阶段已经把 mappedValue 换算到公司币种；resolve 直接使用，无需再次换算。同 task 同 (date) 内多次写入合并到一个新版本行。
+7. **币种换算**：verify 阶段已经把 Actuals mappedValue 换算到公司币种；resolve 直接使用。Proforma 在 resolve 阶段做币种换算（P&L 类用月均、BS 类用月末汇率）。同 task 同 (date) 内多次 Actuals 写入合并到一个新版本行；Proforma 按年分组各成版本。
+
+8. **Proforma 写入策略**：
+   - 按 `year`（从 `columnMonth` 解析）分组
+   - 每年调一次 `FinancialForecastDataService.acceptForecastDataSave(year, companyId, rows, source, versionName, versionNote)`
+   - 该方法内部：删除该公司该年现有 `type=Manual` 的 forecast_current 行 → INSERT 新 forecast_current 与 forecast_history → 写 forecast_year_version 一行（新版本元数据）
+   - **失败处理**：任意一年写入异常 → 整个事务回滚（包括已写的 fi_\*）
+
+9. **`writtenAccounts` / `writtenPeriods` / `writtenDataTypes` 语义扩展**：
+   - `writtenAccounts` = Actuals fi_\* 写入条目数 + Proforma forecast 写入条目数
+   - `writtenPeriods` = 两种数据的所有报告期 YYYY-MM 列表（去重）
+   - `writtenDataTypes` = `["ACTUALS"]` / `["PROFORMA"]` / `["ACTUALS", "PROFORMA"]`
 9. **memory-learn**：暂未启用。代码以 `TODO(memory-learn)` 注释保留，后续启用时由后端取消注释即可，前端契约不变。
 10. **`writtenAccounts` 计数语义**：每条 `(lgCategory, columnMonth)` 写入操作算 1；SKIPPED 不计；一致不计。
+11. **自动登记原始文件到 Documentation**（v1.7.0）：resolve 末尾把 task 关联的所有未删原始文件登记到公司 Documentation 页的 "Imported Statements" 文件夹下；按 `(companyId, folderId, fileId)` 去重；与 fileSave 接口共用同一登记逻辑。
+
+---
+
+## 接口 ⑧：直存文档（fileSave）
+
+### 基本信息
+
+| 项 | 值 |
+|---|---|
+| 接口路径 | `POST /api/web/ai/financialExtraction/tasks/{taskId}/fileSave` |
+| 调用时机 | OCR 未识别出有效财务指标时（PRD §3.4），用户在 mapping 页看到 "No mapped data" 提示后点击 Next |
+| 幂等性 | **幂等**（按 `(companyId, folderId, fileId)` 去重；重复调用不会重复登记） |
+| 核心职责 | 1) CAS 状态机：`REVIEWING` / `MAPPING_SUMMARY` → `COMMITTING`<br/>2) 把 task 所有未删原始文件登记到 `company_documentation`（folder = "Imported Statements"）<br/>3) 状态推进 → `COMPLETED` |
+
+> 💡 **不写 fi_\*、不走冲突检测、不动 conflict_record / commit_audit**：本接口专用于"没有可映射数据"的兜底路径。
+
+### 请求
+
+#### Path 参数
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `taskId` | string(UUID) | 是 | 任务 ID |
+
+#### Body
+
+空（无请求体）。
+
+### 响应
+
+#### 成功响应（HTTP 200）
+
+```typescript
+{
+  code: 200,
+  message: "success",
+  data: {
+    savedFileCount: number;             // 本次实际 INSERT 进 company_documentation 的行数（去重后）
+    totalFileCount: number;              // 本 task 关联的原始文件总数（不去重，用于成功 popup 文案）
+    importedStatementsFolderId: string;  // "ImportedStatements"
+    documentationRedirectUrl: string;    // 跳转到 All Documentation 页（已带 companyId）
+  }
+}
+```
+
+#### 响应示例
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "savedFileCount": 3,
+    "totalFileCount": 3,
+    "importedStatementsFolderId": "ImportedStatements",
+    "documentationRedirectUrl": "/company/documentation?id=550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+### 错误响应
+
+| HTTP | 触发条件 | message |
+|---|---|---|
+| 400 | `taskId` 为空 | `taskId is required` |
+| 400 | 任务不存在 / 已删除 | `Task not found: {taskId}` |
+| 400 | 状态不允许 fileSave（非 `REVIEWING` / `MAPPING_SUMMARY`） | `Task is not in a state allowing fileSave (current=...)` |
+
+### 业务规则细节
+
+1. **状态机入口**：`{REVIEWING, MAPPING_SUMMARY}` → `COMMITTING` → `COMPLETED`（与 resolve 同终态）。
+2. **登记规则**：每个未删 `ai_financial_extraction_file` 对应一行 `company_documentation`，字段：
+   - `company_id` = task.company_id
+   - `folder_id` = `"ImportedStatements"`
+   - `category_id` = NULL（不挂子分类，直接在文件夹下）
+   - `file_id` = `ai_financial_extraction_file.file_id`（与 `files.id` 一致）
+   - `file_name` = `files.original_name`
+   - `file_type` = 文件名后缀（如 `xlsx`）
+3. **去重**：插入前 `existsByCompanyIdAndFolderIdAndFileId` 检查；已存在则跳过，`savedFileCount` 不计。
+4. **文件不移动 S3**：S3 对象路径保持 `ai/{companyId}/{taskId}/{fileId}_filename`；本接口只新增 DB 关联行。
+5. **前端跳转**：成功后 `data.documentationRedirectUrl` 可直接 `history.push` 到 All Documentation 页。
+
+### 前端 popup 文案
+
+按 PRD §3.4：
+> No financial accounts extracted. **{totalFileCount}** file(s) have been uploaded to the Imported Statements folder in Documentation.
+
+两个按钮：
+- `Close` —— 关闭弹窗
+- `Go to Documentation` —— `history.push(data.documentationRedirectUrl)`
 
 ---
 
@@ -970,3 +1040,6 @@ POST /api/web/ai/financialExtraction/tasks/{taskId}/verify
 | 2026-05-19 | v1.2.0 | `year` + `month` 合并为 `columnMonth: "YYYY-MM"`（请求 / 响应统一） |
 | 2026-05-19 | v1.3.0 | resolve body 从聚合 `mappedData[]` 改为 cell 级 `cellSnapshots[]`（cellId 驱动 UPDATE extracted_data）；后端从 `editIsMapped=true` 的 cell 自行聚合写 fi_\*；verify 契约不变 |
 | 2026-05-19 | v1.4.0 | verify 响应新增 `nonConflicts[]`、`contributingCellIds`；mappedData 增加可选 `cellIds`；resolve 简化为 `{ nonConflicts (passthrough), resolutions }`；extracted_data UPDATE 移出本接口由独立流程负责 |
+| 2026-05-19 | v1.5.0 | resolve 增加 `proformaData[]` 字段（预测数据直接写新 committed forecast）；状态机允许从 `REVIEWING`/`MAPPING_SUMMARY` 进入（仅 Proforma 场景跳过 verify）；响应字段 `writtenDataTypes` 现可含 `PROFORMA` |
+| 2026-05-20 | v1.6.0 | verify 响应扁平化：`data` 直接是 `Array<ConflictItem>`；移除 `nonConflicts[]`（前端反馈无用，自行从 mappedData 计算后传给 resolve）；resolve 接口契约保持不变 |
+| 2026-05-21 | v1.7.0 | 新增 `POST /tasks/{taskId}/fileSave` 接口（未识别出有效财务指标时直存 Documentation）；resolve 末尾自动登记原始文件到 "Imported Statements" 文件夹；新增 V3 SQL 预置该全局文件夹；`importedStatementsFolderId` 字段填真实 ID `"ImportedStatements"` |
