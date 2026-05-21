@@ -1,7 +1,7 @@
 # AI 财务智能解析 —— 验证与冲突解决接口文档
 
-> **版本**: v1.7.0 · **更新日期**: 2026-05-21
-> **作用范围**: 接口 ⑥ 验证（verify） + 接口 ⑦ 冲突解决与提交（resolve）
+> **版本**: v1.8.0 · **更新日期**: 2026-05-21
+> **作用范围**: 接口 ⑥ 验证（verify） + 接口 ⑦ 完成任务（completeTask）
 > **包路径**: `com.gstdev.cioaas.web.ai.financial.extract`
 > **关联文档**:
 > - 总接口契约: `智能解析/接口文档.md`
@@ -10,7 +10,16 @@
 
 ---
 
-## 📌 v1.7.0 主要变更
+## 📌 v1.8.0 主要变更
+
+1. **resolve / fileSave 合并为单一 `completeTask`**：路径从 `POST /conflicts/{taskId}/resolve` 改为 `POST /ai/financialExtraction/tasks/{taskId}/complete`；删除独立 `/fileSave` 端点。
+2. **fileSave 场景内化为 completeTask 的退化输入**：当所有数据数组（`nonConflicts`、`resolutions`、`proformaData`）为空时，行为与 v1.7 的 fileSave 一致 —— 不写 fi_\*、只登记文件到 Imported Statements 文件夹、推 `COMPLETED`。
+3. **响应增加 `registeredFileCount` 与 `documentationRedirectUrl`**：前端根据 `writtenAccounts` 决定走 Benchmark popup 还是 Documentation popup；URL 字段双带。
+4. **删除 `AiFinancialFileSaveResponse` VO**：统一用 `AiFinancialResolveResultResponse`。
+
+---
+
+## 📌 v1.7.0 主要变更（历史）
 
 1. **新增 fileSave 接口** `POST /ai/financialExtraction/tasks/{taskId}/fileSave`：未解析出有效财务指标时，前端调用本接口把 task 原始文件直接登记到公司 Documentation 页的 "Imported Statements" 文件夹下，task 进入 `COMPLETED`（PRD §3.4）。
 2. **resolve 末尾自动登记原始文件**：常规 commit 流程在写完 fi_\* 与 Proforma 之后，自动把 task 关联的所有未删原始文件登记到 "Imported Statements" 文件夹（PRD §3.5 "不论是否抽取到财务科目，上传的源文档都会出现在 Imported Statements 文件夹下"）。
@@ -75,12 +84,11 @@
 1. [前置约定](#前置约定)
 2. [流程总览](#流程总览)
 3. [接口 ⑥：验证（verify）](#接口-验证verify)
-4. [接口 ⑦：冲突解决与提交（resolve）](#接口-冲突解决与提交resolve)
-5. [接口 ⑧：直存文档（fileSave）](#接口-直存文档filesave)
-6. [状态机](#状态机)
-7. [LG 标准科目映射表](#lg-标准科目映射表)
-8. [前端联调清单](#前端联调清单)
-9. [典型场景示例](#典型场景示例)
+4. [接口 ⑦：完成任务（completeTask）](#接口-完成任务completetask)
+5. [状态机](#状态机)
+6. [LG 标准科目映射表](#lg-标准科目映射表)
+7. [前端联调清单](#前端联调清单)
+8. [典型场景示例](#典型场景示例)
 
 ---
 
@@ -120,7 +128,7 @@
 5️⃣ 验证（本文档）    POST /ai/financialExtraction/tasks/{taskId}/verify
    ├─ 无冲突 → 状态 READY_TO_COMMIT → 前端直接调用 6️⃣（resolutions 传空数组）
    └─ 有冲突 → 状态 CONFLICT_RESOLUTION → 前端展示冲突列表 → 用户逐条解决 → 6️⃣
-6️⃣ 解决并提交（本文档）  POST /ai/financialExtraction/conflicts/{taskId}/resolve
+6️⃣ 解决并提交（本文档）  POST /ai/financialExtraction/tasks/{taskId}/complete
 ```
 
 ### 前端职责（重要）
@@ -355,13 +363,18 @@ type ConflictItem = {
 
 ---
 
-## 接口 ⑦：冲突解决与提交（resolve）
+## 接口 ⑦：完成任务（completeTask）
+
+> **v1.8.0 起合并了原 resolve（冲突解决与提交）+ fileSave（未识别出有效财务指标直存文档）两个接口。**
+> 同一端点根据 body 内容自动区分两种行为：
+> - 有数据（任一数组非空）→ 写 fi\_\* / 提交 forecast / 写 commit_audit + 自动登记文件到 Documentation
+> - 全空 → 仅登记原始文件到 "Imported Statements" 文件夹
 
 ### 基本信息
 
 | 项 | 值 |
 |---|---|
-| 接口路径 | `POST /api/web/ai/financialExtraction/conflicts/{taskId}/resolve` |
+| 接口路径 | `POST /api/web/ai/financialExtraction/tasks/{taskId}/complete` |
 | 调用时机 | 1) 有冲突场景：用户在 Conflict Resolution 页对所有冲突选择 OVERWRITE/SKIP + 填写 note 后点击 **Save** <br/>2) 无冲突场景：verify 返回 `conflicts=[]` 时前端自动调用（`resolutions` 传 `[]`） |
 | 幂等性 | **非幂等**：成功后任务进入 `COMPLETED` 终态，重复调用会因状态不允许而失败 |
 | 核心职责 | 1) UPDATE `conflict_record` + INSERT `conflict_note`<br/>2) Actuals：按 `nonConflicts[]` 与 `conflict_record.mapped_value` 写入 `finance_manual_data`（新版本行）<br/>3) 写 `commit_audit`（WRITTEN/OVERWRITTEN/SKIPPED 全记录）<br/>4) Proforma：按年分组 `proformaData[]` → 每年一个新 committed forecast 版本（写 `FinancialForecastHistory` + `FinancialForecastCurrent`，`source="Import Statements"`）<br/>5) 推进任务状态到 `COMPLETED` |
@@ -581,97 +594,36 @@ type ProformaItem = {
    - `writtenDataTypes` = `["ACTUALS"]` / `["PROFORMA"]` / `["ACTUALS", "PROFORMA"]`
 9. **memory-learn**：暂未启用。代码以 `TODO(memory-learn)` 注释保留，后续启用时由后端取消注释即可，前端契约不变。
 10. **`writtenAccounts` 计数语义**：每条 `(lgCategory, columnMonth)` 写入操作算 1；SKIPPED 不计；一致不计。
-11. **自动登记原始文件到 Documentation**（v1.7.0）：resolve 末尾把 task 关联的所有未删原始文件登记到公司 Documentation 页的 "Imported Statements" 文件夹下；按 `(companyId, folderId, fileId)` 去重；与 fileSave 接口共用同一登记逻辑。
+11. **自动登记原始文件到 Documentation**（v1.7.0+）：completeTask 末尾把 task 关联的所有未删原始文件登记到公司 Documentation 页的 "Imported Statements" 文件夹下；按 `(companyId, folderId, fileId)` 去重；正常 commit + 仅 fileSave 退化场景共用同一登记逻辑。
 
----
+### 退化场景：未识别出有效财务指标（原 fileSave 接口）
 
-## 接口 ⑧：直存文档（fileSave）
-
-### 基本信息
-
-| 项 | 值 |
-|---|---|
-| 接口路径 | `POST /api/web/ai/financialExtraction/tasks/{taskId}/fileSave` |
-| 调用时机 | OCR 未识别出有效财务指标时（PRD §3.4），用户在 mapping 页看到 "No mapped data" 提示后点击 Next |
-| 幂等性 | **幂等**（按 `(companyId, folderId, fileId)` 去重；重复调用不会重复登记） |
-| 核心职责 | 1) CAS 状态机：`REVIEWING` / `MAPPING_SUMMARY` → `COMMITTING`<br/>2) 把 task 所有未删原始文件登记到 `company_documentation`（folder = "Imported Statements"）<br/>3) 状态推进 → `COMPLETED` |
-
-> 💡 **不写 fi_\*、不走冲突检测、不动 conflict_record / commit_audit**：本接口专用于"没有可映射数据"的兜底路径。
-
-### 请求
-
-#### Path 参数
-
-| 参数 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `taskId` | string(UUID) | 是 | 任务 ID |
-
-#### Body
-
-空（无请求体）。
-
-### 响应
-
-#### 成功响应（HTTP 200）
-
-```typescript
-{
-  code: 200,
-  message: "success",
-  data: {
-    savedFileCount: number;             // 本次实际 INSERT 进 company_documentation 的行数（去重后）
-    totalFileCount: number;              // 本 task 关联的原始文件总数（不去重，用于成功 popup 文案）
-    importedStatementsFolderId: string;  // "ImportedStatements"
-    documentationRedirectUrl: string;    // 跳转到 All Documentation 页（已带 companyId）
-  }
-}
-```
-
-#### 响应示例
+按 PRD §3.4：当 OCR 未识别出任何可映射数据，用户在 Mapping 页看到 "No mapped data" 提示后点击 Next 时调用本接口，**body 中三个数组都传空**：
 
 ```json
 {
-  "code": 200,
-  "message": "success",
-  "data": {
-    "savedFileCount": 3,
-    "totalFileCount": 3,
-    "importedStatementsFolderId": "ImportedStatements",
-    "documentationRedirectUrl": "/company/documentation?id=550e8400-e29b-41d4-a716-446655440000"
-  }
+  "nonConflicts": [],
+  "resolutions": [],
+  "proformaData": []
 }
 ```
 
-### 错误响应
+后端识别为退化场景：跳过 fi_\* / forecast / commit_audit 写入，**仅**登记原始文件到 Imported Statements 文件夹，state → `COMPLETED`。响应字段中 `writtenAccounts=0`、`writtenPeriods/writtenDataTypes=[]`、`registeredFileCount>0`。
 
-| HTTP | 触发条件 | message |
-|---|---|---|
-| 400 | `taskId` 为空 | `taskId is required` |
-| 400 | 任务不存在 / 已删除 | `Task not found: {taskId}` |
-| 400 | 状态不允许 fileSave（非 `REVIEWING` / `MAPPING_SUMMARY`） | `Task is not in a state allowing fileSave (current=...)` |
+**前端 popup 文案**（PRD §3.4）：
 
-### 业务规则细节
-
-1. **状态机入口**：`{REVIEWING, MAPPING_SUMMARY}` → `COMMITTING` → `COMPLETED`（与 resolve 同终态）。
-2. **登记规则**：每个未删 `ai_financial_extraction_file` 对应一行 `company_documentation`，字段：
-   - `company_id` = task.company_id
-   - `folder_id` = `"ImportedStatements"`
-   - `category_id` = NULL（不挂子分类，直接在文件夹下）
-   - `file_id` = `ai_financial_extraction_file.file_id`（与 `files.id` 一致）
-   - `file_name` = `files.original_name`
-   - `file_type` = 文件名后缀（如 `xlsx`）
-3. **去重**：插入前 `existsByCompanyIdAndFolderIdAndFileId` 检查；已存在则跳过，`savedFileCount` 不计。
-4. **文件不移动 S3**：S3 对象路径保持 `ai/{companyId}/{taskId}/{fileId}_filename`；本接口只新增 DB 关联行。
-5. **前端跳转**：成功后 `data.documentationRedirectUrl` 可直接 `history.push` 到 All Documentation 页。
-
-### 前端 popup 文案
-
-按 PRD §3.4：
-> No financial accounts extracted. **{totalFileCount}** file(s) have been uploaded to the Imported Statements folder in Documentation.
+> No financial accounts extracted. **{writtenSourceFiles}** file(s) have been uploaded to the Imported Statements folder in Documentation.
 
 两个按钮：
 - `Close` —— 关闭弹窗
 - `Go to Documentation` —— `history.push(data.documentationRedirectUrl)`
+
+### 前端跳转判定（统一规则）
+
+| 条件 | 跳转 URL |
+|---|---|
+| `writtenAccounts > 0`（有 fi_\* 或 forecast 写入） | `data.benchmarkRedirectUrl` —— 跳 Benchmark 页 |
+| `writtenAccounts === 0`（退化场景） | `data.documentationRedirectUrl` —— 跳 All Documentation 页 |
 
 ---
 
@@ -1043,3 +995,4 @@ POST /api/web/ai/financialExtraction/tasks/{taskId}/verify
 | 2026-05-19 | v1.5.0 | resolve 增加 `proformaData[]` 字段（预测数据直接写新 committed forecast）；状态机允许从 `REVIEWING`/`MAPPING_SUMMARY` 进入（仅 Proforma 场景跳过 verify）；响应字段 `writtenDataTypes` 现可含 `PROFORMA` |
 | 2026-05-20 | v1.6.0 | verify 响应扁平化：`data` 直接是 `Array<ConflictItem>`；移除 `nonConflicts[]`（前端反馈无用，自行从 mappedData 计算后传给 resolve）；resolve 接口契约保持不变 |
 | 2026-05-21 | v1.7.0 | 新增 `POST /tasks/{taskId}/fileSave` 接口（未识别出有效财务指标时直存 Documentation）；resolve 末尾自动登记原始文件到 "Imported Statements" 文件夹；新增 V3 SQL 预置该全局文件夹；`importedStatementsFolderId` 字段填真实 ID `"ImportedStatements"` |
+| 2026-05-21 | v1.8.0 | resolve / fileSave 合并为单一 `POST /tasks/{taskId}/complete`；空数组输入即退化为 fileSave 行为；响应增加 `registeredFileCount` + `documentationRedirectUrl`；删除独立 fileSave 端点与 VO |
