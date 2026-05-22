@@ -1,1 +1,128 @@
+## 1. DI Documentation
 
+### 1.2 该板块共有四个文件夹和三种Category：
+
+- Product- Company/xx Product/KPAs
+- Technology - Company/xx Product/KPAs
+- Process- Company/xx Product/KPAs
+- Security- Company/xx Product/KPAs
+
+### 1.3 文件查看
+
+- 页面默认展示所有DI板块的文件，用户可以通过过滤器筛选查看想要查看的文件：
+  - Folder: Product,Technology, Security, Process
+  - Type: 列表中文件包含的文档类型
+  - Category：Company/xx Product/KPAs
+- 该页面包含所有在本页面上传的文件、在KPA中上传的文件、在Product Documentation上传的文件和在Company Documentation页面中Company、Product文件夹中的文件（详见3.3）
+
+- 列表字段：
+  - File name: 文件名
+  - Uploaded by: 上传人name, 此处应为记录好的，而不是现拉取的ID对应的名字，以防用户被删除后此处无法正常显示
+  - Size: 文件大小
+  - Category: 文件对应的Category
+ 
+### 1.4 文件上传
+
+- 该页面可以点击“Add Documentation”按钮上传文件至四个文件夹
+- 在KPA评价的最后一步可以上传文件，文件会回显到该页面
+- 在Company Documentation页面中Company、Product文件夹中的文件回显到该页面
+- 在Product Documentation页面中上传的文件回显到该页面
+  
+### 1.5 页面操作
+- 删除：点击删除按钮，点击Delete Documentation,该文件在全平台被删除
+- 下载：点击下载按钮，该文件被下载到本地
+- 分享：点击分享按钮，可将该文件分享至输入的邮件地址，或复制链接
+
+## 2. Product Documentation
+
+### 2.2 该板块共有四个文件夹和一种Category：
+
+- Product- xx Product
+- Technology - xx Product
+- Process - xx Product
+- Security - xx Product
+
+### 2.3 文件查看
+
+- 页面默认展示所有该产品的文件，用户可以通过过滤器筛选查看想要查看的文件：
+  - Folder: Product,Technology, Security, Process
+  - Type: 列表中文件包含的文档类型
+- 该页面包含所有在本页面上传的文件、在DI Documentation上传到Product文件夹的文件和在Company Documentation页面中Product文件夹中的文件（文件交互详见3.3）
+
+- 列表字段：
+  - File name: 文件名
+  - Uploaded by: 上传人name, 此处应为记录好的，而不是现拉取的ID对应的名字，以防用户被删除后此处无法正常显示
+  - Date Added: 文件上传时间
+  - Size: 文件大小
+  - Category: xx Product
+ 
+### 2.4 文件上传
+
+- 该页面可以点击“Add Documentation”按钮上传文件至四个文件夹
+- 在DI Documentation和Company Documentation页面中Product文件夹中的文件回显到该页面
+
+### 2.5 页面操作
+- 删除：点击删除按钮，点击Delete Documentation,该文件在全平台被删除
+- 下载：点击下载按钮，该文件被下载到本地
+- 分享：点击分享按钮，可将该文件分享至输入的邮件地址，或复制链接
+
+## 3. Company Documentation
+  
+### 3.1 该板块共有六个文件夹和多种Category:
+
+- Company: Product, Technology, Process, Security
+- Product: Product, Technology, Process, Security
+- KPA: Product, Technology, Process, Security
+- Investment: GSV Document, GSH Document, Credit Memo Document, Warrant Document
+- Financial: P&L ,  Balance Sheet , Proforma
+- GS Internal: GS Internal
+- Imported Statements: Benchmark Report
+
+### 3.2 文件查看： 
+
+**文件来源**
+- Company: Documentation页面上传，DI板块上传
+- Product: Documentation页面上传，DI板块上传，Product板块上传
+- KPA:  KPA板块上传
+- Investment: Investment页面上传
+- Financial： FE页面上传
+- GS Internal： Documentation页面上传
+- Imported Statements: OCR功能上传
+  
+**文件筛选**
+- Folder: Company, Product, KPA, Investment, Financial, GS Internal, Imported Statements
+- Type:  Folder中所选的文件夹中包含的文档类型
+- Category：上面两个筛选结果中包含的category
+
+
+ ### 3.3 文件交互：
+
+- Company文件夹：四种Category,与DI板块相通，互相回显，两个板块的对应规则:
+  - Company- Product  ↔ Product- Company
+  - Company- Technology  ↔ Technology - Company
+  - Company- Process ↔ Process- Company
+  - Company- Security ↔ Security- Company
+- Product文件夹：四种Category,与DI、Product Documentation板块相通，互相回显，板块的对应规则:
+  - Product- Company  ↔ Company- Product
+  - Product- Technology  ↔ Technology - Product (Product Documentation板块仅有此条）
+  - Product- Process ↔ Process- Product
+  - Product- Security ↔ Security- Product
+- KPA文件夹：不支持在Documentation页面新增，仅回显KPA板块上传的文件
+- Investment文件夹：不支持在Documentation页面新增，仅回显Investment板块上传的文件
+- Financial文件夹：不支持在Documentation页面新增，仅回显Financial Entry板块上传的文件
+- GS Internal文件夹：仅支持在Documentation页面新增
+- Imported Statements文件夹：不支持在Documentation页面新增，仅回显OCR板块上传的文件
+
+### 3.4 操作:
+
+- 删除：点击删除按钮，点击Delete Documentation,该文件在全平台被删除。（Imported Statements文件夹中的文件不可删除）
+- 下载：点击下载按钮，该文件被下载到本地
+- 分享：点击分享按钮，可将该文件分享至输入的邮件地址，或复制链接
+- 新增：该页面仅可添加 ###3.3 描述中可在此页面上传的文件夹文件
+
+### 3.5 列表字段：
+
+- File name: 文件名
+- Uploaded by: 上传人name, 此处应为记录好的，而不是现拉取的ID对应的名字，以防用户被删除后此处无法正常显示
+- Size: 文件大小
+- Category: 文件对应的Category
