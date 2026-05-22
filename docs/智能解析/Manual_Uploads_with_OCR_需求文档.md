@@ -189,7 +189,10 @@
 
 - **Accounts Receivable**：`accounts receivable, a/r, receivables, trade receivables, unbilled revenue, contract asset`。
 
-- **Capitalized R&D（Monthly）**：需同时出现 资本化信号 + R&D/开发信号 或 摊销信号。这三类的关键词如下:["capitalized", "capitalised", "capitalized r&d", "capitalized research", "capitalized development", "software development", "internal-use software", "capitalized engineering"]["amortization", "amortization of intangibles", "amortization of software", "amortized development costs", "intangible assets"].
+- **Capitalized R&D（Monthly）**：需同时出现 资本化信号 + R&D或开发信号 或 摊销信号。这三类的关键词如下:["capitalized", "capitalised", "capitalized r&d", "capitalized research", "capitalized development", "software development", "internal-use software", "capitalized engineering"]["amortization", "amortization of intangibles", "amortization of software", "amortized development costs", "intangible assets"].
+  - 组合一：资本化信号 ＋ 研发信号(Capitalized +R&D)
+  - 组合二：资本化信号 ＋ 开发信号(Capitalized +Development)
+  - 组合三：资本化信号 ＋ 摊销信号(Capitalized +Amortization)
 
 - **Other Assets**：被识别为资产且未映射到 Cash / AR / Capitalized R&D (Monthly)。
 
