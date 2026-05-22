@@ -265,7 +265,7 @@ The following files could not be processed. You can re-upload each file, or disc
   - All: 显示文件列表
 - 特殊情况：TIFF：浏览器原生不支持 TIFF 显示，预览时把 TIFF 转 PNG/JPG，实际存储还是TIFF，文件下拉里显示PNG/JPG后缀
 
-- 右上角处有选项可新增文件 / 替换与删除已上传文件，若文件下拉处选择的ALL选项，则仅显示新增选项。
+- 右上角处有选项可新增文件 / 替换与删除已上传文件，若文件下拉处选择的ALL选项，则仅显示新增选项。单个文件时不可删除，删除按钮不展示。
 - 有 Excel / CSV 时可切换 Tab。
 - 底部：缩放控制条（PDF / 图片）。
 
