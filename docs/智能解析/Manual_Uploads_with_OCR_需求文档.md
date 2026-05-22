@@ -136,7 +136,7 @@
 
 **映射产物**：每个被抽取的行项均生成一个建议 LG 科目。
 
-**支持的 LG 标准科目**
+**支持的 LG 标准科目(排序也按照下面的顺序）**
 - P&L
   - Gross Revenue
   - COGS
@@ -155,6 +155,8 @@
   - Accounts Payable
   - Long-Term Debt
   - Other Liabilities
+ 
+- source account(mapped section LG指标下面的以及unmapped里面的)就按字母升序排列。没有source account名字的排序不做要求，但是用户补充上名字之后，要执行排序规则。
 
 **映射规则（语义级 + AI）**
 - 下列关键词是语义指南，AI以自然语言理解进行匹配，不做严格字面匹配；即使措辞不完全一致，只要语义相符即可匹配。
@@ -235,6 +237,8 @@
 - 若该批文件没有任何可用数据，右面版提示 No mapped data
   No mapped amount data was extracted from this file, so nothing can be mapped. Try uploading a clearer file or a different file format.
   - 点击Next，弹出Files Uploaded Successfully弹框，显示No financial accounts extracted. [amount] file(s) have been uploaded to the Imported Statements folder in Documentation.该批文件直接提交到Documentation板块，可点击close按钮关闭弹框，或点击Go to Documentation按钮跳转到All Documentation页面，文件夹提前建好，命名为Imported Statements
+- Documentation页面的categoty为Benchmark Report
+- 有公司文件夹访问权限的用户，将对其中的文件拥有全部权限（包括下载、删除和共享）。用户不可手动将文件上传至该文件夹。
 
 ---
 
