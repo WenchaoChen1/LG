@@ -33,7 +33,7 @@
 - PDF（扫描版或数字版）
 - Excel（.xlsx、.xls）
 - CSV
-- 图片：JPG、JPEG、PNG、TIFF（TIFF：浏览器原生不支持 TIFF 显示，预览时把 TIFF 转 PNG/JPG，实际存储还是TIFF。）
+- 图片：JPG、JPEG、PNG、TIFF（TIFF：浏览器原生不支持 TIFF 显示，预览时把 TIFF 转 PNG，实际存储还是TIFF，名字也是TIFF后缀。）
 
 **上传方式**
 - 桌面端：拖拽至上传区域；或点击上传按钮选择文件。点击Cancel按钮或右上角✖按钮可以退出该上传流程
