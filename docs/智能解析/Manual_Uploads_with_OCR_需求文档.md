@@ -314,7 +314,8 @@ The following files could not be processed. You can re-upload each file, or disc
    - Unclear payroll type; defaulted to G&A Payroll.
 - 右面板显示：
   - unmapped和mapped板块分别有最大高度600px，超过最大高度后内部竖向滚动；两个板块的列头也都固定。
-  **内联编辑**
+
+**内联编辑**
 - 可编辑项：
   - **数值**：删除数值后默认回填 0，作为有效数据，编辑过的数值灰色背景显示
   - **科目指派**
