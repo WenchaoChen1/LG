@@ -297,6 +297,8 @@ The following files could not be processed. You can re-upload each file, or disc
            - 举例：<img width="633" height="591" alt="image" src="https://github.com/user-attachments/assets/b55caf78-7e3b-4896-992e-8e6040321b34" />
         - 特殊情况补充4：
            - 如果在这个页面，整批没有提取出财务数据或者没有mapped板块，右上角Next按钮就叫Confirm & Commit to LG。若没有mapped内容，那按钮叫这个名字，但是我给unmapped里面的一个字段map下来了，那这个按钮又会变成Next
+        - 特殊情况补充5：
+           - 如果没有获取到年月，而且也没办法按已有逻辑推断年月，而且unmapped也没有任何即存的月份，若同类型下已映射（Mapped）版块内存在月份数据有，那就提取该已映射（Mapped）版块中的第一个有效月份，并将其作为当前 Unmapped 版块的起始/第                  一个月份没有，那就获取当前真实日历月份，并以 “当前日历月份 - 1个月”（即上个月）作为当前 Unmapped 版块的终止/最后一个月份，以此向前倒推初始化时间轴
       - 既缺名称又缺日期 → 首先显示“UNIDENTIFIED”。一旦用户填写了账目名称，即切换显示为“No Date”
       - 若No date项选择了日期后多出月份列，其他项无此月数值或因源数据中本来就无此月数据就显示"-"，不算数据缺失
     - 用户可为 UNIDENTIFIED 账目手动命名；命名不会触发自动映射，仍须手动指派 LG 指标。
@@ -310,7 +312,8 @@ The following files could not be processed. You can re-upload each file, or disc
    - Duplicate or overlapping source accounts detected.
    - Keyword conflict between COGS and R&D Expenses; defaulted to COGS.
    - Unclear payroll type; defaulted to G&A Payroll.
-
+- 右面板显示：
+  - unmapped和mapped板块分别有最大高度600px，超过最大高度后内部竖向滚动；两个板块的列头也都固定。
   **内联编辑**
 - 可编辑项：
   - **数值**：删除数值后默认回填 0，作为有效数据，编辑过的数值灰色背景显示
