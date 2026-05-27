@@ -446,6 +446,8 @@ The following files could not be processed. You can re-upload each file, or disc
 - 备注作为上传事件的一部分存储于 financial statement 模块内。
 - Financial Entry 页与 Committed Forecast 页显示 Note 按钮，点击进入备注列表页，按数据映射过程的时间顺序展示：
   - 表头：Data Mapping Time Stamp（UTC）、Metric、Financial Month、LG Value、Mapped Value、Data Source（"Mapped" / "Manually Entered"）、Note Content。
+    - 冲突解决弹窗页面选MAPPED VALUE 时，Data Source显示Mapped，Mapped Value显示文件上传的值
+    - 冲突解决弹窗页面选LG VALUE 时，Data Source显示Manually Entered，Mapped Value显示LG value的值
   - Select Metric下拉（包含列表所含有LG的Metric)、月历选择器（可选择年月筛选数据），这两个filter都有search bar
   - 超长备注截断显示（最多两行），提供 "See More" 打开弹窗查看完整内容，仅 "X" 或 "Close" 可关闭,若内容过多，弹窗内显示竖向滚动条。
 - 分页与导航：
