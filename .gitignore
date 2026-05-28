@@ -16,5 +16,10 @@ cio-bigdata/
 # OS
 .DS_Store
 Thumbs.db
+*.stackdump
 esapiens/
 esapiens-python/
+
+# UI/UX 设计参考（本地参考用，不纳入仓库）
+Remix of LG-UI_UX/
+Remix of LG-UI_UX.zip

@@ -1,6 +1,8 @@
 # 第 4 部分：Portfolio 端 UI 与共享功能需求（Portfolio Manager UI & Shared Features）
 
-> 本部分包含 5 个面向 Portfolio Manager 的 UI 类需求和所有用户共享的功能需求
+> 本部分包含 **6** 个面向 Portfolio Manager 的 UI 类需求和所有用户共享的功能需求
+>
+> **变更摘要（2026-05-22 vs 2026-05-12）**：原 LG-1340 _AI Chatbot - Document Upload for Chat Analysis_ 被拆分为 **LG-1400（Company Portal 版）** + **LG-1399（Portfolio Admin 版）**，两份独立需求；旧 LG-1340 已 parking 至 "Epic: Original AI Chatbot prior to split"。
 
 ---
 
@@ -8,8 +10,8 @@
 
 - **Asana ID**: 1214057483533663
 - **LG 编号**: LG-1335
-- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = L）
-- **最近修改**: 2026-05-11
+- **状态**: Prioritization In Progress（Section = Backlog，Working Status = Not Started，T-Shirt = L）
+- **最近修改**: 2026-05-15
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214057483533663
 
 ### 业务需求
@@ -46,8 +48,8 @@ Portfolio Manager 界面必须在框架结构、建议提示语以及整体定�
 
 - **Asana ID**: 1214081544026466
 - **LG 编号**: LG-1336
-- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = M）
-- **最近修改**: 2026-05-11
+- **状态**: Prioritization In Progress（Section = Backlog，Working Status = Not Started，T-Shirt = M）
+- **最近修改**: 2026-05-15
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214081544026466
 
 ### 业务需求
@@ -92,8 +94,8 @@ Company Memory File 区域展示 Company Admin 也能看到的上下文——包
 
 - **Asana ID**: 1214081544026465
 - **LG 编号**: LG-1337
-- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = L）
-- **最近修改**: 2026-05-11
+- **状态**: Prioritization In Progress（Section = Backlog，Working Status = Not Started，T-Shirt = L）
+- **最近修改**: 2026-05-15
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214081544026465
 
 ### 业务需求
@@ -134,8 +136,8 @@ Company Memory File 区域展示 Company Admin 也能看到的上下文——包
 
 - **Asana ID**: 1214081544026468
 - **LG 编号**: LG-1339
-- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = M）
-- **最近修改**: 2026-05-11
+- **状态**: Prioritization In Progress（Section = Backlog，Working Status = Not Started，T-Shirt = M）
+- **最近修改**: 2026-05-15
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214081544026468
 
 ### 业务需求
@@ -172,51 +174,158 @@ AI Chatbot 必须为所有用户角色——Company User、Company Admin、Portf
 
 ---
 
-## 5. AI Chatbot - 用于聊天分析的文档上传（Document Upload for Chat Analysis）
+## 5. AI Chatbot - 用于聊天分析的文档上传 — Company Portal（LG-1400）
 
-- **Asana ID**: 1214057483533666
-- **LG 编号**: LG-1340
-- **状态**: Prioritization In Progress（Working Status = Not Started，T-Shirt = XL）
-- **最近修改**: 2026-05-11
-- **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214057483533666
+> **拆分说明**：本 Story 由旧 LG-1340 _AI Chatbot - Document Upload for Chat Analysis_ 拆分而来（与 LG-1399 配对），覆盖**公司侧用户**在 Company Portal 内的文档上传流程。
+
+- **Asana ID**: 1214953638826119
+- **LG 编号**: LG-1400
+- **状态**: Needs Sizing（Working Status = Not Started）
+- **最近修改**: 2026-05-21
+- **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214953638826119
 
 ### 业务需求
 
-用户必须能够直接在 AI Chatbot 界面中上传文档，为对话提供额外的上下文。这使得用户能够将尚未录入 Looking Glass 的信息分享给 Chatbot，例如某份尚未录入系统的财务电子表格，或者一份希望 Chatbot 进行总结或提取洞察的会议转录文本。
+公司侧用户必须能够直接在公司端 AI Chatbot 界面中上传文档，为对话提供额外上下文。这使得用户能将尚未录入 LG 的信息分享给 Chatbot——例如还未录入系统的财务电子表格，或希望 Chatbot 总结 / 提取洞察的会议转录文本。
 
-上传的文档不会导入 Looking Glass，也不会进入财务数据流水线（financial data pipeline）。它们通过两步流程进行处理。第一步，文档通过 RAG（retrieval-augmented generation，检索增强生成）进行处理与建立索引，使其完整内容在当前会话以及所有未来的聊天会话中可被动态查询。这意味着 AI 可根据用户提问检索文档中具体、相关的段落。第二步，系统会从文档中自动生成一份与公司相关的关键 learnings 的高层摘要（high-level summary），并将该摘要保存至该公司的 Layer 1 Memory File。这确保了从文档中习得的最重要内容能够作为上下文持续存在，即使在未来不再显式引用原文件的对话中亦然。
+上传文档不会导入 LG，也不会进入财务数据流水线。它们通过两步处理：
 
-所有上传的文档严格作用于其上传时所属的公司。它们绝不可被其他公司访问，也在任何情况下都不会进入共享的 GS Knowledge Base（Layer 2）。
+1. **RAG 索引**——使全文在当前及所有未来会话中可被动态查询
+2. **自动摘要写入 Memory File**——系统自动生成与公司相关的关键 learnings 高层摘要，立即保存至对应 Memory File 层
 
-MVP 阶段支持的文件类型覆盖主要使用场景：用于报告与财务文件的 PDF 和 Word 文档、用于结构化数据的 Excel 与 CSV 文件，以及用于导出会议转录（如 Fireflies 导出）的纯文本文件（.txt）。
+**Memory 层归属**根据上传者角色决定。**Company-side 上传始终是隐式公司归属**——公司侧用户始终在自家公司上下文中，**无需 confirmation prompt**。
+
+所有上传文档严格作用于其上传时所属的公司，绝不可被其他公司访问，**永远不会进入 GS Knowledge Base（Layer 2）**。
+
+MVP 阶段支持的文件类型：PDF、Word（.docx）、Excel（.xlsx, .xls）、CSV、纯文本（.txt）。
 
 ### 验收标准
 
-- 用户可通过聊天输入栏上的附件按钮（attachment button）直接上传文件——Company 端和 Portfolio 端用户均可使用。
-- MVP 支持的文件类型：PDF、Word（.docx）、Excel（.xlsx, .xls）、CSV、纯文本（.txt）。
-- 上传完成后，Chatbot 确认收到文档并提示其已就绪可被引用（例如："I've received your file. You can now ask me questions about it."）。
-- 上传的文档通过 RAG 进行处理与索引，使其完整内容在当前会话以及所有未来的聊天会话中均可动态检索。
-- 系统在文档上传后立即自动生成一份与公司相关的关键 learnings 的高层摘要，并将该摘要保存至该公司的 Layer 1 Memory File。
-- Chatbot 在文档上传后能够立即准确回答关于其内容的问题，并在未来会话中亦能准确回答。
-- 所有上传的文档及衍生内容严格作用于其原始公司的 Layer 1 上下文，绝不与其他公司共享，也不会进入 GS Knowledge Base（Layer 2）。
+#### Upload Functionality
+
+- 用户可通过聊天输入栏附件按钮直接上传文件。
+- MVP 支持文件类型：PDF / Word (.docx) / Excel (.xlsx, .xls) / CSV / .txt。
+- 上传完成后 chatbot 确认收到并提示已就绪（"I've received your file. You can now ask me questions about it."）。
+- 文档通过 RAG 索引，全文可在当前及未来会话动态检索。
+- 系统在上传后立即自动生成关于公司相关 learnings 的高层摘要，保存至**对应 Memory File 层**（公司侧 → Layer 1a）。
+- Chatbot 在上传后立即可准确回答关于文档内容的问题，未来会话同样。
 - 用户可在单次会话中上传多个文件。
-- 当上传不支持的文件类型时，系统在对话中显示清晰的内联错误消息（inline error message），指明支持的文件类型。
-- 实施文件大小限制（file size limit），当文件超出限制时显示清晰的内联提示。
-- 聊天界面中提供专门的 Knowledge Base 区域，展示会话期间上传的所有文档，并对授权用户展示 GS Playbook（Layer 2）。文档以列表视图（list view）呈现，包含文件名、类型、上传日期和上传者，仅支持下载（MVP 阶段不支持应用内预览）。可见性按角色控制：Company 端用户仅能查看其本公司的文档，且不能访问 GS Playbook；Portfolio Manager 与 Admin 则可查看其权限范围内的所有文档。
+- 不支持文件类型 → 清晰的 inline error message。
+- 文件大小限制 → 超限时清晰 inline message。
+- 桌面端与移动端均可用。
+
+#### Memory Layer Routing
+
+- 公司侧用户（Company User / Company Admin）上传 → 存入对应公司 **Layer 1a Memory File**。
+- 上传文档**不流入** GS Knowledge Base（Layer 2）。
+- 上传文档绝不可被其他公司访问，无论存储在哪一层。
+- Memory 层路由按上传用户角色**由系统自动强制**。
+
+#### Knowledge Base Panel - File Visibility
+
+- 聊天界面提供 Knowledge Base 区域，展示在公司上下文中上传的所有文档。
+- 列表视图：文件名 / 类型 / 上传日期 / 上传者；每行支持下载图标操作；**MVP 无 in-app preview**。
+- 按角色作用域：
+  - **Company User**：仅看到自己上传的文件——同公司其他用户上传的文件**不可见**（即使存储在 Layer 1a）。
+  - **Company Admin**：看到本公司所有用户上传的、存在 Layer 1a 的文件。**Layer 1b 文件在任何公司侧角色下都不可见**。
 
 ### UX 设计要点
 
-- 上传操作应给人以轻量且自然的感觉——聊天输入栏内的简单附件图标（attachment icon），与常见消息类应用的交互模式保持一致。用户不应感到在做某种复杂或技术性的操作。
-- 上传完成后，在对话线程中以小型文件 chip 或徽章（file chip / badge）确认已上传内容（文件名与类型）。
-- Chatbot 上传后的确认消息应包含一条建议的首步操作（suggested first action），帮助用户开始使用（例如："Would you like me to summarize this document, or do you have a specific question about it?"）。
-- 在确认消息中包含一条不张扬的提示（subtle note），告知文档已被保存以供将来参考（例如："This file has also been added to your company's memory so I can reference it in future conversations."）。
-- 文件大小或类型错误应作为内联消息出现在对话中，而不是干扰用户的模态框（modal）或系统警告。
-- Knowledge Base 区域应作为聊天界面内的辅助面板（secondary panel）或 Tab 进行访问，与主对话线程明确区分。以简洁的列表格式呈现已上传文件，显示文件名、类型和上传日期。下载应通过每行一个简单的图标操作（icon action）完成。由于 GS Playbook 与用户上传文件位于同一区域，应使用清晰的视觉分组或标签来区分 "Uploaded Documents" 与 "GS Playbook"。如果尚未上传任何文档且未加载 Playbook，则不应显示 Knowledge Base 区域——应展示合适的空状态（empty state）。
+- 上传操作轻量自然——聊天输入栏内简单 attachment icon。
+- 上传完成后在对话线程中以小型 file chip / badge 确认（文件名 + 类型）。
+- 确认消息包含建议首步操作（"Would you like me to summarize this document, or do you have a specific question about it?"）。
+- 含不张扬的提示（"This file has also been added to your company's memory so I can reference it in future conversations."）——**不引用具体 Memory 层**。
+- 文件大小 / 类型错误以 inline 消息显示在对话中，**不用** modal / 系统警告。
+- Knowledge Base 区域作为聊天界面内的辅助面板 / Tab，与主对话线程明确区分。
+- Knowledge Base 空状态友好且指导性强——"No documents uploaded yet. Upload a file in the chat to get started."
 
 ### 依赖与备注
 
-- 处理流程：RAG 索引 + 自动生成 Layer 1 Memory File 摘要。
-- 数据隔离：上传文档严格作用于源公司，绝不进入 GS Knowledge Base（Layer 2）。
-- 适用界面：Company 端和 Portfolio Manager 端聊天界面均支持。
-- 角色可见性：Company 端用户仅可见本公司文档，不能访问 GS Playbook；Portfolio Manager 与 Admin 可在其访问范围内查看所有文档。
-- MVP 阶段：仅支持下载，不提供应用内预览（in-app preview）。
+- 后端处理依赖 [LG-1388 _Layer 1a Backend - Document Upload Processing_](./part-B-memory-kb.md)。
+- 与 LG-1399（Portfolio Admin 版）配对：**Company Portal 隐式公司归属、无 confirmation prompt**；Portfolio Admin 需要公司归属 confirmation prompt。
+- 角色可见性：Company User / Company Admin 仅看公司侧 Layer 1a。
+
+---
+
+## 6. AI Chatbot - 用于聊天分析的文档上传 — Portfolio Admin（LG-1399）
+
+> **拆分说明**：本 Story 由旧 LG-1340 拆分而来（与 LG-1400 配对），覆盖 **Portfolio Manager 在 Admin Portal 内**的文档上传流程。
+>
+> **NOTE 1**：notes 头部标记 "TBD if the PA user is scoped to the Portfolio level or Global level"——待 LG-1385 Research 输出后 finalize。
+> **NOTE 2**：本 Story 可能在 LG-1385 完成后需更新（公司归属逻辑变化）。
+
+- **Asana ID**: 1214953638826120
+- **LG 编号**: LG-1399
+- **状态**: Needs Sizing（Working Status = Not Started）
+- **最近修改**: 2026-05-21
+- **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214953638826120
+
+### 业务需求
+
+Portfolio Manager 必须能够在 Admin Portal AI Chatbot 界面中上传文档。这使得 PM 能够将尚未录入 LG 的信息分享给 Chatbot——例如尚未录入的财务电子表格、希望总结 / 提取洞察的会议转录文本。
+
+上传文档不导入 LG，不进入财务数据流水线。处理同样是两步：RAG 索引 + 自动摘要写入 Memory File。
+
+**与 Company Portal 上传的关键区别**：**Portfolio Manager 上传需要"公司归属"步骤**，文档才能进入某公司的 **Layer 1b Memory File**。
+
+**公司归属工作流**：
+- AI 基于会话上下文推断可能的公司 → 弹 confirmation prompt
+- PM 确认 → 文档 RAG 索引 + 摘要写入该公司 **Layer 1b**
+- PM 选择不同公司 → 处理给所选公司
+- PM 未选 / 关闭 prompt → 文档**不写入任何 Layer 1b**，仅作为当前 chat session 的 session-only 文件存在
+
+所有上传文档严格作用于其归属公司，绝不可被其他公司访问，**永不进入 GS Knowledge Base（Layer 2）**。
+
+MVP 支持文件类型同 LG-1400：PDF / Word / Excel / CSV / .txt。
+
+### 验收标准
+
+#### Upload Functionality
+
+- 用户可通过聊天输入栏附件按钮直接上传文件。
+- MVP 支持文件类型：PDF / Word (.docx) / Excel (.xlsx, .xls) / CSV / .txt。
+- 上传完成后 chatbot 确认收到并提示已就绪。
+- 文档通过 RAG 索引，全文可动态检索。
+- 系统在上传后自动生成与公司相关 learnings 的高层摘要，保存至对应 Memory File 层。
+- Chatbot 立即可准确回答关于文档内容的问题。
+- 单次会话可上传多个文件——**每个文件触发独立的公司归属 confirmation**。
+- 不支持文件类型 → inline error。
+- 文件大小限制 → inline message。
+- 桌面端与移动端均可用。
+
+#### Memory Layer Routing（核心差异）
+
+- 上传后 AI 基于会话上下文**推断可能的公司**。
+- 系统弹出 confirmation prompt，显示 AI 推断的公司，请 PM 在处理前确认。
+- PM 确认 AI 推断 → RAG 索引 + 摘要存入**该公司 Layer 1b**。
+- PM 选择不同公司 → 处理给所选公司。
+- PM 未选 / 关闭 prompt → 文档**不写入任何 Layer 1b**，仅作为当前 chat session 的文件存在（明确告知用户）。
+- Confirmation prompt 明确说明文档将存入哪一 Memory 层（如 "This document will be added to [Company Name]'s internal GS memory"）。
+- Layer 1b 上传文档**不流入** Layer 2。
+
+#### Knowledge Base Panel - File Visibility
+
+- 聊天界面 Knowledge Base 区域展示在公司上下文中上传的所有文档（列表视图 + 下载）。
+- 按角色作用域：
+  - **Portfolio Manager / Admin**：看到访问范围内**所有公司**的 Layer 1a 上传文件 + **所有公司**的 Layer 1b 上传文件。
+- Layer 1a 与 Layer 1b 文件**视觉分组与清晰标签**，让 PM 立即知道哪些对 company-side 可见、哪些是内部：
+  - **"Company Documents"**（Layer 1a）
+  - **"Internal GS Documents - not visible to company users"**（Layer 1b，强调不可见性）
+
+### UX 设计要点
+
+- 上传操作轻量自然——聊天输入栏内简单 attachment icon。
+- 上传完成后在对话线程中以小型 file chip / badge 确认。
+- 确认消息包含建议首步操作。
+- 含不张扬的提示（不直接引用具体 Memory 层）。
+- 文件大小 / 类型错误 inline 显示。
+- Knowledge Base 区域用清晰视觉分组与标签区分 "Company Documents" (Layer 1a) / "Internal GS Documents" (Layer 1b - PM only) / "GS Playbook" (Layer 2)。
+- Layer 1b 分组标签**低调但清晰具有信息量**："Internal GS Documents - not visible to company users"——让 PM 始终知道自己在看什么。
+- 空状态友好且指导性强。
+
+### 依赖与备注
+
+- 后端处理依赖 [LG-1398 _Layer 1b Backend - Chat Extraction & Document Upload Processing_](./part-B-memory-kb.md)，而 LG-1398 又强依赖 LG-1385 Research（公司归属逻辑）。
+- 与 LG-1400（Company Portal 版）配对：**核心差异是 confirmation prompt + Layer 1b 路由**。
+- 角色可见性：PM / PGM / Admin 可见 Layer 1a + Layer 1b，分组明确标签。
+- 与 [LG-1385 _Research: Layer 1b Chat Content_](./part-A-foundation.md) 共同决定多公司会话的归属逻辑。
