@@ -394,6 +394,8 @@ The following files could not be processed. You can re-upload each file, or disc
    - Next 按钮/ Save 按钮
 - 冲突弹框中所有内容均填完， Next按钮才激活，冲突解决后点击next 按钮，冲突数值变绿色，自动打开下一个冲突的popup，最后一个冲突popup 按钮为Save,跳转顺序为同一个指标从左到右，一个指标完成后跳下一个指标，依旧从左到右。
 - 用户点击 "Previous Step" 或右上方“Previous”按钮 回到Verify Data 摘要页
+- 为了确保数据库的一致性并防止货币污染，我们目前的策略是：mapped的结果在最终存入数据库前，系统会自动将冲突页面所有判定为“采用新数据（Mapped）”的指标值，强制按汇率规则转换为该月份 LG 系统现存的对应货币。
+  在上述案例中，所有被用户勾选“用 Mapped 替换”的欧元值，都会被系统自动转换成美元后，再入库
 
 **覆盖与跳过**
 - 选择Mapped Value：新数据替换选定期次与指标的当前版本；原值保留为历史版本。
