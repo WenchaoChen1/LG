@@ -1,6 +1,6 @@
 # AI 财务智能解析 —— 验证与冲突解决接口文档
 
-> **版本**: v1.8.0 · **更新日期**: 2026-05-21
+> **版本**: v2.0.0 · **更新日期**: 2026-05-29
 > **作用范围**: 接口 ⑥ 验证（verify） + 接口 ⑦ 完成任务（completeTask）
 > **包路径**: `com.gstdev.cioaas.web.ai.financial.extract`
 > **关联文档**:
@@ -10,7 +10,134 @@
 
 ---
 
-## 📌 v1.8.0 主要变更
+## 📌 v2.0.0 主要变更（Currency-Aware 冲突判定 + 入库）
+
+### 核心业务规则
+
+`finance_manual_data` 是 **row-level single currency** schema（整行 18+ 数值字段共用 `currency` 单字段）——
+任何单行的所有字段必须以同一币种计量。因此本次改造的业务边界是：
+
+1. **verify 阶段**：按 LG 现存行的 `currency`（同公司同月份最新版本）作为比较基准 ——
+   把上传值从 `mappedCurrency` 换算到 `existingCurrency`，再跟 LG 现存值比较。
+   冲突响应同时返回原值 + 原币种 + 现值 + 现币种 + 换算汇率，前端弹窗可三值对照展示。
+
+2. **complete 阶段**：fi_* 写入时**强制按 LG 现存行 currency 换算后入库** ——
+   保持版本链币种连贯，所有字段单位一致。OCR 识别的原币种信息保留在 `conflict_record`
+   表（mapped_original_value / mapped_currency / exchange_rate）供 UI 追溯，但**不写入 fi_***。
+
+> 之所以不"拿到什么存什么"：fi_* 是单 currency 行 schema，新行如果切换 currency 同时
+> 继承 base 其他未涉及字段（COGS / OpEx 等历史值），会把 EUR 数值错误标记为 USD，
+> 导致下游聚合（FinancialOverview / forecast 等）单位错乱。
+
+### Schema 变更（V8 migration `sprint110/V8_conflict_record_currency_aware.sql`）
+
+`ai_financial_extraction_conflict_record` 新增 4 列（均 nullable，老记录兼容）：
+
+| 列名 | 类型 | 含义 |
+|---|---|---|
+| `mapped_currency` | VARCHAR(8) | OCR 上传识别的原币种（大写规范化）|
+| `mapped_original_value` | NUMERIC(50, 4) | OCR 上传识别的原值（未换算前）|
+| `existing_currency` | VARCHAR(8) | verify 时 LG 现存行 currency（比较基准 + complete 时换算目标）|
+| `exchange_rate` | NUMERIC(30, 10) | verify 时固化的汇率 `mapped_currency → existing_currency` |
+
+### 接口契约变更
+
+#### verify 响应（`AiFinancialConflictItemResponse`）
+
+新增 4 字段：
+
+```json
+{
+  "conflictId": "...",
+  "lgCategory": "Revenue",
+  "columnMonth": "2025-01",
+  "existingValue": 90.0000,            // LG 现值（existingCurrency 计量）
+  "existingCurrency": "EUR",           // ★ 新增 — LG 现存行币种（比较基准）
+  "mappedValue": 91.0000,              // 已按 existingCurrency 换算后的值（冲突比较 + 入库都用本字段）
+  "mappedOriginalValue": 100.0000,     // ★ 新增 — 上传原值（未换算）
+  "mappedCurrency": "USD",             // ★ 新增 — 上传原币种
+  "exchangeRate": 0.91,                // ★ 新增 — mapped → existing 汇率
+  "resolution": "PENDING",
+  "note": "",
+  "resolvedOrder": 1,
+  "contributingCellIds": ["..."]
+}
+```
+
+字段语义：
+- `mappedValue ≈ mappedOriginalValue × exchangeRate`（PERCENT 字段 / 同币种时 `exchangeRate = 1` 或 null）
+- 前端弹窗展示样例："识别值 **100 USD**，LG 已有值 **90 EUR**（汇率 0.91，换算后 91 EUR vs 90 EUR → 冲突）"
+
+#### resolve / complete 请求（`AiFinancialVerifyNonConflictItem`）
+
+各字段语义：
+
+| 字段 | 是否后端读 | 含义 |
+|---|---|---|
+| `mappedOriginalValue` | ✅ | 上传聚合后原值（未换算）。优先级高于 `mappedValue` |
+| `mappedValue` | ✅（fallback）| 旧 contract 兼容字段；语义同 `mappedOriginalValue`（前端未升级时回填）|
+| `mappedCurrency` | ✅ | 原币种。用于后端 mapped → LG 现存币种换算 |
+| `existingCurrency` / `existingValue` / `exchangeRate` | ❌ | passthrough only；后端 complete 时**重新查 LG 实时状态**，不读这三个字段（防 verify→complete 之间 race）|
+
+后端 complete 阶段 fi_* 写入口径：
+
+| 来源 | 写入 fi_*.{field} | 写入 fi_*.currency |
+|---|---|---|
+| OVERWRITE（冲突）| `conflict_record.mapped_value`（已按 existing_currency 换算）<br>Race 防御：实时 base.currency ≠ saved existing_currency 时，用 `mapped_original_value` 重新换算到实时 currency | `base.currency`（LG 现存）或公司币种 fallback |
+| nonConflict | 后端按实时 base.currency 重新对 `mappedOriginalValue + mappedCurrency` 换算 | `base.currency` 或公司币种 fallback |
+
+### Race condition 防御
+
+`verify` 与 `complete` 之间可能存在另一 task / scheduler 改写同公司同月份 LG 行的 currency
+（多用户并发场景）。后端在 OVERWRITE 写入前主动校验：
+
+```
+if (实时 base.currency ≠ conflict.existing_currency
+    && conflict.mapped_original_value != null) {
+  // 用 mapped_original_value + mapped_currency 重新换算到实时 base.currency
+  // log.warn 提示 race 已触发
+}
+```
+
+老记录（V8 之前）`mapped_original_value` 为 null，跳过重换算路径直接用 `mapped_value`
+（这些记录是按公司币种固化的，rowCurrency 通常也是公司币种，无错位风险）。
+
+### Service 层关键改动
+
+| 方法 | 变更 |
+|---|---|
+| `aggregate` → `aggregateNoFx` | 聚合时**不再 FX 换算**，保留原值 + currency + unitType；同 key 多条 SUM 兜底 |
+| `applyFx` → `applyFxToTarget` | 目标币种由调用方指定（verify 用 LG existingCurrency；nonConflict 用实时 base.currency；proforma 用公司币种）。返回 `FxResult(converted, rate)` |
+| `verify` | 比较基准 = LG 现存行 `currency`；冲突记录写新 4 字段。currency 经 `normalizeCurrencyCode` 大写规范化 |
+| `writeActualsToFinanceManualData` | OVERWRITE 写 `conflict.mapped_value`（含 race 防御重换算）；nonConflict 后端**重新查 LG base + 实时换算**后写入；整行 currency = LG 现存行 currency / 公司币种 |
+| `resolveOverwriteValue`（新增）| 封装 OVERWRITE 取值逻辑 + race-condition 防御重换算 |
+| `pickRowCurrencyForDate` | 决定本日 row-level currency：优先 `base.currency` → conflict.existing_currency / nc.currency → 公司币种 |
+| `newFiManualDataRow` | 第 3 参 `rowCurrency` 覆盖 base 复制过来的旧 currency（base.currency 已优先选取，通常一致；race 时通过 resolveOverwriteValue 把值也对齐）|
+| `splitNonConflictsByDataType` | Proforma 拆分保留 mapped 原值 + 原币种，由 `writeProformaForecasts` 内部 `applyFxToTarget` 换到公司币种入库（fi_forecast_history 维持旧口径）|
+| `normalizeCurrencyCode`（新增）| trim + toUpperCase；保证 DB / 响应 / 比较口径一致 |
+
+### 向后兼容
+
+- DDL 新增列均允许 NULL；老 conflict_record（V8 之前生成）4 字段为 NULL，OVERWRITE 直接用 `mapped_value`，无 race 防御重换算（mapped_original_value 缺失短路）。
+- 旧前端不传 `mappedOriginalValue` / `mappedCurrency` → nonConflict 路径回退到 `mappedValue` 当原值；`mappedCurrency` 为空时 `applyFxToTarget` 短路（视作同币种 / PERCENT），等价于 v1.x 旧行为。
+- Proforma 写入路径不变（按公司币种存 forecast）。
+
+---
+
+## 📌 v1.9.0 主要变更（历史）
+
+1. **移除 `ai_financial_extraction_commit_audit` 表**：业务上不需要独立的 fi_\* 写入流水审计；冲突解决留痕已由 `conflict_record` 自身字段覆盖。后端、Entity、Repository、SQL 全部清除。
+2. **移除 `ai_financial_extraction_conflict_note` 表**：原设计的 1:N thread 退化为 1:1，所有字段（`note_text` / `author_id` / `resolution` / `created_at`）都在 `conflict_record` 上原本就有。后端、Entity、Repository、SQL 全部清除，合并为单表。
+3. **completeTask 行为简化**：解决冲突时只 UPDATE `conflict_record`（写 `resolution` / `note` / `resolved_by` / `resolved_at`），不再 INSERT 任何 note / audit 行；前端接口契约（请求 / 响应）保持完全不变。
+4. **新增 Data Mapping Notes 列表接口** `GET /ai/financialExtraction/companies/{companyId}/dataMappingNotes`：按公司跨 task 列出已 resolved（OVERWRITE / SKIP）的冲突解决备注；支持 metric（多选，逗号分隔）/ year / month 过滤 + 标准分页（默认 size=10）；按 `resolved_at DESC`。
+5. **Notes 列表 `dataSource` / `mappedValue` 由 resolution 决定**：
+   - `OVERWRITE`（用户在弹窗选 Mapped Value / 采用上传值）→ `dataSource="Mapped"`，`mappedValue`=上传聚合值（`conflict_record.mapped_value`）
+   - `SKIP`（用户选 LG Value / 保留现值）→ `dataSource="Manually Entered"`，`mappedValue`=LG 现值（`conflict_record.existing_value`）
+6. **新增 V7 SQL** `sprint110/V7_conflict_record_mapped_value_source.sql`：补 `(company_id, resolution, resolved_at DESC)` 索引（Notes 列表查询路径）。（早期版本曾加 `mapped_value_source` 列，确认 Data Source 改由 resolution 推导后已 DROP。）
+
+---
+
+## 📌 v1.8.0 主要变更（历史）
 
 1. **resolve / fileSave 合并为单一 `completeTask`**：路径从 `POST /conflicts/{taskId}/resolve` 改为 `POST /ai/financialExtraction/tasks/{taskId}/complete`；删除独立 `/fileSave` 端点。
 2. **fileSave 场景内化为 completeTask 的退化输入**：当所有数据数组（`nonConflicts`、`resolutions`、`proformaData`）为空时，行为与 v1.7 的 fileSave 一致 —— 不写 fi_\*、只登记文件到 Imported Statements 文件夹、推 `COMPLETED`。
@@ -367,7 +494,7 @@ type ConflictItem = {
 
 > **v1.8.0 起合并了原 resolve（冲突解决与提交）+ fileSave（未识别出有效财务指标直存文档）两个接口。**
 > 同一端点根据 body 内容自动区分两种行为：
-> - 有数据（任一数组非空）→ 写 fi\_\* / 提交 forecast / 写 commit_audit + 自动登记文件到 Documentation
+> - 有数据（任一数组非空）→ 写 fi\_\* / 提交 forecast + 自动登记文件到 Documentation
 > - 全空 → 仅登记原始文件到 "Imported Statements" 文件夹
 
 ### 基本信息
@@ -377,7 +504,7 @@ type ConflictItem = {
 | 接口路径 | `POST /api/web/ai/financialExtraction/tasks/{taskId}/complete` |
 | 调用时机 | 1) 有冲突场景：用户在 Conflict Resolution 页对所有冲突选择 OVERWRITE/SKIP + 填写 note 后点击 **Save** <br/>2) 无冲突场景：verify 返回 `conflicts=[]` 时前端自动调用（`resolutions` 传 `[]`）<br/>3) 退化场景：OCR 未识别出有效财务指标（PRD §3.4），三个数组都传 `[]` |
 | 幂等性 | **非幂等**：成功后任务进入 `COMPLETED` 终态，重复调用会因状态不允许而失败 |
-| 核心职责 | 1) UPDATE `conflict_record` + INSERT `conflict_note`<br/>2) Actuals：按 `nonConflicts[]` 与 `conflict_record.mapped_value` 写入 `finance_manual_data`（新版本行）<br/>3) 写 `commit_audit`（WRITTEN/OVERWRITTEN/SKIPPED 全记录）<br/>4) Proforma：按年分组 `proformaData[]` → 每年一个新 committed forecast 版本（写 `FinancialForecastHistory` + `FinancialForecastCurrent`，`source="Import Statements"`）<br/>5) 把 task 原始文件登记到公司 Documentation 的 "Imported Statements" 文件夹（去重）<br/>6) 推进任务状态到 `COMPLETED` |
+| 核心职责 | 1) UPDATE `conflict_record`（写 `resolution` / `note` / `resolved_by` / `resolved_at`）<br/>2) Actuals：按 `nonConflicts[]` 与 `conflict_record.mapped_value` 写入 `finance_manual_data`（新版本行）<br/>3) Proforma：按年分组 `proformaData[]` → 每年一个新 committed forecast 版本（写 `FinancialForecastHistory` + `FinancialForecastCurrent`，`source="Import Statements"`）<br/>4) 把 task 原始文件登记到公司 Documentation 的 "Imported Statements" 文件夹（去重）<br/>5) 推进任务状态到 `COMPLETED` |
 
 > ⚠️ **memory-learn 暂未启用**：本期 completeTask 成功后**不**触发 Python 端 mapping memory 学习；后续启用时由后端无痛接入，前端契约不变。
 
@@ -575,11 +702,11 @@ type ProformaItem = {
    - 复制所有字段到一个**新行**，分配新 `id`、`version_at=now()`、`state=NULL`、`is_forecast=false`
    - 按 `(lgCategory, columnMonth)` 写入对应列（覆盖底版的同列值）
    - 旧行因 `version_at` 更早自动变历史版本（PRD §3.5 "被覆盖的数据保留历史版本"）
-6. **OVERWRITE / SKIP / WRITTEN 三种 audit 全部留痕**：
+6. **三种 fi\_\* 写入分支语义**（v1.9.0 起不再写 commit_audit；冲突解决留痕走 `conflict_record`）：
    - `WRITTEN` —— LG 本月无数据，本次写入新值（非冲突指标）
-   - `OVERWRITTEN` —— LG 有值且与上传不同，用户选 OVERWRITE
-   - `SKIPPED` —— LG 有值且与上传不同，用户选 SKIP（保留 LG，fi\_\* 不变但仍留痕）
-   - LG 一致（`existing == mapped`） —— **不写 fi\_\*，也不写 audit**
+   - `OVERWRITTEN` —— LG 有值且与上传不同，用户选 OVERWRITE（写新版本行）
+   - `SKIPPED` —— LG 有值且与上传不同，用户选 SKIP（保留 LG，fi\_\* 不变；留痕走 `conflict_record.resolution=SKIP` + `note`）
+   - LG 一致（`existing == mapped`） —— **不写 fi\_\***
 7. **币种换算**：verify 阶段已经把 Actuals mappedValue 换算到公司币种；resolve 直接使用。Proforma 在 resolve 阶段做币种换算（P&L 类用月均、BS 类用月末汇率）。同 task 同 (date) 内多次 Actuals 写入合并到一个新版本行；Proforma 按年分组各成版本。
 
 8. **Proforma 写入策略**：
@@ -608,7 +735,7 @@ type ProformaItem = {
 }
 ```
 
-后端识别为退化场景：跳过 fi_\* / forecast / commit_audit 写入，**仅**登记原始文件到 Imported Statements 文件夹，state → `COMPLETED`。响应字段中 `writtenAccounts=0`、`writtenPeriods/writtenDataTypes=[]`、`registeredFileCount>0`。
+后端识别为退化场景：跳过 fi_\* / forecast 写入，**仅**登记原始文件到 Imported Statements 文件夹，state → `COMPLETED`。响应字段中 `writtenAccounts=0`、`writtenPeriods/writtenDataTypes=[]`、`registeredFileCount>0`。
 
 **前端 popup 文案**（PRD §3.4）：
 
@@ -876,10 +1003,8 @@ verify 响应（LG 已有 Revenue 2025-09=100000，与上传 123 不同 → 冲�
 
 后端动作：
 
-- `conflict_record.resolution = OVERWRITE`，`resolved_by/_at` 填充
-- `conflict_note` 顶层 INSERT 一条（`auto_generated=false`，`resolution=OVERWRITE`）
+- `conflict_record.resolution = OVERWRITE`，`note` / `resolved_by` / `resolved_at` 填充
 - `finance_manual_data` 写入新行，`gross_revenue = 123.0000`（取自 verify 时固化的 `conflict_record.mapped_value`）
-- `commit_audit` 写入：`action=OVERWRITTEN, old_value=100000.0000, new_value=123.0000, conflict_note_id=<note.id>`
 - 任务状态 → `COMPLETED`
 
 ### 场景 C：跨币种聚合
@@ -964,9 +1089,7 @@ POST /api/web/ai/financialExtraction/tasks/{taskId}/verify
 |---|---|---|
 | `ai_financial_extraction_task` | 任务主表 | 状态推进 |
 | `ai_financial_extraction_extracted_data` | cell 级解析结果（含 edit_\* 字段） | AI 阶段 INSERT；resolve 阶段按 cellId UPDATE `edit_*` + `user_edited` + `edit_at` |
-| `ai_financial_extraction_conflict_record` | 冲突列表 | verify 重建 |
-| `ai_financial_extraction_conflict_note` | 冲突解决备注 | resolve INSERT |
-| `ai_financial_extraction_commit_audit` | fi\_\* 写入流水 | resolve INSERT（WRITTEN/OVERWRITTEN/SKIPPED 全记） |
+| `ai_financial_extraction_conflict_record` | 冲突列表 + 解决留痕（resolution / note / resolved_by / resolved_at） | verify 重建；completeTask UPDATE |
 | `finance_manual_data` | LG 财务数据（写入目标） | resolve INSERT 新版本行 |
 
 ### B. 下游影响
@@ -976,10 +1099,9 @@ POST /api/web/ai/financialExtraction/tasks/{taskId}/verify
 
 ### C. 未来扩展点（不影响 v1.1 契约）
 
-- `conflict_note` 的 thread 回复接口（PRD §3.6 Notes 列表页）
-- `commit_audit` 反查接口（审计排查用）
 - `Idempotency-Key` 头支持（防重复提交）
 - memory-learn SQS 启用（resolve 末尾自动触发）
+- 若未来需要 Notes 列表 / fi_\* 写入审计页面，需重新评估是否单独引入审计表
 
 ---
 
@@ -996,3 +1118,4 @@ POST /api/web/ai/financialExtraction/tasks/{taskId}/verify
 | 2026-05-20 | v1.6.0 | verify 响应扁平化：`data` 直接是 `Array<ConflictItem>`；移除 `nonConflicts[]`（前端反馈无用，自行从 mappedData 计算后传给 resolve）；resolve 接口契约保持不变 |
 | 2026-05-21 | v1.7.0 | 新增 `POST /tasks/{taskId}/fileSave` 接口（未识别出有效财务指标时直存 Documentation）；resolve 末尾自动登记原始文件到 "Imported Statements" 文件夹；新增 V3 SQL 预置该全局文件夹；`importedStatementsFolderId` 字段填真实 ID `"ImportedStatements"` |
 | 2026-05-21 | v1.8.0 | resolve / fileSave 合并为单一 `POST /tasks/{taskId}/complete`；空数组输入即退化为 fileSave 行为；响应增加 `registeredFileCount` + `documentationRedirectUrl`；删除独立 fileSave 端点与 VO |
+| 2026-05-25 | v1.9.0 | 移除 `commit_audit` / `conflict_note` 两张表（业务上不需要独立审计；conflict_note 与 conflict_record 1:1 冗余）；completeTask 解决冲突时只 UPDATE `conflict_record`；前端契约不变；附 V7 清理脚本 |
