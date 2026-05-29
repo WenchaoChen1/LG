@@ -178,10 +178,10 @@
 - **R&D Expenses**：`research, development, r&d, r and d, product development, engineering, software development, technical development, developer, engineering salaries, technical consulting, product design, ux research, cloud hosting, aws, azure, gcp, development tools, software licenses, testing, qa, quality assurance, devops, infrastructure engineering`。
 
 - **G&A Expenses**：
- - Overhead:`general and administrative, g&a, overhead, corporate expense, office expense`；
- - Facilities:`rent, lease, utilities, office supplies, internet, phone, equipment`；
- - Professional Services:`legal, legal fees, accounting, audit, consulting, professional services`；
- - Admin:`hr, human resources, recruiting, insurance, licenses, permits`。
+  - Overhead:`general and administrative, g&a, overhead, corporate expense, office expense`；
+  - Facilities:`rent, lease, utilities, office supplies, internet, phone, equipment`；
+  - Professional Services:`legal, legal fees, accounting, audit, consulting, professional services`；
+  - Admin:`hr, human resources, recruiting, insurance, licenses, permits`。
 
 - **Payroll** `wages, salary, payroll, compensation, benefits, payroll taxes` 如果 AI 无法确定如何将分配至特定的薪资类别，则默认归入“一般及行政费用”（G&A），并在source account和LG account以alert icon标记以供用户复核。
 
