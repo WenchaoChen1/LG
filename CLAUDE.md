@@ -18,6 +18,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **禁止自动推送远程**：`git push` 只有在用户明确说"推送"时才执行，提交（commit）不等于推送
 - **提交前确认**：执行 `git add` 和 `git commit` 前需用户确认，不要自动批量提交
 
+## 执行策略（强制）
+
+**Agent Teams 优先**：能用 agent teams（多角色并行：PM / Architect / Dev / QA / Reviewer 等）执行的任务，**必须**用 agent teams，**不要**单 agent 顺序跑。
+
+- **典型应用场景**：
+  - 多步流水线任务（需求 → 设计 → 编码 → 审查 → 测试）
+  - 跨子项目（Java + Python + Web 联动）的功能开发或排查
+  - 代码审查（用多个 reviewer agent + 各语言审查 skill 并行）
+  - 大范围调研（多个 explore agent 并行扫不同模块）
+  - 头脑风暴 / 评估方案（多视角并行：安全 / 性能 / 可维护性 / UX 等）
+- **默认走项目内已配置的 team 命令**（无需手动编排）：
+  - `/team-product` → PM 团队（需求文档）
+  - `/team-design` → Architect 团队（设计文档）
+  - `/team-code` → Dev 团队（实现 + 审查）
+  - `/team-test` → QA 团队（测试用例 + 执行）
+  - `/team-all` → 全流程串联（产品 → 设计 → 编码 → 测试）
+  - `/run-e2e-pipeline` → 9 步一键流水线
+- **判断标准**：任务能拆成 ≥ 2 个独立子目标并行执行 → 用 agent teams；否则单 agent。
+- **可以单跑的简单任务**：读单文件、改一行配置、查端口状态、grep 一个符号等明确单步操作，不必上 multi-agent。
+
+> 这是项目级强制规则，对所有 Claude Code 端（CLI / 桌面 / 网页 / IDE 插件）一致生效。
+
 ## Windows 开发环境
 
 - PowerShell 脚本（`.ps1`）必须在 PowerShell 中执行，**不能**在 bash/Git Bash 中运行

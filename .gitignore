@@ -6,6 +6,8 @@ cio-bigdata/
 
 # Claude Code（只忽略本地配置）
 .claude/settings.local.json
+.claude/history/
+.claude/worktrees/
 
 # IDE
 .idea/
@@ -23,3 +25,13 @@ esapiens-python/
 # UI/UX 设计参考（本地参考用，不纳入仓库）
 Remix of LG-UI_UX/
 Remix of LG-UI_UX.zip
+
+# Nacos 配置导出（含生产凭据，本地排查用，禁止提交）
+cioaas_*.yml
+nacos_*.txt
+
+# docker-compose 本地密码文件（含 PG / MySQL / Redis 密码）
+.env.docker
+
+# docker-compose 运行时数据卷（PG / MySQL / Redis 持久化数据，几 GB binary，禁止提交）
+volumes/

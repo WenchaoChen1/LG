@@ -1,0 +1,248 @@
+# ============================================================
+# LG 项目本地开发环境
+# ============================================================
+#
+# 一键启动 LG 全部依赖镜像（postgres+pgvector / mysql / nacos / redis ...）。
+# 跟 D:\docker\compose.yml（全局通用环境）完全独立，端口可共存或选其一。
+#
+# 设计原则：
+#   1. 默认只起 LG 应用最低必需的服务：postgres / mysql / nacos
+#   2. 可选服务走 profile：redis（缓存）/ minio（S3 本地）/ elasticsearch（RAG ES 后端）
+#   3. 密码 / 库名走 .env.docker（不提交），首次启动复制 .env.docker.example
+#   4. PostgreSQL 用 pgvector/pgvector:pg15 自带 vector + pg_trgm 扩展
+#      —— Python 应用 setup_rag_tables() 启动时 CREATE EXTENSION IF NOT EXISTS 即生效
+#
+# 启动：
+#   cp .env.docker.example .env.docker  # 首次（自行改密码）
+#   docker compose --env-file .env.docker up -d        # postgres + mysql + nacos + redis
+#
+# 可选服务（minio / elasticsearch）默认全部注释，需要时去 docker-compose.yml
+# 取消相应 service + volume + .env.docker 配置项的注释。
+#
+# 停止 + 清理：
+#   docker compose down               # 停容器保留数据
+#   docker compose down -v            # 停容器并删除 volume（数据丢失！）
+# ============================================================
+
+# 全局日志限制：单服务最多 50MB × 3 = 150MB，防止日志吃满磁盘
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+# 共享网络：LG 内部服务互通，不跟其它 docker 项目混
+networks:
+  lg-net:
+    name: lg-net
+    driver: bridge
+
+services:
+
+  # ==========================================================
+  # PostgreSQL（默认启动）—— 单实例双库隔离
+  # ----------------------------------------------------------
+  # 镜像 pgvector/pgvector:pg15：兼容普通 PG，业务库不装扩展时跟原版完全一样。
+  # init 脚本 docker/postgres/init/01-init-rag-db.sh 首次启动时：
+  #   1. 业务库 ${PG_DATABASE}（默认 lg_test）由 entrypoint 自动建，不装任何扩展
+  #   2. RAG 库 ${PG_RAG_DB}（默认 lg_rag）建在同实例，并**只**在它里面装
+  #      pgvector + pg_trgm。业务库保持干净，业务表完全不受影响。
+  # ==========================================================
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: lg-postgres
+    hostname: postgres
+    restart: unless-stopped
+    logging: *default-logging
+    networks: [lg-net]
+    environment:
+      POSTGRES_DB: ${PG_DATABASE:-lg_test}
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # init 脚本读这个建第二个库（业务库与 RAG 库物理隔离）
+      PG_RAG_DB: ${PG_RAG_DB:-lg_rag}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - effective_cache_size=4096MB
+      - -c
+      - log_min_duration_statement=1000
+    volumes:
+      - lg-pgdata:/var/lib/postgresql/data
+      # 首次启动跑 init scripts（CREATE EXTENSION 兜底；应用层也会跑）
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres} -d ${PG_DATABASE:-lg_test}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "${PG_PORT:-5432}:5432"
+
+  # ==========================================================
+  # MySQL（默认启动）—— Nacos 配置中心后端存储
+  # ----------------------------------------------------------
+  # 使用 nacos 官方预置 schema 的镜像，免去手动 init
+  # ==========================================================
+  mysql:
+    image: nacos/nacos-mysql:5.7
+    container_name: lg-mysql
+    restart: unless-stopped
+    logging: *default-logging
+    networks: [lg-net]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: nacos_devtest
+      MYSQL_USER: nacos
+      MYSQL_PASSWORD: ${MYSQL_NACOS_PASSWORD:-nacos}
+    command: >-
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --slow_query_log=1
+      --long_query_time=2
+    volumes:
+      - lg-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+
+  # ==========================================================
+  # Nacos（默认启动）—— Java 后端配置中心 + 服务注册
+  # ----------------------------------------------------------
+  # 控制台：http://localhost:8848/nacos  默认账号：nacos / nacos
+  # CIOaas-api 各模块 bootstrap.yml 读 ${NACOS_SERVER_ADDR:localhost:8848}
+  # ==========================================================
+  nacos:
+    image: nacos/nacos-server:v2.3.1
+    container_name: lg-nacos
+    hostname: nacos
+    restart: unless-stopped
+    logging: *default-logging
+    networks: [lg-net]
+    environment:
+      MODE: standalone
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_USER: nacos
+      MYSQL_SERVICE_PASSWORD: ${MYSQL_NACOS_PASSWORD:-nacos}
+      MYSQL_SERVICE_DB_NAME: nacos_devtest
+      MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&allowPublicKeyRetrieval=true&serverTimezone=GMT%2B8
+      NACOS_AUTH_IDENTITY_KEY: serverIdentity
+      NACOS_AUTH_IDENTITY_VALUE: security
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-SecretKey012345678901234567890123456789012345678901234567890123456789}
+      JVM_XMS: 256m
+      JVM_XMX: 512m
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8848/nacos/v1/console/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "${NACOS_PORT:-8848}:8848"
+      - "9848:9848"   # gRPC 客户端
+      - "9849:9849"   # gRPC 服务端
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # ==========================================================
+  # Redis（默认启动）—— 缓存 / 会话
+  # ==========================================================
+  redis:
+    image: redis:7-alpine
+    container_name: lg-redis
+    hostname: redis
+    restart: unless-stopped
+    logging: *default-logging
+    networks: [lg-net]
+    command: >-
+      redis-server
+        --requirepass ${REDIS_PASSWORD:-redis}
+        --maxmemory 512mb
+        --maxmemory-policy allkeys-lru
+        --appendonly yes
+    volumes:
+      - lg-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis}", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  # ==========================================================
+  # 可选服务（默认全注释）—— 需要时取消相应 service + volume 注释再启
+  # ----------------------------------------------------------
+  # minio           —— S3 兼容对象存储（替代 AWS S3 本地开发）
+  # elasticsearch   —— RAG 可选向量后端（默认 RAG 走 PG）
+  # ==========================================================
+
+  # minio:
+  #   image: quay.io/minio/minio
+  #   container_name: lg-minio
+  #   restart: unless-stopped
+  #   logging: *default-logging
+  #   networks: [lg-net]
+  #   environment:
+  #     MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+  #     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+  #   command: server /data --console-address ":9001"
+  #   volumes:
+  #     - lg-minio-data:/data
+  #   ports:
+  #     - "${MINIO_API_PORT:-9000}:9000"
+  #     - "${MINIO_CONSOLE_PORT:-9001}:9001"
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-fs", "http://localhost:9000/minio/health/live"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+
+  # elasticsearch:
+  #   image: elasticsearch:8.17.4
+  #   container_name: lg-elasticsearch
+  #   restart: unless-stopped
+  #   logging: *default-logging
+  #   networks: [lg-net]
+  #   environment:
+  #     discovery.type: single-node
+  #     ES_JAVA_OPTS: -Xms512m -Xmx1g
+  #     xpack.security.enabled: "false"
+  #   volumes:
+  #     - lg-es-data:/usr/share/elasticsearch/data
+  #   ports:
+  #     - "${ES_PORT:-9200}:9200"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -s --fail http://localhost:9200/_cluster/health || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+
+# ==========================================================
+# Named Volumes（Docker 托管，Windows 性能优于 bind mount）
+# ----------------------------------------------------------
+# 数据持久化到 Docker 数据目录；清理：docker volume rm lg-<name>
+# 全删：docker compose down -v
+# ==========================================================
+volumes:
+  lg-pgdata:
+  lg-mysql-data:
+  lg-redis-data:
+  # 可选服务的 volume，启用对应 service 时取消注释
+  # lg-minio-data:
+  # lg-es-data:
