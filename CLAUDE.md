@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Git 规则（强制）
 
-- **提交消息必须使用中文**：`git commit -m "中文描述"`
+- **提交消息必须使用英文**：`git commit -m "English description"`
 - **禁止自动推送远程**：`git push` 只有在用户明确说"推送"时才执行，提交（commit）不等于推送
 - **提交前确认**：执行 `git add` 和 `git commit` 前需用户确认，不要自动批量提交
 
