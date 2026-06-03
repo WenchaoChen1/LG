@@ -1,6 +1,12 @@
 # 第 1 部分：基础与研究类需求（Foundation & Research）
 
-> 本部分包含 **6** 个基础研究和架构类需求（含 2026-05-12 拉取新增的 LG-1381 AI Model Hosting Strategy）
+> 本部分包含 **7** 个基础研究和架构类需求。
+>
+> **本轮变更摘要（2026-05-22 vs 2026-05-12）**
+> - **新增 LG-1385**：_Research: Layer 1b Chat Content - Company Association and Memory Binding Logic_（Karen 2026-05-18 创建，配合 LG-1330 拆分；详见第 7 节）
+> - **LG-1381**：状态由 _Backlog / Needs Sizing_ → **Prioritized / Product Review / Working Status = In Progress**，T-Shirt = M（3 story points）
+> - **LG-1327**：状态由 _Product Review (In Progress)_ → **Ready for Design (Sprint On-Deck)**
+> - **LG-1328**：状态由 _Product Review (In Progress)_ → **Product Approved (Sprint On-Deck)**
 
 ---
 
@@ -241,8 +247,8 @@ Golden Section（GS）的 playbooks 是 AI 聊天机器人 Layer 2 知识库的�
 
 - **Asana ID**: 1214057483533667
 - **LG 编号**: LG-1327
-- **状态**: Product Review（Working Status = In Progress，Story Points = 2，T-Shirt = M，Priority = High）
-- **最近修改**: 2026-05-07
+- **状态**: **Ready for Design（Section = Sprint On-Deck，Working Status = Not Started，Story Points = 2，T-Shirt = M，Priority = High）** ⬆️
+- **最近修改**: 2026-05-20
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214057483533667
 
 ### 业务需求
@@ -280,8 +286,8 @@ AI 聊天机器人的公司 Memory File（Layer 1，公司记忆文件）会以 
 
 - **Asana ID**: 1214057483533668
 - **LG 编号**: LG-1328
-- **状态**: Product Review（Working Status = In Progress，Story Points = 13，T-Shirt = L，Priority = High）
-- **最近修改**: 2026-05-11
+- **状态**: **Product Approved（Section = Sprint On-Deck，Story Points = 13，T-Shirt = L，Priority = High，Type = Technical Task）** ⬆️
+- **最近修改**: 2026-05-20
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214057483533668
 
 ### 业务需求
@@ -404,12 +410,12 @@ MVP 数据源包含以下内容：
 
 ---
 
-## 6. AI 模型托管策略（AI Model Hosting Strategy）— 新增
+## 6. AI 模型托管策略（AI Model Hosting Strategy）
 
 - **Asana ID**: 1214717456780780
 - **LG 编号**: LG-1381
-- **状态**: Needs Sizing（Backlog，Priority = High，Type = Research task）
-- **最近修改**: 2026-05-11
+- **状态**: **Product Review（Working Status = In Progress，Section = Prioritized，T-Shirt = M，3 story points，Priority = High，Type = Research task）** ⬆️
+- **最近修改**: 2026-05-21
 - **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214717456780780
 
 ### 业务需求
@@ -462,5 +468,62 @@ AI 聊天机器人 epic 当前计划基于第三方 API 路由层（OpenRouter�
 
 - **依赖**：与 LG-1311 Research AI Models for Chatbot Use（已完成）的结论保持一致；本任务在其结论基础上进一步针对"托管位置"做评估
 - **影响**：本任务的结论将影响 LG-1328 AI Architecture & Model Routing Foundation 的最终架构形态
-- **优先级**：High（Backlog，待 Sizing）
+- **优先级**：High（**Prioritized 区段，Product Review In Progress**）
 - **范围**：研究产出 + 架构兼容性 checklist，不涉及代码实现
+
+---
+
+## 7. 研究：Layer 1b 聊天内容 — 公司归属与记忆绑定逻辑（Research: Layer 1b Chat Content - Company Association and Memory Binding Logic）— 新增
+
+- **Asana ID**: 1214913562391163
+- **LG 编号**: LG-1385
+- **状态**: Needs Sizing（Working Status = Not Started，Section = Backlog，Priority = High，Type = Research task）
+- **最近修改**: 2026-05-21
+- **Asana 链接**: https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1214913562391163
+
+### 业务需求
+
+当 Portfolio Manager 与 AI Chatbot 聊天时，系统需要从对话中抽取有意义的 learnings 并写入**正确公司**的 Layer 1b memory file。与 Company-side 用户始终在单一公司上下文中聊天不同，**PM 可能在单次会话中讨论多家公司**：先问某公司 ARR，切换到另一公司的 burn rate，再做跨公司比较。这带来一个挑战：**系统如何可靠判断对话中哪些片段是关于哪家公司的，以便将抽取出的 learnings 正确归入对应公司的 Layer 1b memory file？**
+
+对于**文档上传**，已经定义了 confirmation prompt 工作流（详见 [LG-1399 _Document Upload (Portfolio Admin)_](./part-D-portfolio-shared.md)）：AI 推断公司 → PM 在写入 Layer 1b 前确认。但对于**chat 内容抽取**（这是 Layer 1b 长期积累的主要机制），在每条消息后弹 confirmation prompt 不是可行的 UX。系统需要一种**可靠、低摩擦**的公司归属方式，无需 PM 不断确认在谈哪家公司。
+
+本 **Research 任务**用于评估 AI 推断公司归属的技术可行性、识别风险与失败模式、并在写入 Story AC 之前给出推荐方案。没有这份研究，任何 Layer 1b 聊天抽取的 AC 都会是推测性的，且在开发期间很可能大幅返工。
+
+> **创建背景**：本 Research 由 Karen Arnoldi 在 2026-05-18 创建，回应 Liang Chunru 在 LG-1330 中的建议（5/18 评论："For determining how chat content gets associated with a specific company and written into Layer 1b, we believe AI-based inference is the right direction but the approach needs more investigation before we can commit to a specification. We recommend opening a dedicated research ticket to evaluate feasibility before this is written into the AC."）。
+
+### 验收标准
+
+#### 推断方式评估（Inference Approach Evaluation）
+
+- 团队研究并记录使用 AI 推断**PM 聊天对话某片段是关于哪家公司**的可行性，基于以下上下文信号：
+  - 对话中提及的公司名称
+  - 引用的财务数字
+  - 对话上下文（如近期 turn 的主题延续）
+- 研究识别**置信度阈值**：在哪个确定性水平下系统应**自动归属**到某公司，何时应**弹 confirmation prompt** 给用户。
+- 研究记录**失败模式**：哪些类型的对话最容易产生错误或模糊的公司归属，系统应如何处理这些场景。
+
+#### 推荐技术方案（Proposed Technical Approach）
+
+- 研究为 chat 内容归属与写入 Layer 1b 提出具体技术方案，包括：
+  - 归属发生时机：**real-time during conversation** vs **end-of-session 抽取** vs **混合方式**
+- 推荐方案包含对**多公司会话**的处理方式——单次抽取 pass 可能需要把 learnings 拆分到多家公司的 Layer 1b file。
+- 推荐方案说明**无法置信归属任何公司时**的处理：
+  - 丢弃该内容？
+  - 存到一个通用的 PM-level context？
+  - 标记为待人工审核？
+
+#### 输出（Output）
+
+- 研究输出以可直接用于**改写 Layer 1b 聊天抽取 AC** 的格式记录（在开发开始之前）。
+- 产品团队可使用此输出做出 Layer 1b 抽取方法 + **PM Chat Entry Point 范围决策**（绑定到 portfolio 级 vs global 级）的最终决定。
+
+### UX 设计要点
+
+- 本任务为研究性 story，**无直接面向用户的 UI**；但输出会影响 LG-1336 Portfolio Manager Memory Settings UI 与 LG-1335 Portfolio Manager Core Chat UI 的某些边界。
+
+### 依赖与备注
+
+- **强影响 LG-1398**（Layer 1b Backend - Chat Extraction & Document Upload Processing）：LG-1398 的 AC **需在 LG-1385 完成后 finalize**。
+- **强影响 LG-1335 / LG-1336**：PM Chat Entry Point 决策（portfolio 级 vs global 级）依赖本研究输出。
+- 与 LG-1399（Document Upload Portfolio Admin）的 confirmation prompt 工作流配合：LG-1399 已采用 confirmation 模式，本研究专注于**没有 confirmation 的 chat 抽取**该如何归属。
+- 当前 Asana 标签：**Backlog**, **Needs Sizing**, **High priority**, **Type = Research task**, **due 2026-05-20**（已 overdue）。

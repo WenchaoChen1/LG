@@ -1,8 +1,24 @@
 # LangGraph 技术方案：EPIC AI Chatbot
 
-> 本文档基于 [README.md](./README.md) 中归纳的 17 个子任务需求，提供一份可落地的 LangGraph 技术设计。
+> 本文档基于 [README.md](./README.md) 中归纳的子任务需求，提供一份可落地的 LangGraph 技术设计。
 > **服务定位**：AI Chatbot 全部功能（编排、RAG、Memory、Chat History、文档上传）由 Python 服务承担；当需要业务数据（财务、Benchmark、Company Settings、ACL）时通过调用 Java REST 接口获取，**不直连 Java 业务库**。详细边界与接口契约见 [python-java-integration.md](./python-java-integration.md)。
-> 编写日期：2026-05-07。
+> 编写日期：2026-05-07；2026-05-22 注记。
+
+---
+
+> **⚠️ 2026-05-22 需求变更提示（待 dev team 在下一轮修订时合入）**
+>
+> 本文档当前基于 18 个子任务的版本（截至 2026-05-12 拉取）。Asana EPIC 现已扩展至 **28 个子任务**，下列两个核心点会影响技术方案需要重新评估：
+>
+> 1. **Memory 抽取触发器**：旧版"会话末（end-of-session / inactivity）"→ **real-time incremental at each message exchange**，处理异步、不阻塞回复。这影响：
+>    - G7 目标语义（"会话结束自动抽取" → "实时增量抽取"）
+>    - 主图节点 `kick_extraction`（在 synthesize 之后）→ 应改为 `realtime_extract`（在每个 turn 同步触发，但 Celery 异步执行）
+>    - 抽取 Schema 仍可复用，但触发频率与去重逻辑需重新设计（避免对同一信息重复抽取）
+> 2. **Layer 1b 聊天内容公司归属**：依赖 Research [LG-1385](./part-A-foundation.md#7-研究layer-1b-聊天内容--公司归属与记忆绑定逻辑research-layer-1b-chat-content---company-association-and-memory-binding-logic-新增) 输出。多公司会话场景下，单次抽取 pass 可能需要把 learnings 拆分到多家公司 Layer 1b file，归属置信度阈值与失败模式需在 LG-1385 完成后引入主图逻辑。
+> 3. **Layer 1a 抽取按内容类别拆为 6 个 User Story（LG-1391~1396）**：每类抽取的 Schema、Prompt、冲突处理需独立设计；建议主图保留单一 `realtime_extract` 节点，内部 fan-out 到 6 个并行 sub-extractor（每类 schema 独立）。
+> 4. **Document Upload 拆为 Company Portal / Portfolio Admin 两版**：Portfolio Admin 版本需新增"AI 推断公司 + PM confirmation"工作流（详见 [LG-1399 part-D §6](./part-D-portfolio-shared.md#6-ai-chatbot---用于聊天分析的文档上传--portfolio-adminlg-1399)）。
+>
+> 下文内容**未做大规模重写**，仅供 dev team 参考；细化方案待 LG-1385 Research 完成后回写。
 
 ---
 
