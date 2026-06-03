@@ -191,7 +191,7 @@ Benchmark是Looking Glass（LG）系统中的一个核心财务分析功能，�
      - 形式：水平彩色条形图							
      - 颜色：根据该指标在当前维度下的百分位进度条上色							
      - 长度：代表相对位置							
-"     -各指标名称悬停内容：固定显示LG的指标名称和对应LG公式，动态显示当前页面选择的各个Benchmark对应的指标名称，指标公式，样本分组信息，公式信心标签，对标平台名称和版本。Benchmark信息取自LG平台已完成功能“Benchmark Entry”,  分别对应 Metric Name，Definition, Segment Type, Segment Value (Segment Type, Segment Value组合显示)，Best Guess, Platform, Edition (显示格式为Platform - Edition)。						
+     - 各指标名称悬停内容：固定显示LG的指标名称和对应LG公式，动态显示当前页面选择的各个Benchmark对应的指标名称，指标公式，样本分组信息，公式信心标签，对标平台名称和版本。Benchmark信息取自LG平台已完成功能“Benchmark Entry”,  分别对应 Metric Name，Definition, Segment Type, Segment Value (Segment Type, Segment Value组合显示)，Best Guess, Platform, Edition (显示格式为Platform - Edition)。						
 							
    - **百分位数值**：							
      - 精确百分位：P45（例如）							
