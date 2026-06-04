@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `CIOaas-web/CLAUDE.md`
   - `CIOaas-python/CLAUDE.md`
 - 若问题涉及 `cio-bigdata/`，还须读取 `cio-bigdata/CLAUDE.md`。
+- 若问题涉及在 `docs/` 下创建或修改功能文档，必须先读 `docs/CLAUDE.md`（定义 9 阶段文档流水线的目录结构、命名规则与禁止事项）。
 - 各子项目另有 `standards/`（`architecture.md`、`coding.md`、`git.md`）；开发前按对应子项目 `CLAUDE.md` 中的「规范加载」执行，**不要**在根目录重复抄写这些规范。
 - 若问题涉及多个子项目，按相关性依次读取；若无法确定，默认先读上述三个主工程 `CLAUDE.md` 再执行后续操作。
 
