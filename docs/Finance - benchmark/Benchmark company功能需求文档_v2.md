@@ -445,8 +445,8 @@ Bottom Rank（情景：Cash < 0 且Monthly Net Burn Rate < 0；或 Cash < 0 且M
 "   [$1, $250K)        → 包含 $1，不包含 $250K"							
 "   [$250K, $1M)       → 包含 $250K，不包含 $1M"							
 "   [$1M, $5M)         → 包含 $1M，不包含 $5M"							
-"   [$5M, $20M]        → 包含 $5M，包含 $20M"							
-"   ($20M, +∞)         → $20M 及以上"
+"   [$5M, $20M）       → 包含 $5M，不包含 $20M"							
+"   [$20M, +∞)         → $20M及以上"
 5. **数据质量符合以下规则** 
   - Actual数据时，从closed month开始往前数24个日历月内，连续六个月非负gross revenue，为有效数据公司，若有效同行 < 3 家，回退到全平台基准，显示 Peer Fallback 提示；
   - Committed forecast/System generated forecast数据时，从最后一个有预测数据的月份开始往前数24个日历月内，连续六个月非负gross revenue，为有效数据公司，若有效同行 < 3 家，回退到全平台基准，显示 Peer Fallback 提示。
