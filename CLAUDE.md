@@ -21,7 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 执行策略（强制）
 
-**Agent Teams 优先**：能用 agent teams（多角色并行：PM / Architect / Dev / QA / Reviewer 等）执行的任务，**必须**用 agent teams，**不要**单 agent 顺序跑。
+**Agent Teams 优先（= 能拆分并行就并行）**：只要任务能拆成 ≥ 2 个相互独立的子目标，就**必须**拆开用多个子代理（角色可分：PM / Architect / Dev / QA / Reviewer 等）并行执行，**不要**单 agent 顺序跑。
 
 - **典型应用场景**：
   - 多步流水线任务（需求 → 设计 → 编码 → 审查 → 测试）
@@ -29,14 +29,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - 代码审查（用多个 reviewer agent + 各语言审查 skill 并行）
   - 大范围调研（多个 explore agent 并行扫不同模块）
   - 头脑风暴 / 评估方案（多视角并行：安全 / 性能 / 可维护性 / UX 等）
-- **默认走项目内已配置的 team 命令**（无需手动编排）：
-  - `/team-product` → PM 团队（需求文档）
-  - `/team-design` → Architect 团队（设计文档）
-  - `/team-code` → Dev 团队（实现 + 审查）
-  - `/team-test` → QA 团队（测试用例 + 执行）
-  - `/team-all` → 全流程串联（产品 → 设计 → 编码 → 测试）
-  - `/run-e2e-pipeline` → 9 步一键流水线
-- **判断标准**：任务能拆成 ≥ 2 个独立子目标并行执行 → 用 agent teams；否则单 agent。
+- **执行方式**：用 `Agent` 工具派发并行子代理（`Explore` 调研 / `general-purpose` 多步任务 / `Plan` 设计方案 等），配合可用的 skills；相互独立的子任务在**同一条消息里一次性发起**以并发执行。
+- **判断标准**：任务能拆成 ≥ 2 个独立子目标并行执行 → 拆开并行；否则单 agent。
 - **可以单跑的简单任务**：读单文件、改一行配置、查端口状态、grep 一个符号等明确单步操作，不必上 multi-agent。
 
 > 这是项目级强制规则，对所有 Claude Code 端（CLI / 桌面 / 网页 / IDE 插件）一致生效。
@@ -47,6 +41,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `conda` 命令在 bash 终端中不可用，需使用 Anaconda Prompt 或 PowerShell
 - Java/Maven 输出可能出现 GBK 编码乱码，可在 PowerShell 中运行：`chcp 65001` 切换为 UTF-8
 - 路径使用正斜杠（`/`）或双反斜杠（`\\`），避免在 bash 环境中混用
+
+## 本地依赖环境（Docker）
+
+`docker-compose.yml` 一键拉起 LG 全部依赖镜像（与全局 `D:\docker\compose.yml` 独立，端口可共存）：
+
+```bash
+cp .env.docker.example .env.docker           # 首次：复制并改密码（.env.docker 不提交，含 PG/MySQL/Redis 密码）
+docker compose --env-file .env.docker up -d  # 默认起 postgres + mysql + nacos + redis
+docker compose down                          # 停容器保留数据
+docker compose down -v                       # 停容器并删卷（数据丢失！）
+```
+
+| 服务 | 镜像 | 端口 | 说明 |
+|------|------|------|------|
+| postgres | `pgvector/pgvector:pg15` | 5432 | 单实例双库隔离：业务库 `lg_test`（保持干净）+ RAG 库 `lg_rag`（**仅此库**装 pgvector + pg_trgm，由 `docker/postgres/init/` 初始化） |
+| mysql | `nacos/nacos-mysql:5.7` | 3306 | Nacos 配置中心后端存储 |
+| nacos | `nacos/nacos-server:v2.3.1` | 8848 / 9848 / 9849 | 配置中心 + 服务注册；控制台 `http://localhost:8848/nacos`（nacos/nacos） |
+| redis | `redis:7-alpine` | 6379 | 缓存 / 会话 |
+
+- 可选服务（默认注释）：`minio`（S3 本地替代）、`elasticsearch`（RAG 可选向量后端，默认 RAG 走 PG）。需要时取消对应 service + volume 注释。
+- 衔接关系：Java 各模块 `bootstrap.yml` 从 `${NACOS_SERVER_ADDR}`（默认 `localhost:8848`）读配置；Python RAG 启动 `setup_rag_tables()` 依赖 `lg_rag` 的 pgvector 扩展。
 
 ## 项目概览
 
@@ -60,6 +75,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `cio-bigdata/` | Python 3.6、ETL / Singer、Airflow | 数据集成（Redshift、QuickBooks 等） |
 | `docs/` | Markdown | 功能需求文档、设计文档、审核报告 |
 | `docs/智能解析/调研/` | Markdown | OCR Agent 技术方案（系统架构/Java/Python/前端/设计理念） |
+
+> 四个子项目（`CIOaas-api/`、`CIOaas-web/`、`CIOaas-python/`、`cio-bigdata/`）是**独立的嵌套 Git 仓库**，已在父仓库 `.gitignore` 中忽略，各有独立提交历史。某些 checkout 可能不包含全部子项目（例如 `cio-bigdata/` 当前未拉取时，涉及它的问题暂不适用）。
 
 ## 跨项目协作模式
 
