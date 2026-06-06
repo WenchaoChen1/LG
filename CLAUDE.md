@@ -75,10 +75,15 @@ docker compose down -v                       # 停容器并删卷（数据丢失
 | `cio-bigdata/` | Python 3.6、ETL / Singer、Airflow | 数据集成（Redshift、QuickBooks 等） |
 | `docs/` | Markdown | 功能需求文档、设计文档、审核报告 |
 | `docs/智能解析/调研/` | Markdown | OCR Agent 技术方案（系统架构/Java/Python/前端/设计理念） |
+| `docs/AI-Chatbot/` | Markdown | AI Chatbot V1 设计文档（范围/ACL/对话图/API 契约/双端 UX） |
 
 > 四个子项目（`CIOaas-api/`、`CIOaas-web/`、`CIOaas-python/`、`cio-bigdata/`）是**独立的嵌套 Git 仓库**，已在父仓库 `.gitignore` 中忽略，各有独立提交历史。某些 checkout 可能不包含全部子项目（例如 `cio-bigdata/` 当前未拉取时，涉及它的问题暂不适用）。
 
 ## 跨项目协作模式
+
+Java 与 Python 之间有两种协作模式，按业务域区分：
+
+### AI 财务提取（智能解析）— SQS 异步
 
 Java (CIOaas-api) 和 Python (CIOaas-python) 通过 AWS SQS 异步通信，**不直接互相调用 HTTP**：
 
@@ -92,6 +97,16 @@ Python → SQS 队列 → Java（结果回调）
 - 共享 PostgreSQL 数据库，但通过 DB 角色隔离各自的写权限
 
 详细设计见 `docs/智能解析/调研/system-architecture.md`。
+
+### AI Chatbot — HTTP 经网关 + SSE 流式
+
+Web 聊天页（`/ai/devSupport/chat`）→ Java 网关 → Python `source/chatbot/`（LangGraph 对话图，`/api/ai/chat/*` SSE 流式接口）：
+
+- Python 查询 LG 业务数据（LGPI 公司/财务接口）时同样**经 Java 网关回调**（路由带 `/web` 前缀），不直连 Java 服务
+- 会话/消息持久化在共享 PG 表 `ai_chatbot_thread` / `ai_chatbot_message`（Python 启动时幂等建表）
+- 鉴权：Redis 会话 + 公司归属 ACL（Python 侧校验）
+
+详细设计见 `docs/AI-Chatbot/设计/design-doc.md`，前后端实现计划见 `docs/superpowers/plans/2026-06-05-ai-chatbot-v1-*.md`。
 
 ---
 
