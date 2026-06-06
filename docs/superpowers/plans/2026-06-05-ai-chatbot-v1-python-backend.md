@@ -58,8 +58,8 @@ source/chatbot/
     └── routes.py                    # POST /ai/chat(SSE) / GET threads / messages / companies
 
 source/common/config/redis.py        # 新增：Redis 连接配置（REDIS_*，默认 DB 10）
-source/lgpi/client.py                # 改：方法支持 per-request token + 新增 get_benchmark / get_portfolio_companies
-source/lgpi/benchmark_query.py       # 新增：benchmark 响应 → AI 友好结构
+source/lgpi_api/client.py                # 改：方法支持 per-request token + 新增 get_benchmark / get_portfolio_companies
+source/lgpi_api/benchmark_query.py       # 新增：benchmark 响应 → AI 友好结构
 source/main.py                       # 改：include chatbot router + 编译 chat 图
 sql/migrations/2026-06-05_ai_chatbot.up.sql / .down.sql   # 新增建表
 pyproject.toml / requirements.txt    # 新增 redis 依赖
@@ -617,7 +617,7 @@ git commit -m "feat(chatbot): redis-backed identity resolution (token revocation
 ### Task 7: LGPI client 支持 per-request token + 可访问公司
 
 **Files:**
-- Modify: `source/lgpi/client.py`（`_headers` 与方法支持 `auth_token`；新增 `get_portfolio_companies`）
+- Modify: `source/lgpi_api/client.py`（`_headers` 与方法支持 `auth_token`；新增 `get_portfolio_companies`）
 - Test: `tests/chatbot/auth/test_portfolio.py`
 
 > 现状：`get_financial_statements` 用 `_headers()`（静态 token）。改为 `_headers(auth_token)`：传入则用 `Bearer {auth_token}`，否则回退 `get_bearer_token()`。所有现有调用不传参 → 行为不变（向后兼容）。
@@ -665,7 +665,7 @@ Expected: FAIL（`AttributeError: get_portfolio_companies`）。
 
 - [ ] **Step 3: 实现**
 
-在 `source/lgpi/client.py`：
+在 `source/lgpi_api/client.py`：
 1) 把模块级 `_headers()` 改为接受可选 token（保留无参兼容）：
 ```python
 def _headers(auth_token: str | None = None) -> dict:
@@ -695,7 +695,7 @@ Expected: PASS。再跑现有 LGPI 测试确认未破坏：`pytest tests/ -k lgp
 - [ ] **Step 5: 提交**
 
 ```bash
-git add source/lgpi/client.py tests/chatbot/auth/test_portfolio.py
+git add source/lgpi_api/client.py tests/chatbot/auth/test_portfolio.py
 git commit -m "feat(lgpi): per-request user token + get_portfolio_companies"
 ```
 
@@ -796,8 +796,8 @@ git commit -m "feat(chatbot): accessible-companies cache + scope enforcement"
 ### Task 9: LGPI `get_benchmark` + benchmark 解析
 
 **Files:**
-- Modify: `source/lgpi/client.py`（新增 `get_benchmark`）
-- Create: `source/lgpi/benchmark_query.py`（AI 友好结构）
+- Modify: `source/lgpi_api/client.py`（新增 `get_benchmark`）
+- Create: `source/lgpi_api/benchmark_query.py`（AI 友好结构）
 - Test: `tests/chatbot/tools/test_benchmark_lgpi.py`
 
 - [ ] **Step 1: 写失败测试**
@@ -844,7 +844,7 @@ Expected: FAIL（`AttributeError: get_benchmark` / `ModuleNotFoundError: lgpi.be
 
 - [ ] **Step 3: 实现**
 
-在 `source/lgpi/client.py` 新增（注意：endpoint 不在 `/api` 前缀下，是 `/benchmark/...`；以 design §8 与 Java `BenchmarkController` 为准）：
+在 `source/lgpi_api/client.py` 新增（注意：endpoint 不在 `/api` 前缀下，是 `/benchmark/...`；以 design §8 与 Java `BenchmarkController` 为准）：
 ```python
 async def get_benchmark(self, company_id: str, *, date: str | None = None,
                         start_date: str | None = None, end_date: str | None = None,
@@ -869,7 +869,7 @@ async def get_benchmark(self, company_id: str, *, date: str | None = None,
     return data.get("data") or {}
 ```
 
-`source/lgpi/benchmark_query.py`：
+`source/lgpi_api/benchmark_query.py`：
 ```python
 """把 Java BenchmarkRawDataResponse 整理成 AI 友好结构 + 文字说明。"""
 from __future__ import annotations
@@ -906,7 +906,7 @@ Expected: PASS ×2。
 - [ ] **Step 5: 提交**
 
 ```bash
-git add source/lgpi/client.py source/lgpi/benchmark_query.py tests/chatbot/tools/test_benchmark_lgpi.py
+git add source/lgpi_api/client.py source/lgpi_api/benchmark_query.py tests/chatbot/tools/test_benchmark_lgpi.py
 git commit -m "feat(lgpi): get_benchmark + AI-friendly benchmark structure"
 ```
 
@@ -2086,7 +2086,7 @@ Expected: PASS（财报问答全链路打通；按实际类型微调 stub）。
 
 - [ ] **Step 3: 跑全量 + lint**
 
-Run: `pytest tests/chatbot/ -v` 然后 `ruff check source/chatbot source/lgpi`
+Run: `pytest tests/chatbot/ -v` 然后 `ruff check source/chatbot source/lgpi_api`
 Expected: 全绿；ruff 无 TID251 违例（确认没直接 import openai/anthropic/langchain_*）。
 
 - [ ] **Step 4: 提交**
