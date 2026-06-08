@@ -13,6 +13,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 各子项目另有 `standards/`（`architecture.md`、`coding.md`、`git.md`）；开发前按对应子项目 `CLAUDE.md` 中的「规范加载」执行，**不要**在根目录重复抄写这些规范。
 - 若问题涉及多个子项目，按相关性依次读取；若无法确定，默认先读上述三个主工程 `CLAUDE.md` 再执行后续操作。
 
+## 编码原则（强制）
+
+> ⚠️ **项目规范（各子项目 `standards/`）始终最高优先级**：下述 YAGNI 是在规范框架内取最简实现，**不得**据此违反 `architecture.md` / `coding.md` 的分层、传输实体（Request/Response/DTO）、命名等强制约定。
+
+在不违反规范的前提下，代码**简单直接表达功能**、不过度设计（YAGNI）：
+
+- 优先最直接满足**当前需求**的实现，避免多余的抽象层 / 预留扩展点
+- 不引入当前用不到的字段 / 参数 / 配置 / 模式（"以后可能要"不是理由）
+- 复杂度按真实出现的需求再加，不为假想场景提前设计
+
 ## Git 规则（强制）
 
 - **提交消息必须使用英文**：`git commit -m "English description"`
