@@ -10,6 +10,26 @@
 
 ---
 
+## 实现状态更新（2026-06-09）
+
+> 本 V1 设计已落地，并对**数据查询层**做了增强与若干修正。完整方案与注意事项见
+> **[../../AI-Chatbot-数据查询/设计/design-doc.md](../../AI-Chatbot-数据查询/设计/design-doc.md)**
+> 与 **[../../AI-Chatbot-数据查询/设计/issues-and-caveats.md](../../AI-Chatbot-数据查询/设计/issues-and-caveats.md)**（含真实环境验证：benchmark Overall 对齐页面 17%ile）。
+
+相对本文档的关键变更（以实现为准）：
+
+| 本文档原述 | 实现现状 |
+|------------|----------|
+| §8 工具名 `lgpi_benchmark` / `lgpi_financial_statements` | 实际工具为 `query_financial` / `query_benchmark` / `query_normalization` / `get_company_detail` / `list_companies`（`source/chatbot/tools/`），客户端在 `source/lgpi_api/*_api.py` |
+| §5 财报 `type=financial_forecast` | **修正为 `forecast`**（Java/前端实际值；旧值是 bug，曾致 Committed Forecast 查空） |
+| §5/§8 benchmark「百分位/Score」 | Java 只返原始值；**百分位/Overall/卡片分全在 Python 客户端算**（`_benchmark_scoring.py` 忠实移植前端 `CIOaas-web/.../benchmark/calc/`）。后端忽略维度过滤、恒返 12 维，须在 `aggregate` 按选择裁剪 |
+| §5 公司信息 `/invite/{id}` 未封装 | 已封装 `company_detail_api`（公司简介/币种/状态等） |
+| §1.2 normalization 不在 V1 | **已纳入**：`normalization_tool` + `/financialNormalized/metricTrace`（标准化值↔原始值↔公式↔FX 溯源），新增 `normalization` 意图 + 图节点 |
+| §6 双编排 | 仍保留确定性路由为生产路径；`tool_calling_loop` 工具 schema 已同步全部新工具但未挂图 |
+| §4.2 `/invite/portfolio` ACL | 仍用之；实测无 portfolio 上下文时返 `Please select a portfolio`，admin 端取列表需关注（见新文档 issues §11） |
+
+---
+
 ## 0. 一句话目标
 
 为公司端（`app*.lgpi.io`）与管理端（`admin*.lgpi.io`）各提供一个 **Ask AI 对话页**，让用户用自然语言查询**单个公司**的 **财报（Financial Statements）/ 对标（Benchmarking）/ 公司信息（Company Profile）** 三类 LG 数据；记忆、文件上传、跨公司聚合留到后续阶段。
