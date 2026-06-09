@@ -26,7 +26,7 @@
 | §5 公司信息 `/invite/{id}` 未封装 | 已封装 `company_detail_api`（公司简介/币种/状态等） |
 | §1.2 normalization 不在 V1 | **已纳入**：`normalization_tool` + `/financialNormalized/metricTrace`（标准化值↔原始值↔公式↔FX 溯源），新增 `normalization` 意图 + 图节点 |
 | §6 双编排 | 仍保留确定性路由为生产路径；`tool_calling_loop` 工具 schema 已同步全部新工具但未挂图 |
-| §4.2 `/invite/portfolio` ACL | 仍用之；实测无 portfolio 上下文时返 `Please select a portfolio`，admin 端取列表需关注（见新文档 issues §11） |
+| §4 鉴权/ACL、§7 L2 ACL | **改向：chatbot 不做公司级授权**（交平台/Java）。端类型由 **Redis `company_id`** 判（非前端 `x-chat-end`、非 org/authorities）：有值=公司端→锁本公司；空=超管→前端所选。已移除 `derive_scope` 授权节点。公司列表 `/invite/portfolio` 损坏、`/invite/getList` NPE，选择器/超管改用 `/invite/query`。详见 [数据查询 issues](../../AI-Chatbot-数据查询/设计/issues-and-caveats.md) 的「ACL/授权决策」 |
 
 ---
 

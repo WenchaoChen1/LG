@@ -17,6 +17,16 @@
 
 回归单测 111 个全过。下列为验证过程中**已修复**与**仍需关注**的项。
 
+## ★ ACL/授权决策（2026-06-09，已实现）
+
+经核实并由产品拍板：**chatbot 不做公司级授权**，授权交平台/Java（Java 数据接口当前无公司级授权=平台侧 IDOR，列为平台待办，非 chatbot 范围）。chatbot 侧据此改动（单测 154 全过）：
+
+- **端类型判别**：由 **Redis `company_id`** 判定，**不信前端 `x-chat-end`**（可伪造）。已核实（Java 源码 + 真实 token）：仅超管（roleType=1）创建时不设 `company_id`，roleType 2~5 必有；故 `company_id` 有值=公司端、为空=超管。`organizationId`（两端都有）、`authorities`（权限码、cache-miss 退化空）均不可靠，不用于判端。
+- **移除授权闸门**：删除 `graph` 的 `derive_scope` 节点与 `acl.py` 的 `enforce_company_scope`/`accessible_company_ids`；请求路径不再取"可访问集"做校验。
+- **active 公司（身份路由，非授权）**：公司端 = Redis `company_id`（忽略前端传入 company_id，故公司用户天然只能看本司）；超管 = 前端所选公司（超管本就全可见）。
+- **公司列表来源**：`acl.accessible_companies` 仅供 `/companies` 选择器；超管改用 **`/invite/query`**（`/invite/portfolio` 损坏：需 group、非用户作用域；`/invite/getList` 服务端 NPE）。
+- **延后（公司处理）**：管理端"按公司名解析→id""选择器全量 333 注入合成上下文"等暂不处理；`company_tool.list_companies` 工具仍指向损坏的 `/invite/portfolio`，待统一到 `/invite/query`。
+
 ### 验证中已修复
 - **benchmark runway 字符串崩溃**：接口将 `monthlyNetBurnRate`/`ruleOf40` 按字符串下发（保大整数精度），`classify_runway`/`compute_runway_value` 对字符串调 `math.isfinite` 抛 `TypeError`。已加 `isinstance` 守卫，对齐前端 `Number.isFinite("x")=false` 语义（非数值→视为缺失）。
 - **后端忽略维度过滤**：`/benchmark/.../data` **始终返回全部 12 维**（忽略请求的 `dataSources`/`benchmarkSources`），过滤须在客户端做。`aggregate()` 已支持 `data_sources`/`benchmark_sources` 覆盖，`benchmark_tool` 透传请求的过滤 → 评分卡按实际选择裁剪（这才让 Overall 能对上页面的 17%ile）。
