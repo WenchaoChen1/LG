@@ -29,6 +29,15 @@ Financial Entry为数据混合表，多数情况下会包含不同的数据类�
 
 - closed month定义： Financial Statements Settings中为Manual的公司，closed month是Financia Entry表中最后一个有Actuals数据的月份； Financial Statements Settings中为Automatic的公司，closed month以15号为界限，如果系统服务器时间过了15号，就是上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有Actuals数据的月份位置）, 如果系统服务器时间没过15号，就是上上个月（前提是Financial Entry表中上个月有Actuals数据，若没有就继续往历史月份找，找到有Actuals数据的月份位置）。
 
+- 状态展示: 若 closed month 之后的 NA 月被预测数据(承诺/系统/混合预测)填充,在 Edit Financial Actuals 模式下编辑时,保留该预测值作为底数。此类预测回填月在尚未转正为 Actuals 之前,仍可使用 Cash 一键功能与 Distribute 功能(详见对应功能说明)。
+Distribute 标记与子项联动(转正前): 用户在预测回填月勾选 Distribute 功能后,系统即为该月打上 Distribute 标记(opexSource=DISTRIBUTE),并按比例计算 OPEX 下的 6 个子项(S&M Expenses、S&M Payroll、R&D Expenses、R&D Payroll、G&A Expenses、G&A Payroll)。这些子项在页面上置灰锁定、实时计算、不可手动编辑;用户修改 OPEX 总额并点击"√"存入缓存时,子项一并自动联动更新。
+
+- 数据转化: 编辑并确认(点√并提交)预测回填月的数据后,该月数据转换为 Actuals 属性并持久化保存。注意:系统在该月转正提交时,不保存 Distribute 标记。
+
+- 转正后行为: 已转正为真实 Actuals 的月份,再次进入 Edit Financial Actuals 模式时,不再支持 Distribute 功能——这些月份不带 Distribute 标记、OPEX 子项无置灰锁定、不再实时自动计算。用户编辑这些月份的 OPEX 并点击"√"保存时,子项不会自动联动更新(回归普通 Actuals 月的编辑行为)。
+
+- 独立性: 手动编辑预测回填月仅对当月生效,不对其他月份产生联动影响(无波浪影响)。
+
 **数据新增与编辑**
 
 根据上述内容，Financial Entry为数据混合表。下面是Financial Entry 编辑逻辑规范
