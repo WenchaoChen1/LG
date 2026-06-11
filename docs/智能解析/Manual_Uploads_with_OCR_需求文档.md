@@ -355,7 +355,6 @@ The following files could not be processed. You can re-upload each file, or disc
 - 确认后进入写入schema步骤，如果没有未匹配的源账目，则直接进入mapping summary页面。
   - 如果存在Mismatched 或 Unmapped accounts 时，点击右上角Next按钮，尝试进入下一步，会弹出确认弹窗，告知"Unmapped Accounts 组的数据不会被写入 LG"，须显式确认。
  - 内容：Data Mapping Issues Detected:
-        [50] fields with mismatched LG metric mappings （解析后未匹配对的账目源的数量（也就是初始时匹配了但未匹配对，又进行了手动匹配）+ unmapped中人工匹配到mapped板块的账户源数量）
         [15] unmapped accounts that will not be written to Looking Glass（人工审核后仍未匹配的账目源数量）
         Any unmapped data will not be saved. Would you like to continue?
   - Continue to Next Step按钮：点击进入下一步
