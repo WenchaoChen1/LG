@@ -1,17 +1,17 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
-## 必读子项目 CLAUDE.md（强制）
+## 必读子项目 AGENTS.md（强制）
 
-- 每次问答都必须先根据问题与扫描到的目录，读取并遵循以下子项目 `CLAUDE.md`：
-  - `CIOaas-api/CLAUDE.md`
-  - `CIOaas-web/CLAUDE.md`
-  - `CIOaas-python/CLAUDE.md`
-- 若问题涉及 `cio-bigdata/`，还须读取 `cio-bigdata/CLAUDE.md`。
-- 若问题涉及在 `docs/` 下创建或修改功能文档，必须先读 `docs/CLAUDE.md`（定义 9 阶段文档流水线的目录结构、命名规则与禁止事项）。
-- 各子项目另有 `standards/`（`architecture.md`、`coding.md`、`git.md`）；开发前按对应子项目 `CLAUDE.md` 中的「规范加载」执行，**不要**在根目录重复抄写这些规范。
-- 若问题涉及多个子项目，按相关性依次读取；若无法确定，默认先读上述三个主工程 `CLAUDE.md` 再执行后续操作。
+- 每次问答都必须先根据问题与扫描到的目录，读取并遵循以下子项目 `AGENTS.md`：
+  - `CIOaas-api/AGENTS.md`
+  - `CIOaas-web/AGENTS.md`
+  - `CIOaas-python/AGENTS.md`
+- 若问题涉及 `cio-bigdata/`，还须读取 `cio-bigdata/AGENTS.md`。
+- 若问题涉及在 `docs/` 下创建或修改功能文档，必须先读 `docs/AGENTS.md`（定义 9 阶段文档流水线的目录结构、命名规则与禁止事项）。
+- 各子项目另有 `standards/`（`architecture.md`、`coding.md`、`git.md`）；开发前按对应子项目 `AGENTS.md` 中的「规范加载」执行，**不要**在根目录重复抄写这些规范。
+- 若问题涉及多个子项目，按相关性依次读取；若无法确定，默认先读上述三个主工程 `AGENTS.md` 再执行后续操作。
 
 ## 编码原则（强制）
 
@@ -43,7 +43,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **判断标准**：任务能拆成 ≥ 2 个独立子目标并行执行 → 拆开并行；否则单 agent。
 - **可以单跑的简单任务**：读单文件、改一行配置、查端口状态、grep 一个符号等明确单步操作，不必上 multi-agent。
 
-> 这是项目级强制规则，对所有 Claude Code 端（CLI / 桌面 / 网页 / IDE 插件）一致生效。
+> 这是项目级强制规则，对所有 Codex 端（CLI / 桌面 / 网页 / IDE 插件）一致生效。
 
 ## Windows 开发环境
 
@@ -71,11 +71,11 @@ docker compose down -v                       # 停容器并删卷（数据丢失
 | redis | `redis:7-alpine` | 6379 | 缓存 / 会话 |
 
 - 可选服务（默认注释）：`minio`（S3 本地替代）、`elasticsearch`（RAG 可选向量后端，默认 RAG 走 PG）。需要时取消对应 service + volume 注释。
-- 衔接关系：Java 各模块 `bootstrap.yml` 从 `${NACOS_SERVER_ADDR}`（默认 `localhost:8848`）读配置；Python RAG **不再启动期自动建表**——RAG 表需在对应库手动执行 `CIOaas-python/sql/sprint111/rag_schema_{business,vector}_db.sql`（向量库需 pgvector 扩展）。
+- 衔接关系：Java 各模块 `bootstrap.yml` 从 `${NACOS_SERVER_ADDR}`（默认 `localhost:8848`）读配置；Python RAG 启动 `setup_rag_tables()` 依赖 `lg_rag` 的 pgvector 扩展。
 
 ## 项目概览
 
-本仓库是一个 monorepo。构建命令、模块结构、网关调试、分支命名等**均以各子目录 `CLAUDE.md` 与 `standards/` 为准**，此处仅作索引：
+本仓库是一个 monorepo。构建命令、模块结构、网关调试、分支命名等**均以各子目录 `AGENTS.md` 与 `standards/` 为准**，此处仅作索引：
 
 | 目录 | 技术栈 | 用途 |
 |------|--------|------|
@@ -110,12 +110,11 @@ Python → SQS 队列 → Java（结果回调）
 
 ### AI Chatbot — HTTP 经网关 + SSE 流式
 
-Web 聊天页（`/ai/devSupport/chat`）→ Java 网关 → Python `source/chatbot/`（业务模块，interfaces/service/domain 分层，`/api/ai/chat/*` 接口）；对话图与数据查询工具在 `source/ai/chatbotgraph/`、`source/ai/chatbottools/`（提示词中文、给用户的回答默认英文）：
+Web 聊天页（`/ai/devSupport/chat`）→ Java 网关 → Python `source/chatbot/`（LangGraph 对话图，`/api/ai/chat/*` SSE 流式接口）：
 
-- SSE 流式经统一网关 `POST /api/ai/sse/stream`，channel 命名规范 `{模块}.{流类型}`（`chatbot.chat` / `demo.echo`）
 - Python 查询 LG 业务数据（LGPI 公司/财务接口）时同样**经 Java 网关回调**（路由带 `/web` 前缀），不直连 Java 服务
-- 会话/消息持久化在共享 PG 表 `ai_chatbot_thread` / `ai_chatbot_message`（Python 启动时幂等建表）；消息带 `parent_message_id` 分支树，支持从任意消息 fork 新会话（前端问题编辑/回答重新生成都走 fork 分支）
-- 鉴权：Redis 会话 + 公司归属 ACL（Python 侧校验）；`/api/ai/chat/manage/*` 管理查询仅管理端（前端管理页 `/ai/devSupport/chatManage`）
+- 会话/消息持久化在共享 PG 表 `ai_chatbot_thread` / `ai_chatbot_message`（Python 启动时幂等建表）
+- 鉴权：Redis 会话 + 公司归属 ACL（Python 侧校验）
 
 详细设计见 `docs/AI-Chatbot/设计/design-doc.md`，前后端实现计划见 `docs/superpowers/plans/2026-06-05-ai-chatbot-v1-*.md`。
 
@@ -125,7 +124,7 @@ Web 聊天页（`/ai/devSupport/chat`）→ Java 网关 → Python `source/chatb
 
 以下目录在 `.gitignore` 中，不提交到远程：
 
-- `.claude/` — Claude Code 本地配置
+- `.Codex/` — Codex 本地配置
 - `esapiens/`、`esapiens-python/` — OCR 引擎本地实验代码
 - `other/` — 归档的历史文档
 - `不要使用-Functional documentation/` — 已废弃的旧文档目录
