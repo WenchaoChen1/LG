@@ -292,3 +292,20 @@ export async function subscribeStream(
 | 多标签 | 标签1 流式 A，标签2 打开 A | 标签2 读 DB（不抢订阅）；标签1 续流正常 |
 
 > 测试命令见 [web-test-commands] 约定：单测 `npx umi-test`；类型检查 `npm run tsc`（须先挂 node PATH）。建议为 `streamResume.ts`（getResume 陈旧判定 / 吞错降级）补单测，为 `enterThread` 的「有记录走续传 / 无记录走 loadThread / 剥离空气泡」补 Hook 测试。
+
+---
+
+## 14. 实现期修正（落地后补充，已写入代码）
+
+落地 + 多视角代码复核中发现并修正了三处方案未覆盖/需加固的点：
+
+1. **「后台已跑完落库」判别（重要，杜绝重复渲染）**：§6.1 原假设「进行中那一轮不在 DB」只在**流式进行中**成立。若切走时该轮在**后台跑完并落库**、1h 内回到该会话，`getResume` 仍命中记录 → 若照常 from-0 重放，会和 DB 已落库的答案**双重渲染**。
+   修正：`enterThread` 在 `fetchThreadMessages` 后判别——**末条消息是非空 assistant ⟺ 该轮已完成并落库** → 只展示 DB、`clearResume`、**不续传**；只有末条是 `user`（在途提问、回答尚未落库）才补空气泡并 `subscribeStream`。末条是空 assistant（异常占位）则剥离后续传。
+
+2. **`load` reducer 归零 `streaming`/`error`**：原 `load` 只换 `messages`，从**正在流式的会话切走**到无流会话会让 `streaming` 残留 `true`（输入框禁用 / 转圈不消失）。修正：`load` 一并置 `streaming:false, error:null`（续传路径随后 `startAssistant` 重新置位）。这是 reducer 层的正确归属，同时修掉了一处既有隐患。
+
+3. **`enterThread` 在任何 await 前捕获 `myGen`（契合 §8）**：`loadThread` 内部会自增 `genRef`，若 `enterThread` 复用它再捕获 myGen 会被顶掉。修正：抽出纯数据函数 `fetchThreadMessages`（不动 gen/abort/dispatch），`enterThread` 自己 `++genRef` + abort + 设 threadIdRef（**await 前**）→ `fetchThreadMessages` → 守卫 → 自行 `dispatch load`。`loadThread` 同样复用 `fetchThreadMessages`，对外行为不变。
+
+> 复核另确认：`send` 用闭包级 `streamThreadId` 在终结回调里清「本流自己的」thread 记录（即便已切走也清对）是**必要且正确**的；`onStreamId`/`onThreadId` 双写续传记录幂等无损（`genRef` 单调，`alive()` 一旦 false 不会翻 true，不存在「漏写后补空」）。
+
+**验证**：`tsc` 改动文件 0 错误（仅 2 个存量坏文件报错）· ESLint 0 告警 · chat + sse 全套 **84 测试通过**（含新增 `streamResume` 用例、重写的 `streamApi` 用例覆盖 `subscribeStream`、`load` 归零 streaming 用例；并顺手修绿存量坏的 `streamSSE.test.ts` 缺 `TextDecoder` polyfill 问题）。
