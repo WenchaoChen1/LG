@@ -45,6 +45,10 @@ Financial Entry 与 Committed Forecast 页面均强制执行以下校验：
 - 现有 OPEX 校验规则在手动编辑流程中**继续生效**，不做任何修改；
 - Financial Entry 与 Committed Forecast 页面的 UI、校验逻辑、编辑行为**均无变更**。
 
+> **适用范围（两条写入路径）**：本逻辑需同时挂在导入的两条写入路径上：
+> 1. **Actuals（实际数据）**：走冲突校验/解决流程，子项生效值按第四节四类场景判定。
+> 2. **Committed Forecast（承诺预测）**：导入时默认不调用冲突校验接口、直接保存，但**入库时同样必须保证 OPEX 等值正确**——使用相同的计算公式，详见 5.6。
+
 ---
 
 ## 三、功能描述
@@ -76,6 +80,11 @@ Financial Entry 与 Committed Forecast 页面均强制执行以下校验：
 - 写入前系统**预先读取该月数据库中已有的 Miscellaneous Operating Expenses 值**；
 - 若该月无历史数据，Miscellaneous 在计算中视为 0。
 
+> **实现注意（取值来源）**：必须读取**数据库持久化列** `miscellaneous_operating_expenses`（即实体行上已存储的值），**不要**使用读取时实时派生的计算值 `OPEX − 六个子项之和`。
+> - 持久化列的取值是历次保存时回写的残差，且手动保存受 `OPEX ≥ 六子项之和` 校验约束、导入流程从不写该列，因此持久化列结构上恒 ≥ 0，代入公式后可保证 `OPEX ≥ 六子项之和` 成立；
+> - 而实时派生值在"子项已更新、OPEX 仍陈旧"的待修复行上会算出负数，若误用会导致计算后的 OPEX 仍小于子项之和、校验依旧报错；
+> - 列值为 `null` 时按 0 处理。
+
 ### 4.2 多月导入
 - 每个月份**独立**计算 OPEX，使用该月自身的生效子项值与已有 Miscellaneous 值；
 - 未包含在导入中的月份**不受影响**。
@@ -94,6 +103,22 @@ Financial Entry 与 Committed Forecast 页面均强制执行以下校验：
    3. 计算：`OPEX = 六个生效值之和 + 已有 Miscellaneous 值`。
 4. 在同一次写入操作中，将六个子项的导入/覆盖值与计算出的 OPEX 总额一起提交至数据库。
 5. 写入完成后，数据库中 OPEX 总额与"六个子项之和 + Miscellaneous"保持一致。
+
+> 上述步骤 3.1 的"已有 Miscellaneous 值"取自数据库持久化列 `miscellaneous_operating_expenses`（详见 4.1 实现注意）。
+
+### 5.6 Committed Forecast（承诺预测）直存路径
+
+承诺预测数据导入时默认**不调用冲突校验接口、直接保存**（无"覆盖 / 保留"的用户选择），但**入库前同样要执行 OPEX 自动计算**，且 OPEX 的取数与计算口径与 actuals 一致：从该月数据库已有最新承诺预测数据行（base）取 misc 与"本次未导入的 OPEX 子项"的保留值，再算 OPEX。
+
+> **范围限定（仅 OPEX 相关字段取 base）**：与 actuals 不同，承诺预测路径**只**从 base 取「6 个 OPEX 子项 + Miscellaneous」用于重算 OPEX，**不整行复制 base**。其余字段（Revenue / Cash / 资产负债项，以及承诺预测特有的 p05/p50/p95 分布字段等）维持原有「本次未导入即填 0」行为，不受本需求影响。如此既满足 OPEX 校验闭环，又不把上一版的分布输出与其它非 OPEX 指标带进本次导入版本。
+
+1. 判断本次导入是否包含至少一个 OPEX 子项：否 → 不重新计算 OPEX，按原流程直存，结束。
+2. 对每个涉及月份执行：
+   1. **读取该月数据库已有最新承诺预测行为 base**（无历史数据时 base 视为空行）。
+   2. 取 base 行持久化列 Miscellaneous Operating Expenses 值（base 为空时取 0）。
+   3. 确定六个子项的"写入后生效值"：**导入的子项 = 导入值；未导入的子项 = base 行已有值（base 为空时取 0）**。
+   4. 计算：`OPEX = 六个生效值之和 + 已有 Miscellaneous 值`。
+3. 在同一次写入操作中，将六个子项值与计算出的 OPEX 总额一起直存至数据库。
 
 ---
 
