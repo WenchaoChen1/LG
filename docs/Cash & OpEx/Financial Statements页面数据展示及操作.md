@@ -86,7 +86,7 @@ Distribute 标记与子项联动(转正前): 用户在预测回填月勾选 Dist
      - Month year
      - Month year
      - ...
-     - Quick Fill will preserve these and only calculate Cash values for moths set to zero or that have already been marked         as Quick Fill.
+     - Quick Fill will preserve these and only calculate Cash values for moths set to zero or that have already been marked as Quick Fill.
        To Quick Fill all values, set to zero all months before proceeding.
      - 两个按钮： Cancel, Proceed with Quick Fill
 - 注意：该功能可能会涉及汇率换算，因为涉及到不同月且P&L和B&S取的不同的汇率，他们的原始数据计算后再根据计算月的汇率转换可能会不等于页面显示值直接计算得到的数据
@@ -220,3 +220,9 @@ System Generated Forecast 表默认展示的是最新版本的当前年/季度�
 **数据新增与编辑**
 
 该表不可直接进行新增与编辑
+
+**财务报表手动导入——与 Distribute、Quick Fill 的交互（补充细节）**
+
+- 场景：某公司已有 committed 的 2026 年 forecast，且已应用 OPEX Distribute 和现金 Quick Fill。之后，该公司的某个用户导入了 2026 年 7 月的 committed forecast，其中包含 OPEX 子类目和Cash。
+导入后，2026 年 7 月的 CF 被提交保存到系统，由此生成 2026 CF 的新版本，并相应更新 OPEX 相关的指标与cash指标。自此，2026 年 7 月的 OPEX 子类目不再依据历史比例 live-calculated，其现金值也不再是 Quick Fill 的结果——两者均变为手动设定的值。
+对于cash来说：由于 2026 年 7 月不再 live-calculated，编辑其上游月份不会再级联影响到它。例如，若有人在 Financial Statements – CF 中编辑保存了 2026 年 6 月的现金，2026 年 7 月及之后月份的现金将不会自动更新。
