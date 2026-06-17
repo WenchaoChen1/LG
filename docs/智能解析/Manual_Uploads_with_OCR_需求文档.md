@@ -425,6 +425,12 @@ The following files could not be processed. You can re-upload each file, or disc
 - 在冲突页面返回到mapping页面时，在mapping页面的mapped板块做了改动，点击Next到mapping summary页面，提示Your mapping changes have been applied. Please review the updated verification results.继续点击start verification,判断对冲突页面数据是否有影响，有变化的展示数据，没变化的不变还是展示用户之前解决的冲突数据。如果此时再回到mapping summary页面，提示消息已经消失。
   - 例如：在解决冲突页面已经解决了部分冲突，回到上一步mapping页面，修改了一些数据，这部分数据有已解决的冲突，则回到冲突页面时要重新检测展示
 
+**财务报表手动导入——与 Distribute、Quick Fill 的交互（补充细节）**
+
+- 场景：某公司已有 committed 的 2026 年 forecast，且已应用 OPEX Distribute 和现金 Quick Fill。之后，该公司的某个用户导入了 2026 年 7 月的 committed forecast，其中包含 OPEX 子类目和Cash。
+导入后，2026 年 7 月的 CF 被提交保存到系统，由此生成 2026 CF 的新版本，并相应更新 OPEX 相关的指标与cash指标。自此，2026 年 7 月的 OPEX 子类目不再依据历史比例 live-calculated，其现金值也不再是 Quick Fill 的结果——两者均变为手动设定的值。
+对于cash来说：由于 2026 年 7 月不再 live-calculated，编辑其上游月份不会再级联影响到它。例如，若有人在 Financial Statements – CF 中编辑保存了 2026 年 6 月的现金，2026 年 7 月及之后月份的现金将不会自动更新。
+
 **Schema 完整性与错误处理**
 - 所有数据须通过 LG Schema 校验后方可写入。
 - Schema 校验失败：终止写入、显示清晰错误、将用户带回相关审核步骤并高亮错误。
