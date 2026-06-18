@@ -1,7 +1,7 @@
 # 需求文档：Company Memory File Layer 1a 后端 — 聊天信息提取：商业模式与定价模式
 
 **来源任务**：[Asana LG-1425](https://app.asana.com/1/1170332106480422/project/1202050347057533/task/1215298512189418)
-**类型**：User Story｜**优先级**：High｜**T-Shirt**：M｜**Story Points**：8
+
 **UI 需求**：无（纯后端 / 数据架构 Story）
 
 ---
@@ -84,7 +84,3 @@
 - 即使某次提取事件失败，**Chatbot 仍正常工作**。
 
 ---
-
-## 三、范围说明（UX Design Considerations）
-
-本 Story 为**后端和数据架构**范畴，**不包含面向用户的 UI**。
