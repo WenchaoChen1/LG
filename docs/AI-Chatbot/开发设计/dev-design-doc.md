@@ -24,12 +24,12 @@
 | 操作 | 路径 | 说明 |
 |------|------|------|
 | 新增 | `ai/agent_loop.py` | **ai 域公共**有界 ReAct 工具循环 `run_tool_loop`（§3）。落点选 ai 顶层而非 `ai/text2sql/`：循环是通用件、不专属 text2sql |
-| 新增 | `ai/chatbotgraph/gather_agent.py` | `gather_node` + ctx 构造 + 工具注册表 + dispatch 闭包工厂（§4） |
+| 新增 | `ai/chatbotgraph/retrieval_agent.py` | `retrieve_node` + ctx 构造 + 工具注册表 + dispatch 闭包工厂（§4） |
 | 新增 | `ai/tools/company_list_tool.py` | `list_companies` 工具（§6）；或并入 `company_tool.py` |
 | 修改 | `ai/tools/financial_tool.py` | 统一 `query_financial`：注入 `financial_mode` 内部分流 sql/api（§5） |
 | 修改 | `ai/tools/_scope.py` | `CompanyScopeError` 加 `code`（`NEEDS_PICK`/`OUT_OF_SCOPE`/`REQUIRED`），供工具区分歧义 vs 越界（§7） |
 | 修改 | `ai/text2sql/text2sql_agent.py` | `run_text2sql` 改为 `run_tool_loop` 的薄封装（§9） |
-| 修改 | `ai/chatbotgraph/chat_graph.py` | 拓扑：删 `classify_intent`/`resolve_company`/6 个 `call_*` 及路由边；接 `gather_node`（§4.4） |
+| 修改 | `ai/chatbotgraph/chat_graph.py` | 拓扑：删 `classify_intent`/`resolve_company`/6 个 `call_*` 及路由边；接 `retrieve_node`（§4.4） |
 | 修改 | `ai/chatbotgraph/nodes.py` | 删 `classify_intent`/`resolve_company`/`call_*`；`build_synthesis` 简化为哑渲染 + 读 `_meta`（§8） |
 | 修改 | `ai/chatbotgraph/prompts.py` | 新增 `ORCHESTRATOR_SYSTEM`；删 `CLASSIFY_SYSTEM`；`SYNTHESIS_SYSTEM` 增 `kind` 分支（§10） |
 | 修改 | `ai/tools/__init__.py` | 导出 `list_companies`；维护注册表用到的工具集 |
@@ -91,12 +91,12 @@ async def run_tool_loop(*,
 
 ---
 
-## 4. `gather_node`（`ai/chatbotgraph/gather_agent.py` + 接图）
+## 4. `retrieve_node`（`ai/chatbotgraph/retrieval_agent.py` + 接图）
 
 ### 4.1 节点签名与返回
 
 ```
-async def gather_node(state: dict) -> dict:        # 返回 {"tool_results": [...]}
+async def retrieve_node(state: dict) -> dict:        # 返回 {"tool_results": [...]}
 ```
 
 ### 4.2 ctx 构造（每轮一次，注入隔离在此）
@@ -137,8 +137,8 @@ ctx = {
 ### 4.5 图拓扑（`chat_graph.py`）
 
 ```
-START → guardrail → (load_context 并行) → gather_node → build_synthesis → END
-guardrail blocked → build_synthesis（拒答），不进 gather_node
+START → guardrail → (load_context 并行) → retrieve_node → build_synthesis → END
+guardrail blocked → build_synthesis（拒答），不进 retrieve_node
 ```
 删除节点：`classify_intent` / `resolve_company` / `call_financial` / `call_financial_sql` / `call_benchmark` / `call_company` / `call_normalization` / `call_analysis` 及其条件路由（`_route_after_resolve` 等）。
 
@@ -234,7 +234,7 @@ class CompanyScopeError(Exception):
   - `dispatch` 闭包注入 `company_id` + `allowed_tables`/`company_scoped_tables`（schema_provider），分发 `run_sql`/scenario/opex/fx（即现 `_dispatch_tool`）。
   - `system = REACT_SYSTEM.format(...)`、`tools = _TOOLS`、`max_iters` 沿用。
   - 返回形状对齐现状：从 `ToolLoopResult.results` 取（Q8 后为列表）→ 仍回 `{ok, mode:"sql", results:[...]}`（与现一致）。
-- 收益：text2sql 与 gather 共用一份循环实现，行为一致、维护一处。
+- 收益：text2sql 与 retrieve 共用一份循环实现，行为一致、维护一处。
 
 ---
 
@@ -270,7 +270,7 @@ class CompanyScopeError(Exception):
 
 | 项 | 建议初值 | 备注 |
 |----|----------|------|
-| `max_iters`（gather） | 4 | 比 text2sql(3) 略大，容纳"检索→取数→对比" |
+| `max_iters`（retrieve） | 4 | 比 text2sql(3) 略大，容纳"检索→取数→对比" |
 | 并发度 | 不设硬上限（依赖工具自身 to_thread/超时） | 一轮 tool_calls 数天然有限 |
 | 各工具 statement_timeout | 沿用现 8000ms | sql/scenario/opex/fx 已有 |
 | history 注入窗口 | 最近 10 条 | 对齐现 synthesis |
@@ -294,7 +294,7 @@ class CompanyScopeError(Exception):
 2. `text2sql_agent` 改薄封装（验证回归：text2sql 行为不变）。
 3. `_scope.CompanyScopeError.code` + 工具层 `need_company` 转换。
 4. 统一 `query_financial` 工具 + `list_companies` 工具。
-5. `gather_agent.py`（ctx + 注册表 + dispatch）+ `ORCHESTRATOR_SYSTEM`。
+5. `retrieval_agent.py`（ctx + 注册表 + dispatch）+ `ORCHESTRATOR_SYSTEM`。
 6. `chat_graph` 拓扑切换 + `nodes` 删旧 + `build_synthesis`/`SYNTHESIS_SYSTEM` 改造。
 7. 回归：财报/对标/公司/normalization/分析 + 跨域组合 + 歧义/越界/超范围。
 8. 后续：`query_playbook`/`search_memory` 作为新 case 接入（不动主循环）。

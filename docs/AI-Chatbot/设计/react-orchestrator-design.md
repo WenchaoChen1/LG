@@ -58,9 +58,9 @@ START → guardrail → classify_intent → resolve_company → ┬ call_financi
 ### 3.2 变更后（目标）
 
 ```
-START → guardrail ─┬───────────────→ gather_agent → build_synthesis → END
+START → guardrail ─┬───────────────→ retrieve_node → build_synthesis → END
                    └ (并行) load_context ┘
-（guardrail blocked → 直接 build_synthesis 礼貌拒答；不进 gather_agent）
+（guardrail blocked → 直接 build_synthesis 礼貌拒答；不进 retrieve_node）
 ```
 
 ### 3.3 节点职责
@@ -71,8 +71,8 @@ START → guardrail ─┬───────────────→ gathe
 | `load_context` | **保留（并行）** | 历史窗口 + `accessible_company_list`（公司授权范围来源） |
 | `classify_intent` | **删除** | intent 分类不再需要（Agent 自选工具）；out_of_scope = Agent 不调工具直接礼貌答；blocked 归 `guardrail` |
 | `resolve_company` | **删除** | 公司域收敛下沉到"每次工具调用校验 `allowed_company_ids`"（见 §4.2），不再前置统一解析 |
-| `call_financial / _sql / benchmark / company / normalization / analysis` | **删除（合并）** | 全部合进 `gather_agent`；底层取数能力改以工具形态暴露 |
-| `gather_agent` | **新增** | ReAct 取数 Agent：绑工具、循环自驱、累积 `tool_results`（见 §5） |
+| `call_financial / _sql / benchmark / company / normalization / analysis` | **删除（合并）** | 全部合进 `retrieve_node`；底层取数能力改以工具形态暴露 |
+| `retrieve_node` | **新增** | ReAct 取数 Agent：绑工具、循环自驱、累积 `tool_results`（见 §5） |
 | `build_synthesis` | **保留（简化）** | **纯 `tool_results` 哑渲染**（删除按 intent 注入全公司列表的启发式，Q7）；读 `_meta` 信号处理拒答/澄清/缺数据（Q6）；由 `chat_turn` **流式**产出英文答案 |
 
 > 标题 `generate_title` 仍在 `chat_turn` 用 `asyncio.create_task` 与图并发，不挂图，本次不受影响。
@@ -81,7 +81,7 @@ START → guardrail ─┬───────────────→ gathe
 
 ## 4. 注入契约（安全红线）
 
-### 4.1 每轮解析一次的注入上下文（在 `gather_agent` 节点内构造）
+### 4.1 每轮解析一次的注入上下文（在 `retrieve_node` 节点内构造）
 
 | 字段 | 来源 | 用途 |
 |------|------|------|
@@ -105,7 +105,7 @@ START → guardrail ─┬───────────────→ gathe
 
 ---
 
-## 5. ReAct 循环契约（`gather_agent`）
+## 5. ReAct 循环契约（`retrieve_node`）
 
 > 实现层面复用 `text2sql_agent` 既有循环（`_assistant_message` / 精简回喂 / `max_iters` / `tool_call_id` 对齐），本节只定契约；完整代码留⑤开发设计。
 
@@ -180,9 +180,9 @@ START → guardrail ─┬───────────────→ gathe
 - **回滚策略**：因无应用内回退，线上回退 = **部署回滚（git revert / 回退构建）**。取舍：去掉 router 让代码与心智更简单，代价是回滚是部署级而非开关级。
   - 可选（本次决定**不做**）：迁移期临时加一个短命 kill-switch env。若上线后需要，再单独评估。
 - **迁移步骤建议**（顺序）：
-  1. 抽公共 ReAct loop（把 `ai/text2sql/text2sql_agent.py` 的循环提为 **ai 域公共件**，text2sql 与 gather 及后续 ai 域 agent 共用；与 text2sql 已是公共件的定位一致）。
+  1. 抽公共 ReAct loop（把 `ai/text2sql/text2sql_agent.py` 的循环提为 **ai 域公共件**，text2sql 与 retrieve 及后续 ai 域 agent 共用；与 text2sql 已是公共件的定位一致）。
   2. 统一 `query_financial` 工具（双轨内部分流，§6）。
-  3. 实现 `gather_agent`（注册表 + 并行分发 + 注入），改主图拓扑（§3.2），删除旧路由节点。
+  3. 实现 `retrieve_node`（注册表 + 并行分发 + 注入），改主图拓扑（§3.2），删除旧路由节点。
   4. 回归：财报/对标/公司/normalization/分析全意图 + 跨域组合问。
   5. 后续：`query_playbook` / `search_memory` 作为新 case 接入（不动主循环）。
 
@@ -193,7 +193,7 @@ START → guardrail ─┬───────────────→ gathe
 | 类别 | 内容 |
 |------|------|
 | **删除** | `classify_intent`、`resolve_company`、`call_financial`、`call_financial_sql`、`call_benchmark`、`call_company`、`call_normalization`、`call_analysis` 及其路由边；intent 分类提示词/标签 |
-| **新增** | `gather_agent` 节点 + `ORCHESTRATOR_SYSTEM` + 工具分发器 + `_resolve_allowed(state)` + 统一 `query_financial` 工具 + `list_companies` 工具 + `_meta` 收尾信号约定 + 可复用 ReAct loop |
+| **新增** | `retrieve_node` 节点 + `ORCHESTRATOR_SYSTEM` + 工具分发器 + `_resolve_allowed(state)` + 统一 `query_financial` 工具 + `list_companies` 工具 + `_meta` 收尾信号约定 + 可复用 ReAct loop |
 | **复用（含简化）** | `guardrail` / `load_context` / `chat_turn`（流式两阶段）；`build_synthesis` **简化为纯 `tool_results` 哑渲染 + 读 `_meta`**；`SYNTHESIS_SYSTEM` 增 `kind` 措辞分支；`CHATBOT_TOOLS` 及各 `@tool`；**`ai/text2sql` 公共 agent**（`run_text2sql` → `query_financial` sql 轨）；`analysis` 子图（→ `run_analysis`）；`resolve_financial_mode`、`peer_resolver`、ORM 模型 |
 | **不变** | chatbot 不做公司级授权；只读/白名单/超时护栏；流式 UX；标题并发生成 |
 
