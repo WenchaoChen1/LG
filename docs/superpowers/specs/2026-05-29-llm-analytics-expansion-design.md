@@ -4,6 +4,12 @@
 **作者**：Auto（基于 3 个 explore agent 头脑风暴综合）
 **范围**：LLM tracking 模块的筛选维度统一、枚举抽取、新增分析页面、call_mode 字段、目录优化
 
+> ⚠️ **已陈旧 · 仅存档（2026-07-01 复核）**：本 spec 写于 `source/llm/` provider-first 重构前，
+> 引用的目录（`source/llm/{config,tracing,providers,db}/` 平铺）、单例名（`router`）与建表方式
+> （`setup_llm_tables` 启动期幂等建表）**均已过时**——现结构见 `CIOaas-python/source/llm/CLAUDE.md`，
+> 建表改为手动执行 `sql/sprint111/llm_schema.sql`（启动期不自动建表）；`call_mode` 已落地且扩到 12 个
+> 成员。本文仅作历史参考，落地实现以 `source/llm/` 代码 + 其 CLAUDE.md 为准。
+
 ---
 
 ## 1. 背景
