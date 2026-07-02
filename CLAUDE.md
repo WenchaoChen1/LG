@@ -77,7 +77,7 @@ docker compose down -v                       # 停容器并删卷（数据丢失
 | redis | `redis:7-alpine` | 6379 | 缓存 / 会话 |
 
 - 可选服务（默认注释）：`minio`（S3 本地替代）、`elasticsearch`（RAG 可选向量后端，默认 RAG 走 PG）。需要时取消对应 service + volume 注释。
-- 衔接关系：Java 各模块 `bootstrap.yml` 从 `${NACOS_SERVER_ADDR}`（默认 `localhost:8848`）读配置；Python RAG **不再启动期自动建表**——RAG 表需手动执行 `CIOaas-python/sql/sprint111/rag_schema.sql`（最终态完整 DDL，分业务库 + 向量库两段，向量库需 pgvector 扩展）。
+- 衔接关系：Java 各模块 `bootstrap.yml` 从 `${NACOS_SERVER_ADDR}`（默认 `localhost:8848`）读配置；Python 各业务表**不在启动期自动建表**——DDL 走版本化迁移 `CIOaas-python/sql/migrations/{business,vector}/`（V001 为全量 baseline，向量库需 pgvector 扩展），由 `CIOaas-python/scripts/migrate.py` 部署期自动执行或人工执行（详见 CIOaas-python/CLAUDE.md「数据库版本迁移」）。
 
 ## 项目概览
 
