@@ -769,6 +769,10 @@ from tracing.application.dto import (
 
 ### 6.1 routes（`interfaces/routes.py`）
 
+> ⚠️ 本节为首版实现契约，已有后续演进（company/organization 范围**改为可选**、新增
+> `GET /filter-options`、`TraceItem` 增 `attributes` 等），差异汇总见 **§15 实现后变更追记**；
+> 现状权威以代码与 `source/tracing/CLAUDE.md` 为准。
+
 仿 llm routes：开关式 Bearer Token（`secrets.compare_digest`）、`{success,code,message,data}` 信封、lowerCamelCase、静态前缀先于通配声明。
 
 ```python
@@ -1275,3 +1279,55 @@ app.include_router(tracing_router)
 8. **Batch 2/3** 按 §12 清单推进；每加一类入口（MCP/HTTP/rag）独立验收一条该来源的真实 trace。
 
 > 全程红线自检：每次提交前跑 `ruff check source/`（验证 TID251 零 LLM SDK 依赖 + 跨模块 import 仅 `tracing.application`）；确认 llm 模块与 `pages/ai/llm/` 无任何改动。
+
+---
+
+## 15. 实现后变更追记（2026-07-03）
+
+> 实现落地后的契约演进汇总（相对 §6 / §9 首版设计）。现状权威 = 代码 +
+> `source/tracing/CLAUDE.md`；本节只记差异与动机，不重写正文。
+
+### 15.1 查询范围参数可选化（原"至少必传一个"废除）
+
+- 三个查询端点（列表 `GET /api/ai/traces`、详情 `GET /{trace_id}`、chain `GET /{trace_id}/chain`）
+  的 `company_id` / `organization_id` 均**可选**：都不传时列表不加租户条件返回全量
+  （`started_at DESC` 分页），详情 / chain 跳过归属校验按 trace_id 直取。
+- **传了任一仍按对应通道过滤 / 校验归属，不命中 404**（防越权口径保留；
+  `_scope_matches` 双 None 放行、给值必须命中）。
+- 动机：这是 dev-support 查询端点，管理端（Portfolio 层）无"当前公司"上下文，
+  强制必填导致首屏无法出数。授权闸门本就不是该参数（参数只圈范围），而是
+  `TRACING_API_TOKEN` —— **非 dev 环境必须配置该 token，否则无参调用即全租户可读**。
+- 背景：`organization_id` 双通道（客户端=company、管理端=organization 且 company 恒
+  NULL）由 V002 迁移加列引入。
+
+### 15.2 新端点 `GET /api/ai/traces/filter-options`
+
+- 返回 `{data: {companyIds: string[], organizationIds: string[]}}`：`ai_trace` 表
+  distinct 非空值（各自升序），为前端范围筛选下拉供数（仿 llm `distinct-models` 范式）。
+- 声明必须先于通配 `/{trace_id}`。
+
+### 15.3 `TraceItem` VO 增 `attributes` 透出
+
+- 链路级 `attributes`（如 HTTP 入口的 `method` / `path`）此前只落库不出参；现列表 /
+  详情 / chain 均携带，让无 span 的入口壳 trace 在详情页也能看到入口上下文。
+
+### 15.4 前端（`pages/ai/tracing/`）同步演进
+
+- Company / Organization 由文本框改为**可搜索下拉**（候选值 = filter-options；公司
+  label 经 chat 域 service `fetchCompanies` 增强为 `name (id)`，失败退化裸 id 不阻塞），
+  选中即时生效；首屏无任何筛选直接请求全量，"companyId 必填门槛 +
+  `resolveCurrentCompanyId` 注入"整套删除（`utils/companyId.ts` 已删）。
+- 列表新增 **Trace ID 列**（截断 + copyable 复制完整值，作为与 LLM Tracing 等页面
+  联查的 join key）；详情页标题 trace_id 同样 copyable。
+- 详情页渲染 trace 级 attributes；span 瀑布空态文案改为解释成因（见 15.5）。
+
+### 15.5 chatbot REST 接口 service 层 span 埋点（消除"空壳 trace"）
+
+- 背景：`TracingMiddleware` 对 `/api/ai/chat` 前缀只开链路不下钻，chatbot 的 REST
+  CRUD / 管理接口内部原无任何埋点 → 详情页 span 恒为空。
+- 落法：chatbot `application/service/` 各公开编排方法体包 `start_span`
+  （`chat_history_service` / `chat_manage_service` 全部 `db:*`（`span_type=db`），
+  `company_service.accessible_companies` 为 `http:*`（经 Java 网关外呼））；
+  attributes 只放 thread_id / 分页等非敏感摘要，消息正文 / title / keyword 不入。
+- SSE 对话路径复用这些方法时，span 自然挂到 `chatbot.chat` trace 下；无活跃
+  trace 时 `start_span` 安全降级（不落库、不打断业务）。
