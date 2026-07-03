@@ -1,7 +1,7 @@
 # AI Chatbot 图表优化 — 方案头脑风暴（待选型）
 
 > 关联文档: [2026-06-10 图表设计 spec](./2026-06-10-chat-chart-design.md) · [AI-Chatbot 设计](../../AI-Chatbot/设计/design-doc.md)
-> 状态: 头脑风暴产出，含多方案对比，**待用户选型**后进 writing-plans
+> 状态: 已选型（2026-07-03）——方案 B + 第一梯队 6 类型 + 配套修缮，方案 C 同期收尾执行；实现计划见 [2026-07-03-chatbot-chart-optimization.md](../plans/2026-07-03-chatbot-chart-optimization.md)
 > 日期: 2026-07-02
 
 ## 1. 现状盘点（先纠正两个前提）
@@ -138,16 +138,17 @@ charts/
 
 ## 6. 明确不做（本期）
 
-- chatManage 复用 ChatChart、`useEChartsResize` 抽 hook（拆为后续独立小任务）
+- ~~chatManage 复用、`useEChartsResize` 抽 hook~~（2026-07-03 用户拍板：作为方案 C 收尾阶段同期执行，见 §7）
 - 图表交互（下钻、导出）、图表编辑/重生成
 - 换图表协议为"LLM 直出 ECharts option"（灵活但无法校验、与渲染库耦合、注入面大，明确否决）
 - DB schema 改动（图表仍以 fence 原文落库，历史重现路径不变）
 
-## 7. 待你决策的点
+## 7. 决策记录（2026-07-03 已定）
 
-1. **代码组织**：A（最小收敛）/ B（图表子模块+注册表，推荐）/ C（全局图表库）？
-2. **类型范围**：第一梯队 6 种全做？还是先做点名的 `scatter` + 免费的变体（area/stacked/horizontal/donut），`combo` 与 `waterfall` 放下期？
-3. **combo 协议**（若做）：§4.1 的 `seriesTypes` + `rightAxis` 格式是否认可？
-4. **前端模块落位**：`src/pages/ai/chat/charts/`（就近）还是 `src/pages/ai/_shared/charts/`（为 chatManage 复用预留）？——推荐前者，复用等真做 chatManage 时再提升。
+1. **代码组织**：选 **B**（图表子模块 + 注册表）。
+2. **类型范围**：第一梯队 6 种全做（area / stacked_bar / horizontal_bar / donut / scatter / combo）；`waterfall` 下期，heatmap/gauge/funnel 不做。
+3. **combo 协议**：按 §4.1 的 `seriesTypes` + `rightAxis` 可选字段执行。
+4. **前端模块落位**：`src/pages/ai/chat/utils/charts/`（按前端规范「纯函数放 utils」微调，组件仍在 `components/ChatChart.tsx`）。
+5. **方案 C**：不再延期，作为收尾阶段同期执行（useEChartsResize hook + ChartCard 提升 `_shared` + chatManage 复用），排在 B 完成之后。
 
-选定后我按 writing-plans 出前后端实现计划。
+实现计划：`docs/superpowers/plans/2026-07-03-chatbot-chart-optimization.md`。

@@ -1,8 +1,8 @@
 # AI Chatbot 回答内嵌图表 — 设计 spec
 
 > 依赖: 统一 SSE 协议（后端 `CIOaas-python/source/llm/infrastructure/llm_router/sse.py` 的 `event_to_sse_bytes`；前端 `CIOaas-web/src/services/sse/`）· 实现计划见 `docs/superpowers/plans/`（writing-plans 阶段产出）
-> 状态: 设计已与用户确认（2026-06-10），待 review → writing-plans
-> 图表类型 MVP: bar / line / radar / pie（全部用统一二维表，已确认）
+> 状态: 设计已与用户确认（2026-06-10），已实现；2026-07-03 类型扩展至 10 类（方案见 [2026-07-02-chatbot-chart-optimization-design.md](./2026-07-02-chatbot-chart-optimization-design.md)）
+> 图表类型: 以后端 `ai/chatbotgraph/chart/spec.py` 的 `CHART_TYPES` 为**单点**（bar / line / area / stacked_bar / horizontal_bar / pie / donut / radar / scatter / combo），前端对应 `chat/utils/charts/registry.ts`
 
 ## 1. 背景与目标
 
@@ -42,23 +42,28 @@ AI Chatbot（`/ai/devSupport/chat`）当前回答是纯文本 SSE 流式。需�
 
 ```jsonc
 {
-  "type": "bar | line | radar | pie",
+  "type": "bar | line | area | stacked_bar | horizontal_bar | pie | donut | radar | scatter | combo",
   "title": "可选标题",
   "columns": ["季度", "营收", "成本"],   // 第一列 = 分类轴，其余列 = 数据系列
   "rows": [
     ["Q1", 100, 60],
     ["Q2", 120, 70],
     ["Q3", 150, 85]
-  ]
+  ],
+  // ↓ combo 专用可选字段（其余类型忽略；2026-07-03 扩展，向后兼容）
+  "seriesTypes": ["bar", "line"],   // 对应 columns[1..] 各系列画法，缺省全 bar
+  "rightAxis": ["成本"]             // 放右 Y 轴的系列名（量纲不同的 % 比率等）
 }
 ```
 
 **统一约定（前端按 type 组合）：**
 - `columns[0]` = 分类轴标签字段；`columns[1..]` = 各数据系列名。
 - 每行 `rows[i][0]` = 该分类值；`rows[i][1..]` = 各系列在该分类下的数值。
-- `bar` / `line`：`columns[0]`→x 轴，`columns[1..]`→多条柱/线（系列名取自 `columns`）。
+- `bar` / `line` / `area` / `stacked_bar` / `combo`：`columns[0]`→x 轴，`columns[1..]`→多条柱/线（系列名取自 `columns`）；`horizontal_bar` 类目轴换到 y（首行在最上）。
 - `radar`：`rows[*][0]`→雷达指标（indicator），`columns[1..]`→多组雷达数据。
-- `pie`：取 `columns[1]`（第二列）为值，`rows[*][0]` 为扇区名；多数值列时只用第一数值列。
+- `pie` / `donut`：取 `columns[1]`（第二列）为值，`rows[*][0]` 为扇区名；多数值列时只用第一数值列。
+- `scatter`（**xy 形状，例外**）：`columns` 恰好 3 列 `[点标签, x 指标, y 指标]`，每行 `[label, x, y]`，单系列；与 categorical 组类型**不可互切**（前端切换器按数据形状分组）。
+- 校验：后端 `ai/chatbotgraph/chart/spec.py` pydantic `ChartSpec`（fence 解析后校验失败降级为文本）；前端流式/历史两路径共用 `isValidChartSpec` 结构校验。
 
 > 该格式是**纯数据表**（无 `xAxis`/`series` 等 ECharts 概念）。后端绝不组装 ECharts option。
 
