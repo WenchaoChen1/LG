@@ -60,11 +60,8 @@
 
 **文档**：`2026-06-10-chat-chart-design.md` §4.1 补 flow 格式与 waterfall 约定。
 
-## 5. 扩展位（本期不做，格式机制的预留能力）
+## 5. 扩展位（格式机制的预留能力）
 
-- `points` 加第 4 列 size → bubble 气泡图（scatter 变体）
-- `distribution` format → boxplot 盒须（需五数概括列语义）
-- `ohlc` format → candlestick K 线（金融行情，当前业务无此数据）
-- `matrix` format → heatmap 热力
+> 2026-07-04 更新：bubble（points 4 列）、boxplot（distribution 新格式）、heatmap（**并入 series 组**，未新建 matrix——热力矩阵与二维表同构）、gauge（single 新格式）已随类型扩展落地，现 **5 格式 / 18 类型**，见 [2026-07-04-chart-types-expansion-design.md](./2026-07-04-chart-types-expansion-design.md)。剩余扩展位：`ohlc`→candlestick（当前无行情数据）等。
 
 新格式的加法恒定：spec.py 加 format+类型+校验分支 → chart_prompt 场景规则一行 → 前端一个 builder + registry 一行注册。

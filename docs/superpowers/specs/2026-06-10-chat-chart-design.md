@@ -64,7 +64,7 @@ AI Chatbot（`/ai/devSupport/chat`）当前回答是纯文本 SSE 流式。需�
 - `pie` / `donut`：取 `columns[1]`（第二列）为值，`rows[*][0]` 为扇区名；多数值列时只用第一数值列。
 - `scatter`（**points 格式**）：`columns` 恰好 3 列 `[点标签, x 指标, y 指标]`，每行 `[label, x, y]`，单系列。
 - `waterfall`（**flow 格式**，2026-07-04 新增）：`columns` 恰好 2 列 `[环节, 增减值]`，行序即桥序，数值格必填数字（不许 null）；可选 `"totals": ["<行标签>"]` 指定绝对锚点行（期初/期末/小计），其余行为增减值（正=增绿、负=减红、锚点蓝）。
-- **数据格式（format）分组**（见 [2026-07-04-chart-data-format-design.md](./2026-07-04-chart-data-format-design.md)）：`series`（上述二维表 9 类）/ `points`（scatter）/ `flow`（waterfall）；前端切换器只在同格式内互切，跨格式不可；format 由 type 查表推导，协议不加字段。
+- **数据格式（format）分组**（见 [2026-07-04-chart-data-format-design.md](./2026-07-04-chart-data-format-design.md)，2026-07-04 扩至 5 格式 18 类，总表见 [2026-07-04-chart-types-expansion-design.md](./2026-07-04-chart-types-expansion-design.md)）：`series`（二维表 13 类，含 heatmap/treemap/stacked_area/step_line）/ `points`（scatter 恰 3 列、bubble 恰 4 列）/ `flow`（waterfall）/ `distribution`（boxplot：[组,low,q1,median,q3,high(,you?)] 按位取义、格 1..5 单调不减）/ `single`（gauge：恰 2 列 1 行、0-100）；前端切换器只在同格式内互切，跨格式不可；format 由 type 查表推导，协议不加字段。
 - 校验：后端 `ai/chatbotgraph/chart/spec.py` pydantic `ChartSpec`（按 format 分支校验，fence 解析后失败降级为文本）；前端流式/历史两路径共用 `isValidChartSpec` 结构校验。
 
 > 该格式是**纯数据表**（无 `xAxis`/`series` 等 ECharts 概念）。后端绝不组装 ECharts option。
