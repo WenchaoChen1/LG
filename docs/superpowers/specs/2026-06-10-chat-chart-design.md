@@ -62,8 +62,10 @@ AI Chatbot（`/ai/devSupport/chat`）当前回答是纯文本 SSE 流式。需�
 - `bar` / `line` / `area` / `stacked_bar` / `combo`：`columns[0]`→x 轴，`columns[1..]`→多条柱/线（系列名取自 `columns`）；`horizontal_bar` 类目轴换到 y（首行在最上）。
 - `radar`：`rows[*][0]`→雷达指标（indicator），`columns[1..]`→多组雷达数据。
 - `pie` / `donut`：取 `columns[1]`（第二列）为值，`rows[*][0]` 为扇区名；多数值列时只用第一数值列。
-- `scatter`（**xy 形状，例外**）：`columns` 恰好 3 列 `[点标签, x 指标, y 指标]`，每行 `[label, x, y]`，单系列；与 categorical 组类型**不可互切**（前端切换器按数据形状分组）。
-- 校验：后端 `ai/chatbotgraph/chart/spec.py` pydantic `ChartSpec`（fence 解析后校验失败降级为文本）；前端流式/历史两路径共用 `isValidChartSpec` 结构校验。
+- `scatter`（**points 格式**）：`columns` 恰好 3 列 `[点标签, x 指标, y 指标]`，每行 `[label, x, y]`，单系列。
+- `waterfall`（**flow 格式**，2026-07-04 新增）：`columns` 恰好 2 列 `[环节, 增减值]`，行序即桥序，数值格必填数字（不许 null）；可选 `"totals": ["<行标签>"]` 指定绝对锚点行（期初/期末/小计），其余行为增减值（正=增绿、负=减红、锚点蓝）。
+- **数据格式（format）分组**（见 [2026-07-04-chart-data-format-design.md](./2026-07-04-chart-data-format-design.md)）：`series`（上述二维表 9 类）/ `points`（scatter）/ `flow`（waterfall）；前端切换器只在同格式内互切，跨格式不可；format 由 type 查表推导，协议不加字段。
+- 校验：后端 `ai/chatbotgraph/chart/spec.py` pydantic `ChartSpec`（按 format 分支校验，fence 解析后失败降级为文本）；前端流式/历史两路径共用 `isValidChartSpec` 结构校验。
 
 > 该格式是**纯数据表**（无 `xAxis`/`series` 等 ECharts 概念）。后端绝不组装 ECharts option。
 
