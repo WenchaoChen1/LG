@@ -8,7 +8,7 @@
 
 | 端 | 总入口 | 约定 |
 |----|--------|------|
-| 后端 | `ai/chatbotgraph/chart/`（包），`__init__.py` 即唯一对外 API | 纯逻辑（spec 契约 / fence 解析）经入口 import；含 IO 的 `repair.py` 刻意**深路径显式 import**（消费者不被动拉上 LLM 依赖），包 docstring 声明此分层。其他功能/项目复用 = `from ai.chatbotgraph.chart import ChartSpec, parse_chart_spec, ChartFenceStreamParser` |
+| 后端 | `ai/chatbotgraph/chart/`（包），`__init__.py` 即唯一对外 API | 包内**全部纯逻辑（无 IO）**经入口 import（SSE 修复回路 `repair.py` 已于 2026-07-04 删除，原「深路径例外」不复存在，见 [修复回路删除](./2026-07-04-chart-repair-removal-design.md)）。其他功能/项目复用 = `from ai.chatbotgraph.chart import ChartSpec, parse_chart_spec, ChartFenceStreamParser` |
 | 前端 | `chat/utils/charts/index.ts`（新增） | re-export registry 全部公共 API 与类型；**外部（组件/其他页面/未来项目）只从 `charts` 目录根 import**，builders 是包内实现细节不导出。既有深路径引用收口 |
 
 ## 2. 类型选择：AI 建议优先，默认兜底（协议变化）
@@ -46,4 +46,4 @@
 
 - 历史消息全部带 type（旧协议必填）→ 行为不变；新协议只是放宽。
 - `chatEvents.isValidChartSpec` 与 `parseChartFences` 同步放宽（type 可缺省，结构校验不变）。
-- 后端 repair / validate_chart 随 `parse_chart_spec` 单点自动继承新规则。
+- 后端 validate_chart 随 `parse_chart_spec` 单点自动继承新规则（修复回路已于 2026-07-04 删除，见 [修复回路删除](./2026-07-04-chart-repair-removal-design.md)）。
