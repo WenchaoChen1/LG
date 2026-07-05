@@ -118,7 +118,7 @@ Python → SQS 队列 → Java（结果回调）
 
 ### AI Chatbot — HTTP 经网关 + SSE 流式
 
-Web 聊天页（`/devSupport/chat`）→ Java 网关 → Python `source/chatbot/`（业务模块，interfaces/service/domain 分层，`/api/ai/chat/*` 接口）；对话图与数据查询工具在 `source/ai/chatbotgraph/`、`source/ai/chatbottools/`（提示词中文、给用户的回答默认英文）：
+Web 聊天页（`/devSupport/chat`）→ Java 网关 → Python `source/chatbot/`（业务模块，interfaces/service/domain 分层，`/api/ai/chat/*` 接口）；对话图与数据查询工具在 `source/ai/agent/chatbot_graph/`、`source/ai/tools/`（提示词中文、给用户的回答默认英文）：
 
 - SSE 流式经统一网关 `POST /api/ai/sse/stream`，channel 命名规范 `{模块}.{流类型}`（`chatbot.chat` / `demo.echo`）
 - Python 查询 LG 业务数据（LGPI 公司/财务接口）时同样**经 Java 网关回调**（路由带 `/web` 前缀），不直连 Java 服务
