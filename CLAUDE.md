@@ -118,9 +118,10 @@ Python → SQS 队列 → Java（结果回调）
 
 ### AI Chatbot — HTTP 经网关 + SSE 流式
 
-Web 聊天页（`/devSupport/chat`）→ Java 网关 → Python `source/chatbot/`（业务模块，interfaces/service/domain 分层，`/api/ai/chat/*` 接口）；对话图与数据查询工具在 `source/ai/agent/chatbot_graph/`、`source/ai/tools/`（提示词中文、给用户的回答默认英文）：
+Web 聊天页（`/devSupport/chat`）→ Java 网关 → Python `source/chatbot/`（业务模块，interfaces/service/domain 分层，`/api/ai/chat/*` 接口）；对话图与数据查询工具在 `source/ai/agent/chatbot_graph/`（standard 主图）、`source/ai/agent/chatbot_kb_graph/`（kb 纯知识库智能体独立子包）、`source/ai/agent/chatbot_combo_graph/`（combo 组合智能体独立子包）、`source/ai/tools/`（提示词中文、给用户的回答默认英文）：
 
 - SSE 流式经统一网关 `POST /api/ai/sse/stream`，channel 命名规范 `{模块}.{流类型}`（`chatbot.chat` / `demo.echo`）
+- **三智能体 + 知识库问答（2026-07）**：`chatbot.chat` payload 可选 `agent_mode`（`standard` 缺省 / `kb` 纯知识库 / `combo` 组合分诊），standard 轨新增知识库工具 `search_knowledge_base`（进程内直调 rag 检索，非经 Java 网关）；模式选择走**斜杠命令文本标记**（与 `/sql` 同款）——后端 `stream_turn` 按问题文本判定，优先级 `/sql`＞`/knowledge`＞`/combined`＞payload `agent_mode`（命令字面→模式：`/knowledge`→kb、`/combined`→combo，收口 `_MODE_MARKERS` 词边界正则常量防 URL 误触发），前端无选择器（`+` 工具菜单加静态命令提示，前端不发 `agent_mode`）。设计见 `docs/superpowers/specs/2026-07-05-chatbot-knowledge-base-qa-design.md`
 - Python 查询 LG 业务数据（LGPI 公司/财务接口）时同样**经 Java 网关回调**（路由带 `/web` 前缀），不直连 Java 服务
 - 会话/消息持久化在共享 PG 表 `ai_chatbot_thread` / `ai_chatbot_message`（Python 启动时幂等建表）；消息带 `parent_message_id` 分支树，支持从任意消息 fork 新会话（前端问题编辑/回答重新生成都走 fork 分支）
 - 鉴权：Redis 会话 + 公司归属 ACL（Python 侧校验）；`/api/ai/chat/manage/*` 管理查询仅管理端（前端管理页 `/devSupport/chatManage`）
