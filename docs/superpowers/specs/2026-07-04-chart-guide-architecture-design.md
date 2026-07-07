@@ -1,7 +1,7 @@
 # 图表选型指导架构优化 — 方案（单源两渲染 + 参数化 guide）
 
 > 关联文档: [入口与样式框架](./2026-07-04-chart-entry-and-style-framework-design.md) · [类型扩展](./2026-07-04-chart-types-expansion-design.md)
-> 状态: 已实施后**部分回滚（v1.3，2026-07-04）**——用户决策移除常驻速查行：本产品选型是**数据组驱动**的（前端按 format/suits/resolveType 依数据定型、AI 可省略 type），常驻提示词无需教场景选型、保持最小 stub（10 行，比 v1.1 更小）。保留：结构化表 `_TYPE_GUIDE` 单源、参数化 `get_chart_guide(types)`、§2.5 审计的删/压（这些让提示词更小或与提示词无关）。§2.2 渲染一自此作废。
+> 状态: **已全量回滚（2026-07-04）**——v1.2/v1.3 实验整体撤回，`chart_prompt` 恢复到 GitHub v1.1 原版（318fe74）：常驻最小 stub + `CHART_TYPE_GUIDE` 全文经 get_chart_guide 无参下发。用户决策依据：选型是**数据组驱动**的（前端按 format/suits/resolveType 依数据定型、AI 可省略 type），常驻提示词不教场景选型。本文档仅作决策过程记录。
 > 问题（讨论中确认）: v1.1 把逐类型「场景规则+列约定」整体移入 `get_chart_guide` 后，AI 的**初始选型直觉**只能靠预训练常识+类型名单——精编偏好（如"类目多→treemap 而非 pie"）要调了工具才见到；且 guide 恒返 18 类全文，AI 往往只需要其中一两类。
 
 ## 1. 目标
