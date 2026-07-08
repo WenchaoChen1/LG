@@ -74,6 +74,16 @@
 - **三态闭环**：生成中=加载中 → 闭合合法=图（顶替占位）→ 非法则占位保持加载中，直到 `onDone→loadThread` 经 `parseChartFences` 重渲染成图/「图表数据不对」失败卡。**加载态仅直播 reducer 路径**，历史/落定路径永不产加载态。
 - 验证：后端 chart 全量 79 passed；前端 umi-test 63 passed；tsc 0 新增报错。
 
+### 优化 · 结构卡回迁常驻 + 报错自纠 + 单源收口 + UI 英文（A+B+②③，2026-07-08，chart_prompt v1.2 → v1.5；① 降按需已撤回）
+
+用户追问"AI 到底怎么知道这几种数据类型"，指出 **per-type 数据结构（列约定）并没常驻给 AI**——只在 `CHART_TYPE_GUIDE` 里、靠 Q2 强制调 `get_chart_guide` 才送到（软约束、可能被跳过）。据此优化（**refine Q2**）：
+
+- **A · 结构卡回迁常驻**：`chart_prompt.py` 的 `CHART_SECTION` 新增"各类型列约定"精简卡（series/scatter/bubble/waterfall/boxplot/gauge/combo 的 columns 摆法，~6 行）。结构信息**可靠常驻**，AI 不调工具也知道怎么摆。**注（v1.5，用户最终决定）**：`get_chart_guide` + `validate_chart` **每张图都必调、不分简单复杂**（曾在 v1.3/v1.4 试降按需，用户撤回）；结构卡作速查、不替代工具调用。版本 → v1.5。
+- **B · 报错自纠**：`chart_validate_tool.py` 的 `_typed_errors` 在 typed 校验失败时，末尾附该类型正确列约定（`_SHAPE_HINT`，与常驻卡同一份事实）——AI 一次照着改对，不用再往返 guide。
+- **架构修订**：这把 v1.1"逐类型规则一律移出常驻、零膨胀"的原则做了**有分寸的回调**——区分「结构（列约定）」与「选型（怎么选）」：**结构回迁常驻**（AI 产出正确数据的硬信息）、**选型仍留 guide 按需**（选型本就是前端数据驱动的活）。对应更新 `test_chart_prompt.py` 的架构守卫测试。
+- **进一步收口（②③，用户点名执行；① 已撤回）**：① ~~`validate_chart` 降按需~~ **已撤回**（用户 v1.5 要求两工具每图必调、不分简单复杂）；② 结构卡与 validate 报错自纠**收敛到单一事实源** `spec.COLUMN_SHAPES`（`chart_prompt._shape_card()` 与 `chart_validate_tool._typed_errors` 都从它派生，消除 A+B 引入的两份副本；前端 registry/builder 因语言不同仍独立，属必要副本）；③ 前端错误卡 / 加载 / 详情文案**本地化为英文**（`Chart data unavailable` / `Loading chart…` / `Details`，面向英文终端用户，与聊天回答默认英文一致）。
+- 验证：后端 chart+validate+guide+提示词 **85 passed**；前端 umi-test **63 passed**；tsc 0 新增。**④ 提交按用户要求不做**。
+
 ### 不变项
 - `chart_prompt` 的 fence 协议 / 格式模板 / 数据红线（null 规则等）与 `CHART_TYPE_GUIDE` 全文不变；get_chart_guide 无参全量下发不变。（**注**：仅"画图流程"段随 Q2 改为强制调两工具、版本 → v1.2；"v1.1 锁定"原则已被 Q2 有意解除。）
 - 前端 format/suits/traits/styles 四层架构与总入口不变。
@@ -100,5 +110,6 @@
 4. ✅ **Q2 · 两工具强制**：所有图表输出前必须依次调 `get_chart_guide`→`validate_chart`、通过才输出，不分简单/复杂；为此解锁 v1.1 提示词 → v1.2。已知代价 = 每张图多两次工具往返（见 §5.4），接受。
 5. ✅ **Q5 · 绝不让用户看到图表 JSON**：坏 chart fence 一律进"图表数据不对"错误卡（JSON 折叠、默认不外露）；后端流式抑制坏 fence、前端 parseChartFences 坏 fence 进错误卡。已知代价 = 局部覆盖"降级文本保内容"（见 §5.5），接受（内容不丢）。
 6. ✅ **加载态三态（Q5 延伸）**：生成中显示"数据加载中"、好了显示图、完成仍坏显示失败。新增 `chart_pending` 信号（后端围栏打开即发、前端插加载占位由 chart 顶替）。错误"只在完成后出现"本就成立，本次补齐生成中的加载占位。
+7. ✅ **结构卡回迁常驻（单源）+ 报错自纠 + UI 英文（A+B+②③）**：per-type 列约定精简卡进常驻（单源 `spec.COLUMN_SHAPES`，结构可靠可见）；validate 失败报错自带正确摆法；前端错误卡/加载/详情英文化。chart_prompt → v1.5。**⚠️ 工具调用最终策略：两工具（get_chart_guide + validate_chart）每张图必调、不分简单复杂**（v1.3/v1.4 曾试"降按需"，用户 2026-07-08 撤回，回到 Q2 立场）。
 
 > 关联运行时理解（用户 Q3/Q4 已答，非改动项）：Q3 失败重试 = validate_chart 回 errors 引导 AI 在 ReAct 迭代内自修（软约束，无确定性循环）；失败数据不入前端由落地闸门保证。Q4 后端**不取数不构图**，只做 fence 切分 + 结构底线 + 轻规范化后透传——这是 §3 既定职责。
