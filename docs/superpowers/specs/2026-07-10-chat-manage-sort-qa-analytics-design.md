@@ -14,6 +14,14 @@
 > 5. chatManage 时间语义确认：Created=会话创建时间（thread.created_at）、Last Active=该会话最后一条消息时间（thread.last_message_at，append 时 touch）；
 > 6. analytics **byUser 去 Top 20 改全量** + 每用户带归属维度（clientType/companyId/organizationId，取该用户范围内 last_message_at 最新会话的维度值，去掉恒为 1 的 activeUserCount）；前端 Users 表加客户端分页与归属列，行点击跳 `/devSupport/chatMessages?userId=`。
 
+> **修订记录（2026-07-10 二次冒烟，多选+级联，已确认三个 chat 页全上）**：
+> 7. **四个维度筛选（client_type / organization / company / user）全部改多选 + 级联**，应用到 chatManage / chatMessages / chatAnalytics 三页：
+>    - **传参 = 逗号拼接 CSV**（`companyId=a,b,c`；UUID 不含逗号，规避数组序列化坑）。后端 `/manage/qa`、`/manage/threads`、`/manage/analytics`、`/manage/filter-options` 的这四个参数保持 `str | None`，按 CSV split 成列表做 **IN 查询**（空/缺省=不过滤）；前端发送 `ids.join(',') || undefined`。
+>    - **级联候选支持多上游**：filter-options 的 companies/organizations 按 client_types(IN) 收窄、users 按 client_types+company_ids+organization_ids(IN) 收窄。
+>    - **`isOrgFilterDisabled` 改数组判定**：选中客户端恰为 `[company/app]` 时禁用组织（规则不变）。client_type 归导从「恰选 1 个」改为「发选中数组 CSV，空则不发」。
+>    - **前端**：chatMessages 的级联 Select 改 `mode="multiple"`；chatManage/chatAnalytics 从单选 `DirectorySelect` 换成 filter-options 级联多选下拉；`useManageFilterOptions` + `toFilterSelectOptions` 提升到 `_shared/` 三页复用。多选下拉高度随 tag 自适应（`FilterField` 已加 `min-height`）。
+>    - 下游失效自动清空逻辑（上游变→下游选中项不在新候选里则剔除）对数组逐项过滤。
+
 ---
 
 ## 1. 背景与目标
