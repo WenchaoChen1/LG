@@ -99,7 +99,7 @@ docker compose down -v                       # 停容器并删卷（数据丢失
 |------|--------|------|
 | `CIOaas-api/` | Java 17、Spring Boot 3、Spring Cloud | 后端 REST API + API 网关 |
 | `CIOaas-web/` | React 16、Ant Design Pro、UmiJS 3、TypeScript | 前端单页应用 |
-| `CIOaas-python/` | Python 3.12、FastAPI、FastMCP | 预测/财务 ML API + MCP 服务 |
+| `CIOaas-python/` | Python 3.12、FastAPI、FastMCP | 预测/财务 ML API（MCP 服务当前临时屏蔽） |
 | `cio-bigdata/` | Python 3.6、ETL / Singer、Airflow | 数据集成（Redshift、QuickBooks 等） |
 | `docs/` | Markdown | 功能需求文档、设计文档、审核报告 |
 | `docs/智能解析/调研/` | Markdown | OCR Agent 技术方案（系统架构/Java/Python/前端/设计理念） |
@@ -128,13 +128,13 @@ Python → SQS 队列 → Java（结果回调）
 
 ### AI Chatbot — HTTP 经网关 + SSE 流式
 
-Web 聊天页（`/devSupport/chat`）→ Java 网关 → Python `source/chatbot/`（业务模块，interfaces/service/domain 分层，`/api/ai/chat/*` 接口）；对话图与数据查询工具在 `source/ai/agent/chatbot_graph/`（standard 主图）、`source/ai/agent/chatbot_kb_graph/`（kb 纯知识库智能体独立子包）、`source/ai/agent/chatbot_combo_graph/`（combo 组合智能体独立子包）、`source/ai/tools/`（提示词中文、给用户的回答默认英文）：
+Web 聊天页（`/devSupport/chat`）→ Java 网关 → Python `source/chatbot/`（业务模块，interfaces/application/domain 分层，`/api/ai/chat/*` 接口）；对话图与数据查询工具在 `source/ai/agent/chatbot_graph/`（standard 主图）、`source/ai/agent/chatbot_kb_graph/`（kb 纯知识库智能体独立子包）、`source/ai/agent/chatbot_combo_graph/`（combo 组合智能体独立子包）、`source/ai/tools/`（提示词中文、给用户的回答默认英文）：
 
 - SSE 流式经统一网关 `POST /api/ai/sse/stream`，channel 命名规范 `{模块}.{流类型}`（`chatbot.chat` / `demo.echo`）
-- **三智能体 + 知识库问答（2026-07）**：`chatbot.chat` payload 可选 `agent_mode`（`standard` 缺省 / `kb` 纯知识库 / `combo` 组合分诊），standard 轨新增知识库工具 `search_knowledge_base`（进程内直调 rag 检索，非经 Java 网关）；模式选择走**斜杠命令文本标记**（与 `/sql` 同款）——后端 `stream_turn` 按问题文本判定，优先级 `/sql`＞`/knowledge`＞`/combined`＞payload `agent_mode`（命令字面→模式：`/knowledge`→kb、`/combined`→combo，收口 `_MODE_MARKERS` 词边界正则常量防 URL 误触发），前端无选择器（`+` 工具菜单加静态命令提示，前端不发 `agent_mode`）。设计见 `docs/superpowers/specs/2026-07-05-chatbot-knowledge-base-qa-design.md`
+- **三智能体 + 知识库问答（2026-07）**：`chatbot.chat` payload 可选 `agent_mode`（`standard` 缺省 / `kb` 纯知识库 / `combo` 组合分诊），standard 轨新增知识库工具 `search_knowledge_base`（进程内直调 rag 检索，非经 Java 网关）；模式选择走**斜杠命令文本标记**——后端 `stream_turn` 按问题文本判定，优先级 `/knowledge`＞`/combined`＞payload `agent_mode`（命令字面→模式：`/knowledge`→kb、`/combined`→combo，收口 `_MODE_MARKERS` 词边界正则常量防 URL 误触发；原 `/sql` 选图分支已移除，sql 直查轨保留但当前不接线），前端无选择器（`+` 工具菜单加静态命令提示，前端不发 `agent_mode`）。设计见 `docs/superpowers/specs/2026-07-05-chatbot-knowledge-base-qa-design.md`
 - Python 查询 LG 业务数据（LGPI 公司/财务接口）时同样**经 Java 网关回调**（路由带 `/web` 前缀），不直连 Java 服务
-- 会话/消息持久化在共享 PG 表 `ai_chatbot_thread` / `ai_chatbot_message`（Python 启动时幂等建表）；消息带 `parent_message_id` 分支树，支持从任意消息 fork 新会话（前端问题编辑/回答重新生成都走 fork 分支）
-- 鉴权：Redis 会话 + 公司归属 ACL（Python 侧校验）；`/api/ai/chat/manage/*` 管理查询仅管理端（前端管理页 `/devSupport/chatManage`）
+- 会话/消息持久化在共享 PG 表 `ai_chatbot_thread` / `ai_chatbot_message`（建表 DDL 在 `sql/migrations/business/V001__sprint111_baseline.sql` chatbot 段，走版本化迁移、启动期不自动建表）；消息带 `parent_message_id` 分支树，支持从任意消息 fork 新会话（前端问题编辑/回答重新生成都走 fork 分支）
+- 鉴权：Redis 会话 + 公司归属 ACL（Python 侧校验）；`/api/ai/chat/manage/*` 管理查询后端仅登录即可访问、不做端类型限制（管理端限制靠前端 devSupport 菜单，前端管理页 `/devSupport/chatManage`）
 - **断流恢复（切换会话 / 刷新页面续流，2026-06-15）**：后端生成与连接解耦，SSE 帧缓冲在 Redis（`sse:buf:{stream_id}`，TTL 1h，`Last-Event-ID` 重放，`GET /api/ai/sse/subscribe/{id}` 凭 stream_id 续看**不做 header 鉴权**）。前端把在跑流的 `stream_id` 按 threadId 存 `sessionStorage`，进入会话时有记录则经 `/subscribe` 从 seq 0 续流、否则读 DB；**末条已是落库的 assistant 则不续传**（防与重放重复渲染）。**纯前端，后端 0 改动**。详见 `docs/superpowers/plans/2026-06-15-ai-chatbot-resume-streaming.md`
 
 详细设计见 `docs/AI-Chatbot/设计/design-doc.md`，前后端实现计划见 `docs/superpowers/plans/2026-06-05-ai-chatbot-v1-*.md`、`docs/superpowers/plans/2026-06-15-ai-chatbot-resume-streaming.md`。
