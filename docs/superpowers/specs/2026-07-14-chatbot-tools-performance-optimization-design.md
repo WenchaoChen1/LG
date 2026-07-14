@@ -73,6 +73,12 @@
 
 ### ~~P6 close_month 路径~~ ✅ 队友已根治（aiDetail 携带 close_month，`3f1b4e5`）
 
+## 三补、遗留项处置记录（2026-07-14 晚，Wenchao 确认）
+
+- **web 大 trace（上千 span）渲染虚拟化**：❌ 不做（won't-fix）——几百 span 实测无感、超大 trace 尚未出现，YAGNI；届时再考虑 react-window / 行级 memo。
+- **py `_RECURSION_LIMIT=7` 打满降级路径**：❌ 不做（won't-fix）——审核结论：异常路径 passthrough 完备、needs_pick 有 retrieve 兜底，后果仅多跑一轮取数。
+- **参考文档陈旧漂移**：✅ 已清理（CIOaas-python `docs/AI-Chatbot/chatbot-java-api-tools.md` 顶部加 2026-07-14 大清理注记；`2026-07-10-close-month-anchor` 设计+计划两篇加"实现已被取代"声明；历史设计存档类不逐行改，沿用 `ai/CLAUDE.md` 相关文档节的"已取代"标注惯例）。
+
 ## 四、明确不在本方案内
 
 - Java 侧 aiDetail 性能根治（现还多算 close_month，20 家批的服务端耗时值得 Java 侧专项；本方案 P1 只在 Python 侧绕行）；
