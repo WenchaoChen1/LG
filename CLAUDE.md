@@ -135,7 +135,7 @@ Web 聊天页（`/devSupport/chat`）→ Java 网关 → Python `source/chatbot/
 - Python 查询 LG 业务数据（LGPI 公司/财务接口）时同样**经 Java 网关回调**（路由带 `/web` 前缀），不直连 Java 服务
 - 会话/消息持久化在共享 PG 表 `ai_chatbot_thread` / `ai_chatbot_message`（建表 DDL 在 `sql/migrations/business/V001__sprint111_baseline.sql` chatbot 段，走版本化迁移、启动期不自动建表）；消息带 `parent_message_id` 分支树，支持从任意消息 fork 新会话（前端问题编辑/回答重新生成都走 fork 分支）
 - 鉴权：Redis 会话 + 公司归属 ACL（Python 侧校验）；`/api/ai/chat/manage/*` 管理查询后端仅登录即可访问、不做端类型限制（管理端限制靠前端 devSupport 菜单，前端管理页 `/devSupport/chatManage`）
-- **断流恢复（切换会话 / 刷新页面续流，2026-06-15）**：后端生成与连接解耦，SSE 帧缓冲在 Redis（`sse:buf:{stream_id}`，TTL 1h，`Last-Event-ID` 重放，`GET /api/ai/sse/subscribe/{id}` 凭 stream_id 续看**不做 header 鉴权**）。前端把在跑流的 `stream_id` 按 threadId 存 `sessionStorage`，进入会话时有记录则经 `/subscribe` 从 seq 0 续流、否则读 DB；**末条已是落库的 assistant 则不续传**（防与重放重复渲染）。**纯前端，后端 0 改动**。详见 `docs/superpowers/plans/2026-06-15-ai-chatbot-resume-streaming.md`
+- **断流恢复（切换会话 / 刷新页面续流，2026-06-15）**：后端生成与连接解耦，SSE 帧缓冲在 Redis（`sse:buf:{stream_id}`，TTL 1h，`Last-Event-ID` 重放，`GET /api/ai/sse/subscribe/{id}` 续看——2026-07-15 起要求登录态 Bearer + 建流时记录的归属校验，不再仅凭 stream_id）。前端把在跑流的 `stream_id` 按 threadId 存 `sessionStorage`，进入会话时有记录则经 `/subscribe` 从 seq 0 续流、否则读 DB；**末条已是落库的 assistant 则不续传**（防与重放重复渲染）。**纯前端，后端 0 改动**。详见 `docs/superpowers/plans/2026-06-15-ai-chatbot-resume-streaming.md`
 
 详细设计见 `docs/AI-Chatbot/设计/design-doc.md`，前后端实现计划见 `docs/superpowers/plans/2026-06-05-ai-chatbot-v1-*.md`、`docs/superpowers/plans/2026-06-15-ai-chatbot-resume-streaming.md`。
 
