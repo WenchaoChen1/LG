@@ -41,3 +41,4 @@ logs/
 
 # IDE 构建输出
 out/
+.claude/launch.json
