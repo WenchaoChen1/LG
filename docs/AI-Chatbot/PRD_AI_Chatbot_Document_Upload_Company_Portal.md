@@ -48,6 +48,7 @@ MVP 阶段支持的文件类型覆盖主要用例：PDF 与 Word 文档（用于
 - 处于 Failed 状态的文件不会影响 Send 按钮——失败文件不阻塞发送。
 - 一旦不存在仍在 Uploading 或 Parsing 的文件，Send 按钮按常规启用规则处理。
 - 发送时，仅附加处于 Ready 状态的文件；处于 Failed 的文件自动被排除并从上传集合中移除。
+- 发送后，文件上传到知识库
 
 ### 4. 上传错误处理（Upload Error Handling）
 
