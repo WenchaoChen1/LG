@@ -28,7 +28,7 @@ MVP 阶段支持的文件类型覆盖主要用例：PDF 与 Word 文档（用于
 - 上传的文档通过 RAG 处理并索引，其完整内容在当前及未来所有会话中均可动态检索。
 - 聊天机器人在上传后立即以及未来的会话中，均能准确回答关于已上传文档内容的问题。
 - 用户可在单个会话中上传多个文件。
-- 当用户仅上传文档而不附带问题时，AI 主动提示：「I've reviewed the document. Would you like a summary, or do you have a specific question about it?」
+- 当用户仅上传文档而不附带问题时，AI 直接总结文件内容，回复用户
 - 功能须在桌面端与移动端均完整可用。
 
 ### 2. 文件 Chip 状态与操作（File Chip States & Actions）
