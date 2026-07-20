@@ -53,7 +53,7 @@ MVP 阶段支持的文件类型覆盖主要用例：PDF 与 Word 文档（用于
 ### 4. 上传错误处理（Upload Error Handling）
 
 - 错误展示位置按发生阶段区分：
-  - 在文件进入上传队列前发生的错误（例如选择时因大小或不支持的类型被拒绝），以顶部内嵌横幅（inline banner）方式显示在聊天区域顶部，并显示完整原因；
+  - 在文件进入上传队列前发生的错误（例如选择时因大小或不支持的类型被拒绝），以顶部内嵌横幅（inline banner）方式显示在聊天区域顶部，并显示完整原因；若无操作，五秒后自动消失。
   - 在文件进入队列后发生的错误，在该文件的 chip 上以简明失败状态显示，完整原因通过 hover/tooltip 呈现。
 - 处理的错误类型与文案：
   - 单文件超大：「The uploaded file exceeds the maximum file size limit of 20MB. Please reduce the file size and upload again.」
