@@ -39,7 +39,6 @@ Knowledge Base 面板在 MVP 阶段为只读参考视图——用户可浏览、
 ### 2. 搜索与筛选（Search & Filter）
 
 - 用户可按文件名进行搜索。
-- 用户可按文件类型（file type）与上传者（uploader）进行筛选。
 - File Type（单选）
 新增 "All File Types" 选项
 默认选中 "All File Types"，回显 "All File Types"
