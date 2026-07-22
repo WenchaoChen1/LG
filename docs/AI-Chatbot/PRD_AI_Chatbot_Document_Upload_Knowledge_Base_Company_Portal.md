@@ -40,6 +40,18 @@ Knowledge Base 面板在 MVP 阶段为只读参考视图——用户可浏览、
 
 - 用户可按文件名进行搜索。
 - 用户可按文件类型（file type）与上传者（uploader）进行筛选。
+- File Type（单选）
+新增 "All File Types" 选项
+默认选中 "All File Types"，回显 "All File Types"
+选择具体类型，回显该类型名称
+- Uploader（多选）
+默认全选，回显 "All Uploaders"
+选择部分，回显 "Uploader" + 黄色圆形角标（白色数字显示已选数量）
+全不选，视为全选，回显 "All Uploaders"
+- Company（多选）
+默认全选，回显 "All Companies"
+选择部分，回显 "Company" + 黄色圆形角标（白色数字显示已选数量）
+全不选，视为全选，回显 "All Companies"
 
 ### 3. 分页（Pagination）
 
