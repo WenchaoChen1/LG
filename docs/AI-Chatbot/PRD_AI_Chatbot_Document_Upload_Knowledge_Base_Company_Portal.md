@@ -62,7 +62,7 @@ Knowledge Base 面板在 MVP 阶段为只读参考视图——用户可浏览、
 - Company User：仅可见自己亲自上传的文件；同公司内其他用户上传的文件不可见，无论这些文件是否存储在 Layer 1a。
 - Company Admin：可见本公司任意用户上传、存储在 Layer 1a 的所有文件。
 - Layer 1b 文件永远不对任何公司端用户可见，无论角色。
-
+- 以上权限与问答记忆文件相同
 ### 5. 空状态（Empty State）
 
 - 当尚未上传任何文档时，面板显示友好的空状态，例如：「No documents uploaded yet. Upload a file in the chat to get started.」
