@@ -100,6 +100,7 @@ Looking Glass 需要为公司端用户（**Company User** 与 **Company Admin** 
   - **"[实时秒数计数] thinking"**；
   - 加载指示器；
   - Send 按钮变为 **Pause 按钮**。
+  - 消息编辑按钮隐藏，仅显示复制按钮
 - 用户在生成中点击 **Pause/Stop**，行为根据阶段不同：
   - **在 thinking 阶段被中断（尚未流式输出任何内容）**：
     - 停止生成；
