@@ -19,7 +19,6 @@ Knowledge Base 面板在 MVP 阶段为只读参考视图——用户可浏览、
 
 - 目标端：Company Portal（公司门户）。
 - 用户角色：Company User、Company Admin。
-- 版本：MVP。
 
 ## 三、功能需求
 
@@ -39,18 +38,7 @@ Knowledge Base 面板在 MVP 阶段为只读参考视图——用户可浏览、
 ### 2. 搜索与筛选（Search & Filter）
 
 - 用户可按文件名进行搜索。
-- File Type（单选）
-新增 "All File Types" 选项
-默认选中 "All File Types"，回显 "All File Types"
-选择具体类型，回显该类型名称
-- Uploader（多选）
-默认全选，回显 "All Uploaders"
-选择部分，回显 "Uploader" + 黄色圆形角标（白色数字显示已选数量）
-全不选，视为全选，回显 "All Uploaders"
-- Company（多选）
-默认全选，回显 "All Companies"
-选择部分，回显 "Company" + 黄色圆形角标（白色数字显示已选数量）
-全不选，视为全选，回显 "All Companies"
+- 用户可按文件类型（file type）与上传者（uploader）进行筛选。
 
 ### 3. 分页（Pagination）
 
@@ -62,7 +50,7 @@ Knowledge Base 面板在 MVP 阶段为只读参考视图——用户可浏览、
 - Company User：仅可见自己亲自上传的文件；同公司内其他用户上传的文件不可见，无论这些文件是否存储在 Layer 1a。
 - Company Admin：可见本公司任意用户上传、存储在 Layer 1a 的所有文件。
 - Layer 1b 文件永远不对任何公司端用户可见，无论角色。
-- 以上权限与问答记忆文件相同
+
 ### 5. 空状态（Empty State）
 
 - 当尚未上传任何文档时，面板显示友好的空状态，例如：「No documents uploaded yet. Upload a file in the chat to get started.」
