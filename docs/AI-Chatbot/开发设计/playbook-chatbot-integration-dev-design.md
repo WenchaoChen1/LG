@@ -135,7 +135,7 @@ scripts/eval_playbook_recall.py              召回回归评测（部署期/研�
 scripts/data/playbook/                       golden_queries.json（157 题金标）
 ```
 
-**改既有文件只有 7 处**（§4.6 逐条列出），全是"加一个分支 / 加一个枚举值 / 加一个函数"的加法，**无既有行为改动**：`process_type.py` 加种子、`enums.py` 加三个操作类型、`registry.py` 加映射、`factory.py` 加 build 分支、`space_service.py` 加 PLAYBOOK 唯一守卫、`routes.py` + `vo/` 挂三个端点、`files.py` 加上传函数。
+**改既有文件只有 9 处**（§4.6 逐条列出，其中 1 处是迁移里的 CHECK 放宽），全是"加一个分支 / 加一个枚举值 / 加一个函数"的加法，**无既有行为改动**：`process_type.py` 加种子、`enums.py` 加三个操作类型、`registry.py` 加映射、`factory.py` 加 build 分支、`space_service.py` 加 PLAYBOOK 唯一守卫、`routes.py` + `vo/` 挂三个端点、`files.py` 加上传函数、`file_registry.py` 加两个登记函数，外加迁移里放宽 `ai_rag_space` 的 process_type CHECK。
 
 四点说明：
 
@@ -337,9 +337,9 @@ if dup is not None:
 
 **不会因此多一次往返**：阶段 0 本来就要查 `ai_playbook`（定位空间 + 生效版本），顺带把 entry_id 一起取出是零成本。传 64 个 UUID 进 SQL 约 2.4 KB 参数，可忽略。
 
-⚠️ **这类查询不走 HNSW，但无所谓**：`entry_id = ANY(...)` 过滤 + 向量排序只能精确扫。单版本 profile 只有 64 条，**实测 0.099 ms**；多版本后 chunk 总行数 429×N，先按 `entry_id` 索引收窄到 429 条、再筛出 64 条 profile，仍是毫秒级。所以本设计**不依赖 HNSW**（索引仍建，供将来节点数量级上升时用）。
+⚠️ **这类查询不走 HNSW，但无所谓**：`entry_id = ANY(...)` 过滤 + 向量排序只能精确扫。单版本 profile 只有 64 条，**实测 0.099 ms**；多版本后 chunk 总行数 368×N，先按 `entry_id` 索引收窄到 368 条、再筛出 64 条 profile，仍是毫秒级。所以本设计**不依赖 HNSW**（索引仍建，供将来节点数量级上升时用）。
 
-**metadata 上暂不建索引**：`entry_id` 索引已把候选收窄到单版本约 429 条，在其上筛 `chunk_kind` 是内存过滤。若将来 playbook 数量级上升，再加 `(entry_id) WHERE metadata->>'chunk_kind'='profile'` 部分索引即可（YAGNI）。
+**metadata 上暂不建索引**：`entry_id` 索引已把候选收窄到单版本约 368 条，在其上筛 `chunk_kind` 是内存过滤。若将来 playbook 数量级上升，再加 `(entry_id) WHERE metadata->>'chunk_kind'='profile'` 部分索引即可（YAGNI）。
 
 ### 4.4 `ai_playbook`（新增：属性 + 关系，**按版本存**）
 
@@ -425,6 +425,8 @@ v2 对 rag 共用代码**只有加法、没有行为改动**：
 | `application/service/space_service.py` | `create_space` 加一条 PLAYBOOK 全局唯一守卫（§4.1） | 只对 PLAYBOOK 生效，其余类型逐字节不变 |
 | `domain/enums.py` | `RagOperationType` 加三个枚举值（`PLAYBOOK_CRAWL` / `_INGEST` / `_ACTIVATE`，§9.2） | 纯新增枚举项，复用现成的 `ai_rag_operation_log` 而非另造审计表 |
 | `infrastructure/files.py` | 加 `upload_bytes_via_java`（presign → PUT → verify，§7.0） | 纯新增函数，与既有 `download_ingest_file` 对称；后者一个字不动 |
+| `lg/db/service/file_registry.py` | 加 `register_playbook_file` + `list_playbook_files` | 纯新增函数。**不能复用 `upsert_kb_registration`**——它把 `business_type` 写死成 `KNOWLEDGE_BASE`，而用独立类型正是 §7.0 那两道保险的第二道 |
+| ⚠️ **迁移**：`ai_rag_space` 的 CHECK 约束 | `chk_rag_space_process_type` 放宽到三值（V021 第 ② 段） | **实测才发现的第四处注册点**——Python 侧 `SYSTEM_SEEDS` / `BUSINESS_REGISTRY` / `build_processor` 三处全齐了，建 PLAYBOOK 空间仍被 DB 拒（`CheckViolation`）。这是 DDL 层的枚举，只能靠迁移放宽 |
 
 **对比 v1 被免掉的三处**（每处都动共用逻辑，其中 filters 那处紧邻租户隔离）见 §2.1 的表格与 D14~D16。这是 v2 最主要的收益——多一张表换掉三处共用代码的风险。
 
@@ -442,14 +444,14 @@ v2 对 rag 共用代码**只有加法、没有行为改动**：
 
 **跨库后果**：阶段 0 与阶段 2 在业务库（space / version / playbook / entry）、阶段 1 与阶段 3 在向量库（chunk）——共 **4 次交互**（§5）。全程按 `entry_id` / `pid` **点查**，**任何时候不写跨这两组表的 JOIN**——本地未配 `RAG_DATABASE_*` 时向量库会回退到业务库、看着能 JOIN，一上有独立向量库的环境就崩。
 
-⚠️ **v1 已跑进本地库的数据要清理重导**：v1 把 64 条 entry 与 429 条分段写进了 `ai_rag_ent_kb_chunk`（STANDARD 空间）。v2 换表换空间，那批数据**不迁移、直接删**（源站可重爬，没有迁移价值）：删 PLAYBOOK/STANDARD 那个旧空间下的 entry 与其 chunk、删旧的业务关联行，再走 §7 的 API 重建。
+⚠️ **v1 已跑进本地库的数据要清理重导**：v1 把 64 条 entry 与 368 条分段写进了 `ai_rag_ent_kb_chunk`（STANDARD 空间）。v2 换表换空间，那批数据**不迁移、直接删**（源站可重爬，没有迁移价值）：删 PLAYBOOK/STANDARD 那个旧空间下的 entry 与其 chunk、删旧的业务关联行，再走 §7 的 API 重建。
 
 ### 4.8 版本化：重跑不动旧数据，新版本审核后生效
 
 这是本设计的**核心运维模型**，取代原先"重跑就地覆盖 + 关系只增不删"的做法（D7 因此废除）。
 
 ```
-ingest  →  生成 version N+1 的整套数据（64 行属性 + 一套关系 + 64 条 entry + 429 条 chunk）
+ingest  →  生成 version N+1 的整套数据（64 行属性 + 一套关系 + 64 条 entry + 368 条 chunk）
            status = DRAFT，**线上检索完全看不到**
               ↓
 人工审核（比 diff、按版本跑召回测试）
@@ -515,8 +517,8 @@ CREATE UNIQUE INDEX uq_ai_playbook_version_single_active
 |---|---|---|
 | `ai_playbook` 行 | 64 | 320 |
 | `ai_rag_entry` 行 | 64 | 320 |
-| `ai_rag_playbook_chunk` 行 | 429 | 2145 |
-| 向量存储（1536 维 float4 ≈ 6KB/条） | ≈ 2.6 MB | ≈ 13 MB |
+| `ai_rag_playbook_chunk` 行 | 368 | 1840 |
+| 向量存储（1536 维 float4 ≈ 6KB/条） | ≈ 2.2 MB | ≈ 11 MB |
 
 **第一阶段不做清理**（YAGNI）：13 MB 完全不值得为它写清理逻辑。版本攒多了再加一个 `DELETE /playbook/versions/{version}` 端点，**允许删 `ARCHIVED` 与 `FAILED`**（后者是跑挂的废版本，§7.1.2）。**不自动清 FAILED**——自动清会掩盖「上次跑挂了」这个事实。
 
@@ -740,7 +742,7 @@ soup.find_all("section", class_="playbook-section")              # 分类 sectio
 | **项目已有现成的 HTML 语义分割器** | `splitters/html_splitter.py` 的 docstring 原话："本期 loader 不产出 HTML……**保留此工具供未来 HTML 入库使用**"。它用 `HTMLSemanticPreservingSplitter` 按 `h2` 边界切、`preserve_links` / `preserve_images`。playbook 的 card 内部正是按小节组织的，**按 h2 切比按 1400 字符硬切更贴结构** |
 | **能真正 diff 源站改版** | §11 要求"核对 64 节点 / 28 关系 / 63 正文，不一致说明源站改版，先看差异再决定要不要 ingest"。只有存了 HTML 才能 diff 出**页面结构**的变化（而不只是解析结果的差异） |
 
-⚠️ **换 html_splitter 不会让 r@1 80.9% 失效**：那个数字只依赖 profile chunk（title + category + description + questions），与 body 怎么切无关；body 切法只影响"取正文"阶段的段边界（详见 §11 抽验里 323 → 365 段的说明）。**但仍要在切换后用金标集跑一次对比**（§10），别凭推断。
+⚠️ **换 html_splitter 不会让 r@1 80.9% 失效**：那个数字只依赖 profile chunk（title + category + description + questions），与 body 怎么切无关；body 切法只影响"取正文"阶段的段边界（详见 §11 抽验里 323 / 365 / 304 三个数字的说明）。**但仍要在切换后用金标集跑一次对比**（§10），别凭推断。
 
 ⚠️ **预研没有保存过 HTML**：`scrape_playbooks.py` 抓完只写了两个解析结果 JSON、原始 HTML 用完即丢。所以**首次上线时手里没有 HTML 存档**，crawl 必须能访问源站——这条对部署有约束，见 §7.0.1。
 
@@ -896,7 +898,7 @@ private static final Set<String> PLAYBOOK = Set.of("html");
 
 #### ⚠️ 7.1.2 中途失败：靠 activate 前的完整性校验，不靠事务
 
-ingest 写 64 条 entry（业务库）+ 429 条 chunk（**向量库**）+ 64 行属性（业务库），中间还夹着 64 次 embedding 与 1 次关系推断的网络调用。失败可能发生在任何一步，后果是**留下一个不完整的 DRAFT 版本**——而它一旦被 activate，线上就静默少掉若干 playbook。
+ingest 写 64 条 entry（业务库）+ 368 条 chunk（**向量库**）+ 64 行属性（业务库），中间还夹着 64 次 embedding 与 1 次关系推断的网络调用。失败可能发生在任何一步，后果是**留下一个不完整的 DRAFT 版本**——而它一旦被 activate，线上就静默少掉若干 playbook。
 
 ##### 为什么不能用事务兜住
 
@@ -982,7 +984,7 @@ POST /api/ai/rag/playbook/versions/{version}/activate
 
 **按版本跑召回测试**：devSupport 现成的 `POST /api/ai/rag/recall` 传 playbook 的 spaceId 即可，但它默认打 ACTIVE 版本。要测 DRAFT 版本得让 `filters` 支持传 `version`——第一阶段先靠**直接查库看新版本内容**审核，把「页面上选版本测试」留到 §13。
 
-429 段重嵌约 $0.003、数秒，**不做 content-hash 增量**（YAGNI）。
+368 段重嵌约 $0.003、数秒，**不做 content-hash 增量**（YAGNI）。
 
 ## 8. 错误处理
 
@@ -1163,6 +1165,7 @@ python scripts/eval_playbook_recall.py                       # 缺省评 ACTIVE 
 3. **部署代码**——⚠️ **Java 与 Python 必须同批**（Java 的 `FileBusinessTypeEnum.PLAYBOOK` 不上，Python 的 crawl 调 presign 会 400）。启动后先验两条注册链：
    - Java：`POST /api/web/storage/uploads/presign` 传 `fileBusinessType=PLAYBOOK` + 一个 `.html` 文件，应返回 `uploadUrl`，且 `objectKey` 含 `playbook/` 目录段
    - Python：`GET /api/ai/rag/process-types` 应返回**三个**类型，且 `Playbook` 带 `defaultChunkSize=1400` / `defaultChunkOverlap=150`
+   - ⚠️ **DB 侧**：`SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='chk_rag_space_process_type'` 必须已含 `PLAYBOOK`——这是**第四处注册点**，Python 三处全齐了它不放宽也建不出空间（V021 第 ② 段负责）
 4. **建空间**：devSupport → RAG Management → Spaces → New Space，Process Type 选 `Playbook`（或跳过，靠 ingest 兜底自建）。
 5. `POST /api/ai/rag/playbook/crawl`（⚠️ **每个环境都要各自跑一次**，§7.0.1）→ 抽验：
    - `files` 表新增 **1 行**（`content_type='text/html'`，size 约 1.3–2.6 MB）、`ai_file_registry` 新增 **1 行**（`business_type='PLAYBOOK'`、`company_id` NULL、`ai_rag_entry_id` **留空**）
@@ -1172,7 +1175,7 @@ python scripts/eval_playbook_recall.py                       # 缺省评 ACTIVE 
    - `ai_playbook_version` 一行 `version=1, status='DRAFT'`、`node_count=64` / `relation_count=28`、`relation_model` 与 **`file_id`** 均有值
    - ⚠️ **与仓库基线核对**：解析结果应仍是 **64 节点 / 28 关系 / 63 正文**（`scripts/data/playbook/` 那两个 JSON）。不一致 = 源站改版信号，**先看差异再决定要不要 activate**
    - `ai_playbook` **64 行且全部 `version=1`**；`ai_rag_entry` 该 space 下 64 行、status 全 `SUCCESS`、`company_id` 全 NULL
-   - `ai_rag_playbook_chunk` 挂在这 64 个 entry_id 名下的分段：**`metadata->>'chunk_kind'='profile'` 恰好 64 条** + `'body'` **365 条**（实测值——预研自写切分是 323，rag 的 splitter 段边界不同；profile 文本逐字一致，故路由准确率不受影响，变的只是取正文的段边界）
+   - `ai_rag_playbook_chunk` 挂在这 64 个 entry_id 名下的分段：**`metadata->>'chunk_kind'='profile'` 恰好 64 条** + `'body'` **304 条**（实测值。三个数字的来历：预研自写切分 323；v1 走 STANDARD 的 `load_text` 会把标题拼进正文、切出 365；v2 的 `PlaybookProcessor._load` 直接用 body、切出 304——不拼标题是刻意的，profile 已含 title、body 第一段也是带标题的元数据块，拼了纯重复还白多 17% 的 chunk。**profile 文本逐字一致，故 r@1 不受影响**，变的只是取正文的段边界）
      ```sql
      SELECT c.metadata->>'chunk_kind' AS kind, count(*)
        FROM ai_rag_playbook_chunk c
@@ -1198,7 +1201,7 @@ python scripts/eval_playbook_recall.py                       # 缺省评 ACTIVE 
    - 查 `ai_llm_call_log` 里 `call_purpose='playbook_edge_infer'` 两条记录的 `output_tokens` / `cost_usd`，确认实际用量远低于 8000（§7.1.1 预期约 790）
    - diff 两版关系集合，人工判断 opus5 与 sonnet5 哪组更合理——**这是关系质量唯一的闸门**（§7.2）
    - `python scripts/eval_playbook_recall.py --version 1 --against 2` 看两版**路由**差异（注意：它只反映路由，关系质量仍靠人审）
-   - 产出 `version=2, status='DRAFT'`；**`version=1` 的一切原样不动**（64 行属性 / 64 条 entry / 429 条 chunk 全在，无一被软删）——按上面那条 SQL 把 `version = 1` 换成 2 应得到同样的 64 / 365
+   - 产出 `version=2, status='DRAFT'`；**`version=1` 的一切原样不动**（64 行属性 / 64 条 entry / 368 条 chunk 全在，无一被软删）——按上面那条 SQL 把 `version = 1` 换成 2 应得到同样的 64 / 365
    - **线上仍读 version 1**——此刻 `search_playbooks` 的结果应与步骤 7 完全一致
    - 返回体的 diff 段要能看出两版关系差异（LLM 逐次不完全一致，这正是要审的东西）
    - 试着直接 `UPDATE ai_playbook_version SET status='ACTIVE' WHERE version=2` → **必须被 `UniqueViolation` 拒绝**（验 §4.8 的部分唯一索引真的建上了）
@@ -1230,7 +1233,7 @@ python scripts/eval_playbook_recall.py                       # 缺省评 ACTIVE 
 | **D17** | **文档层仍复用公共表 `ai_rag_entry`，不自建** | entry 是平台公共文档表（rag 已明确"文档不再按业务分表"）；自建会同时失去 devSupport 文档页、召回记录、命中统计三样 |
 | **D18** | **维护做成三个 API（crawl / ingest / activate），第一阶段同步返回、不做页面** | 爬取打外部站点、慢且易失败，与纯本地的 ingest 分开，失败不互相牵连、也能"先爬下来看一眼再灌"。再细拆成四步没有值得人工介入的检查点，只会多三份中间态。同步返回是因为管理端手动调、数十秒能等；嫌久再接 `BackgroundTasks` + 现成的 `ai_rag_ingestion_task` |
 | **D19** | **关系并进 `ai_playbook` 的三个 JSONB 列，不建边表** | 28 条关系 / 64 个节点，**实测两种存法查询能力完全等价**（递归 2 跳与反查入边结果一致、全表扫毫秒级）；少一张表 + 少一次 JOIN，读一个节点的全部关系就是一行。**代价是 4 个 DB 约束变成应用层责任**，其中 FK 那条最要紧（slug 写错会静默少节点而不报错）——对策是 §4.5.0 那个集中的 pid 存在性校验 + §11 的孤儿引用抽验。`rel_type` 的 CHECK 天然被"三个列名即类型"替代 |
-| **D20** | **`version` 只存在 `ai_playbook` 与版本表，不下沉到 chunk 表** | 一次 ingest = 一个版本 = 64 行属性 + 一套关系 + 64 条 entry + 429 条 chunk；`ai_playbook` 的唯一约束是 `UNIQUE(pid, version)`。**向量库不感知版本**——每版本各建独立 entry，所以「某版本的 chunk」≡「该版本 64 个 entry_id 名下的 chunk」，阶段 0 顺带取出 entry_id 即可圈定（§4.3）。这样版本这个业务概念不泄漏进向量库、也少一处可能不同步的冗余。**不是并发控制版本**，别拿它当乐观锁 |
+| **D20** | **`version` 只存在 `ai_playbook` 与版本表，不下沉到 chunk 表** | 一次 ingest = 一个版本 = 64 行属性 + 一套关系 + 64 条 entry + 368 条 chunk；`ai_playbook` 的唯一约束是 `UNIQUE(pid, version)`。**向量库不感知版本**——每版本各建独立 entry，所以「某版本的 chunk」≡「该版本 64 个 entry_id 名下的 chunk」，阶段 0 顺带取出 entry_id 即可圈定（§4.3）。这样版本这个业务概念不泄漏进向量库、也少一处可能不同步的冗余。**不是并发控制版本**，别拿它当乐观锁 |
 | **D21** | **crawl 存源站整页**原始 HTML**（1 个文件、非 64 个），不存提取后的 txt / json** | 爬取贵（打外部站点、慢且易失败）、解析便宜（纯本地）——留住不可再生的原始响应，可再生的文本随时重算；存 txt 等于把 bs4 提取规则固化在爬取那一刻，日后发现漏区块只能重爬。附带两个好处：项目已有为"未来 HTML 入库"预留的 `html_splitter`（按 h2 语义边界切，比 1400 字符硬切更贴 playbook 的小节结构）；有 HTML 才能真正 diff 源站改版。r@1 80.9% 只依赖 profile、与 body 切法无关，故换切法安全（但仍要用金标集跑一次对比） |
 | **D22** | **上传经 Java 预签名（presign → PUT → verify），Python 不直连 S3** | 不破"Python 不直连 S3"的架构约定、不需要 AWS 凭证，是既有 `download_ingest_file` 的镜像实现 |
 | **D23** | **Java 加一个 `FileBusinessTypeEnum.PLAYBOOK`（3 行），不复用 `KNOWLEDGE_BASE`、也不给它的白名单加 html** | 复用**走不通**：`ExtSets.KNOWLEDGE` 白名单不含 html，presign 会拒。给 KNOWLEDGE 加 html 只需 1 行但会**放开所有 KB 通道上传**（含公司用户在 chat 里传的文件）接受可执行内容，引入 XSS 面；playbook 是我们自己爬的可信内容，与用户上传的 HTML 不是一回事。加枚举 3 行、service 零改动（类注释明说"新增只需登记一个枚举值"），顺带 S3 目录独立成 `uploads/playbook/` |
