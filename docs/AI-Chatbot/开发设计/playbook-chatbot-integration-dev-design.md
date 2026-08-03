@@ -862,10 +862,10 @@ private static final Set<String> PLAYBOOK = Set.of("html");
 |---|---|---|
 | 模型 | **`Models.openrouter.text.opus5`**（`anthropic/claude-opus-5`） | 见 D27。**钉住具体版本、不用 `opus` 符号**——输出要人工审核后长期沉淀，registry 静默升级会让"这版为什么和上版不同"多一个说不清的变量，`relation_model` 的记录也就失去确定含义 |
 | 可覆盖 | `ingest` 的可选入参 `relationModel` | 版本化让 A/B 成为可能：跑一版 sonnet5、跑一版 opus5，diff 后择优 activate |
-| `max_tokens` | **8000**（预研 4000） | output 按实际用量计费，上限本身零成本。提高只为兜住"模型吐出带缩进 / 带额外字段的冗长格式" |
+| `max_tokens` | **32000**（`EDGE_INFER_MAX_TOKENS`；原设计 8000、预研 4000） | output 按实际用量计费，上限本身零成本。⚠️ **8000 实测不够**：thinking token 计入 output 却不返回，opus5 与 sonnet5 各撞了 `finish_reason='length'`（见下方实测表），提到 32000 才跑通 |
 | `temperature` | `0.0` | 沿用预研。注意 **0 不保证逐次一致**，这正是要 diff 审核的原因 |
 | `json_mode` | `True` | ⚠️ 落成 `response_format={"type":"json_object"}`（OpenAI 风格）。Anthropic 原生没有此模式，走 OpenRouter 时是转译，**不是硬保证**——必须保留预研的 `parse_json_response` 容错解析（能处理 ` ```json ` 包裹等），别以为开了就能直接 `json.loads` |
-| `call_purpose` | `playbook_edge_infer` | 落 `ai_llm_call_log`，成本与 token 用量可查 |
+| `call_purpose` | `playbook_edge_infer` | 落 `ai_llm_call_log`，成本与 token 用量可查。⚠️ **表里的列名是 `caller_purpose`**（不是 `call_purpose`——那是 `aembed`/`acomplete` 的**入参**名），查库时别搞错 |
 
 ##### 必须单次全局调用，不可分批
 
@@ -879,13 +879,55 @@ private static final Set<String> PLAYBOOK = Set.of("html");
 | **② 边数上限 96 = 节点数 × 1.5（主防线）** | 质量灾难入库。超限 **拒绝整批 + 报警**，不截断——半批关系比没关系更难排查 |
 | **③ `max_tokens=8000` + `finish_reason=='length'` 检测** | 万一真被截断。检测要在 `parse_json_response` **之前**，因为两种失败的处置完全不同：截断 → 调上限；非法 JSON → 改提示词。混成同一个 parse 失败会白花排查时间 |
 
-⚠️ **为什么主防线是边数、不是 token**：实测 `max_tokens=4000` 能装 **141 条边**，余量 5 倍——token 根本不是瓶颈。而边数从 28 涨到 141 意味着 2 跳图扩展能拉出的节点数**平方级增长**，§5 算过"2 跳十几个节点、每个再给正文就超预算"，那批数据**不该入库**而不是"想办法装下"。96 条边只占 2707 token，**这条校验永远比 token 上限先触发**，等于把截断这个失败模式屏蔽掉。
+⚠️ **为什么主防线是边数**：边数从 28 涨到 141 意味着 2 跳图扩展能拉出的节点数**平方级增长**，§5 算过"2 跳十几个节点、每个再给正文就超预算"，那批数据**不该入库**而不是"想办法装下"。这条理由与 token 无关，仍然成立。
+
+⚠️ **但原先那句"token 根本不是瓶颈、这条校验永远比 token 上限先触发"已被实测推翻**（2026-07-31）。原推理是"`max_tokens=4000` 能装 141 条边、96 条边只占 2707 token"——它只算了**可见 JSON**，漏了 **thinking token 也计入 output 且不返回给调用方**。实际连续三次 `finish_reason='length'`（opus5 与 sonnet5 各撞，见下方实测表）：thinking 1300–2400 + 可见 JSON 约 4200 字符就顶满 8000，而当时边数才 49 条、远未触及 96 的上限。**token 上限先触发了，防线顺序与设计预期相反**。所以第 ③ 条不是"兜底"而是真正会被打到的那道，`finish_reason` 检测必须保留（现上限 32000）。
 
 阈值 96 的来由：当前 28 条，留 3 倍余量容纳"opus 更细致"；再往上就进入图扩展会爆的区间。数字可按实际调，但**必须有**。
 
 ##### 实际用量靠日志确认，不靠猜
 
-首次 ingest 后查 `ai_llm_call_log` 里 `call_purpose='playbook_edge_infer'` 那条的 `output_tokens` / `cost_usd`（走 OpenRouter 时是 provider 回传的**真实成本**、不走本地价表估算），据此决定要不要调整上限。
+查 `ai_llm_call_log` 里 `caller_purpose='playbook_edge_infer'`（⚠️ 列名是 `caller_purpose`）的
+`usage_output_tokens` / `cost_usd`——走 OpenRouter 时 chat 那笔的 `cost_source='provider'`，是
+**真实成本**、不走本地价表估算。
+
+**2026-08-03 实测四次成功 ingest**（按 `llm_trace_id` 关联操作日志与调用日志）：
+
+| 版本 | 关系推断模型 | 节点 | 分段 | emb token | embedding | **关系推断** | 合计 | 耗时 |
+|---|---|---|---|---|---|---|---|---|
+| 1 | sonnet-5 | 63 | 339 | 66123 | $0.00134 | **$0.1129** | $0.114 | 143s |
+| 2 | opus-5 | 63 | 339 | 66123 | $0.00134 | **$0.2056** | $0.207 | 136s |
+| 3 | opus-5 | 62 | 337 | 65977 | $0.00133 | **$0.2257** | $0.227 | 134s |
+| 4 | opus-5 | 63 | 339 | 66123 | $0.00134 | **$0.2705** | $0.272 | 196s |
+
+三条结论：
+
+1. **opus5 单次成本 $0.21–0.27，逐次上浮**。输入固定（同一份 HTML、同一段提示词，input 约
+   5500 token），涨的全是 output——extended thinking 的 token 数每次不同。所以任何"约 $0.2"的
+   说法都偏乐观，预算按 **$0.27** 算。
+2. **opus5 约为 sonnet5 的 2 倍**（$0.21–0.27 vs $0.11）。D27 选 opus5 的依据是孤立节点
+   10→4、feeds 4→21，不是准确率——这个价差是那个选择的代价。
+3. **output 实际 7112–10174 token，是上限的 22–32%**（上限现为 32000，见下）。逐条：
+
+   | 时间 | 模型 | in | out | 其中 thinking | finish_reason | cost |
+   |---|---|---|---|---|---|---|
+   | 07-31 10:34 | opus-5 | 5556 | **8000** | 2069 | `length` ❌ | $0.2278 |
+   | 07-31 10:58 | sonnet-5 | 5556 | **8000** | 1726 | `length` ❌ | $0.0911 |
+   | 07-31 11:22 | sonnet-5 | 5556 | **8000** | 1996 | `length` ❌ | $0.0911 |
+   | 07-31 11:32 | sonnet-5 | 5556 | 10174 | 2365 | `stop` ✅ | $0.1129 |
+   | 07-31 16:18 | opus-5 | 5556 | 7112 | 1340 | `stop` ✅ | $0.2056 |
+   | 07-31 16:46 | opus-5 | 5492 | 7929 | 1962 | `stop` ✅ | $0.2257 |
+   | 08-03 13:35 | opus-5 | 5556 | 9707 | 1928 | `stop` ✅ | $0.2705 |
+
+   ⚠️ **前三次全部撞在 8000 上、`finish_reason='length'`**——首次截断是 **opus-5**（不是 sonnet，
+   两个模型都栽了同一个坑）。根因是 **thinking token 计入 output 却不返回给调用方**：1300–2400 的
+   thinking 加上 4200 字符可见 JSON 就顶到了 8000，而 §7.1.1 原先"预期约 790 token"的估算**根本
+   没算 thinking**。后来把上限提到 32000 才跑通。**别照"只用了 10174"往回调**——thinking 的量随
+   源站内容与模型版本变，32000 是给它留的余量而非贴着需求的值（`prompts.py:36-57` 有同样的告警）。
+
+**失败的 ingest 照样计费**：三次 FAILED 合计 **$0.41**（$0.2278 + $0.0911 + $0.0911）——钱付了、
+边只写出 30 条中的一部分、版本作废。所以"ingest 可以随便重跑"这个说法只对**数据安全**成立
+（§4.8 版本隔离），对账单不成立。
 
 ##### 为什么不给输入加 questions 或正文（实测否掉）
 
@@ -939,7 +981,7 @@ SELECT count(DISTINCT entry_id) FROM ai_rag_playbook_chunk
 
 | 时序 | 结果 | 代价 |
 |---|---|---|
-| 第二个在第一个提交版本行**之后**开始 | 各自拿到不同版本号（3 和 4），**独立写数据、互不干扰**（版本天然隔离） | 浪费一次 embedding（约 $0.05）+ 多一个废版本（可删） |
+| 第二个在第一个提交版本行**之后**开始 | 各自拿到不同版本号（3 和 4），**独立写数据、互不干扰**（版本天然隔离） | 浪费一次**关系推断**（$0.21–0.27，opus5 实测）+ 一次 embedding（$0.0013）+ 多一个废版本（可删） |
 | 两个几乎**同时**开始 | 都算出同一个号 → 第二个 INSERT 撞版本表主键 → **在第一步就失败，还没写任何数据** | 一条报错 |
 
 **两种情况都不损坏数据**——数据安全由版本表主键 + 版本隔离共同保证。所以只需把主键冲突转成友好文案：
@@ -978,13 +1020,24 @@ POST /api/ai/rag/playbook/versions/{version}/activate
 | 节点：新增 / 消失的 pid | 源站改版最直接的信号 |
 | 节点：`title` / `description` / `questions` 变化的 pid | questions 变了会直接影响路由准确率（§3.1） |
 | **关系：新增 / 消失的三元组**（`pid --rel--> pid`） | ⚠️ **审核重点**。关系是 LLM 推的、逐次不完全一致；换模型时这份 diff 是唯一的质量闸门 |
-| 计数对比 | 出现 64 / 28 之外的数字，先查原因再 activate |
+| 计数对比 | 偏离基线（**63 节点 / 339 分段**，2026-07-31 起源站改版后的实测值；关系数逐次不同、不作基线）就先查原因再 activate |
 
 ⚠️ **关系质量没有 ground truth，人工审核是唯一闸门**：§2 那条「56.2% 的前置项纯向量召不到 → 关系必须保留」是**基于 LLM 推的边**算出来的，等于用 LLM 的输出证明 LLM 输出的价值。而 §7.1.1 的两组实测更进一步说明：**输入侧根本没有事实依据可加**——questions 只有 1.3% 提到别的 playbook、63 篇正文里只有 3 篇（且全是误报）含前置线索词，**源站不写依赖关系**。所以关系是纯推断产物，换模型会得到另一组边而**没有客观办法判断哪组更好**。64 个 playbook / 28 条关系，一个懂业务的人能审完，这就是闸门。审核通过后可在 ACTIVE 版本上就地修正个别关系（版本化让这种修改安全，§4.8）。
 
 **按版本跑召回测试**：~~走 devSupport 的 `POST /api/ai/rag/recall`~~ —— 同 §14.1 C1，那条路不通（playbook 空间已被裁出通用召回）。`playbook_service.search(version=N)` 本身支持指定版本，但**没有对外端点**；第一阶段靠**直接查库看新版本内容**审核，把「页面上选版本测试」留到 §13（要么给共用的 `filters` 加键，要么给 playbook 单开只读检索端点——后者不碰共用代码，更符合本设计的取舍）。
 
-368 段重嵌约 $0.003、数秒，**不做 content-hash 增量**（YAGNI）。
+全量重嵌**约 $0.0013、数秒**，**不做 content-hash 增量**（YAGNI）。
+
+**2026-08-03 实测**（`ai_llm_call_log` ⨝ `ai_rag_operation_log` 按 `llm_trace_id` 关联，四次
+成功 ingest 口径一致）：339 段 / 66123 token / 126 次批量 embedding 调用 → **$0.00134**。原先此处
+写的「368 段约 $0.003」是按预估分段数算的，段数与金额都约偏高 2 倍。
+
+⚠️ **向量化不是 ingest 的成本项**——它只占一次 ingest 的 **0.5%**，钱全在关系推断那一次 LLM
+调用上（见 §7.1.1 的实测表）。所以"重跑一次 ingest 大约两毛钱"说的是关系推断，不是向量化；也
+正因为向量化这么便宜，才不值得为它做增量。
+
+⚠️ embedding 的 `cost_source` 是 **`estimated`**（本地价表 $0.02/1M 推算）——OpenRouter 的
+`/embeddings` 不回传 cost，只有 chat 那几笔是 `provider` 真实值。token 数是真的。
 
 ## 8. 错误处理
 
@@ -1172,36 +1225,43 @@ python scripts/eval_playbook_recall.py                       # 缺省评 ACTIVE 
    - 用该 `fileId` 走 `getDownloadLinkById` 下载，确认拿到的是**完整原始 HTML**（能在里面搜到 `article.play-card` 与 `.play-content`），不是被解析过的文本
    - ⚠️ **拿一个真实公司账号调一次 chatbot 知识库问答**，确认 playbook 的 space **没有**被圈进它的检索范围（验 §7.0 那两道保险）
 6. `POST /api/ai/rag/playbook/ingest` → 产出 **version 1（DRAFT）**，抽验：
-   - `ai_rag_playbook_version` 一行 `version=1, status='DRAFT'`、`node_count=64` / `relation_count=28`、`relation_model` 与 **`file_id`** 均有值
-   - ⚠️ **与仓库基线核对**：解析结果应仍是 **64 节点 / 28 关系 / 63 正文**（`scripts/data/playbook/` 那两个 JSON）。不一致 = 源站改版信号，**先看差异再决定要不要 activate**
-   - `ai_rag_playbook` **64 行且全部 `version=1`**；`ai_rag_entry` 该 space 下 64 行、status 全 `SUCCESS`、`company_id` 全 NULL
-   - `ai_rag_playbook_chunk` 挂在这 64 个 entry_id 名下的分段：**`metadata->>'chunk_kind'='profile'` 恰好 64 条** + `'body'` **304 条**（实测值。三个数字的来历：预研自写切分 323；v1 走 STANDARD 的 `load_text` 会把标题拼进正文、切出 365；v2 的 `PlaybookProcessor._load` 直接用 body、切出 304——不拼标题是刻意的，profile 已含 title、body 第一段也是带标题的元数据块，拼了纯重复还白多 17% 的 chunk。**profile 文本逐字一致，故 r@1 不受影响**，变的只是取正文的段边界）
+   - `ai_rag_playbook_version` 一行 `version=1, status='DRAFT'`、`node_count=63`、`relation_count` 有值、`relation_model` 与 **`file_id`** 均有值
+   - ⚠️ **与实测基线核对**：应是 **63 节点 / 339 分段（profile 63 + body 276）/ 63 篇有正文**（2026-07-31 起源站改版后的值，四次 ingest 一致；原写的「64 节点 / 63 正文」是改版前的）。不一致 = 源站又改版，**先看差异再决定要不要 activate**
+   - ⚠️ **关系数不作基线**：LLM 逐次不同，四次实测分别 **49 / 54 / 49 / 46** 条（同一份 HTML、`temperature=0`）。别拿某个具体数字当预期值——要审的是 diff 里新增/消失了哪些三元组，不是总数
+   - `ai_rag_playbook` **63 行且全部 `version=1`**；`ai_rag_entry` 该 space 下 63 行、status 全 `SUCCESS`、`company_id` 全 NULL
+   - `ai_rag_playbook_chunk` 挂在这 63 个 entry_id 名下的分段：**`chunk_kind='profile'` 恰好 63 条**（与节点数相等，profile 1:1）+ `'body'` **276 条**，合计 **339**（2026-08-03 查库实测，四次 ingest 一致）。切分口径的来历：预研自写切分 323；v1 走 STANDARD 的 `load_text` 会把标题拼进正文；v2 的 `PlaybookProcessor._load` 直接用 body——不拼标题是刻意的，profile 已含 title、body 第一段也是带标题的元数据块，拼了纯重复还白多约 17% 的 chunk。**profile 文本逐字一致，故 r@1 不受影响**，变的只是取正文的段边界（改版前这三个数是 64 / 304 / 368）
      ```sql
      SELECT c.metadata->>'chunk_kind' AS kind, count(*)
        FROM ai_rag_playbook_chunk c
-      WHERE c.entry_id IN (SELECT entry_id FROM ai_rag_playbook WHERE version = 1)
+      WHERE c.entry_id IN (SELECT entry_id FROM ai_rag_playbook
+                            WHERE version = 1 AND NOT deleted)
       GROUP BY 1;
      ```
    - **`define-the-vision` 的 `chunk_count` 必须是 1**（只有 profile，验空正文跳过生效）
-   - ⚠️ **孤儿引用必须为 0，且要主动查**（没有 FK 兜底，LLM 可能吐幻觉 pid）：
+   - ⚠️ **孤儿引用必须为 0，且要主动查**（没有 FK 兜底，LLM 可能吐幻觉 pid）。两侧都带软删条件，与
+     `_ORPHAN_REFS_SQL` 和 `get_by_pids` 的过滤口径对齐——判据是「图扩展时这个 pid 还取得到吗」：
      ```sql
      SELECT p.pid, d.value FROM ai_rag_playbook p
       CROSS JOIN LATERAL jsonb_array_elements_text(
             p.depends_on || p.feeds || p.refers_to) AS d(value)
-      WHERE p.version = 1
+      WHERE p.version = 1 AND NOT p.deleted
         AND NOT EXISTS (SELECT 1 FROM ai_rag_playbook q
-                         WHERE q.pid = d.value AND q.version = p.version);
+                         WHERE q.pid = d.value AND q.version = p.version
+                           AND NOT q.deleted);
      ```
+     ⚠️ 内层的 `AND NOT q.deleted` 是 2026-08-03 补的，**代价明确**：手工软删过节点的版本只要还有
+     别的节点指着它，就再也 activate 不了（回滚通道被堵，且无反软删接口）。应用层不会造出这种边
+     （`delete_node` 软删的同时会摘掉全部入边），只可能来自人工 SQL。见 `docs/待优化项.md`。
    - ⚠️ **此时 `search_playbooks` 必须返回空** —— 还没 activate，`active_version` 为 NULL（验 §4.8 那条"不退化成查全部版本"）
 7. `POST /api/ai/rag/playbook/versions/1/activate` → 抽验：
    - `ai_rag_playbook_version` 里 `version=1` 变 `ACTIVE`、`activated_at` / `activated_by` 有值
    - `search_playbooks` 开始正常返回 seed / prerequisites / inputs
    - `EXPLAIN` 路由查询按 `entry_id` 索引收窄（不指望走 HNSW，§4.3 已说明）
 8. **再跑一次 ingest，同时验版本化与模型 A/B**（最容易出错的一环）——这次传 `relationModel=Models.openrouter.text.sonnet`：
-   - 查 `ai_llm_call_log` 里 `call_purpose='playbook_edge_infer'` 两条记录的 `output_tokens` / `cost_usd`，确认实际用量远低于 8000（§7.1.1 预期约 790）
+   - 查 `ai_llm_call_log` 里 **`caller_purpose`**`='playbook_edge_infer'` 两条记录的 `usage_output_tokens` / `cost_usd`，实测区间 **7112–10174 token / $0.09–0.27**（§7.1.1 有逐条表）。⚠️ 原写的"预期约 790"没算 thinking token，已作废——8000 的上限实测会被打穿
    - diff 两版关系集合，人工判断 opus5 与 sonnet5 哪组更合理——**这是关系质量唯一的闸门**（§7.2）
-   - `python scripts/eval_playbook_recall.py --version 1 --against 2` 看两版**路由**差异（注意：它只反映路由，关系质量仍靠人审）
-   - 产出 `version=2, status='DRAFT'`；**`version=1` 的一切原样不动**（64 行属性 / 64 条 entry / 368 条 chunk 全在，无一被软删）——按上面那条 SQL 把 `version = 1` 换成 2 应得到同样的 64 / 365
+   - ~~`python scripts/eval_playbook_recall.py --version 1 --against 2`~~ —— **评测脚本已决策不做**（2026-07-31，见 `docs/待优化项.md`），这一步改人工问一批问题
+   - 产出 `version=2, status='DRAFT'`；**`version=1` 的一切原样不动**（63 行属性 / 63 条 entry / 339 条 chunk 全在，无一被软删）——按上面那条 SQL 把 `version = 1` 换成 2 应得到同样的 63 / 339
    - **线上仍读 version 1**——此刻 `search_playbooks` 的结果应与步骤 7 完全一致
    - 返回体的 diff 段要能看出两版关系差异（LLM 逐次不完全一致，这正是要审的东西）
    - 试着直接 `UPDATE ai_rag_playbook_version SET status='ACTIVE' WHERE version=2` → **必须被 `UniqueViolation` 拒绝**（验 §4.8 的部分唯一索引真的建上了）
