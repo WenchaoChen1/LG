@@ -30,9 +30,9 @@
 | 项 | 现状 |
 |---|---|
 | 语料 | 64 条 playbook 节点（源站 66+），63 条有正文（`define-the-vision` 在源站已并入 `executive-execution`） |
-| 结构化属性 | pid / title / category / players / stage / frequency / description / questions（全库 157 条 questions） |
+| 结构化属性 | pid（业务键：源站标题 slugify 后的 slug，如 `cash-flow-forecast`，关系边引用的就是它）/ title（标题：手册名）/ category（分类：6 值 Executive、Sales & Marketing、Development、Customer、Operations、Vendor）/ players（负责角色：谁来做，如 Founder、CFO）/ stage（适用阶段：5 值 Pre-Revenue、Early Traction、Traction、Growth、All Stages）/ frequency（执行频率：多久做一次，如 Monthly、Quarterly）/ description（简介：一句话说明这本手册解决什么问题，源站原文）/ questions（预期问法：每本 2~3 条，全库 157 条；进 profile 的 `Key questions:` 段，把匹配变成 query↔query） |
 | 关系边 | **28 条**：DEPENDS_ON 21 / FEEDS 5 / REFERENCES 2，**人工策划与推断**而来 |
-| 向量 | `public.ai_rag_playbook_chunk`（**lg_test 业务库**，非 RAG 向量库），387 chunk = 64 profile + 323 body，1536 维，embedding 模型与 RAG STANDARD 一致 |
+| 向量 | `ai_rag_playbook_chunk`（**RAG 向量库**，由 `sql/migrations/vector/` 建；带 `embedding` 列的 chunk 表都归向量库，其余 `ai_rag_*` 元数据表在业务库），387 chunk = 64 profile + 323 body，1536 维，embedding 模型与 RAG STANDARD 一致 |
 | 图 | LadybugDB 嵌入式**单文件** 5.6MB，已提交进仓库作测试/部署数据 |
 | 查询侧 | `PlaybookRecallService`：recall / rerank(Cohere) / answer(图增强合成) / recall_list / graph_detail，扁平原型未分层 |
 | HTTP | `/api/ai/playbook/{recall,detail,answer}`，登录即可访问、**全局不按公司过滤** |
