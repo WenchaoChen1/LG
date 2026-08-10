@@ -1,21 +1,5 @@
 # AI Chatbot - 文件公司归属识别与确认（Portfolio Admin 端）
 
-**需求文档**
-
-| 项目 | 详情 |
-|------|------|
-| 任务名称 | AI Chatbot - File Association Identification & Confirmation (Portfolio Admin) |
-| 所属 Epic | EPIC: AI Chatbot |
-| 类型 | User Story |
-| 优先级 | High |
-| Story Points | 3 |
-| T-Shirt Size | S |
-| 状态 | Sprint Approved（已进 Sprint 116） |
-| Sprint | LG Sprint 116（2026-08-10 ~ 2026-08-21） |
-| 需要 UI | 是 |
-| Figma | https://www.figma.com/design/QBhTPAljVPx673QWVrvfGw/2026---Portfolio-Portal?node-id=13290-7413 |
-
----
 
 ## 一、背景
 
