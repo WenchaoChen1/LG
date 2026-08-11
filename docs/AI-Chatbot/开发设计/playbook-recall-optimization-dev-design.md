@@ -7,7 +7,7 @@
 >
 > 阶段：⑤ 开发设计 ｜ 版本：**v2** ｜ 日期：2026-08-10 ｜ 状态：**待评审** ｜ 端：Python（CIOaas-python）
 >
-> v2 相对 v1（同日自审后修订）：查库发现 body 第一段已不是元数据块，阶段 3"第一段固定带"的理由失效（收进 §11 议题 7），连带的校验缺口转台账；
+> v2 相对 v1（同日自审后修订）：查库发现 body 第一段已不是元数据块，阶段 3"第一段固定带"的理由失效——但效果未必变差，已定**保留现状**（§11 议题 7），连带的校验缺口转台账；
 > 明确 C 改 `route()` 签名需与评测脚本同提交、D 改内部则不需要；A 的短路路径**仍须记录召回**；
 > B 收益下调到 <5% 并移出排期主线；D 拆成"先拆现有 5 条（零 LLM 成本）/ 后扩写"两步；
 > 补预算跨 seed 先到先得这个潜在缺陷；生产口径改以 r@3 为主（`default_top_k=3`）。
@@ -87,7 +87,7 @@ scripts/eval_playbook_recall.py    ← 已实现（2026-08-10）
 ⚠️ 每次运行向 `ai_llm_call_log` 写 N 行 `call_purpose='rag_query'`（`embed_query` 的固定值，
 与线上查询在 purpose 上无法区分）。脚本报告末尾打印运行时间窗，需从成本统计剔除时按该时间窗过滤。
 
-### ⏳ 仍待做：另建一套无泄漏金标
+### ⏳ 仍待做：另建一套无泄漏金标问题
 
 v2 §13 已指出必要性：现有 315 题就是 profile 里那批 questions 本身，是**上界**（让它找自己）。
 优化项 D（HyPE 扩写问法）会**放大**这个泄漏面，届时旧金标的相对可比性也会失效。
@@ -189,11 +189,9 @@ v2 §5 的链路是阶段 1 →（串行）阶段 2 →（串行）阶段 3。�
 
 台账「概念性主题召回弱 + 内容覆盖缺口」条的实测正好是这条的证据：同一个意思，`board-of-directors` 在陈述式检索词下排第 9（0.342），换成问句 `what should the board see every month` 升到第 2（0.367）。那条台账把差异归因于"模型加了原问题没有的词"，那是一部分；**另一部分就是形态**。
 
-### 改法（两选一，推荐 B）
+### 改法：双检索词（已定）
 
-**A. 改 docstring**：把"陈述式关键词"改成"一句用户口吻的问句"。一行改动。代价是与 `search_knowledge_base` 口径分叉——**这个分叉是对的**（两个工具的索引形态本就不同），但要在 docstring 里写明理由，否则下一个人会来"统一"掉。
-
-**B. 双检索词（推荐）**：工具签名从 `query: str` 改为接受两个字段：
+工具签名从 `query: str` 改为接受两个字段：
 
 ```
 question: str   # 用户口吻的问句，如 "what should the board see every month"
@@ -203,12 +201,17 @@ keywords: str   # 术语短语，如 "board reporting monthly metrics"（可空�
 各 embed 一次，在 `search_profile` 里对同一 entry 取 `MIN(distance)`（两路谁近算谁）。
 
 - 成本：多一次 embedding（+55 ms、+$0.00002/次）
-- 好处：不赌哪种形态更好，两种都覆盖；术语型问题（"ARR schedule 怎么做"）走 keywords 路，概念型问题走 question 路
+- 好处：**不赌哪种形态更好，两种都覆盖** —— 术语型问题（"ARR schedule 怎么做"）走 keywords 路，概念型问题走 question 路
+- `keywords` 留空时退化为单路，等价于只改口径，所以**灰度成本为零**：先只在提示词里教模型填 `question`，观察一段再要求两个都填
 - ⚠️ 与优化项 D（HyPE）叠加后收益更大——索引侧问句密度提高，question 路的命中面同步扩大
+
+改动落点：`search_playbooks_tool` 的签名与 docstring、`playbook_service.search()` 的入参、
+`PlaybookProcessor.route()` 的 `query_vector` → 两路、`PlaybookChunkRepository.search_profile`
+的距离取 `LEAST(两路)`。
 
 ### ⚠️ 本项改 `route()` 签名，评测脚本必须同一提交内同步改
 
-§2 立的规矩是"**必须调 `processor.route()`**"以保证口径一致。方案 B 要给 `route()` 加第二路
+§2 立的规矩是"**必须调 `processor.route()`**"以保证口径一致。本项要给 `route()` 加第二路
 `query_vector`——**脚本不跟着改，跑出来的还是旧单路结果**，会把"C 没生效"误判成"C 没用"。
 
 两类改动的验收流程不同，别混：
@@ -220,7 +223,7 @@ keywords: str   # 术语短语，如 "board reporting monthly metrics"（可空�
 
 ### 验收
 
-315 题金标（问句形式）跑 A/B/现状三组对照。**注意金标本身是问句改写来的**，会天然偏向问句路——所以必须同时用 §2 那套"由正文出题"的新金标交叉验证，否则测出来的是自证。
+315 题金标（问句形式）跑**改动前 / 改动后**两组对照。⚠️ **注意金标本身是问句改写来的**，会天然偏向 question 路——单看这套金标一定"变好"，那是自证不是证据。所以必须同时用 §2 那套"由正文出题"的新金标交叉验证；两套结论一致才算数。
 
 ---
 
@@ -248,18 +251,75 @@ v2 §13 计划"用 LLM 给每条 playbook 扩写到 8–10 条问法后**重嵌 
 - `castorini/docTTTTTquery`（doc2query）：给文档预生成查询以扩充检索面
 - 微软 Nissist（arXiv 2402.17531）：节点用 `intent` 而非正文参与匹配，做 intent↔intent
 
-### 改法（不动表结构、不动共用代码）
+### 改法
 
-`chunk_kind` 是 rag 的跨业务约定（v2 决策 D5），**加第三个取值**即可：
+**"一个向量" = "一行 chunk"** ——`ai_rag_playbook_chunk` 一行就是一段文本加一个 `VECTOR(1536)`，
+所以"每问一向量"就是每条问法写一行。`chunk_kind` 是 rag 的跨业务约定（v2 决策 D5），加第三个取值即可。
+
+#### 数据模型：新增 `expanded_questions` 列（议题 3 已定方案 3）
+
+```sql
+-- sql/migrations/business/V0NN__playbook_expanded_questions.sql
+ALTER TABLE ai_rag_playbook
+  ADD COLUMN IF NOT EXISTS expanded_questions JSONB NOT NULL DEFAULT '[]'::jsonb;
+COMMENT ON COLUMN ai_rag_playbook.expanded_questions IS
+  'LLM-expanded question variants (one vector per item in ai_rag_playbook_chunk, chunk_kind=question); source-site questions stay in the questions column';
+```
+
+**为什么不复用 `questions` 列**：那一列现在同时喂四处——`inject_profile` 拼 profile 文本、
+审核页节点表格、`_attr_changes` 逐字段 diff、`_compute_diff` 的 attrs 指纹。把扩写塞进去会
+①**把 8~10 条全拼进 profile 文本**，正好触发本项要消灭的稀释；②让 diff 分不清"源站改了问法"
+（改版信号）和"LLM 又抖了一次"（噪声）。分两列后 `questions` 的四个消费点**一个字不用改**。
+
+这与关系（`depends_on`/`feeds`/`refers_to`）完全同构：同样是 LLM 产物、同样逐次不同、同样没有
+客观金标、同样以人工审 diff 为唯一闸门 —— 所以照抄它"独立列 + diff 单独一段 + 审核页可编辑"
+这套现成机制，不新建任何东西。
 
 | 文件 | 改动 |
 |---|---|
+| 迁移 | `ai_rag_playbook` 加 `expanded_questions JSONB NOT NULL DEFAULT '[]'`（迁移号取当时最大 +1） |
+| `domain/models/playbook_model.py` | 加对应列 |
 | `playbook/models.py` | 加 `CHUNK_KIND_QUESTION = "question"` |
-| `playbook/playbook_processor.py` | 新增 `inject_questions(questions: list[str], seq_start: int)`，每条问法产出一个 `ChunkResult`（`chunk_kind='question'`）。⚠️ **profile 文本原样保留**（仍含现有 5 条原问法）——这样出问题可以只停查询侧过滤条件回滚，不用重灌数据 |
-| `playbook/repository.py` | `search_profile` 过滤从 `= 'profile'` 改为 `IN ('profile','question')`，并在 SQL 里按 `entry_id` 分组取 `MIN(distance)`（**max-pool 回节点**）。阶段 1 对外契约（返回 top_k 个互不相同的 playbook）**一个字不变** |
-| `playbook_service._write_version` | 每节点多写 N 条 chunk；`node_count` 语义不变（仍是节点数，不是 chunk 数） |
+| `playbook/playbook_processor.py` | 新增 `inject_questions(questions, seq_start)`：`embed_documents(texts)` **一次批量**拿 N 个向量，逐条产出 `ChunkResult`，`content` 是**裸问法**（不拼 title/category/description——这才是"不做平均"的全部含义）。seq 接在 profile 之后。⚠️ **profile 文本与 `build_profile_text` 一个字不改** |
+| `playbook/repository.py` | ① 过滤放宽到 `IN ('profile','question')`；② **必须先按 entry 折叠再取 top_k**，否则同一本手册的 profile 与 8 条问法会互相挤占名额（= 预研 387 条混合 chunk 那个坑）；③ 顺带只 select 需要的列，见下 |
+| `playbook_service._write_version` | 扩写落 `expanded_questions` 列 + 多写 N 条 chunk；`node_count` 语义不变（仍是节点数） |
+| `_compute_diff` / `_attr_changes` | `expanded_questions` **单独一段**，且**只报数量与新增/消失条数**，不逐条列出（缓解 a，见风险 5） |
+| 审核页 | 节点表格加一列展示 `expanded_questions`；编辑走既有 `_require_draft` 闸门 |
 | `activate` 完整性校验 | `count_entries_with_profile` **保持只看 profile**——问法可以缺，profile 不能缺 |
-| 扩写问法 | ingest 期一次 LLM 调用（haiku，批量），产物写进 `ai_rag_playbook.questions`，与 profile 文本里那 5 条**同源不同用**：短列表进 profile 文本，全量进 question chunk |
+| 扩写问法 | ingest 期一次 LLM 批量调用（haiku），**全量 63 本**（议题 2 已定） |
+
+#### 检索侧：max-pool 回 entry（PG 惯用写法）
+
+```sql
+SELECT * FROM (
+  SELECT DISTINCT ON (entry_id)
+         entry_id, id AS chunk_id, embedding <=> :qv AS dist
+    FROM ai_rag_playbook_chunk
+   WHERE entry_id = ANY(:entry_ids)
+     AND metadata->>'chunk_kind' IN ('profile', 'question')
+   ORDER BY entry_id, dist          -- 每个 entry 只留最近的那一条
+) t
+ORDER BY dist
+LIMIT :top_k
+```
+
+折叠后 **top_k 行仍是 top_k 个互不相同的 playbook**，`route()` 对外契约不变。等价写法：
+`ROW_NUMBER() OVER (PARTITION BY entry_id ORDER BY dist)` 筛 `rn=1`。
+
+**取 `MIN` 而不是平均**：语义是"这本手册**有某一条问法**贴合用户问题"。改成平均等于把拼接稀释
+从文本层搬到 SQL 层，问法越丰富越吃亏 —— 正是要消灭的东西。
+
+#### ⚠️ 顺带必须修：别把 1536 维向量拉回来
+
+现在 `search_profile` 是 `select(PlaybookChunk, distance)`，**整个 ORM 实体含 `embedding` 列**，
+而 `route()` 只用 `entry_id` 与 `id`。63 行时每次拉回约 380 KB，扩到约 570 行就是约 3.4 MB，
+一轮对话模型调 4 次即约 13 MB，纯浪费。改成 `select(PlaybookChunk.entry_id, PlaybookChunk.id, distance)`。
+这条**现在就该改**，HyPE 之后是必须改。
+
+#### 回滚只需一行
+
+过滤条件从 `IN ('profile','question')` 改回 `= 'profile'` 即完全回到现状——question chunk 留在
+库里查不到就等于不存在，**零数据迁移**。这也是"profile 文本原样保留"的用意。
 
 ### `RouteHit.chunk_id` 的语义变化（顺带的好处）
 
@@ -272,7 +332,8 @@ v2 §13 计划"用 LLM 给每条 playbook 扩写到 8–10 条问法后**重嵌 
 | | 第一步：只拆现有 5 条 | 第二步：扩写到 8~10 条 |
 |---|---|---|
 | 新增 chunk | 63 × 5 = **315 条**（339 → 654） | 63 × 8~10 = **504~630 条**（→ 843~969） |
-| LLM 成本 | **0**——问法已在 `ai_rag_playbook.questions` 里 | 一次批量调用（haiku）≈ $0.05 |
+| 数据来源 | 直接读 `questions` 列（源站那 5 条） | LLM 扩写 → 落 `expanded_questions` 列 |
+| LLM 成本 | **0**——问法已在 `ai_rag_playbook.questions` 里 | 一次批量调用（haiku）≈ $0.05，**全量 63 本** |
 | embedding 成本 | ≈ $0.003 | ≈ $0.005 |
 | 验收金标 | **现有 315 题即可**（与 89.5% 同口径可比） | **必须先有 §2 那套无泄漏金标** |
 | 阶段 1 精扫候选 | 63 → 约 380 行（约 0.6 ms） | → 约 570~700 行（约 0.9 ms） |
@@ -290,9 +351,10 @@ ingest 耗时的算法：现有 64 s 是 **339 个 chunk** 的总时间（每节
 ### ⚠️ 风险与缓解
 
 1. **ingest 耗时**：批量提交时第一步 +60 s、第二步 +95 s（143 s → 约 5 分钟）。管理页设计已把 ingest 改异步 + 轮询（决策 5），机制上撑得住，但前端进度文案的时序表要同步更新。**若误写成逐条 embedding，会退化成 +8 分钟以上。**
-2. **问法质量差会引入噪声**（仅第二步）：LLM 可能生成与手册无关或彼此高度重复的问法。缓解：先只对台账「概念性主题召回弱 + 内容覆盖缺口」条记录的那批**概念性/总论型手册**（约 20 本）做，跑一次对照再决定是否铺开。
+2. **问法质量差会引入噪声**（仅第二步）：LLM 可能生成与手册无关或彼此高度重复的问法。**议题 2 已定全量 63 本**，所以不走"先做 20 本试点"那条缓解——质量把关改为**人工审 diff**（与关系推断同一套闸门：`expanded_questions` 在审核页可见、DRAFT 期可编辑、发布前必须过一遍）。
 3. **金标泄漏面扩大**（v2 §13 已预警，**仅第二步**）：扩写后的问法若来自原 questions，泄漏更重。所以 §2 那套"由正文出题"的新金标是**第二步的硬前提**；第一步用现有金标即可。
 4. **`entry.chunk_count` 会跳变**（5.4 → 10.4 → 13~15）。devSupport 文档页的"分段数"列会明显变大，属预期，但值得提前告知运维，别当成 ingest 出错。
+5. **审核负担再加一份（已接受，缓解 a）**。管理页设计 §8 原话："关系是 LLM 推断产物、每次重新掷骰子——同模型同内容仅改一个标题词，关系重叠只有 27/54，**diff 每次都得真审**"。扩写问法会把这份负担再加一层：全量 63 本 × 8~10 条，每次 ingest 重扩，diff 里可能多出 500+ 条变化。**缓解 a（已定）：diff 里 `expanded_questions` 只报数量与新增/消失条数，要看细节点开单个 pid。** 审核量因此回到"63 节点 + 50 条关系 + 63 行问法计数"，可控。<br>⚠️ 曾考虑的另两条已否：**把扩写从 ingest 拆成独立端点**（ingest 不变慢，但多一个易忘的运维步骤，忘了会静默退化成只有 profile 路由、不报错——正是本设计一直在避免的那类失败）；**跨版本继承**（v2 决策 D2 明确一期不做，要动表结构）。
 
 ---
 
@@ -302,19 +364,97 @@ ingest 耗时的算法：现有 64 s 是 **339 个 chunk** 的总时间（每节
 
 台账「概念性主题召回弱 + 内容覆盖缺口」条：概念性/总论型手册在词面上竞争不过术语密集手册——问"董事会每月一页数据"，前 6 名被 kpi / sales-metrics / support-metrics / saas-metrics / sales-efficiency 各种 metrics 手册挤满。这是 bi-encoder 的固有偏置（对术语共现敏感），**HyPE 能缓解但消不掉**。
 
-### 两个方案
+### 方案（已定）：OpenRouter 上的 `cohere/rerank-4-pro`，top-10 → top-3
 
-**E1（先试）：Cohere rerank，top-10 → top-3**
-`llm_db_router.rerank`（Cohere）已可用、playbook 链路未接（v2 §13）。改动：`route(top_k=10)` → rerank → 取 3 个 seed。延迟约 +100 ms，成本每次约 $0.001。
+```
+阶段 1  route(top_k=10)                          →  10 个候选 playbook
+          ↓
+      【rerank(query, [10 条 profile 文本], top_n=3)】  →  截成 3 个 seed
+          ↓
+阶段 2  图扩展（前置 2 跳 / 输入源 1 跳）            ← rerank 不接触这一层
+阶段 3  取 3 个 seed 的正文
+```
 
-**E2（备选）：LLM 选，Nissist 模式**
-你们的库只有 63 本手册、每条 profile 平均 450 字符——**整个目录约 5.4k token，小到可以直接塞进 prompt**。这是"手册数量少"带来的、大多数 RAG 系统没有的机会。
+#### 🚫 铁律：rerank **只作用于阶段 1 的候选，绝不碰图扩展出来的节点**
 
-Nissist 的做法正是"先用传统方法粗召回多个节点，再用 LLM 选最相关的"。对应到这里：向量 top-10（约 1.2k token）交给 haiku 选 3 并给理由，延迟 +0.3~0.6 s、成本约 $0.001/次。
+这条必须写死，因为"把扩展节点也一起重排、给模型一个统一排序"看起来非常合理，而它会
+**静默清零图扩展的全部价值**：
 
-**建议先做 E1**：延迟只有 E2 的 1/5，且不引入新的 prompt 需要维护。E1 量化后不达预期再评估 E2。
+扩展节点与用户问题的相似度**本来就低，这是定义性特征不是缺陷**。v2 §2 的实测就是这个意思——
+**56.2% 的 `depends_on` 前置项纯向量 top-5 召不到**。用户问"怎么做现金流预测"，它的前置链是
+`Cash Flow Forecast → Budget Creation → Define the Mission`，而 `Define the Mission` 与原问题
+语义距离极远。**任何相似度模型都会正确地判定它不相关然后把它砍掉**——而那恰恰是用户最需要知道的
+"你还得先做 X"。v2 §1 原话：「必须能查『做 X 前要先做什么』『谁依赖 X』——**这是结构查询，
+语义相似度替代不了**」。
 
-⚠️ 与优化项 A 的联动：短路发生在阶段 1 之后、rerank 之前，低置信度 query 不进 rerank，所以不会为"库里没有"的问题额外付钱。
+同源的两条一并写死：
+
+| 该用什么 | 不该用什么 |
+|---|---|
+| 扩展节点排序用 `(depth, pid)` **结构序**（距离由近到远） | 不用相似度排——最近的前置会被"碰巧词面相似的远房节点"挤掉 |
+| 扩展节点数量用 **depth 截断**（`depends_on` ≤2 跳、`feeds` 1 跳） | 不用相似度筛 |
+
+| 项 | 值 | 来源 |
+|---|---|---|
+| provider / model id | `openrouter` / **`cohere/rerank-4-pro`** | ⚠️ 与 Cohere 原生名 `rerank-v4.0-pro` **不同名**，`Models` 符号库按 OpenRouter 口径登记 |
+| 计费 | **$0.0025 / search**（一次调用一次计费，与文档数无关） | OpenRouter 模型页 |
+| 上下文 | 33K | 同上。我们送 10 × 450 字符 ≈ 1.2K token，余量充足 |
+| 端点 | `POST /api/v1/rerank` | 2026-08-11 实测：无 key 返 **401**（存在）；不存在的路径返 404（对照） |
+| 请求/响应形状 | `{model, query, documents, top_n?}` → `results[{index, relevance_score}]` + `usage` | OpenRouter TS SDK 文档示例。**与 Cohere rerank 同构** |
+
+#### 为什么走 OpenRouter 而不是已有的 Cohere 直连
+
+代码里 rerank **已经是真实现、不是占位**：`kernel/cohere_native/rerank.py`（httpx REST）+ `vendors/cohere/rerank.py`
+薄叶子自注册 `(COHERE, RERANK)` + `tests/llm/test_cohere_rerank.py`，默认模型 `rerank-v3.5`。但它是
+**Cohere 直连**（`kernel/config.py._build_cohere_config`：api_key 取 `COHERE_API_KEY`、REST base_url 固定）。
+
+| | OpenRouter（已定） | Cohere 直连 |
+|---|---|---|
+| API key | **已有 `OPENROUTER_API_KEY`** | 需另申请配 `COHERE_API_KEY` |
+| 账单 | 与全部 chat / embedding 统一 | 多一个供应商 |
+| 成本采集 | OpenRouter 惯例带内实报 → 可落 `cost_source=provider` | 拿不到实报，只能 `estimated` |
+| 模型档位 | rerank-4-pro（2025-12 发布，实测优于 3.5） | 默认还是 rerank-v3.5 |
+| 代码量 | 需加薄叶子 + config 分支（见下） | 零代码 |
+
+换 API key 的成本比换模型档位的收益低，所以走 OpenRouter。
+
+#### 落地：按 llm/CLAUDE.md 属"新增同协议厂商，零 SDK 代码"
+
+因为 OpenRouter 的 rerank 就是 Cohere 的形状，**可直接复用 `CohereRerankClient`**，不新建协议族：
+
+| 文件 | 改动 |
+|---|---|
+| `kernel/config.py` | 现在 `_build_cohere_config` 把 REST base_url **写死**。加一个 openrouter+rerank 分支（或把 base_url 参数化），api_key 取 `OPENROUTER_API_KEY` |
+| `vendors/openrouter/rerank.py`（新） | 薄叶子：`register_kernel_client(Provider.OPENROUTER, Capability.RERANK, _build)`，`_build` 返回 `CohereRerankClient` |
+| `model_registry/models.py` + `vendors/openrouter/models.py` | 登记 `cohere/rerank-4-pro` 常量与 `ModelSpec` |
+| `infrastructure/pricing.py` | 补 rerank 价目。`pricing.py:78` 原本就留了口子："rerank 未定价（有意留空，非遗漏）……任一能力接入真实业务时在此补价目（**rerank 按 per-search**）" |
+| `playbook_service.search()` | 阶段 1 取 top_k=10 → 调 rerank → 截 3 个 seed 后再进阶段 2/3 |
+
+⚠️ **上线前必须拿 key 实调一次**确认三件事：请求体字段名逐字对得上、响应 `results[].index` 的语义
+（是否为入参 documents 的下标）、以及**响应有没有带 `usage.cost`**（决定 `cost_source` 落 `provider`
+还是 `estimated`）。这三条我只从文档与 SDK 示例推得，没有实调验证。
+
+#### E2（LLM 从 top-10 里选 3）已否
+
+曾考虑照 Nissist 的"粗召回 + LLM 选"：63 本手册的目录只有约 5.4k token，小到可以整份塞进 prompt。
+但有了 rerank-4-pro 之后 E2 在三个维度上都不占优——延迟 +0.3~0.6 s vs +100 ms、要多维护一份
+prompt、且 cross-encoder 本身就是为这件事训练的。**不做。**
+
+#### 与其它项的联动
+
+- **优化项 A（低置信短路）在 rerank 之前**：低置信 query 直接短路，不进 rerank，不为"库里没有"的问题付钱
+- **A 还顺带压低 rerank 总成本**：$0.0025/次听起来小，但台账那次实测模型一轮自主调了 4 次 = **$0.01/轮**；A 把重试掐掉后回到 1~2 次
+- **D（HyPE）先上更好**：rerank 的输入质量取决于 top-10 候选的质量，先把召回做准再重排，收益不重叠
+
+#### ⚠️ 验收不能只看路由准确率：seed 是图扩展的起点，错误会被放大
+
+rerank 选出的 3 个 seed 同时是阶段 2 图扩展的**出发点**，所以它的影响是双向放大的：
+
+- **收益放大**：seed 更准 → 图扩展从对的节点出发 → 前置项 / 输入源跟着对
+- **风险放大**：seed 选错 → 图扩展从错的节点出发 → **连带前置项全错**，而且错得"看起来有理有据"
+  （带着依赖关系的错误答案比单纯召回错更有说服力，更难被用户察觉）
+
+因此 rerank 的验收除了跑金标看 r@1/r@3，**必须抽查几个 case 确认前置项没变成无关内容**。
 
 ---
 
@@ -379,7 +519,7 @@ for hit in hits:
 
 现有金标即可验收 ─────────> D-1  HyPE 第一步：拆现有 5 条问法（零 LLM 成本）← 主项
                            C    检索词形态对齐（⚠️ 脚本同一提交内同步改）
-                           E1   Cohere rerank
+                           E    rerank（openrouter / cohere/rerank-4-pro）
 
 需先建无泄漏金标 ─────────> D-2  HyPE 第二步：扩写到 8~10 条
 
@@ -395,7 +535,7 @@ for hit in hits:
 | 2 | **F pid 去重 + 预算不公** | 0.5d | context 再 −20~30%；排第 3 的 seed 不再分不到正文 | 否 |
 | 3 | **D-1 HyPE 拆现有 5 条** | 1d | **路由准确率的主要增量**，零 LLM 成本 | 现有金标够 |
 | 4 | C 形态对齐 | 0.5d | 修掉 query↔索引 形态错配 | 现有金标够 |
-| 5 | E1 rerank | 0.5d | 概念性主题 | 现有金标够 |
+| 5 | E rerank（`cohere/rerank-4-pro`） | 0.5d | 概念性主题；⚠️ 含 llm 模块加 openrouter+rerank 薄叶子 + config 分支 + pricing 补 per-search 价目 | 现有金标够 |
 | 6 | 无泄漏金标（正文出题） | 0.5d | 解锁 D-2，并给出真实水平而非上界 | — |
 | 7 | D-2 HyPE 扩写问法 | 0.5d | 覆盖更多表达 | **要新金标** |
 | — | B 阶段并发 | 1h | 收益 <5%，动 `search()` 时顺手 | 否 |
@@ -406,10 +546,10 @@ for hit in hits:
 
 | # | 议题 | 选项 |
 |---|---|---|
-| 1 | 优化项 C 走 A（改 docstring）还是 B（双检索词） | B 更稳但改工具签名，需同步 `search_playbooks` 的 VO 与提示词 |
-| 2 | 优化项 D 的扩写问法数量与范围 | 全量 63 本 × 8~10 条，还是先做 20 本概念型试点 |
-| 3 | 优化项 D 的问法是否进 `ai_rag_playbook.questions` 列 | 进列 = 审核页可见可改（管理页设计的节点表格已有 questions 列）；不进 = 只作为 chunk 存在、审核看不到 |
-| 4 | 优化项 A 的阈值 0.45 | 是否先按 315 题金标跑一遍分布再定 |
-| 5 | 优化项 E 走 E1（Cohere rerank）还是 E2（LLM 选） | 延迟 +100ms vs +0.5s；E2 对概念性主题理论上更强 |
+| ~~1~~ | ~~优化项 C 走改 docstring 还是双检索词~~ | ✅ **已定：双检索词**（2026-08-10）。理由是不赌形态、两路都覆盖，且 `keywords` 留空即退化为单路、灰度成本为零。见 §5 |
+| ~~2~~ | ~~优化项 D 的扩写范围~~ | ✅ **已定：全量 63 本**（2026-08-10）。§6 风险 2 里"先做 20 本概念型试点"的缓解方案随之作废——质量把关改为**全量扩写 + 人工审 diff**，与关系推断同一套闸门 |
+| ~~3~~ | ~~优化项 D 的问法存哪~~ | ✅ **已定：新增 `expanded_questions` 列**（2026-08-10）。不复用 `questions`（它同时喂 profile 文本 / 审核页 / diff 逐字段 / attrs 指纹四处，混进去会稀释 profile 且让 diff 分不清源站改版与 LLM 噪声）；也不"只存向量库"（审核看不到，而问法质量正是本项主要风险）。审核负担用**缓解 a** 化解：diff 只报计数、不逐条列。见 §6 |
+| ~~4~~ | ~~优化项 A 的阈值 0.45~~ | ✅ **已定：先按 0.45 上线，跑一段真实流量后再调**（2026-08-10）。不预先跑金标分布——金标是"让它找自己"的上界，它的分数分布比真实 query 高，拿它定阈值会定得偏高、把正常命中掐掉。改为上线后按 `coverage: low` 的日志回看真实分布 |
+| ~~5~~ | ~~优化项 E 走 rerank 还是 LLM 选~~ | ✅ **已定：OpenRouter 上的 `cohere/rerank-4-pro`**（2026-08-11）。E2（LLM 选）已否——延迟高 3~6 倍、多维护一份 prompt、cross-encoder 本就是为这件事训练的。⚠️ 留一个待验证：请求体字段名 / `results[].index` 语义 / 响应有没有 `usage.cost`，**上线前拿 key 实调一次**（见 §7） |
 | ~~6~~ | ~~评测脚本是否恢复~~ | ✅ **已定并完成**（2026-08-10），见 §2 |
-| 7 | 阶段 3 的"第一段固定带"是否保留 | **原理由已失效**：`fetch_excerpts` 固定带 body 第一段，理由是"它是 Players / Effort / Frequency 元数据块，等于用 0 成本换掉两个数据库列"。但 2026-08-10 查库，这几个关键词在 63 个 entry 的第一段里**全部 0/63**（`Initial Effort` 在全部 body 分段里也是 0/63），现在第一段是开篇散文。开篇段仍是主题概述、有价值，但它占掉 3 段配额里的 1 段——保留 / 改成不固定 / 配额加到 4 段，三选一，可用现有金标量化。⚠️ 这件事**不影响路由**（元数据块从不进 profile 文本），也不影响 `category`/`stage`（`_meta_field` 单独解析、都健在）；它连带暴露的校验缺口已转台账「ingest 缺"字段级静默变空"校验」 |
+| ~~7~~ | ~~阶段 3 的"第一段固定带"是否保留~~ | ✅ **已定：保留现状，本期不动**（2026-08-11），降级为观察项。<br>背景：`fetch_excerpts` 固定带 body 第一段，原理由是"它是 Players / Effort / Frequency 元数据块，等于用 0 成本换掉两个数据库列"。但 2026-08-10 查库，这几个关键词在 63 个 entry 的第一段里**全部 0/63**（`Initial Effort` 在全部 body 分段里也是 0/63），现在第一段是开篇散文——**理由失效，但效果未必变差**：开篇段是"这本手册解决什么问题"的主题铺垫，本身有价值。<br>⚠️ **纠正本文早先的一处不准确**：曾写"可用现有金标量化"，其实**量不到**——评测脚本只跑 `route()`（阶段 1），摸不到 `fetch_excerpts`（阶段 3）；且现有 315 题的答案是"哪本手册"，不是"哪一段"。真要量化需另出一套段落级金标 + 人工对比三种配置（保留 / 不固定 / 配额加到 4 段），属答案质量评测，成本远高于收益。<br>另两个选项各自的代价：**改成不固定** → 丢掉主题铺垫，模型可能只看到中段细节；**配额加到 4 段** → 每 seed 3.4k → 4.5k 字符、3 seed 约 13.7k，与优化项 A / F 压 context 的方向对冲。真要做，等 A / F 落地、context 降下来之后再评估。<br>这件事**不影响路由**（元数据块从不进 profile 文本），也不影响 `category` / `stage`（`_meta_field` 单独解析、都健在）；连带暴露的校验缺口已转台账「ingest 缺"字段级静默变空"校验」 |
