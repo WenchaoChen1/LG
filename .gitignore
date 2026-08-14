@@ -8,6 +8,7 @@ cio-bigdata/
 .claude/settings.local.json
 .claude/history/
 .claude/worktrees/
+.claude/settings.json
 
 # IDE
 .idea/
