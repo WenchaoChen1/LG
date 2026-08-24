@@ -1,0 +1,4 @@
+SET
+SET
+SET
+psql:/mnt/c/tmp/lg_test.sql:13: ERROR:  unrecognized configuration parameter "transaction_timeout"
