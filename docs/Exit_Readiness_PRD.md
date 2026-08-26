@@ -70,7 +70,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - **「View history」入口**：跳转到 Assessment History 页（限定当前维度）。
 - **「+ New」入口**：发起该维度新一轮评估（分别进入 Founder Flow 或 GSV Flow）。
 - 权限规则：
-  - 创始人只能看到自己的数据，且不显示 GSV 专属字段（Benchmarkit、Top GSV Quartile、Diligence Evidence / Rationale 等）。
+  - 创始人只能看到自己的数据，且不显示 GSV 专属字段（Benchmarkit、Top GSV Quartile 等）。
   - GSV 团队可看到 GSV 专属字段。
 - 全端响应式（桌面 + 移动）。
 
