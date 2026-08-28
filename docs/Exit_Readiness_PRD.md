@@ -141,7 +141,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - **综合 ERL 分数** = 5 个维度分数的简单平均，以 X/9 形式显示。
 - **当前 Stage（1–9）**：由综合分数与 Workbook 中的 Era 边界推导。
 - **Perception Gap**（每维度）= Founder 分 − GSV 分；正值 = 创始人自评更高，负值 = GSV 更高。
-- 打分规则为进行中工作项，未定前使用占位并逐步迭代（部分指标是 0/1 二元、部分为光谱型）。
+- 打分规则为进行中工作项，未定前使用占位并逐步迭代。
 
 **功能描述（雷达图）**：
 - 雷达/蛛网图在同一张图上呈现**四条线**：
@@ -161,7 +161,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - 当前 Stage 与 Era
   - 每维度 Founder 分与 GSV 分
   - 每维度 Perception Gap
-  - 每维度状态摘要（Met / Partial / Gap，基于 gap 幅度推导）
+  - 每维度状态摘要（基于 gap 幅度推导）
 - **Strengths & Priority Gaps**：由评估中填写的证据/备注推导；如无笔记，标注为「未提供备注」。
 - **Data Sources & Cadence**（按维度）：显示主要与补充证据来源，以及评估频率（季度）。
 - **BPMM 分数**：仅作为参考数字（1–5）显示；完整 BPMM 评估交互**不在本 story 范围内**。
@@ -193,7 +193,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - 双方分数均高、无实质差距时，Goldie 承认此为公司优势，不强行套用差距叙述。
 - 全端响应式。
 
-**已知 TBD 与 MVP 备选方案（原文更新）**：
+**已知 TBD 与 MVP 备选方案**：
 - 详细生成逻辑与 prompt（Founder / GSV 两套）尚未定义。
 - 待决定：是否在 Score Details 页新增一个「GSV vs. Founder 分数对比」Tab，突出显示两者差距最大的题目，作为完整 AI 建议上线前的 MVP 替代方案。
 - 待 Li 团队确认：「Gap」的粒度是按题、按维度，还是仅取 GSV 与 Founder 综合分的差值。
@@ -210,7 +210,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - ERL Score（综合）
   - FRL、PRL、BERL、RRL、TRL（5 个维度分数）
   - Stage
-  - View（跳转到该公司的 Exit Readiness 页面）
+  - View（跳转到该公司的 Score Details 页面）
 - 支持按分数、Stage、维度进行**排序与筛选**。
 - 权限：仅 Portfolio Manager / Portfolio Group Manager。
 
@@ -230,6 +230,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - **拖拽重排**：在 Era Band 内调整顺序，该顺序即评估中的**必答顺序**（对应 Yes/No + 固定序列模型）。
 - 变更**立即生效**到评估表与 Score Details 的题目列表中，无需其他配置步骤。
 - 明确边界：与顺序相关的具体计分逻辑（例如 "No" 中断时该维度分数如何处理）属于评估表 / Scorecard story，本 story 只覆盖题库配置本身（TBD）。
+- Publish按钮：五个维度任意维度有新问题，按钮会被激活。
 
 **UX 要点**：
 - 匹配原型稿：按维度分 Tab、按 Era Band 分组、拖拽 handle、行内编辑/删除图标、可见的 Source 列。
