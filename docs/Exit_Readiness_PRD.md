@@ -96,6 +96,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - 每题显示来源标签（Founder/CTO、Looking Glass、SharePoint 等）
 - 创始人**独立**完成，全程不可看到 GSV 分数。
 - 支持保存进度、稍后继续，无数据丢失。
+- 需为每个维度**手动填写一个整体维度分**。若该手动分与题目答案推导出的结果**不一致**，弹出软确认弹窗提示分歧"Your score doesn't match the questionnaire answers, please confirm this is intentional" ；仅需确认，不阻止提交。
 - **提交后即只读**，如需修改必须新建一次提交。
 - 同一季度允许多次提交，最新一次为 source of truth。
 - 每次提交生成带日期的记录（提交日期、评估人、基金/组合）。
@@ -125,7 +126,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - 可选「证据/备注」文本
   - 可选文件/图片上传（同步写入 Memory File）
 - 表单顶部提供**评估期选择器**（如 "Q3 2026"）。
-- GSV 需为每个维度**手动填写一个整体维度分**。若该手动分与题目答案推导出的结果**不一致**，弹出软确认弹窗提示分歧；仅需确认，不阻止提交。
+- GSV 需为每个维度**手动填写一个整体维度分**。若该手动分与题目答案推导出的结果**不一致**，弹出软确认弹窗提示分歧"Your score doesn't match the questionnaire answers, please confirm this is intentional" ；仅需确认，不阻止提交。
 - 保存进度、可恢复。
 - 提交后只读；同一季度可多次提交，最新为 source of truth。
 - 每次提交生成带元数据的记录，进入 Assessment History。
