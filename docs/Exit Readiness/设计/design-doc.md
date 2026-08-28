@@ -5,7 +5,7 @@
 > - Python 规范：[../../../CIOaas-python/standards/architecture.md](../../../CIOaas-python/standards/architecture.md) · [../../../CIOaas-python/standards/coding.md](../../../CIOaas-python/standards/coding.md)
 > - 前端规范：[../../../CIOaas-web/standards/architecture.md](../../../CIOaas-web/standards/architecture.md) · [../../../CIOaas-web/standards/coding.md](../../../CIOaas-web/standards/coding.md)
 >
-> 阶段：④ 设计 | 版本：**v3.4** | 日期：2026-08-28 | 范围：ERL Card / 维度详情 / 双端填报 / 题库配置 / 基准 / Goldie 差距分析 / 组合层 ERL Tab
+> 阶段：④ 设计 | 版本：**v3.5** | 日期：2026-08-28 | 范围：ERL Card / 维度详情 / **全维 Score Details** / 双端填报 / 题库配置 / 基准 / Goldie 差距分析 / 组合层 ERL Tab
 
 # Exit Readiness（ERL）设计文档 V1
 
@@ -18,7 +18,8 @@
 | v3.1 | 2026-08-27 | **原型新截图**：`/readiness/benchmark`（D1）、`/readiness/benchmark/add`（D2） | **基准模块（D）按原型重做**：每期次由「两个总分」改为「五维各两个分」；D1 定为 `Latest by Dimension` + `Record History` 双卡；D2 由 Modal 改为**独立页面**。逐条见 §0.3 |
 | v3.2 | 2026-08-28 | `docs/Exit_Readiness_PRD.md` **2026-08-28 修订** | 按 PRD 修订重校，共 **4 条**：题库新增 **Publish 发布态**（新增需求，影响面最大）；F2 `View` 目标由 Company Overview 改为 **Score Details 页**；每维状态摘要三值枚举**由 PRD 明文降级为设计占位**；打分格式的「0/1 二元 / 光谱型」表述从 PRD 移除。逐条见 §0.4 |
 | v3.3 | 2026-08-28 | **需求方对 §13-Q11 的裁决**（2026-08-28） | **题库改为版本化**：v3.2 的「只有新增题需发布」作废 —— **新增 / 编辑 / 删除 / 重排全部经 Publish 才生效**。`erl_question` 上的状态位改为独立的**版本表 + 写时复制草稿版本**；评估绑定题库版本快照；在填草稿按 `question_key` 重基。逐条见 §0.5 |
-| **v3.4（本版）** | **2026-08-28** | **需求方裁决**（2026-08-28）：「保留旧答案，以正在编辑的版本为准」 | **重基（rebase）整体删除，改为版本锁定**：评估创建时绑定当时最新已发布版本，此后**无论题库发布多少版都不跟随**（Founder 用 v3 打开就一路 v3，GSV 后填用 v4）。据此关闭 §13-Q13 ~ Q16 四条边界，并删掉重基链路的全部实现物。逐条见 §0.6 |
+| v3.4 | 2026-08-28 | **需求方裁决**（2026-08-28）：「保留旧答案，以正在编辑的版本为准」 | **重基（rebase）整体删除，改为版本锁定**：评估创建时绑定当时最新已发布版本，此后**无论题库发布多少版都不跟随**（Founder 用 v3 打开就一路 v3，GSV 后填用 v4）。据此关闭 §13-Q13 ~ Q16 四条边界，并删掉重基链路的全部实现物。逐条见 §0.6 |
+| **v3.5（本版）** | **2026-08-28** | **需求方裁决**（2026-08-28）：「F2 `View` 跳 A4 全维 Score Details 页」+ 指定原型 `/readiness/overall`（标题 `Score Details`）为 UI 依据 | **复活 A4 全维 Score Details 页**：纳入 V1，新增路由 `/exitReadiness/scoreDetails` 与**接口 22** `GET /erl/scoreDetails`；F2 `detailUrl` 由「维度详情页 + 默认 FRL」改为指向 A4（不带维度）。据此关闭 §13-Q12。逐条见 §0.7 |
 
 ---
 
@@ -56,7 +57,7 @@
 | 14 | 雷达图无图形规范 | **缺失** | §5「仅线条无填充、每线不同色、有图例、中心轴隐藏、悬停显示精确分、架构预留新增 perspective」 | 补入 §8.4 |
 | 15 | F2 无排序筛选 | **缺失** | §3.7「支持按分数、Stage、维度进行排序与筛选」 | 补入 §6.5 / §8.4 |
 | 16 | 维度页无「+ New」入口；GSV Tab 对公司端可见 | **冲突/缺失** | §3.2「『+ New』入口发起新一轮评估」「**公司用户不显示 GSV Tab**」「创始人不显示 GSV 专属字段（Benchmarkit、Top GSV Quartile 等）」 | 补入 §8.4，并收紧 §4.2 权限表 |
-| 17 | 自创 A4「Score Details 全维明细页」（原型 `/readiness/overall`） | **无依据** | PRD 全文无此页；§3.1 的「Score Details 页」即维度详情页 | **删除 A4**（v3.2：PRD §3.7 的 `View` 目标改写为「Score Details 页面」，仍指**维度详情页**，不复活 A4，见 §0.4-2） |
+| 17 | 自创 A4「Score Details 全维明细页」（原型 `/readiness/overall`） | **无依据** | PRD 全文无此页；§3.1 的「Score Details 页」即维度详情页 | ~~删除 A4~~ → **v3.5 复活**：2026-08-28 裁决 F2 `View` 跳全维 Score Details 页，并指定原型 `/readiness/overall` 为 UI 依据（§0.7 / §8.4） |
 | 18 | 自创 §8.5「在 Dashboard 维度行加 View Details」 | **已被 PRD 取代** | §3.1「卡片内提供每个维度的『View Details』入口」 | 入口改挂 ERL Card |
 | 19 | §7.1「展示页维度分一律取 GSV 分」 | **需重述** | §3.1 卡片同时列 Founder 分与 Perception Gap；§5 Scorecard「每维度 Founder 分与 GSV 分」 | 改为**并列展示双方分**（§7.1） |
 | 20 | 把「维度分 = 题均分」写成已定口径 | **越权定稿** | §5「具体计算方法：初步为各题平均，**最终待开发前确认**」；§五 TBD-3 | 降级为**占位口径**，回填 §13-Q3 |
@@ -92,7 +93,7 @@
 | # | PRD 变更（2026-08-28） | 类型 | v3.2 处理 | 影响章节 |
 |---|------------------------|:---:|-----------|----------|
 | 1 | §3.8 新增「**Publish 按钮：五个维度任意维度有新问题，按钮会被激活**」 | **新增需求** | ~~题库引入草稿 / 已发布两态，只有新增题需发布~~ —— **v3.3 已被需求方裁决取代，改为题库版本化、所有变更经发布**，见 §0.5 | §0.5 |
-| 2 | §3.7 `View` 列由「跳转到该公司的 **Exit Readiness 页面**」改为「跳转到该公司的 **Score Details 页面**」 | **冲突（改口）** | F2 末列 `View →` 的目标由「Company Overview 锚点定位 ERL Card」改为该公司的**维度详情页（Score Details 模板，§0.2-17 已确立二者等价）**，默认落在 **FRL** 并带当前 `period`；面包屑首级仍回 Company Overview。**不新增全维明细页**（A4 仍不做） | §6.8 / §8.4 / §9 / §11-32 / §13-Q12 |
+| 2 | §3.7 `View` 列由「跳转到该公司的 **Exit Readiness 页面**」改为「跳转到该公司的 **Score Details 页面**」 | **冲突（改口）** | F2 末列 `View →` 的目标由「Company Overview 锚点定位 ERL Card」改为该公司的**维度详情页（Score Details 模板，§0.2-17 已确立二者等价）**，默认落在 **FRL** 并带当前 `period`；面包屑首级仍回 Company Overview。~~**不新增全维明细页**（A4 仍不做）~~ → **v3.5 作废**：`View` 改跳 A4 全维页（§0.7-3） | §6.8 / §8.4 / §9 / §11-32 / §13-Q12 |
 | 3 | §5「每维度状态摘要（**Met / Partial / Gap**，基于 gap 幅度推导）」删去括号内三值枚举 | **依据减弱** | 设计**不改实现**（仍需要一个状态摘要），但 `MET / PARTIAL / GAP` 三值由「PRD 明文」降级为**本设计占位枚举** —— 取值命名与阈值一并回填 §13-Q3，产品可整体替换。§0.2-12、§7.4-①、§8.5 的措辞同步订正 | §0.2-12 / §7.1 / §7.4 / §8.5 / §13-Q3 |
 | 4 | §5 打分规则删去「（部分指标是 **0/1 二元**、部分为**光谱型**）」 | **依据减弱** | **不改设计** —— `answer_type ∈ {SCORE, YES_NO}` 的双题型建模来自 §3.3「MVP 用 1–9 占位、未来切 Yes/No + 固定顺序」与 §四「打分格式演进」，**不依赖被删的这句**；§7.2 补一行说明该表述已从 PRD 移除，避免后续被当作遗漏 | §7.2 |
 
@@ -140,6 +141,27 @@
 
 **版本锁定自身新增的三条边界**（已并入 §7.10）：**N1** 旧版本草稿可无限期停留、提交不阻止；**N2** 同期次多次提交可能跨版本，历史列表须标版本号否则像 bug；**N3** 不提供「升级到最新题集」按钮。
 
+### 0.7 v3.4 → v3.5 修正清单（依据需求方 2026-08-28 的第三次裁决）
+
+**裁决原文**：「ERL Tab `View` 的落地页，点击 View 跳转 A4 全维 Score Details 页」，UI 依据指定为原型路由 `/readiness/overall`（标题 `Score Details`）。
+
+即：§13-Q12 的两个候选项中，需求方选了「**一页看全五维**」—— §0.2-17 / §1.2 / §12 三处「不做 A4」的结论作废。
+
+| # | v3.4 的写法 | 类型 | v3.5 处理 | 影响章节 |
+|---|-------------|:---:|-----------|----------|
+| 1 | §0.2-17 / §1.2 / §12：「A4 全维 Score Details 页 PRD 无依据，不做」 | **被裁决取代** | **复活 A4**，纳入 V1 的 A 展示模块；§1.2 与 §12 的对应条目删除 | §0.2-17 / §1.1 / §1.2 / §12 |
+| 2 | §8.1：「❌ `/exitReadiness/scoreDetails`（A4 全维明细）—— PRD 无此页」 | 同上 | **恢复该路由**（§8.1）；仍不复活 `/exitReadiness` Dashboard（PRD §3.1 明确不做，**与 A4 无关**） | §8.1 |
+| 3 | F2 `detailUrl` = 维度详情页、默认维度 `FRL` | **被裁决取代** | 改为 **A4 全维页**：`/exitReadiness/scoreDetails?companyId={id}&period={period}`，**不再带默认维度** | §6.8 / §8.4 / §9 / §11-32 |
+| 4 | 接口共 20 个（v3.2 起「删 `/erl/scoreDetails`」） | **新增需求** | 新增**接口 22** `GET /erl/scoreDetails`（一次返回五维全部题目），共 **21 个** | §6.2.1 / §10.1 |
+| 5 | §13-Q12「F2 `View` 落在哪个维度」 | ✅ **已裁决** | 关闭 Q12；新增 Q17（公司端入口）并**于同日确认**：**V1 不加公司端入口**，A4 的唯一入口就是 F2 `View` | §13 |
+
+**Q17 同日确认**：需求方接受设计建议 —— **V1 不为公司端加 A4 入口**（ERL Card 已有逐维 `View Details`，PRD 未要求全维入口）。因此 A4 在 V1 的**唯一入口是 F2 ERL Tab 的 `View`**（管理端）；公司端仍保有本公司 A4 的后端权限（后续要开放入口时即可用），但界面上不提供入口。已并入 §12 的「明确不做」。
+
+**UI 证据**：已发布站 `/readiness/overall` 的 chunk `readiness.overall-*.js`（2026-08-28 抓取，非截图）。页面结构为：**面包屑 → H1 `Score Details` + 右上 `+ New` → `Founder` / `GSV` 双 Tab + `View history` → 四列元数据栏 → 五张维度折叠卡（默认只展开第一张）→ 页尾基准折叠卡**。**四处有意偏离原型**见 §8.4 的「A4 与原型的四处有意偏离」行。
+
+> §0.2-17 当时判「无依据」并没有错 —— PRD 至今未定义该页；本次是**需求方直接裁决并指定原型为依据**，属新增需求。**待回写 PRD**：§3.7 的「View（跳转到该公司的 Score Details 页面）」需明确为「全维 Score Details 页」，并补上该页的内容清单（本设计 §8.4 已按原型给出）。
+
+
 ---
 
 ## 1. 范围与分期
@@ -151,6 +173,7 @@
 | A 展示 | **A1 ERL Card（Company Overview 页内）** | ✅ | §3.1 | 综合分 + 当前 Stage + Gap Analysis 摘要 + 5 维列表（维度分 / Perception Gap） + BPMM 参考数字 + 雷达图。**唯一入口，无独立落地页** |
 | A 展示 | A2 Dimension Radar 雷达图（卡片内） | ✅ | §5 | 4 条序列：Founder / GSV / Benchmarkit / Top GSV Quartile |
 | A 展示 | **A3 维度详情页（Score Details，模板）** | ✅ | §3.2 / §5 | **一套模板 5 维复用**；含 score card 头、Perception Gap、状态摘要、Strengths & Priority Gaps、Data Sources & Cadence、逐题列表、`View history`、`+ New` |
+| A 展示 | **A4 全维 Score Details 页**（v3.5 复活） | ✅ | §3.7 + 2026-08-28 裁决 | **一页看全五维逐题明细**：双端 Tab + 五张维度折叠卡 + 页尾基准卡；**F2 `View` 的落地页**。原型 `/readiness/overall`（§0.7） |
 | A 展示 | A5 "How It's Scored?" 评分标准弹窗 | ✅ | §3.8 | 展示该题三段 Era 的评分标准 |
 | A 展示 | **A7 DI 卡片下线** | ✅ | §3.1 | 系统级隐藏 DI 卡，数据/KPA/SDP 全保留 |
 | B 填报 | B1 Founder 自评问卷 | ✅ | §3.3 | 期次选择、Era 折叠分组、逐题备注 + 附件、进度、自动存草稿、提交即只读 |
@@ -170,7 +193,6 @@
 | 项 | 原因 / 去向 |
 |----|-------------|
 | 独立 Exit Readiness 落地页 / Dashboard 路由 | **PRD §3.1 明确不做**（v2.1 的 A1/A2 独立页已删除） |
-| A4 全维 Score Details 页（原型 `/readiness/overall`） | PRD 无此页；「Score Details」即维度详情页（§0.2-17） |
 | 顶栏 Ask Goldie 对话接入（E3） | 与 AI Chatbot 是另一条产品线 |
 | Finance 页 Exit Readiness 卡片与入口（F1 / F3） | PRD 未要求；入口统一在 Company Overview 的 ERL Card |
 | **完整 BPMM 评估交互** | PRD §5「不在本 story 范围内」；V1 只显示参考数字 |
@@ -227,6 +249,7 @@
 | 题量：FRL 31 题，五维合计 165 题 | 自评页进度条 `0 of 165` | ⚠️ PRD §3.3 写「30+ 题目」、§3.9 示例写 `45/45`。**题量由题库配置决定，代码不写死**；见 §13-Q4 |
 | FRL 6.4 标 `Exit Era` | 原型渲染 | ❌ **原型 bug**，不予沿用（§7.3） |
 | Portfolio ERL Tab 与 Dashboard 分数互相矛盾 | Example 1 两处数值完全不同 | ❌ 两份 mock 各写各的；本设计两处统一走 §7.1 实时计算 |
+| A4 全维 Score Details 页的结构（面包屑 / 双端 Tab / 四列元数据栏 / 五张维度折叠卡 / 页尾基准折叠卡） | 已发布站 `/readiness/overall` 的 chunk `readiness.overall-*.js`（2026-08-28 抓取） | ✅ 2026-08-28 裁决指定为 A4 的 UI 依据，**采纳**（§8.4）；四处有意偏离同处标注 |
 | 空态文案 `No gap analysis yet` + `Goldie needs scored questions with evidence notes ...` | `GoldieSuggestion` 组件 | ✅ 文案可复用（§9） |
 
 ---
@@ -238,7 +261,7 @@
 ```
 CIOaas-web (React 16 / UmiJS 3 / AntD Pro)
    src/pages/companyOverview/home/           A1/A2：ERL Card 替换 DI 卡（改存量页）
-   src/pages/exitReadiness/**                ERL 页面群（维度详情 / 填报 / 历史 / 配置 / 基准）
+   src/pages/exitReadiness/**                ERL 页面群（维度详情 / 全维明细 / 填报 / 历史 / 配置 / 基准）
    src/pages/portfolioCompanies/erl/         F2：Company List 第 6 个 Tab（改存量页）
    src/services/api/exitReadiness/           HTTP 调用（1:1 后端接口）
    src/services/service/exitReadiness/       Response ↔ DTO 转换
@@ -322,6 +345,8 @@ companyId = user.roleType <= 1 ? getQueryString('id') : user?.inviteDto?.id
 | A3 维度详情页 | ✅ 只看本公司 | ✅ | §3.2 |
 | A3 **GSV Tab（逐题明细）** | ❌ **不显示** | ✅ | §3.2「公司用户不显示 GSV Tab」 |
 | A3 Perception Gap / 状态摘要 / 双方维度分 | ✅ | ✅ | §5「创始人并列查看自己的分数与 GSV 分数」 |
+| **A4 全维 Score Details 页**（v3.5） | ✅ 只看本公司，但 **V1 无任何界面入口**（已确认，§13-Q17）—— 权限保留、入口不给 | ✅ 由 F2 `View` 进入（唯一入口） | §3.7 + 2026-08-28 裁决 |
+| A4 **GSV Tab 与页尾基准卡** | ❌ **不显示** | ✅ | §3.2（同 A3 口径，服务端裁剪） |
 | E1 / E2 差距分析（展示） | ✅ 只读，**Founder 口吻** | ✅ 只读，**GSV 口吻** | §3.6 |
 | E 手动 Regenerate | ❌ | ✅ | 本设计（自动刷新为主，手动为兜底） |
 | B1 Founder 自评问卷 | ✅ **填报** | ✅ 只读查看 | §3.3「portfolio admin 不能代填」 |
@@ -573,6 +598,21 @@ GSV 端需为每维手动填一个整体分；该手动分是展示口径的 GSV
 - `strengths[]` / `gaps[]` / `actions[]` 来自 `erl_gap_analysis_item`，按**当前用户 audience** 过滤；无分析记录时为空数组。
 - `dataSources`：`{ primary[], supplementary[], cadence: "Quarterly" }` —— **primary / supplementary 由该维度题目的 `evidence_source` 去重聚合得出**（出现次数 ≥ 阈值为 primary，其余 supplementary；阈值见 §7.6），PRD §5「Data Sources & Cadence（按维度）」。
 
+### 6.2.1 全维 Score Details（A4，2026-08-28 裁决；**v3.5 新增**）
+
+| # | 方法 / 路径 | 用途 | 关键入参 | 关键出参 |
+|---|-------------|------|----------|----------|
+| 22 | `GET /erl/scoreDetails` | A4 一页取全五维逐题明细 | `companyId`、`period`（可选，默认最新已提交期次）、`portal`（默认 `FOUNDER`） | `submission`、`dimensions[]`、`benchmark` |
+
+- `dimensions[]` **固定返回五项**，顺序 `FRL / PRL / BERL / RRL / TRL`；每项：`dimension` / `name` / `abbr` / `score` / `questionCount` / `scoredCount` / `questions[]`。
+- **`questions[]` 与接口 2 完全同一个结构**（同一个 `ErlQuestionDetailDTO`）：`questionText` / `eraBand` / `eraLabel` / `evidenceSource` / `answerType` / `score` / `yesNo` / `note` / `attachments[]` / `criteria{founder,harvest,exit}` —— **不新造第二套题目结构**，A5 弹窗同样不另发请求。
+- `submission` 与接口 2 一致（`period` / `submittedBy` / `role` / `submittedAt` / `questionVersionNo`）。
+- `benchmark`：该期次适用基准记录的**五维明细**（`ErlBenchmarkDimensionDTO[]`，§5.6.1），取数规则同 §7.8；**公司端一律不下发**（§4.3），无适用记录为 `null`。
+- **实现挂在既有的 `ErlDimensionService` 上新增一个方法**（`listAll`），Controller 用既有 `ErlDimensionController`，**不新建 service / controller 类** —— A4 与 A3 的差别只是「五维 vs 一维」，权限、版本、计分、裁剪规则完全相同。
+- **一次查全**：五维题目、答案、附件、评分标准批量查出后在内存归组，**禁止按维度循环调接口 2 的逻辑**（N+1）。
+- 题目一律按该评估绑定的 `question_version_id` 渲染（§7.9-①，与接口 2 同）。
+- `portal=GSV` 且调用者为公司端 → `BadRequestException`（同接口 2）。
+
 ### 6.3 填报（B，PRD §3.3 / §3.4）
 
 | # | 方法 / 路径 | 用途 | 关键入参 | 关键出参 |
@@ -714,7 +754,7 @@ POST /api/ai/erl/gap-analysis
 |---|-------------|------|----------|----------|
 | 20 | `GET /erl/portfolio` | F2 Tab | 可选 `period`、`portfolioId`、`sortBy`、`sortOrder`、`stage`、`minScore`、`maxScore`、`dimension` | `companies[{ companyId, name, overallScore, frl, prl, berl, rrl, trl, stage, era, period, detailUrl }]` |
 
-- **`detailUrl`（v3.2 新增）**：`View` 列的跳转目标 —— PRD §3.7 已改为「跳转到该公司的 **Score Details 页面**」，即该公司的**维度详情页**（§0.2-17）。后端下发 `/exitReadiness/dimension/FRL?companyId={id}&period={period}`，**默认维度 FRL**、带该行取数所用期次；无评估的公司仍下发（进页面看空态）。默认维度是本设计的选择，待产品确认 → §13-Q12。
+- **`detailUrl`（v3.5 改）**：`View` 列的跳转目标 —— 按 2026-08-28 裁决指向 **A4 全维 Score Details 页**。后端下发 `/exitReadiness/scoreDetails?companyId={id}&period={period}`，**不带维度参数**（v3.2 的「维度详情页 + 默认 FRL」作废，§0.7-3）；带该行取数所用期次；无评估的公司仍下发（进页面看空态）。
 - 只返回当前登录用户**有权访问的公司集**（§4.3）。
 - 每家取其**最新已提交期次**的 `is_latest` GSV 评估；无评估的公司 `overallScore = null`，前端显示 `—`。
 - **排序与筛选在服务端做**（PRD §3.7「支持按分数、Stage、维度进行排序与筛选」）：`sortBy ∈ {name, overallScore, stage, FRL, PRL, BERL, RRL, TRL}`；筛选支持 Stage 精确值与分数区间。
@@ -1004,6 +1044,7 @@ V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 �
 |-----|-----------|------|------|
 | `/companyOverview` | `./companyOverview/home` | **A1 / A2 ERL Card** | **改存量页，不新增路由** |
 | `/exitReadiness/dimension/:dimension` | `./exitReadiness/dimension` | A3 / A5 / E2 | 新增 |
+| `/exitReadiness/scoreDetails` | `./exitReadiness/scoreDetails` | **A4 全维 Score Details** | 新增（v3.5 复活），**F2 `View` 的落地页** |
 | `/exitReadiness/assessment` | `./exitReadiness/assessment` | B1（`?portal=gsv` 切 B2） | 新增 |
 | `/exitReadiness/history` | `./exitReadiness/history` | B3 | 新增 |
 | `/exitReadiness/history/:assessmentId` | `./exitReadiness/history/detail` | B3 单次提交详情 | 新增 |
@@ -1015,7 +1056,7 @@ V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 �
 
 **对 v2.1 的删除**：
 - ❌ `/exitReadiness`（Dashboard）—— PRD §3.1「不设独立 Exit Readiness 落地页」。
-- ❌ `/exitReadiness/scoreDetails`（A4 全维明细）—— PRD 无此页。
+- ~~❌ `/exitReadiness/scoreDetails`（A4 全维明细）~~ —— **v3.5 恢复**（2026-08-28 裁决，§0.7-2）。**注意二者无关**：恢复的只是 A4 这一个页面，`/exitReadiness` Dashboard 仍不做。
 
 **F2 不新增路由** —— 它是 `/company`（`./portfolioCompanies/home`）页内的**第 6 个 Tab**（`key='6'`）。
 
@@ -1024,6 +1065,7 @@ V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 �
 - **ERL Configuration 挂顶部导航右侧下拉菜单**（PRD §3.8），仅 admin 可见。
 - B1/B2 填报入口在 **Assessments 区块**内（PRD §3.3 / §3.4）；另从维度详情页的 `+ New` 进入。
 - C 模块路由对管理端可见，公司端由菜单与路由守卫双重拦截。
+- **A4 无菜单入口**（v3.5，已确认）：唯一入口是 F2 ERL Tab 的 `View`（管理端专属）。公司端有权限访问本公司的 A4，但 **V1 不提供任何界面入口**（§13-Q17 已确认）——**不要**为此在 ERL Card 或主导航上自行加链接。
 
 ### 8.2 目录结构
 
@@ -1038,8 +1080,10 @@ src/pages/exitReadiness/
 │                                  EvidenceNoteField、AttachmentUploader、
 │                                  GapAnalysisPanel(E1)、StrengthsGapsActions(E2)、
 │                                  DataSourcesCadenceCard、PeriodSelect、PortalTabs、
+│                                  DimensionQuestionsAccordion(A4)、BenchmarkPanel(A4)、
 │                                  StatusBadge、constants.ts、types.ts
 ├── dimension/{index.tsx, DimensionPage.tsx, hooks/, components/}
+├── scoreDetails/{index.tsx, ScoreDetailsPage.tsx, hooks/, components/}   A4（v3.5）
 ├── assessment/{index.tsx, AssessmentPage.tsx, hooks/, components/}
 ├── history/{index.tsx, HistoryPage.tsx, detail/, hooks/, components/}
 ├── benchmark/{index.tsx, BenchmarkPage.tsx, add/, hooks/, components/}
@@ -1084,6 +1128,16 @@ F2 的 `GET /erl/portfolio`、ERL Card 的 `GET /erl/card` 均归入 `exitReadin
 | **A3 `+ New`** | 公司端跳 B1、管理端跳 B2（带当前 `period` 预选） | §3.2 |
 | **A3 面包屑** | `Exit Readiness ›〔Dimension Name〕`，返回落回 Company Overview | §3.1 / §4 |
 | **A3 维度间跳转** | 页头提供 5 个维度 chip 切换器，不必回卡片 | 本设计（模板页自然延伸） |
+| **A4 页面结构**（v3.5） | 自上而下：面包屑 → H1 `Score Details` + 右上 `+ New` → `Founder` / `GSV` 双 Tab（左）+ `View history`（右）→ 四列元数据栏 → **五张维度折叠卡** → **页尾基准折叠卡**；容器宽度与 A3 一致 | 原型 `/readiness/overall`（§0.7） |
+| **A4 面包屑** | `Portfolio Companies › {公司名} › Exit Readiness › Score Details`；`{公司名}` 回该公司 Company Overview，`Exit Readiness` 回来源的 F2 Tab，末级不可点 | 原型 + §3.1 |
+| **A4 双端 Tab** | `Founder` / `GSV` 两个 Tab，默认 `Founder`；**切 Tab 按 `portal` 重新调接口 22**（两端是两条独立评估记录，不是同一份数据的两个字段）；**公司端不渲染 GSV Tab**（后端同样拒绝，§4.2） | §3.2 同口径 |
+| **A4 元数据栏** | 四列 `Period` / `Submitted by` / `Role` / `Submitted at`，随 Tab 切换；右侧以次级文字追加 `Question set v{n}` | 原型 + 本表「B 题集版本标注」 |
+| **A4 维度折叠卡** | 每维一张：卡头 = 缩写徽章（`abbr` 前两字母）+ `{全称} ({缩写})` + `{n} questions` + 维度分 `x.x/9`（按分数着色）+ 折叠箭头；**默认只展开第一张（FRL），其余收起**；展开后为该维逐题列表 | 原型 |
+| **A4 逐题行** | 与 A3 复用**同一个 `QuestionRow` 组件**：题干 + `How It's Scored?`（A5）+ 次级行 `{Era 标签} · Source: {来源}` + 右侧 `x.x/9`（`YES_NO` 题同 A3 显示 `Yes` / `No` 徽章）；有备注时下方 `Evidence / notes` 块；附件以只读 chip 列出 | 原型 + §3.2 |
+| **A4 页尾基准卡** | 折叠卡 `Benchmarkit & Top GSV Quartile`（徽章 `BQ`），**默认收起**；展开为五维明细表，复用 D1 的 `BenchmarkDimensionTable`；**公司端整卡不渲染**（后端亦不下发，§4.3） | 原型 + §5.6.1 |
+| **A4 `+ New` / `View history`** | `+ New` 公司端跳 B1、管理端跳 B2（带当前 `period` 预选，同 A3）；`View history` 跳 `/exitReadiness/history`，**不带 `dimension` 参数**（本页是全维视角，与 A3 的按维过滤不同） | §3.2 同口径 |
+| **A4 与原型的四处有意偏离**（v3.5） | ① 原型 `+ New` 恒跳 GSV 问卷（`/assessments/gsv`）→ 本设计按端类型分流；② 原型元数据与分数是写死 mock、切 Tab 只换本地对象 → 本设计切 Tab 重新取数，某端该期次无提交时该 Tab 走空态；③ 原型基准卡是**一对总分**（写死 6.5 / 8.2）且两端都显示 → 本设计为**五维明细**且**公司端不下发**；④ 原型逐题无附件、无题集版本标注 → 本设计补齐（附件 chip + `Question set v{n}`） | §4.2 / §4.3 / §5.6.1 / §7.10-N2 |
+| **A4 与 A3 的关系**（v3.5） | A4 **不是** A3 的替代：A3 是单维深度页（Perception Gap / 状态摘要 / Strengths & Priority Gaps / Data Sources & Cadence / 基准位置），A4 只做**逐题明细的全维平铺**，**不重复** E2 与 Data Sources 区块；A4 上**不加**跳 A3 的入口（原型没有，单维深度从 ERL Card 的 `View Details` 进，YAGNI） | 本设计（§8.5 的延伸） |
 | **A5 评分标准弹窗** | 每题右侧 `How It's Scored?` 图标，弹出三段 Era 标准；数据随题目返回，不额外请求 | §3.8（三段式评分标准） |
 | **B 打分标度图例** | 每个 Era section 顶部显示 `1–3 Founder Era / 4–6 Harvest & Growth / 7–9 Exit Era` 图例 | §3.3 UX |
 | **B Era 折叠分组** | 每维度内按 3 个 Era 折叠分组，组头显示题数与已答数 | §3.3 UX「避免长度令用户不堪重负」 |
@@ -1120,7 +1174,7 @@ F2 的 `GET /erl/portfolio`、ERL Card 的 `GET /erl/card` 均归入 `exitReadin
 | **D2 表单** | `Period` 输入（placeholder `e.g. Q3 2026`）→ `Scores by dimension (1–9)` 表格（五行 × 两列数字输入，placeholder 示例 `6.8` / `7.9`）→ `Note (optional)` 文本域（placeholder `Source of the benchmark data, peer set changes, etc.`）；底部右对齐 `Save Record`（主按钮）/ `Cancel` | 原型（§0.3） |
 | **D2 校验与返回** | 十个分数框**全必填**、范围 1–9、最多一位小数；`Period` 必填并归一为 `{YYYY}Q{n}`；期次重复由后端 400，错误挂在 `Period` 字段下且**已填分数不清空**；保存成功回 D1 并刷新两张卡 | §5.6 / §6.5 |
 | **F2 ERL Tab** | 与现有 5 个 Tab 同一套表格样式（`key='6'`）；列 Company / ERL Score / FRL / PRL / BERL / RRL / TRL / Stage / View；ERL Score 与 Stage 按分数着色；**表头支持排序、顶部提供 Stage 与分数区间筛选器** | §3.7 |
-| **F2 `View` 跳转**（v3.2 改） | 末列 `View →` 跳该公司的 **Score Details 页面 = 维度详情页**（§0.2-17），取后端下发的 `detailUrl`（默认维度 `FRL`，带该行期次），前端不拼路径；到页后可用页头维度 chip 横切五维，面包屑首级回该公司 Company Overview。**v3.1 的「跳 Company Overview 锚点定位 ERL Card」作废** | §3.7「View（跳转到该公司的 Score Details 页面）」（2026-08-28 修订） |
+| **F2 `View` 跳转**（v3.5 改） | 末列 `View →` 跳该公司的 **A4 全维 Score Details 页**，取后端下发的 `detailUrl`（`/exitReadiness/scoreDetails?companyId={id}&period={period}`，**不带维度**），前端不拼路径；面包屑首级回该公司 Company Overview。**v3.2 的「跳维度详情页 + 默认 FRL」与 v3.1 的「跳 Company Overview 锚点定位 ERL Card」均作废**（§0.7-3） | §3.7「View（跳转到该公司的 Score Details 页面）」+ 2026-08-28 裁决 |
 | **响应式** | 桌面 + 移动均可用；表格类窄屏横向滚动、卡片单列堆叠、雷达图等比缩放 | §4「所有页面覆盖桌面与移动端」 |
 | **国际化** | 文案走 `locales/`，不硬编码中文 | 前端规范 |
 
@@ -1143,6 +1197,8 @@ PRD 中「Scorecard」（§5）的展示项分散在两处，本设计的归属�
 | Gap Analysis & Suggested Actions | ✅（摘要） | ✅（完整） |
 
 依据：PRD §3.1 明确列出卡片内容清单（综合分 / Stage / Gap 摘要 / 5 维列表 / BPMM / 雷达图），§3.2 明确列出维度页内容，§5 的其余展示项按「按维度」的措辞归入维度页。
+
+> **A4 不参与本表的划分**（v3.5）—— 它只承载「逐题明细的全维平铺」+ 页尾基准卡，Scorecard 的其余展示项一律不在 A4 上重复，见 §8.4「A4 与 A3 的关系」。
 
 ### 8.6 DI 卡片下线方案（PRD §3.1）
 
@@ -1182,7 +1238,10 @@ PRD 要求：**系统级隐藏** DI 卡片，用现有 setting/toggle 能力，*
 | **无备注可依据** | 该条 item 带 `evidenceMissing = true` | 条目下方灰字 `No notes provided`（PRD §5「如无笔记，标注为未提供备注」） |
 | **附件入知识库失败** | `ingest_status = FAILED`，**不阻断评估提交** | 附件 chip 显示告警图标 + `Retry` |
 | **附件上传中提交** | 服务端只认已落 `erl_answer_attachment` 的附件 | 提交前 flush 上传队列；仍在传的文件弹提示「N files still uploading」 |
-| F2 某公司无评估 | 该行 `overallScore = null`，`detailUrl` 仍下发 | 各分数列显示 `—`，Stage 留空，`View` 仍可点（进该公司维度详情页看空态，**v3.2 改**：不再跳 Company Overview） |
+| **A4 该端在该期次无提交（v3.5）** | 接口 22 返回 `submission = null`；`dimensions[]` **仍固定五项**，`score = null`、`questions[] = []` | 元数据栏四列显示 `—`，五张卡照常渲染（卡头 `—/9` + `0 questions`），卡内空态 `No {portal} submission for this period.`；页面不整体空白 |
+| **A4 公司端（v3.5）** | 服务端不下发 `benchmark`，且拒绝 `portal=GSV` | **不渲染** GSV Tab、**不渲染**页尾基准卡（不是渲染成空卡） |
+| **A4 该公司无任何评估（由 F2 `View` 进入，v3.5）** | `submission = null` 且无可用期次 | 页头与五张空卡照常渲染，顶部一句 `No assessment submitted yet.` + `+ New` 入口；**不报错、不 404** |
+| F2 某公司无评估 | 该行 `overallScore = null`，`detailUrl` 仍下发 | 各分数列显示 `—`，Stage 留空，`View` 仍可点（**v3.5 改**：进该公司 **A4 全维页**看空态；v3.2 的「进维度详情页」作废） |
 | 草稿保存失败（网络） | — | 吸底条红色提示 `Draft not saved — retrying`，本地保留未保存变更并自动重试；离开前二次确认 |
 | **在填期间题库发布了新版（v3.4）** | **不是降级场景，是正常路径**：评估恒按 `question_version_id` 渲染，服务端行为与没发布过完全一致 | 填报页**无任何提示、无任何变化**；仅页头次级文字 `Question set v{n}` 可看出用的是哪版 |
 | **提交时绑定版本已不是最新（v3.4）** | **不校验、不拦截**（v3.3 的前置校验 0 已删除），正常提交 | 无提示；历史列表该行标 `Question set v{n}`，与新版本提交的行分母不同属正常（§7.10-N2） |
@@ -1205,6 +1264,7 @@ gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/erl/
 │                              ErlBenchmarkController / ErlGapAnalysisController
 │                              ErlPortfolioController
 ├── interfaces/vo/request/     ErlCardQueryRequest / ErlDimensionQueryRequest
+│                              ErlScoreDetailsQueryRequest（v3.5，A4）
 │                              ErlAssessmentQueryRequest / ErlAssessmentSaveRequest
 │                              ErlAssessmentSubmitRequest / ErlQuestionCreateRequest
 │                              ErlQuestionUpdateRequest / ErlQuestionReorderRequest
@@ -1213,12 +1273,16 @@ gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/erl/
 │                              ErlBenchmarkCreateRequest / ErlGapAnalysisGenerateRequest
 │                              ErlPortfolioQueryRequest
 ├── interfaces/vo/response/    ErlCardResponse / ErlDimensionDetailResponse
+│                              ErlScoreDetailsResponse（v3.5，A4）
 │                              ErlAssessmentResponse / ErlAssessmentSubmitResponse
 │                              ErlAssessmentHistoryResponse / ErlQuestionResponse
 │                              ErlBenchmarkResponse / ErlGapAnalysisResponse
 │                              ErlPortfolioResponse
 ├── interfaces/converter/      ErlConverter（MapStruct，Request/Response ↔ DTO）
 ├── application/service/       ErlCardService(+Impl) / ErlDimensionService(+Impl)
+│                                                             ← v3.5：ErlDimensionService 增 listAll()（A4 全维，
+│                                                               一次查全后内存归组），复用 ErlDimensionController，
+│                                                               不新建 service / controller 类（§6.2.1）
 │                              ErlAssessmentService(+Impl)      ← 含提交事务 + 置脏 + afterCommit 投递
 │                              ErlQuestionService(+Impl)        ← 含 reorder 事务
 │                              ErlQuestionVersionService(+Impl) ← v3.3：ensureDraftVersion 写时复制 /
@@ -1290,7 +1354,7 @@ Python 侧**无 domain 层、无 ERL repository** —— 不落 ERL 业务表；
                                                        DI 开关旁加「ERL 已接管 Company Overview 展示」说明（§8.6-4）
 新增  src/services/api/exitReadiness/**
 新增  src/services/service/exitReadiness/erlService.ts
-修改  config/routes.ts                                 （§8.1 九条路由 + Configuration 顶部下拉入口）
+修改  config/routes.ts                                 （§8.1 十条路由 —— v3.5 增 scoreDetails + Configuration 顶部下拉入口）
 修改  src/locales/en-US/**                             （ERL 文案）
 修改  CIOaas-web/standards/architecture.md §2          （登记新 API 域 exitReadiness/，见 §13-Q7）
 ```
@@ -1351,7 +1415,7 @@ Python 侧**无 domain 层、无 ERL repository** —— 不落 ERL 业务表；
 
 **组合层（PRD §3.7）**
 32. F2 ERL Tab 位于 Company List 第 6 个 Tab，只列当前用户有权访问的公司；无评估的公司各分数列显示 `—`。
-    - **`View` 跳该公司的维度详情页（Score Details）**（v3.2 改）：落在 `FRL` 且带该行期次；**不再跳 Company Overview**；无评估的公司点 `View` 进入后为空态而非报错。
+    - **`View` 跳该公司的 A4 全维 Score Details 页**（v3.5 改）：URL 为 `/exitReadiness/scoreDetails?companyId=&period=`、**不带 dimension**；**不再跳 Company Overview，也不再落在 `FRL` 维度页**；无评估的公司点 `View` 进入后为空态而非报错。
 33. **按 ERL Score、Stage、任一维度分排序与筛选均生效**，且为服务端排序（翻页后顺序稳定）。
 34. F2 在 20 家以上公司时只发 1 次请求、后端无 N+1 查询（开 SQL 日志核对）。
 
@@ -1383,12 +1447,21 @@ Python 侧**无 domain 层、无 ERL repository** —— 不落 ERL 业务表；
 55. **已提交记录不受影响**：任何发布之后，已 `SUBMITTED` 的历史详情页题干、题序、题数、分数**逐项不变**（按其 `question_version_id` 渲染）。
 56. **版本入口唯一**：全仓检索确认 `ErlQuestionRepository` 无「不带 `versionId`」的查询方法；且「取最新已发布版本」**只出现在创建评估记录这一处**（§7.9-①），填报 / 展示 / 计分 / 组合层 / Goldie 的取数一律来自 `erl_assessment.question_version_id`。
 
+**全维 Score Details（A4，2026-08-28 裁决，v3.5 新增）**
+57. F2 `View` 进入的是 `/exitReadiness/scoreDetails?companyId=&period=`（**不带 dimension**），页面 H1 为 `Score Details`，面包屑末级不可点、上一级回来源的 F2 Tab。
+58. **一次取全五维**：进页只发 **1 次**接口 22；五张卡的题目合计 = 该题集版本五维题数之和；**默认只有第一张（FRL）展开**，其余收起；开 SQL 日志确认后端**无按维度循环**的 N+1 查询。
+59. **切 Tab 重新取数**：`Founder` / `GSV` 切换后元数据栏四列与逐题分数整体切换；某端该期次无提交时卡内为空态文案而非报错、页面不空白。
+60. **公司端**：不渲染 GSV Tab、不渲染页尾基准卡；抓包确认服务端未下发 `benchmark`；直接构造 `?portal=gsv` 请求后端返回 400。
+61. **版本一致性**：A4 的题目、题序、题干与该次提交的 A3、历史详情页**逐项一致**（同按 `question_version_id` 渲染），元数据栏显示同一个 `Question set v{n}`；题库发布新版后 A4 展示已提交记录**一字不变**。
+62. **组件复用**：A4 的逐题行、`How It's Scored?` 弹窗、备注与附件展示与 A3 由**同一组件**渲染（全仓检索确认不存在第二套 `QuestionRow` 实现）；基准五维表复用 D1 的 `BenchmarkDimensionTable`。
+
 ---
 
 ## 12. V1 明确不做（YAGNI / 风险控制）
 
 - **不建独立 Exit Readiness 落地页 / Dashboard 路由**（PRD §3.1）。
-- 不做全维 Score Details 页（原型 `/readiness/overall`，PRD 无依据）。
+- **A4 全维 Score Details 页已按 2026-08-28 裁决纳入 V1**（§6.2.1 / §8.4）；但 A4 上**不做**维度间对比图、导出、以及 Strengths & Gaps / Data Sources 的重复区块 —— 单维深度仍走 A3。
+- **不做 A4 的公司端入口**（2026-08-28 确认，§13-Q17）—— ERL Card 上**不加**「View all dimensions」之类的链接，A4 在 V1 只由 F2 `View`（管理端）进入；公司端的后端权限保留，日后要开放也只是一个链接的事。
 - 不做完整 BPMM 评估交互，只显示参考数字（PRD §5）。
 - 不做 Ask Goldie 对话接入、Finance 页 ERL 卡片与回跳。
 - 不做 Goldie 建议的跟踪 / 指派 / Deadline（PRD §3.6「MVP 不含」）。
@@ -1436,7 +1509,8 @@ Python 侧**无 domain 层、无 ERL repository** —— 不落 ERL 业务表；
 | **Q10** | 设计新增 | ERL 附件写入公司 Memory File 后，**是否与 chatbot 知识库共用同一空间**？公司端上传的 ERL 证据是否应对管理端可见、反之如何？ | 决定 `ensure_kb_space` 的空间组合键（现有链路：APP 按公司 / ADMIN 按组织） | 建议沿用现有端类型规则（公司端上传 → 公司空间；管理端上传 → 组织空间），与 chatbot 一致，不为 ERL 单开空间 |
 | ~~**Q11**~~ | §3.8（2026-08-28 新增 Publish） | ✅ **已裁决（2026-08-28）**：**所有变更都经发布 + 题库版本化**；**不需要**撤回与单维度发布。设计已按此重写（§0.5 / §5.1.1 / §7.9） | — | **待回写 PRD**：§3.8「变更**立即生效**到评估表与 Score Details 的题目列表中，无需其他配置步骤」一句**与裁决冲突，需删除**，并补上：「配置页的新增 / 编辑 / 删除 / 重排均落草稿，点 Publish 后统一生效；正在填写的评估保留已答内容」。**遗留（无需答复、开发时按设计执行）**：多管理员共享同一份草稿、任一人发布会连带发布他人改动（§7.9-④）；V1 不提供丢弃草稿（§12） |
 | ~~**Q13 ~ Q16**~~ | 设计新增（v3.3 边界 §7.10） | ✅ **已随「版本锁定」裁决一并关闭（2026-08-28）**：Q13（题干被编辑后旧答案是否有效）与 Q14（删题时已答内容如何处置）**问题本身消失** —— 评估锁定在自己的题库版本上，看不到新题面；Q15（发布是否触发 Goldie 重生成）**结论为不触发** —— 分析输入锚在版本快照上、发布后一字未变；Q16（同期次两端可否不同版本）**结论为允许** —— 裁决原文即取值，页面标注两端版本号。详见 §0.6 / §7.9-⑤ / §7.10 | — | 无需答复。**版本锁定衍生的 N1 ~ N3 三条边界**（旧草稿无限期有效、同期次多次提交跨版本、不做题集升级按钮）已在 §7.10 定档，开发时按设计执行 |
-| **Q12** | §3.7（2026-08-28 改口） | **F2 `View` 的落地页**：PRD 改为「跳转到该公司的 Score Details 页面」，而 Score Details = 维度详情页（按维度）。从组合层一行（五维齐全）点进去应落在**哪个维度**？ | 决定 `detailUrl` 的默认维度；也决定是否需要一个全维汇总页（§0.2-17 已删的 A4） | 本设计默认落 **FRL** 并提供页头五维 chip 横切（§8.4）；若产品期望的是「一页看全五维」，则需复活 A4 全维 Score Details 页 —— **该页 PRD 至今无定义，需先给内容清单** |
+| ~~**Q12**~~ | §3.7（2026-08-28 改口） | ✅ **已裁决（2026-08-28）**：F2 `View` 的落地页是 **A4 全维 Score Details 页**（一页看全五维），不再落到某个单维度。设计已据此复活 A4（§0.7 / §6.2.1 / §8.4） | — | **待回写 PRD**：§3.7 的「View（跳转到该公司的 Score Details 页面）」需明确为「**全维** Score Details 页」，并补上该页的内容清单（本设计 §8.4 已按原型给出） |
+| ~~**Q17**~~ | 设计新增（v3.5） | ✅ **已确认（2026-08-28，需求方接受设计建议）**：**V1 不为公司端加 A4 入口** —— A4 的唯一入口是 F2 ERL Tab 的 `View`（管理端）；ERL Card 维持逐维 `View Details` 不变 | — | 无需答复。开发按此执行：**不得**自行在 ERL Card / 主导航上加全维入口（§8.1 / §12）；公司端的后端权限与路由可达性保留（§4.2） |
 
 ---
 
@@ -1462,5 +1536,7 @@ Python 侧**无 domain 层、无 ERL repository** —— 不落 ERL 业务表；
 > **v3.2 的增量亦不在此表** —— 该版按 2026-08-28 PRD 修订只动 4 处：题库 Publish 发布态、F2 `View` 目标改为 Score Details 页（§6.8 / §8.4 / §9 / §11-32 / §13-Q12）、状态摘要三值降级为设计占位（§0.2-12 / §7.4 / §8.5 / §13-Q3）、打分格式表述依据减弱（§7.2，不改设计），逐条见 §0.4。
 >
 > **v3.4 的增量亦不在此表** —— 本版按需求方第二次裁决（「保留旧答案，以正在编辑的版本为准」）把 v3.3 的**重基整体删除、改为版本锁定**：删 `erl_assessment_answer.question_key`（唯一约束改回 `question_id`）、删接口 3 的 `rebase` 出参与接口 5 的版本一致性校验、删 `ErlAssessmentRebaseService`；§7.9-① 的「一律读最新已发布版本」订正为「一律读评估绑定版本」；§13-Q13 ~ Q16 四条边界全部关闭。逐条见 §0.6。
+>
+> **v3.5 的增量亦不在此表** —— 本版按需求方第三次裁决（「ERL Tab `View` 的落地页 = A4 全维 Score Details 页」，UI 依据 `/readiness/overall`）**复活 A4**：新增路由 `/exitReadiness/scoreDetails`（§8.1）与**接口 22** `GET /erl/scoreDetails`（§6.2.1，接口共 **21 个**）；§8.4 补 10 行 A4 交互（含**与原型的四处有意偏离**）、§9 补 3 条 A4 降级、§11 补 6 项 A4 验证（57 ~ 62）；F2 `detailUrl` 改指 A4（§6.8）；§13-Q12 关闭；**Q17**（公司端入口）当日提出并当日确认为「V1 不加」。逐条见 §0.7。
 >
 > **v3.3 的增量亦不在此表** —— 该版按需求方对 §13-Q11 的裁决把题库改为**版本化**：表由 9 张增至 **10 张**（新增 `erl_question_version`，§5.1.1），`erl_question` 删 `publish_status` / `published_at` / `enabled` 三列、加 `version_id` / `question_key`，`erl_assessment` 加 `question_version_id`，`erl_assessment_answer` 加 `question_key`；C 模块写接口由 `id` 改按 `questionKey` 定位；新增在填评估的**重基**机制。逐条见 §0.5。
