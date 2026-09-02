@@ -38,12 +38,12 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 
 **功能描述**：
 
-- 系统级隐藏 Company Overview 页原有的 DI 卡片（使用现有 setting/toggle 能力，不删除数据）；DI 数据、KPA 评估、SDP 打分完整保留但不再展示。
+- Company Overview 页原有的 DI 卡片放在FI卡片下；DI 数据、打分保留概览信息和入口。
 - 原 DI 卡片位置由新的 ERL 卡片替代，卡片直接展示完整聚合评分内容：
-  - 综合分数（Composite Score）: 五个维度的平均分
+  - 综合分数（Composite Score）: 按照weight configuration页面配置的五个维度的权重算分
   - 当前 Stage
   - Gap Analysis & Suggested Actions 摘要（TBD）
-  - 5 个 ERL 维度列表（含各维度分数：新增时手动填写的、Perception Gap：Founder和GSV分数差）
+  - 5 个 ERL 维度列表（含各维度分数：回答问题时该维度最后一个全部Yes的level的level为此维度得分；Perception Gap：Founder和GSV每个维度的分数差）
   - BPMM（TBD）
   - 5 维度雷达图
 - **不设独立 Exit Readiness 落地页**；ERL 卡片是唯一入口。
@@ -66,7 +66,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - 该维度综合分数
   - **Founder / GSV Tab 切换**（公司用户不显示 GSV Tab）
   - 元数据栏：Period、Submitted By、Role、Submitted At
-  - 该维度全部题目列表，每题显示 Era 标签（如 "Founder Era"）与分数
+  - 该维度全部题目列表，每题显示 Era-level 标签（如 "Founder Era-1"）与得分
 - **「View history」入口**：跳转到 Assessment History 页（限定当前维度）。
 - **「+ New」入口**：发起该维度新一轮评估（分别进入 Founder Flow 或 GSV Flow）。
 - 权限规则：
@@ -85,33 +85,21 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - Founder Era（Stage 1–3）
   - Harvest & Growth Era（Stage 4–6）
   - Exit Era（Stage 7–9）
-- **打分格式（当前占位 + TBD）**：
-  - 现阶段：每题 1–9 分，映射至 Stage/Era。
-  - 后续极可能改为：Yes/No + 固定必答顺序；某题回答 "No" 后，该维度后续题目不再计入分数。
-  - 开发时以占位形式实现，保证未来切换到 Yes/No + 固定顺序不用重构。
+- **打分格式**：
+  - 全部问题包含Era和level,为Yes/No + 固定顺序必答模式（在ERL configuration中配置的顺序）；
+  - 五个维度的所有问题按照Era和等级依次显示
+    - 例如用户回答完了Founder Era-1的问题，且答案全部为yes,该level折叠并显示Check,再显示下一level的问题，直到有No回答(或全部答完），就不再显示下一Level,激活提交按钮，分数就是此回答为No的Level减一
 - 每题字段：
-  - 打分输入
   - 可选「证据/备注（Evidence/Notes）」文本
-  - 可选文件/图片上传（同步写入公司 Memory File，供 Goldie 后续分析）
   - 每题显示来源标签（Founder/CTO、Looking Glass、SharePoint 等）
 - 创始人**独立**完成，全程不可看到 GSV 分数。
 - 支持保存进度、稍后继续，无数据丢失。
-- 需为每个维度**手动填写一个整体维度分**。若该手动分与题目答案推导出的结果**不一致**，弹出软确认弹窗提示分歧"Your score doesn't match the questionnaire answers, please confirm this is intentional" ；仅需确认，不阻止提交。
 - **提交后即只读**，如需修改必须新建一次提交。
 - 同一季度允许多次提交，最新一次为 source of truth。
 - 每次提交生成带日期的记录（提交日期、评估人、基金/组合）。
 - 历史记录进入 Assessment History。
 - 仅限公司用户在其自身 portal 内完成，portfolio admin 不能代填。
 - 全端响应式。
-
-**UX 要点**：
-- 30+ 题目，需使用可折叠的 Era 分组，避免长度令用户不堪重负。
-- 每个 section 顶部显示打分标度图例（1–3 / 4–6 / 7–9 → Era）。
-- 若切换至 Yes/No 模式，需清晰提示「No 会中止该维度后续计分」。
-- 证据/备注字段视觉从属于打分输入，不应看起来是必填。
-- 文件上传使用轻量小图标（靠近备注），不喧宾夺主。
-- 自动保存无感。
-- 提交确认要明确告知已锁定为只读、下一步（GSV 独立评估 → 对比出现）。
 
 ---
 
@@ -121,12 +109,11 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - 面向 **Portfolio Manager / Portfolio Group Manager**，在 Assessments 区块内、按 portfolio 公司访问。
 - 使用与 Founder Flow **相同**的题库、Era 分组、打分标度（同样受 Yes/No + 固定顺序 TBD 影响）。
 - 每题字段：
-  - 打分输入
+  - 可选择yes/no
   - **来源标签**（Looking Glass、SharePoint、GSV Assessment、Board Transcripts / Fireflies 等）
   - 可选「证据/备注」文本
-  - 可选文件/图片上传（同步写入 Memory File）
 - 表单顶部提供**评估期选择器**（如 "Q3 2026"）。
-- GSV 需为每个维度**手动填写一个整体维度分**。若该手动分与题目答案推导出的结果**不一致**，弹出软确认弹窗提示分歧"Your score doesn't match the questionnaire answers, please confirm this is intentional" ；仅需确认，不阻止提交。
+- 每个维度均可提交附件
 - 保存进度、可恢复。
 - 提交后只读；同一季度可多次提交，最新为 source of truth。
 - 每次提交生成带元数据的记录，进入 Assessment History。
@@ -138,11 +125,10 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 ### 5. ERL Scorecard 与 Radar Chart
 
 **功能描述（评分与计算）**：
-- 每个维度分数：由该维度内各题分数计算得出（**具体计算方法**：初步为各题平均，最终待开发前确认）。
+- 每个维度分数：由该维度内各题分数计算得出（**具体计算方法**：初步为各题平均）。
 - **综合 ERL 分数** = 5 个维度分数的简单平均，以 X/9 形式显示。
 - **当前 Stage（1–9）**：由综合分数与 Workbook 中的 Era 边界推导。
 - **Perception Gap**（每维度）= Founder 分 − GSV 分；正值 = 创始人自评更高，负值 = GSV 更高。
-- 打分规则为进行中工作项，未定前使用占位并逐步迭代。
 
 **功能描述（雷达图）**：
 - 雷达/蛛网图在同一张图上呈现**四条线**：
@@ -150,11 +136,12 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   2. GSV 评估
   3. Benchmarkit 外部对标
   4. Top GSV Quartile
-- Founder 与 GSV 线来自评估提交；Benchmarkit 与 Top GSV Quartile **为外部静态数据输入**，不由 Looking Glass 计算得出，需单独数据接入。
+- Founder 与 GSV 线来自评估提交；Benchmarkit 与 Top GSV Quartile **为静态数据输入**，不由 Looking Glass 计算得出。
 - 图形规范：**仅线条无填充**（与 Workbook 一致）、每线不同色、有图例、中心轴隐藏。
 - 5 个顶点分别对应 5 个 ERL 维度，明确标注。
 - 交互：悬停数据点显示该维度、该 perspective 的精确分数。
 - 架构上支持 MVP 展示 4 条线，同时预留后续新增 perspective 的能力。
+- 该图仅在Portfolio端显示
 
 **功能描述（Scorecard 展示）**：
 - 展示项：
@@ -162,19 +149,16 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - 当前 Stage 与 Era
   - 每维度 Founder 分与 GSV 分
   - 每维度 Perception Gap
-  - 每维度状态摘要（基于 gap 幅度推导）
-- **Strengths & Priority Gaps**：由评估中填写的证据/备注推导；如无笔记，标注为「未提供备注」。
-- **Data Sources & Cadence**（按维度）：显示主要与补充证据来源，以及评估频率（季度）。
 - **BPMM 分数**：仅作为参考数字（1–5）显示；完整 BPMM 评估交互**不在本 story 范围内**。
 - 权限：
   - 创始人（公司 portal）：并列查看自己的分数与 GSV 分数。
-  - GSV 团队（portfolio admin）：相同视图 + admin 专属信息。
+  - GSV 团队（portfolio portal）：相同视图 + portfolio 专属信息。
 - 从 Scorecard 可访问历史评估记录，回看往期。
 - 全端响应式。
 
 ---
 
-### 6. Gap Analysis 与 Suggested Actions（AI 辅助 / Goldie）
+### 6. Gap Analysis 与 Suggested Actions（AI 辅助 / Goldie）待定功能
 
 **功能描述**：
 - 由 Goldie 基于 Perception Gap 生成实用的、可执行的行动建议，将 Scorecard 从「度量工具」升级为「教练工具」。
@@ -220,8 +204,9 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 ### 8. ERL Configuration（题库配置）
 
 **功能描述**：
-- 管理员通过顶部导航右侧下拉菜单进入；仅 admin。
-- 允许 portfolio admin 在**无需工程介入**的情况下管理 5 个维度的题库（因评分规则仍在演进）。
+- 管理员通过顶部导航右侧下拉菜单进入；仅 portfolio portal。
+- 允许 portfolio admin 在**无需工程介入**的情况下管理 5 个维度的题库和五维度在总分计算中的权重。
+- 该页面包含一个五维度总分weight的设置，五维度总权重100%，当权重低于或高于100%时均不激活保存按钮
 - **五个 Tab**，每个维度一个（FRL / PRL / BERL / RRL / TRL），展示该维度题库。
 - 按 **Era Band** 分组显示（如 Founder Era-1、Founder Era-2、Founder Era-3），与原型稿一致。
 - 支持操作：
@@ -229,14 +214,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - **编辑**题目的题干、Era Band 或 Source。
   - **删除**题目。
   - **拖拽重排**：在 Era Band 内调整顺序，该顺序即评估中的**必答顺序**（对应 Yes/No + 固定序列模型）。
-- 变更**立即生效**到评估表与 Score Details 的题目列表中，无需其他配置步骤。
-- 明确边界：与顺序相关的具体计分逻辑（例如 "No" 中断时该维度分数如何处理）属于评估表 / Scorecard story，本 story 只覆盖题库配置本身（TBD）。
-- Publish按钮：五个维度任意维度有新问题，按钮会被激活。
-
-**UX 要点**：
-- 匹配原型稿：按维度分 Tab、按 Era Band 分组、拖拽 handle、行内编辑/删除图标、可见的 Source 列。
-- 由于重排会影响必答顺序（不仅是展示顺序），需考虑对进行中或历史评估解释产生的潜在影响，给管理员必要的警告。
-- 定位为 admin 配置工具。
+- Publish按钮：五个维度任意维度有新问题、新顺序或新编辑内容，按钮会被激活，点击保存为新版本。
 
 ---
 
@@ -255,21 +233,14 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - 点击某条记录可打开该次提交的详情（复用 Score Details 的题级布局，呈现该提交时的状态）。
 - 列表默认**最近提交在前**。
 - 入口：从相应维度的 Score Details 页面通过「View history」进入。
-
-**UX 要点**：
-- 列表可扫读，无需展开即可看到 period / portal / 提交人 / 完成度 / 分数。
-- 与其他 ERL 界面保持一致的分数/Stage 配色。
-- 视觉上突出「最新 / source of truth」提交，避免将旧记录误当作当前有效记录。
-
 ---
 
 ## 四、汇总：全局规则与跨模块约束
 
-- **权限模型**：Company User / Company Admin（Founder 侧）；Portfolio Manager / Portfolio Group Manager（GSV 侧）；配置页仅 admin。
+- **权限模型**：Company User / Company Admin（Founder 侧）；Portfolio Manager / Portfolio Group Manager（GSV 侧）；ERL配置层级按照租户层级
 - **评估周期**：季度提交；提交后只读；同季度多次提交允许，最新为 source of truth。
 - **数据保留**：DI 数据不删除；所有历史评估提交完整保留。
-- **文件上传**：所有题目附件同步写入公司 Memory File，供 Goldie 分析使用。
-- **打分格式演进**：MVP 使用 1–9 占位，需保留切换至「Yes/No + 固定顺序」的能力（后者下 "No" 中止该维度后续计分）。
+- **文件上传**：所有维度附件同步写入公司 Memory File，供 Goldie 分析使用。
 - **外部静态数据**：Benchmarkit、Top GSV Quartile 通过独立数据接入，不由平台内部计算。
 - **响应式**：所有页面覆盖桌面与移动端。
 - **导航一致性**：Exit Readiness ›〔Dimension Name〕 面包屑保留于维度页返回路径。
