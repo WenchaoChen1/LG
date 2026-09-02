@@ -147,11 +147,11 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - 展示项：
   - 综合 ERL 分数
   - 当前 Stage 与 Era
-  - 每维度 Founder 分与 GSV 分
+  - 每维度 Founder 分或 GSV 分（根据账户权限）
   - 每维度 Perception Gap
 - **BPMM 分数**：仅作为参考数字（1–5）显示；完整 BPMM 评估交互**不在本 story 范围内**。
 - 权限：
-  - 创始人（公司 portal）：并列查看自己的分数与 GSV 分数。
+  - 创始人（公司 portal）：只能查看自己的分数。
   - GSV 团队（portfolio portal）：相同视图 + portfolio 专属信息。
 - 从 Scorecard 可访问历史评估记录，回看往期。
 - 全端响应式。
