@@ -88,7 +88,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - **打分格式**：
   - 全部问题包含Era和level,为Yes/No + 固定顺序必答模式（在ERL configuration中配置的顺序）；
   - 五个维度的所有问题按照Era和等级依次显示
-    - 例如用户回答完了Founder Era-1的问题，且答案全部为yes,该level折叠并显示Check,再显示下一level的问题，直到有No回答(或全部答完），就不再显示下一Level,激活提交按钮，分数就是此回答为No的Level减一
+    - 例如用户回答完了Founder Era-1的问题，且答案全部为yes,该level折叠并显示Check,再显示下一level的问题，直到有No回答(或全部答完），就不再显示下一Level,激活提交按钮，分数就是此回答为No的Level减一；若9个层级都是yes回答，则最终得分为9
 - 每题字段：
   - 可选「证据/备注（Evidence/Notes）」文本
   - 每题显示来源标签（Founder/CTO、Looking Glass、SharePoint 等）
