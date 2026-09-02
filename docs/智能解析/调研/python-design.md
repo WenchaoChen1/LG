@@ -382,7 +382,7 @@ v2 边界下 Python 必须暴露 4 个 HTTP 端点供**前端直接调用**（�
 
 ### 1.2 启动配置
 
-`source/main.py`（FastAPI lifespan）启动顺序：
+`source/bootstrap/lifespan.py`（FastAPI lifespan，2026-09-02 前在 `source/main.py`）启动顺序：
 
 | Step | 行为 | 失败动作 |
 |------|------|---------|

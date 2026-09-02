@@ -63,7 +63,7 @@
 「文件入队到点发送」这个窗口内，**后端不存在任何可读取的会话公司状态**：
 
 - 附件登记发生在发消息之后（`sse_provider.py:373-398`），此刻尚未发生；thread 本身可能还没建。
-- 公司识别结果只活在模型的 tool-call 参数里，**不进 `ChatState`、不落库**；三张对话图 compile 时不挂 checkpointer（`main.py:166-170`），per-turn 状态轮末即丢。`ChatState` 中与公司相关的字段只有 `accessible_company_list` / `home_company_id` / `active_company_id`，没有任何承载「模型识别出的目标公司」的字段。
+- 公司识别结果只活在模型的 tool-call 参数里，**不进 `ChatState`、不落库**；三张对话图 compile 时不挂 checkpointer（`bootstrap/lifespan.py` 的 `agent_runtime_lifespan`），per-turn 状态轮末即丢。`ChatState` 中与公司相关的字段只有 `accessible_company_list` / `home_company_id` / `active_company_id`，没有任何承载「模型识别出的目标公司」的字段。
 - `ai_chatbot_thread.company_id` 看似可用，但**真实业务形态下管理端为 NULL**——前端仅在模拟形态才发 `company_id`（`Chat.tsx:237`），且管理端 init 分支不读 `active_company_id`（`init_node.py:79-97`）。**注意：devSupport 模拟页开启模拟时会写入非空值**，不能假定恒空。
 
 > 补充事实：曾存在的三段式识别器 `company_match`（精确 id → RapidFuzz 模糊 → haiku 消歧）已于 2026-07-15 commit `f034f0b3` 随 sql 直查轨整链删除，同时删除的还有 `company_scope.py` / `sql_exec_tool.py` / `resolve_cid`。同族实现仅存 `portfolio_match.py`。当前公司识别由取数轨模型自行比对 `get_companies` 清单完成，工具层只做 `∩allowed` 鉴权。
