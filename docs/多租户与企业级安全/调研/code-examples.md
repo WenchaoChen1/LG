@@ -185,11 +185,12 @@ public Result<List<OrganizationDto>> findByTree(@RequestParam(name = "ids", requ
 
 ## 4. 组织维度越权面全表
 
-**口径说明（重要）**：本表统计的是「**服务端会依据某个组织维度参数改变返回内容或写入归属，且不校验调用者与该组织关系**」的端点，共 **39 个**。其中：
+**口径说明（重要）**：本表统计的是「**服务端会依据某个组织维度参数改变返回内容或写入归属，且不校验调用者与该组织关系**」的端点，共 **40 个**。其中：
 
 - 参数名并不都叫 `organizationId`——也包括 body 里的 `pid`、`id`、`organizationList` 等组织维度字段
 - **#5 `GET /organization/findAllSort` 无任何入参**（直接返回全库组织），列入是因为它同属组织维度越权面
 - **#9 `GET /organization/getOrganizationStatusByUserEmail` 入参是 `email`**，列入同上
+- **#40 `GET /companyQuickbooks/qboLogPage` 的组织字段在查询对象 `CompanyQuickbooksPostQueryCriteria` 里**（非直接形参）。它原被归入“不读”，复核后发现**强制要求 organizationId 且用它展开该组织全部公司**，故移入本表
 - **#8 `GET /organization/options` 有超管门禁**，不属于"0 个校验"的分子——「归属校验 0 个」指的是**没有一个端点校验"调用者是否属于它操作的那个组织"**，超管门禁是另一维度
 
 若只统计 Controller 方法签名上直接出现 `organizationId` 形参的端点，是 **14 个**。两个数字口径不同，引用时请注明。
@@ -237,10 +238,11 @@ public Result<List<OrganizationDto>> findByTree(@RequestParam(name = "ids", requ
 | 37 | `POST /techStackManagement/layer` | `:30-34` | body 数组 | **无** | 改写任意组织权重并触发公司分数重算 |
 | 38 | `POST /businessIssues/admin` | `BusinessIssuesController.java:45-49` | body | **无（反向倒挂）** | 组织 ID 不等于当前组织时**跳过**过滤 |
 | 39 | `POST /businessIssues` | `:31-36` | body | **无** | 以任意组织名义写入 |
+| 40 | `GET /companyQuickbooks/qboLogPage` | `FinancialSettingController.java:94-98` | query（`CompanyQuickbooksPostQueryCriteria.organizationId`，**强制非空**） | **无** | `companyIds` 为空时用它取该组织**全部公司**（`QuickbooksLogsServiceImpl.java:67-73` → `companyGroupService.company(null, orgId)`），返回其 QuickBooks 连接/同步日志：公司名、操作人、动作、状态、报错原文 |
 | — | `GET /users/options`、`GET /invite/options` | — | query | 仅超管 | 用户/公司目录 |
-| — | `/invite/portfolio`、`/invite/exportPortfolioDetailView*`、`/invite/investmentMaxForFilter`、`/companyQuickbooks/*`（类名 `FinancialSettingController`，实际 base path 是 `/companyQuickbooks`）、`/financialStatements/exportFinancialPdf`、`/users/invite`、`/kpaBusiness/addKpaReview`、`/kpaBusiness/editKpaReview`、`/businessIssues/client` | — | body/query | **不读** | 死字段或换维度过滤 |
+| — | `/invite/portfolio`、`/invite/exportPortfolioDetailView`、`/invite/exportPortfolioDetailViewToPdf`、`/invite/investmentMaxForFilter`、`/companyQuickbooks/connections`、`/companyQuickbooks/companyIssues`、`/financialStatements/exportFinancialPdf`、`/users/invite`、`/kpaBusiness/addKpaReview`、`/kpaBusiness/editKpaReview`、`/businessIssues/client` | — | body/query | **不读** | 死字段；实际按 `companyGroupId` / `companyId` 过滤。已逐个核实，**不再用通配写法**（原 `/companyQuickbooks/*` 里的 `qboLogPage` 实际会读，已移入上表 #40） |
 
-**统计：39 个组织维度越权面，其中校验"调用者是否属于该组织"的为 0 个**（另 12 个端点带组织字段但服务端不读）。
+**统计：40 个组织维度越权面，其中校验"调用者是否属于该组织"的为 0 个**（另 11 个端点带组织字段但服务端不读，已逐个核实）。
 
 ---
 
