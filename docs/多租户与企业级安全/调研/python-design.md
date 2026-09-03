@@ -219,17 +219,17 @@ Java 侧实现 `CompanyGroupRepository.java:51-56` 是 **`cg.organization_id = :
 
 | # | 缺口 | 优先级 |
 |---|---|---|
-| P-1 | 没有"租户级 organization"的概念，也没有取它的函数；两个 org 源（Redis 无序取一 / 树根）并存且无一致性检查 | 第 0 步 |
-| P-2 | 组织树拍平时**主动丢弃 pid 与层级**，判断租户所需数据不可得 | 第 0 步 |
-| P-3 | 零处校验"调用者是否属于该 organization" | 第 1 步 |
-| P-4 | 「`company_id` 为空 ⟺ 超管」在多租户下等价于"每个租户管理员 = 全局超管"，被 3 个模块当硬前提 | 第 1 步 |
-| P-5 | RAG 读路径无归属：`/spaces`、`/spaces/{id}/chunks`、`/entries/{id}/chunks` 登录即全量；`/recall` 缺省全部空间且无行级过滤 | 第 1 步 |
-| P-6 | `simulate_organization_id` 可任意指定，写入侧完全无边界 | 第 1 步 |
-| P-7 | 管理端空间"一组织一空间"，组织内跨公司混装，隔离依赖 best-effort 回填（跨库非同事务） | 第 1 步 |
-| P-8 | org→公司集解析链不递归子树，服务端自动圈定时若层级不对则静默返空（用户不可自救）；失败语义两套不一致 | 第 1 步 |
-| P-9 | `/lg/financial-extract-tasks*` 无鉴权依赖 + 全库分页；`/api/ai/llm-calls/*` 与 `/api/ai/traces/*` token 未配置即放行且返回提示词全文 | 第 1 步 |
-| P-10 | 归属不明的数据面很大（10 张表既无 company 也无 org） | 第 2 步 |
-| P-11 | 所有 `organization_id` 列可空且存量为 NULL，改为过滤条件会让历史数据整批消失 | 第 2 步 |
-| P-12 | 无审计基类，每个模型手写重复列 | 第 2 步 |
-| P-13 | SQS 消息的 companyId 从不与任务行比对 | 第 2 步 |
-| P-14 | 三处文档与代码漂移 | 第 2 步 |
+| P-1 | 没有"租户级 organization"的概念，也没有取它的函数；两个 org 源（Redis 无序取一 / 树根）并存且无一致性检查 | 第 1 步 |
+| P-2 | 组织树拍平时**主动丢弃 pid 与层级**，判断租户所需数据不可得 | 第 1 步 |
+| P-3 | 零处校验"调用者是否属于该 organization" | 第 2 步 |
+| P-4 | 「`company_id` 为空 ⟺ 超管」在多租户下等价于"每个租户管理员 = 全局超管"，被 3 个模块当硬前提 | 第 2 步 |
+| P-5 | RAG 读路径无归属：`/spaces`、`/spaces/{id}/chunks`、`/entries/{id}/chunks` 登录即全量；`/recall` 缺省全部空间且无行级过滤 | 第 2 步 |
+| P-6 | `simulate_organization_id` 可任意指定，写入侧完全无边界 | 第 2 步 |
+| P-7 | 管理端空间"一组织一空间"，组织内跨公司混装，隔离依赖 best-effort 回填（跨库非同事务） | 第 2 步 |
+| P-8 | org→公司集解析链不递归子树，服务端自动圈定时若层级不对则静默返空（用户不可自救）；失败语义两套不一致 | 第 2 步 |
+| P-9 | `/lg/financial-extract-tasks*` 无鉴权依赖 + 全库分页；`/api/ai/llm-calls/*` 与 `/api/ai/traces/*` token 未配置即放行且返回提示词全文 | 第 2 步 |
+| P-10 | 归属不明的数据面很大（10 张表既无 company 也无 org） | 第 3 步 |
+| P-11 | 所有 `organization_id` 列可空且存量为 NULL，改为过滤条件会让历史数据整批消失 | 第 3 步 |
+| P-12 | 无审计基类，每个模型手写重复列 | 第 3 步 |
+| P-13 | SQS 消息的 companyId 从不与任务行比对 | 第 3 步 |
+| P-14 | 四处文档与代码漂移 | 第 3 步 |
