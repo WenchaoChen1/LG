@@ -139,6 +139,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - 交互：悬停数据点显示该维度、该 perspective 的精确分数。
 - 架构上支持 MVP 展示 4 条线，同时预留后续新增 perspective 的能力。
 - 该图仅在Portfolio端显示
+- Benchmarkit 与 Top GSV Quartile输入和历史记录：在雷达图下方的链接，点击进入可以看历史记录和新增记录
 
 **功能描述（Scorecard 展示）**：
 - 展示项：
