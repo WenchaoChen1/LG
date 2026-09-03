@@ -221,13 +221,13 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - 由于评估按季提交且提交后不可编辑，用户需要一份**只读的历史提交日志**，追溯公司准备度演进；由于同一季度可多次提交（最新为 source of truth），本页必须完整保留并清晰区分每一次单独提交，而非只显示最新一条。
 - 列表最少字段：
   - Period（评估周期）
-  - Portal（Founder 或 GSV）
+  - Portal（Founder 或 GSV）(Portfolio端）
+  - Submitted (提交时间）
   - Submitted By（姓名与角色）
-  - Completion（如 "45/45"）
-  - Overall Score（含 Stage 标签）
+  - 维度Overall Score（含 Stage 标签）
 - 每次提交独立保存为一条带日期的记录。
 - 页面完全只读，无编辑入口。
-- 点击某条记录可打开该次提交的详情（复用 Score Details 的题级布局，呈现该提交时的状态）。
+- 点击某条记录可打开该次本维度提交的详情。
 - 列表默认**最近提交在前**。
 - 入口：从相应维度的 Score Details 页面通过「View history」进入。
 ---
