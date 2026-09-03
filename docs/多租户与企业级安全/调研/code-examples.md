@@ -354,7 +354,8 @@ Python 侧在 `source/`、`sql/`、`scripts/` 检索 `SET ROLE` / `row level sec
 | `schedule_config` | 定时任务配置（`schedule_name` 内嵌 companyId 字符串，只能 LIKE 匹配） | — |
 | `role` / `menu` / `r_user_role` / `r_user_menu` / `r_role_menu` / `r_organize_user` 等 | 权限元数据 | — |
 | `finance_manual_data_email` | 财务数据邮件通知（含收件人邮箱） | — |
-| 全局字典（`currency` / `d_timezone` / `dictionary` / `subscription_template` / `financial_benchmark_entry` 等） | 合理无租户列 | — |
+| 全局字典（`currency` / `currency_rate` / `d_timezone` / `dictionary` / `financial_benchmark_entry`） | 合理无租户列 | — |
+| 全平台配置（`subscription_template` / `r_subscription_menu` / `tech_stack_type` / `third_party_d_tool` / `finance_category_weight` / `finance_score_level`） | **归属待拍板** | 见[系统架构](./system-architecture.md) §12.2 / §12.5 |
 
 ### 8.2 AI 侧关键表
 

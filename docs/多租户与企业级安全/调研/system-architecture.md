@@ -626,3 +626,65 @@ organization                 表 organization，PK = id，pid 自引用（递归
 3. **风险不在工作量而在副作用。** 上面四条（4-6/4-7/4-8/4-12/4-13）出问题时，表现是**正常业务功能突然查不到数据**，排查成本远高于开发成本
 
 本清单的用途：若未来因客户合规要求必须做，可据此直接估算与实施，不必重新调研。
+
+---
+
+## 12. 配置的平台 / 租户归属
+
+> 本节回答「新开一个租户，哪些配置要跟着建、哪些是全平台共用」，并登记三个**需产品拍板**的问题（§12.5）。
+
+### 12.1 已是租户（组织）级——新租户必须各有一份
+
+| 配置 | 表（带 `organization_id`） | 新租户怎么拿到 |
+|---|---|---|
+| 评分等级 | `score_level` | SQL 模板 `initScoreLevel.sql`（`ScoreLevelServiceImpl.java:90`） |
+| 评分权重 | `score_weight` | SQL 模板 `initScoreWeight.sql`（`ScoreWeightServiceImpl.java:90`）——**无幂等守卫** |
+| KPA 分类 | `kpa_category` | 运行时克隆 `findAll()` 第 0 行所在组织（`KpaManagementServiceImpl.java:68-73`） |
+| KPA 分类权重 | `r_kpa_category_weight` | 同款克隆（`KpaBusinessServiceImpl.java:127-129`） |
+| KPA 等级 | `organization_kpa_level` | 随 KPA 分类 |
+| Stage | `stage` | 运行时克隆 `findAll()` 第 0 行（`StageServiceImpl.java:229-234`） |
+| 技术栈层 / 类目 / 条目 | `di_tech_stack_layer`、`tech_category`、`tech_stack` | 从**硬编码组织 ID** 克隆（`TechStackManagementServiceImpl.java:391`） |
+| 菜单授权 | `r_organization_menu` | 开通时 seed |
+| 角色关联 | `r_organization_role` | 开通时 seed |
+
+**叶子表经外键继承归属**（自己没有组织列，不需要单独处理）：`adoption_level`、`kpa_category_software` 挂在 `kpa_category` 上，`r_stage_kpa_category` 挂在 `stage` + `kpa_category` 上。
+
+> **对估算的意义**：这一类证实了 §10.4 的判断——租户开通是**改造现有克隆逻辑**（换成版本化模板 + 幂等），不是新建配置模型，故 7 人周不变。
+
+### 12.2 全平台唯一一套——新租户不会建
+
+| 配置 | 表 | 查询方式 | 归属判断 |
+|---|---|---|---|
+| **财务评分类目权重** | `finance_category_weight` | 裸 `findAll()`（`FinanceScoreLevelServiceImpl.java:127,167`、`FinancialOverviewServiceImpl.java:165`） | **待拍板（Q-2）** |
+| **财务评分等级** | `finance_score_level` | 裸 `findAll()`（`FinanceScoreLevelServiceImpl.java:126`） | **待拍板（Q-2）** |
+| 技术栈类型 | `tech_stack_type` | `findAllByOrderBySortAsc()` | **待拍板（Q-3）** |
+| 第三方工具目录 | `third_party_d_tool` | `findAll()` | **待拍板（Q-3）** |
+| 套餐模板 / 套餐菜单 | `subscription_template`、`r_subscription_menu` | 无任何维度 | 若各租户套餐不同则必须拆 |
+| 菜单定义 | `menu` | 全局池 | 保持全局，靠 `r_organization_menu` 授权到组织 |
+| 角色定义 | `role` | **实体本身无归属列**；`roleRepository` 的 `findAllByOrganizationId` / `findAllByCompanyId` 靠关联表 JOIN | 角色行不属于任何租户，同一行可被两个租户同时引用，**改名或删除会互相影响** |
+| 行业基准 | `financial_benchmark_entry` | 全局 | 合理——跨租户对标正需要它 |
+| 币种 / 汇率 / 时区 / 字典 | `currency`、`currency_rate`、`d_timezone`、`dictionary` | 全局 | 合理 |
+
+> **口径修订**：`code-examples.md` §8.1 曾把 `subscription_template` 与全局字典并列归入「合理无租户列」，本节将其区分开——字典类合理，套餐模板取决于商业形态（见上表）。
+
+### 12.3 比租户更细：企业级
+
+`company_subscription`、`company_modules_settings`（按 `company_id`）；`schedule_config` 把 companyId **内嵌在任务名字符串**里，只能 LIKE 匹配。
+
+### 12.4 三处跨租户写 / 读
+
+1. **`PUT /tools/saveMDFile/{kpaCategoryId}`**（`KpaCategoryServiceImpl.java:52-59`）：传一个分类 ID，服务端取它的 `code`，再 `findAllByCode(code)` 把**所有组织**同 code 的方法论正文一起覆盖。这是**故意**的共享设计，但多租户下等于「租户 A 改文档、租户 B 跟着变」
+2. **`POST /score/saveScoreConfiguration`**：改写全库每个组织的权重（已列为 §4 越权面 #31）
+3. **`KpaCategoryToolsServiceImpl.java:75`**：按公司出 KPA 统计时用 `findAllByOrderBySortAsc()`，**无组织过滤**，多租户下会把别的租户的分类列进来
+
+> **这三条尚未编号进 §10 的改动项清单**，因为改法取决于 Q-1 的结论（若 KPA 确定提到平台级，第 1 条就不是缺陷而是正确行为）。工程量小，拍板后并入 `2-x`；届时 7 人周需按结论微调。
+
+### 12.5 待产品确认的三个问题
+
+| # | 问题 | 现状 | 两种选择各自的改动 |
+|---|---|---|---|
+| **Q-1** | **KPA 配置该是租户级还是平台级？** | **两种口径并存**：分类骨架、权重、等级是**租户级**（每租户一份克隆），但方法论正文（`detail`）按 `code` **全平台统一**（§12.4 第 1 条） | 选**租户级** → `saveMDFile` 收口到单组织，且克隆源改版本化模板；选**平台级** → 方法论正文应从 `kpa_category` 拆成独立的全局表（现在是每租户存一份重复正文），并明确谁有权编辑 |
+| **Q-2** | **财务评分的类目权重与等级该是平台级还是租户级？** | **全平台唯一一套**（`finance_category_weight` / `finance_score_level` 裸 `findAll()`）。而同类的开发评分配置（`score_weight` / `score_level`）**是租户级的**——两边口径不一致 | 选**租户级** → 两张表加 `organization_id` + 回填 + 查询全部改带维度 + 开通时 seed（与 DI 侧对齐）；选**平台级** → 无需改表，但要接受各租户财务评分口径不可自定义，且需在产品上说明为何与开发评分不同 |
+| **Q-3** | **技术栈类型与第三方工具目录该是平台级还是租户级？** | **全平台**（`tech_stack_type`、`third_party_d_tool`）。注意技术栈的**层级与条目**（`di_tech_stack_layer` / `tech_category` / `tech_stack`）已经是租户级的，只有「类型」和「工具目录」不是 | 选**租户级** → 两张表加归属 + 开通时 seed；选**平台级** → 无需改表，但租户不能自定义工具目录，接入新工具须平台方统一上架 |
+
+> 三个问题的共同点：**都不影响"能不能安全接第二家客户"**（它们是配置的产品形态，不是隔离缺口），但 Q-2 若选租户级会新增两张表的改造，需在排期时并入第 1 步。
