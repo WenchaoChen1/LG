@@ -13,7 +13,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 
 **9 级阶段（分三个纪元/Era）**：
 - Founder Era：Stage 1–3
-- Harvest & Growth Era：Stage 4–6（分数约 6 表示公司进入该纪元，可开始接触投行）
+- Harvest & Growth Era：Stage 4–6
 - Exit Era：Stage 7–9
 
 ---
@@ -40,7 +40,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 
 - Company Overview 页原有的 DI 卡片放在FI卡片下；DI 数据、打分保留概览信息和入口。
 - 原 DI 卡片位置由新的 ERL 卡片替代，卡片直接展示完整聚合评分内容：
-  - 综合分数（Composite Score）: 按照weight configuration页面配置的五个维度的权重算分
+  - 综合分数（Overall Score）: 按照weight configuration页面配置的五个维度的权重算分
   - 当前 Stage
   - Gap Analysis & Suggested Actions 摘要（TBD）
   - 5 个 ERL 维度列表（含各维度分数：回答问题时该维度最后一个全部Yes的level的level为此维度得分；Perception Gap：Founder和GSV每个维度的分数差）
@@ -49,10 +49,6 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - **不设独立 Exit Readiness 落地页**；ERL 卡片是唯一入口。
 - 卡片内提供每个维度的「View Details」入口，直接跳转到该维度的 Score Details 页。
 - ERL 卡片及后续页面对当前可访问 Company Overview 的角色开放（具体权限子集待确认）。
-
-**UX 要点**：
-
-- 从维度页返回时保留面包屑：Exit Readiness ›〔Dimension Name〕。
 
 ---
 
@@ -128,7 +124,8 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - 每个维度分数：由该维度内各题分数计算得出（**具体计算方法**：初步为各题平均）。
 - **综合 ERL 分数** = 5 个维度分数的简单平均，以 X/9 形式显示。
 - **当前 Stage（1–9）**：由综合分数与 Workbook 中的 Era 边界推导。
-- **Perception Gap**（每维度）= Founder 分 − GSV 分；正值 = 创始人自评更高，负值 = GSV 更高。
+- **Perception Gap（仅Porfolio portal）**：（每维度）= Founder 分 − GSV 分；正值 = 创始人自评更高，负值 = GSV 更高。
+- **Full View (仅Company portal)**：点击进入Score details 页面，该页面包含五个维度的最新版的问题记录，每个维度包括一个Add New按钮和一个View History链接，可以查看每个维度的问卷历史记录，也可以从该页面点击AddNew新增问卷
 
 **功能描述（雷达图）**：
 - 雷达/蛛网图在同一张图上呈现**四条线**：
@@ -181,7 +178,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 **已知 TBD 与 MVP 备选方案**：
 - 详细生成逻辑与 prompt（Founder / GSV 两套）尚未定义。
 - 待决定：是否在 Score Details 页新增一个「GSV vs. Founder 分数对比」Tab，突出显示两者差距最大的题目，作为完整 AI 建议上线前的 MVP 替代方案。
-- 待 Li 团队确认：「Gap」的粒度是按题、按维度，还是仅取 GSV 与 Founder 综合分的差值。
+-「Gap」的粒度是按维度
 - 后续：当 Fireflies 会议转录 与 SharePoint 集成上线后，Goldie 分析将扩展这些数据源；「Goldie 直接根据外部源自动打分」作为独立的 post-MVP story，取决于 Li 与 Blake 敲定的评分逻辑与数据源决策。
 
 ---
@@ -196,7 +193,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - FRL、PRL、BERL、RRL、TRL（5 个维度分数）
   - Stage
   - View（跳转到该公司的 Score Details 页面）
-- 支持按分数、Stage、维度进行**排序与筛选**。
+    - Score Details页面：该页面包含五个维度的最新版的问题记录（GSV和Founder的记录），每个维度包括一个Add New按钮和一个View History链接，可以查看每个维度的问卷历史记录，也可以从该页面点击AddNew新增问卷
 - 权限：仅 Portfolio Manager / Portfolio Group Manager。
 
 ---
@@ -206,8 +203,8 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 **功能描述**：
 - 管理员通过顶部导航右侧下拉菜单进入；仅 portfolio portal。
 - 允许 portfolio admin 在**无需工程介入**的情况下管理 5 个维度的题库和五维度在总分计算中的权重。
-- 该页面包含一个五维度总分weight的设置，五维度总权重100%，当权重低于或高于100%时均不激活保存按钮
-- **五个 Tab**，每个维度一个（FRL / PRL / BERL / RRL / TRL），展示该维度题库。
+- 该页面包含一个五维度总分weight的设置tab，五维度总权重100%，当权重低于或高于100%时均不激活保存按钮
+- **Configuration 五个 Tab**，每个维度一个（FRL / PRL / BERL / RRL / TRL），展示该维度题库。
 - 按 **Era Band** 分组显示（如 Founder Era-1、Founder Era-2、Founder Era-3），与原型稿一致。
 - 支持操作：
   - **添加**新题目（题干、Era Band、Source）——通过「Add New」入口。
