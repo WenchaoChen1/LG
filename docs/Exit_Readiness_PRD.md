@@ -203,16 +203,19 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 
 **功能描述**：
 - 管理员通过顶部导航右侧下拉菜单进入；仅 portfolio portal。
-- 允许 portfolio admin 在**无需工程介入**的情况下管理 5 个维度的题库和五维度在总分计算中的权重。
-- 该页面包含一个五维度总分weight的设置tab，五维度总权重100%，当权重低于或高于100%时均不激活保存按钮
-- **Configuration 五个 Tab**，每个维度一个（FRL / PRL / BERL / RRL / TRL），展示该维度题库。
-- 按 **Era Band** 分组显示（如 Founder Era-1、Founder Era-2、Founder Era-3），与原型稿一致。
-- 支持操作：
-  - **添加**新题目（题干、Era Band、Source）——通过「Add New」入口。
-  - **编辑**题目的题干、Era Band 或 Source。
-  - **删除**题目。
-  - **拖拽重排**：在 Era Band 内调整顺序，该顺序即评估中的**必答顺序**（对应 Yes/No + 固定序列模型）。
-- Publish按钮：五个维度任意维度有新问题、新顺序或新编辑内容，按钮会被激活，点击保存为新版本。
+- 允许 portfolio admin 在**无需工程介入**的情况下管理维度、题库和维度在总分计算中的权重。
+- 该页面包含一个维度题库tab和维度管理tab
+- **题库tab**，每个维度一个（FRL / PRL / BERL / RRL / TRL...），展示该维度题库。
+  - 按 **Era Band** 分组显示（如 Founder Era-1、Founder Era-2、Founder Era-3），与原型稿一致。
+    - 支持操作：
+    - **添加**新题目（题干、Era Band、Source）——通过「Add New」入口。
+    - **编辑**题目的题干、Era Band 或 Source。
+    - **删除**题目。
+    - **拖拽重排**：在 Era Band 内调整顺序，该顺序即评估中的**必答顺序**（对应 Yes/No + 固定序列模型）。
+    - Publish按钮：五个维度任意维度有新问题、新顺序或新编辑内容，按钮会被激活，点击保存为新版本。
+- **Dimension Configuration tab**
+  - 该页面可以新增、删除维度，为维度排序，修改维度的占比。新增删除或排序后，对应的页面应回显，如overview页面、雷达图、题库页面
+  - Save按钮只有在有新增删除或调整维度且各维度比重相加为100%时激活，若权重超过或小于100%会显示提示
 
 ---
 
