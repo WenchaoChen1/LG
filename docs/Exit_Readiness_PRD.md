@@ -44,6 +44,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - 当前 Stage
   - Gap Analysis & Suggested Actions 摘要（TBD）
   - 5 个 ERL 维度列表（含各维度分数：回答问题时该维度最后一个全部Yes的level的level为此维度得分；Perception Gap：Founder和GSV每个维度的分数差）
+    - 数据来源：closed month所在季度的评价
   - BPMM（TBD）
   - 5 维度雷达图
 - **不设独立 Exit Readiness 落地页**；ERL 卡片是唯一入口。
@@ -160,22 +161,20 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 
 ---
 
-### 6. Gap Analysis 与 Suggested Actions（AI 辅助 / Goldie）待定功能
+### 6. Gap Analysis 与 Suggested Actions（AI 辅助 / Goldie）
 
 **功能描述**：
 - 由 Goldie 基于 Perception Gap 生成实用的、可执行的行动建议，将 Scorecard 从「度量工具」升级为「教练工具」。
 - 输入源：
-  - Founder 与 GSV 双方提交的证据/备注上下文
-  - ERL Workbook 中各 Stage/维度的准入准则
+  - Founder 与 GSV 双方提交的题目gap/备注上下文
 - 生成逻辑：
-  - 存在 Perception Gap，或双方均认为某维度分数低于目标时，Goldie 识别 Workbook 中尚未满足的具体准则，将其作为建议行动的依据。
+  - 各维度存在 Perception Gap、备注内容，AI自动分析，将其作为消除gap建议行动的依据。
+- 数据来源：closed month所在季度的评价，只有所有维度两方都完成时，share按钮才被激活，有gap的，展示建议，没有的不展示。
 - 建议为**指导性**而非强制性任务：
   - 说明「可以做什么」以及「为何相关」，结合公司具体情境（非通用建议）。
   - MVP 不含正式跟踪、指派、Deadline 功能。
-- 展示位置：Scorecard 视图内（inline 于每维度 或 作为独立面板）。
-- 权限：Founder 与 GSV 团队均可见，但两者展示口吻不同：
-  - Founder 视角：「你可以做什么…」
-  - GSV 视角：「我们建议这家公司…」
+- 展示位置：Scorecard 视图内（基于每维度，作为独立面板）。
+- 权限：GSV 团队均可见，可以点击Share按钮分享给Founder端。
 - 新评估提交后自动刷新分析，始终反映最新数据。
 - 双方分数均高、无实质差距时，Goldie 承认此为公司优势，不强行套用差距叙述。
 - 全端响应式。
