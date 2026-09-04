@@ -179,12 +179,6 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - 双方分数均高、无实质差距时，Goldie 承认此为公司优势，不强行套用差距叙述。
 - 全端响应式。
 
-**已知 TBD 与 MVP 备选方案**：
-- 详细生成逻辑与 prompt（Founder / GSV 两套）尚未定义。
-- 待决定：是否在 Score Details 页新增一个「GSV vs. Founder 分数对比」Tab，突出显示两者差距最大的题目，作为完整 AI 建议上线前的 MVP 替代方案。
--「Gap」的粒度是按维度
-- 后续：当 Fireflies 会议转录 与 SharePoint 集成上线后，Goldie 分析将扩展这些数据源；「Goldie 直接根据外部源自动打分」作为独立的 post-MVP story，取决于 Li 与 Blake 敲定的评分逻辑与数据源决策。
-
 ---
 
 ### 7. 投资组合级评估看板（Portfolio-Wide Assessment Dashboard）
