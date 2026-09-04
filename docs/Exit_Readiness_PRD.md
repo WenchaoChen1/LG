@@ -76,7 +76,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 
 **功能描述**：
 - 面向 **Company User / Company Admin** 角色，在 Assessments 区块内访问。
-- 表单顶部提供**评估期选择器**（如 "Q3 2026"）
+- 表单顶部提供**评估期选择器**（如 "Q3 2026"），有Save as draft、Cancel、Reset、submit按钮
 - 题库来源于 ERL Configuration，按 5 个维度组织；每个维度内按 3 个 Era 分组：
   - Founder Era（Stage 1–3）
   - Harvest & Growth Era（Stage 4–6）
@@ -95,8 +95,12 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - 每次提交生成带日期的记录（提交日期、评估人、基金/组合）。
 - 历史记录进入 Assessment History。
 - 仅限公司用户在其自身 portal 内完成，portfolio admin 不能代填。
+- 操作流程说明：
+  - 点击Add New按钮，进入问卷回答页面，若有草稿则进入之前的草稿，提示草稿，显示上次保存时间和保存人；若无草稿则直接新增
+  - 答题完成后，可提交为该季度评价，若之前已提交该季度评价，则弹出提示：已提交该季度评价，是否再次提交？
+  - 答题后，可保存为草稿，若之前有其他草稿，则直接覆盖，草稿为公司共享，不区分账户。
+  - 问卷提交人已最终提交者为准
 - 全端响应式。
-
 ---
 
 ### 4. ERL 评估表 — GSV 团队流程（GSV Flow）
