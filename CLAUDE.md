@@ -118,7 +118,7 @@ docker compose down -v                       # 停容器并删卷（数据丢失
 
 ## 跨项目协作模式
 
-Java 与 Python 之间有两种协作模式，按业务域区分：
+Java 与 Python 之间有三种协作模式，按业务域区分：
 
 ### AI 财务提取（智能解析）— SQS 异步
 
@@ -147,6 +147,25 @@ Web 聊天页（`/devSupport/chat`）→ Java 网关 → Python `source/chatbot/
 - **断流恢复（切换会话 / 刷新页面续流，2026-06-15）**：后端生成与连接解耦，SSE 帧缓冲在 Redis（`sse:buf:{stream_id}`，TTL 1h，`Last-Event-ID` 重放，`GET /api/ai/sse/subscribe/{id}` 续看——2026-07-15 起要求登录态 Bearer + 建流时记录的归属校验，不再仅凭 stream_id）。前端把在跑流的 `stream_id` 按 threadId 存 `sessionStorage`，进入会话时有记录则经 `/subscribe` 从 seq 0 续流、否则读 DB；**末条已是落库的 assistant 则不续传**（防与重放重复渲染）。**纯前端，后端 0 改动**。详见 `docs/superpowers/plans/2026-06-15-ai-chatbot-resume-streaming.md`
 
 详细设计见 `docs/AI-Chatbot/设计/design-doc.md`，前后端实现计划见 `docs/superpowers/plans/2026-06-05-ai-chatbot-v1-*.md`、`docs/superpowers/plans/2026-06-15-ai-chatbot-resume-streaming.md`。
+
+### Exit Readiness（ERL）— HTTP 内网直连 + 同步非流式
+
+Java (`CIOaas-api` 的 `erl/` 域) 是前端唯一出口；Python (`CIOaas-python/source/erl/`) **只做 LLM 生成与附件入库编排，不落 ERL 业务表、不做公司 ACL**（Java 已校验）：
+
+```
+前端 → /api/web/erl/**  → 网关 → Java erl/ 域 → PostgreSQL（erl_* 共 12 张表）
+                                      |
+                                      +→ POST {cio.erl.ai-base-url}/api/ai/erl/gap-analysis      Goldie 差距分析
+                                      +→ POST {cio.erl.ai-base-url}/api/ai/erl/attachments/ingest 附件入知识库
+```
+
+- **不经网关，走内网直连**：本仓库网关只有 `/api/web/**` 与 `/web/**` 两条路由，**没有 `/api/ai/**` 路由**；与存量 `AI_MODEL_URL`（财务预测）一致，用 Nacos 配置项 `cio.erl.ai-base-url` + Hutool `HttpRequest` 直连 `python:8090`。设计文档写的「经网关」与仓库现状不符，以现状为准。
+- **不用 SQS**：单次秒级调用、用户可等待，为它付全套异步成本不划算（对比智能解析的长任务）。
+- **差距分析是异步非阻塞的**：评估提交事务内只置 `stale = true`，提交后经 `AfterCommitExecutor` + `@Async("ioExecutor")` 触发重生成，LLM 失败不回滚提交、不覆盖旧内容。同 `(company, period)` 用 Redis 短锁去重。
+- **鉴权靠转发调用者的 Bearer token**：Python 侧 `AuthMiddleware` 对每个非豁免路径都调 Java `check_access`，故 Java 调 Python 时必须带 token；异步线程取不到请求上下文，**token 在请求线程内捕获后作为参数传入**异步任务。
+- 一次 LLM 调用产出**一份**分析（设计 v4.4 起双 audience 方案取消，改为 GSV 生成 → `Share to founder` 单向分享）；prompt 外置在 `source/ai/prompts/erl/`，单份 `erl_gap_analysis.md`。
+
+详细设计见 `docs/Exit Readiness/设计/design-doc.md`。
 
 ---
 
