@@ -374,7 +374,6 @@ Python 侧在 `source/`、`sql/`、`scripts/` 检索 `SET ROLE` / `row level sec
 | `ai_rag_playbook` / `_version` | 业务 | 全局方法论库 | 设计即全局 |
 | `ai_rag_fin_report_chunk` | 向量 | **财报向量分段（含正文）** | 仅 `company_ref`，注释明确是 business metadata 非过滤键 |
 | `ai_rag_playbook_chunk` | 向量 | Playbook 向量分段 | 注释：「零业务列」 |
-| **`checkpoints` / `checkpoint_blobs` / `checkpoint_writes`** | 业务 | **LangGraph 图状态（含解析出的财务数据）** | 仅 `thread_id`；**由 `PostgresSaver.setup()` 启动时自建、无任何 DDL 脚本、不受版本化迁移管控**（仅在 `sprint109/V15` 的"未能可信解析"注释清单里被提及过） |
 
 ---
 

@@ -207,12 +207,12 @@ organization                 表 organization，PK = id，pid 自引用（递归
 | 前置条件 | 现状 | 差距 |
 |---|---|---|
 | ① 应用能提供**可信**的租户上下文 | JWT 无租户 claim；租户 ID 来自客户端参数 | **致命**。策略里的"当前租户"没有可信值可填 |
-| ② 每张表都有租户列 | Java 侧 151 个 JPA 实体中 85 个有 `company_id`（落在租户下面若干级）、21 个有 `organization_id`、53 个二者皆无；**0 个有租户列**；16 张连公司键都没有 | 需新增列 + 回填 |
+| ② 每张表都有租户列 | Java 侧 151 个 JPA 实体中 85 个有 `company_id`（落在租户下面若干级）、21 个有 `organization_id`、53 个二者皆无；**0 个有租户列**；13 张连公司键都没有 | 需新增列 + 回填 |
 | ③ 租户列命名统一 | 4 类别名并存：`company_id` / `ref_company_id` / `company_ref` / `main_company_id`，以及 `portfolio_id` 与 `company_group_id` 指同一概念 | 统一脚本会漏 |
 | ④ 租户列上有索引 | 测试库扫出 **367 个 `*_id` 列不是任何索引首列**，仅补了 79 个，**剩 288 个**；向量库三张分段表租户列**零索引** | 大表需 CONCURRENTLY 建索引 |
 | ⑤ 数据库角色可分权 | 单一超级账号 | **超级用户默认绕过 RLS**，不拆等于策略形同虚设 |
 | ⑥ 数据完整性可依赖 | 外部扫描报 **158 个外键有问题**；全环境挂"忽略外键异常处理器"，建外键失败静默降级为告警；305 条"外键"中仅 61 条真实存在 | 已发生两次孤儿行生产事故 |
-| ⑦ 跨库一致 | 业务库 + 向量库两个 PG；另有 3 张 LangGraph 检查点表由框架启动时自建，**不受版本化迁移管控** | 需各做一遍，且检查点表无人视其为业务表 |
+| ⑦ 跨库一致 | 业务库 + 向量库两个 PG | 需各做一遍 |
 
 ### 6.4 若坚持要做，工作分解
 
@@ -226,12 +226,11 @@ organization                 表 organization，PK = id，pid 自引用（递归
 
 4. 引入反规范化 `tenant_id` 列（写入时打戳），让策略谓词从"递归子树集合成员判断"退回"等值判断"——**这是让 RLS 可行的唯一路径**
 5. 85+ 张表加列 + 回填（单租户下是一次全量 UPDATE）+ 建索引
-6. **16 张无租户键的表**需先设计归属方案：
+6. **13 张无租户键的表**需先设计归属方案：
 
 | 表 | 内容 | 反查难度 |
 |---|---|---|
 | `files` | 全站 S3 文件元数据 | **无可靠反查键**，须从 6+ 个来源反推，且这些外键列全部无索引 |
-| `checkpoints` / `checkpoint_blobs` / `checkpoint_writes` | LangGraph 图状态（含解析出的财务数据） | **无可靠反查键**，仅有 thread_id |
 | `ai_chatbot_message` | 全部对话正文 | 经 thread 反查 |
 | `ai_llm_conversation` | 完整提示词与回复正文 | 经调用日志反查（**全仓唯一有级联的 AI 表**） |
 | `ai_trace_span` | 链路节点上下文 | 经 trace 反查 |
@@ -243,6 +242,8 @@ organization                 表 organization，PK = id，pid 自引用（递归
 | `ai_financial_extraction_task_state_log` | 任务状态机事件 | 经任务反查 |
 | `r_financial_normalization`（63 万行） | 归一化财务明细关联 | 两跳 JOIN |
 | `r_financial_forecast_year_version`（13.7 万行） | 预测版本关联 | 两跳 JOIN |
+
+> **已决定移除**：原清单里的 3 张 LangGraph 检查点表（`checkpoints` / `checkpoint_blobs` / `checkpoint_writes`）已确认**当前无用**，将随财务解析图摘掉 checkpointer 一并下线，故不列入归属改造范围（清单由 16 张降为 13 张）。**遗留数据需在下线时一并清理**——表里存着历史全部解析出的财务数据，且全仓无任何清理机制。
 
 7. 关闭生产 `ddl-auto: update`，把全部 DDL 收进版本化迁移
 8. 拆分数据库角色（前置条件⑤）
@@ -309,7 +310,7 @@ organization                 表 organization，PK = id，pid 自引用（递归
 | **优先项（阻断）** | 身份不可伪造 | 轮换签名密钥与全部凭据、清理 git 历史、下线或收敛口令回吐接口、移除可逆口令副本 | 小 |
 | **第 1 步：租户模型** | 让"租户"可查询 | `organization` 租户标记列 + 标定；6 个实现收敛为 1 个可信来源并入认证链；补租户一致性约束 | 小 |
 | **第 2 步：服务端强制（→ 第 2 档）** | 客户端不能再决定看谁的数据 | 40 个接口改服务端解析；2 处倒挂修复；授权链改子树展开；Python 作用域收敛；前端统一租户上下文；替换「company_id 为空 ⟺ 超管」不变式 | **最大** |
-| **第 3 步：框架级强制（→ 第 3 档）** | 漏写即拒绝 | 统一过滤机制；16 张无租户键表归属方案 | 中 |
+| **第 3 步：框架级强制（→ 第 3 档）** | 漏写即拒绝 | 统一过滤机制；13 张无租户键表归属方案 | 中 |
 | **第 4 步：租户运营** | 可开通、可注销、可管理 | 开通向导（版本化种子）、注销级联、组织级权限管理 UI（多为改造非新建，见 §10.4） | 中 |
 | ~~（另计）行级策略 = 第 4 档~~ | ~~纵深防御~~ | **不建议**，见 §6.5 与 §11.5 | ~~另计 5 人周（初步估算）~~ |
 
@@ -420,7 +421,7 @@ organization                 表 organization，PK = id，pid 自引用（递归
 | 🔴 PII 外发第三方 | Sentry **开启默认 PII 上报**（Java 生产 + Python 全环境，Python 侧写死在 `main.py:344`，无环境判断） |
 | 🔴 PII 出境到 LLM 供应商 | 6 家 provider 直连（OpenAI / Anthropic / Google / DeepSeek / Cohere / OpenRouter），仓库内**无 DPA 或区域约束痕迹** |
 
-**"删除一个租户"的实际成本**：全仓 `ON DELETE CASCADE` 仅 7 处且**无一指向 company 或 organization**；删除路径本身已不可达（见 §7.2）。要真删需人工处理 85+ 张带 `company_id` 的表、10 张仅有 `organization_id` 的表，以及 16 张需 2–3 跳 JOIN 反查的表——其中 `files` 与 3 张 checkpoint 表 **没有可靠反查键**。
+**"删除一个租户"的实际成本**：全仓 `ON DELETE CASCADE` 仅 7 处且**无一指向 company 或 organization**；删除路径本身已不可达（见 §7.2）。要真删需人工处理 85+ 张带 `company_id` 的表、10 张仅有 `organization_id` 的表，以及 13 张需 2–3 跳 JOIN 反查的表——其中仅 `files` **没有可靠反查键**。
 
 ### 9.5 网络与访问控制
 
@@ -534,7 +535,7 @@ organization                 表 organization，PK = id，pid 自引用（递归
 |---|---|---|---|
 | 3-1 | Java 统一过滤机制（Hibernate Filter 或拦截器） | Java | 1 套机制 + 全量 Repository 回归 |
 | 3-2 | Python 统一依赖 | Python | 1 套机制 |
-| 3-3 | 补 16 张无租户键表 | 三端 + SQL | 12 张可反查；**`files` 与 3 张 checkpoint 表无可靠反查键，需先设计归属方案** |
+| 3-3 | 补 13 张无租户键表 | 三端 + SQL | 12 张可反查；**仅 `files` 无可靠反查键，需先设计归属方案** |
 
 ### 10.4 第 4 步：租户运营（**多为改造，非新建**）
 
@@ -578,11 +579,11 @@ organization                 表 organization，PK = id，pid 自引用（递归
 
 | # | 改动项 | 规模（实测） | 说明 |
 |---|---|---|---|
-| 4-1 | 引入反规范化 `tenant_id` 列 | Java 侧 **98 张**已有归属列的表 + **16 张**无归属键的表；Python 侧 **33 张** ORM 表 | 让 RLS 谓词从"递归子树集合判断"退回"等值判断"，**这是 RLS 可行的唯一前提** |
+| 4-1 | 引入反规范化 `tenant_id` 列 | Java 侧 **98 张**已有归属列的表 + **13 张**无归属键的表；Python 侧 **33 张** ORM 表 | 让 RLS 谓词从"递归子树集合判断"退回"等值判断"，**这是 RLS 可行的唯一前提** |
 | 4-2 | 存量回填 | **单租户下是一次全量 UPDATE** | 当前唯一租户，回填成本≈0；有第二家客户后成本剧增 |
 | 4-3 | 补索引 | 每张表 1 个；且测试库有 **288 个 `*_id` 列不是任何索引首列**；向量库 3 张分段表归属列**零索引** | 大表须 `CREATE INDEX CONCURRENTLY` |
 | 4-4 | 归属字段命名统一 | **4 类别名**：`ref_company_id`（2 张）/ `company_ref`（1 张）/ `main_company_id`（1 张）/ `portfolio_id` vs `company_group_id` | 不统一则任何批量脚本都会漏表 |
-| 4-5 | `files` 与 `checkpoints` 归属方案设计 | 2 组（`checkpoints` 实为 3 张表） | **无可靠反查键**，须先设计再实施。`checkpoints` 由 LangGraph 在启动时 `PostgresSaver.setup()` 自建（`source/bootstrap/lifespan.py:119-121`），**不受版本化迁移管控**——性质类似 Java 的 `ddl-auto`，但范围仅 3 张表 |
+| 4-5 | `files` 归属方案设计 | 1 张 | **无可靠反查键**，需从 6+ 个来源反推，且这些列全部无索引，须先设计再实施 |
 | 4-6 | 全局字典表豁免清单 | 待梳理（`currency` / `dictionary` / `menu` / `role` / 对标基准数据等） | **漏排会把跨租户共享数据全部拦掉**，属高风险项 |
 
 ### 11.2 数据库配置改造
