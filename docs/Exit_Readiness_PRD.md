@@ -40,13 +40,13 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 
 - Company Overview 页原有的 DI 卡片放在FI卡片下；DI 数据、打分保留概览信息和入口。
 - 原 DI 卡片位置由新的 ERL 卡片替代，卡片直接展示完整聚合评分内容：
-  - 综合分数（Overall Score）: 按照weight configuration页面配置的五个维度的权重算分
+  - 综合分数（Overall Score）: 按照ERL configuration页面配置的维度的权重算分
   - 当前 Stage
-  - Gap Analysis & Suggested Actions 摘要（TBD）
-  - 5 个 ERL 维度列表（含各维度分数：回答问题时该维度最后一个全部Yes的level的level为此维度得分；Perception Gap：Founder和GSV每个维度的分数差）
+  - Gap Analysis & Suggested Actions 摘要
+  - ERL 维度列表（含各维度分数：回答问题时该维度最后一个全部Yes的level的level为此维度得分；Perception Gap：Founder和GSV每个维度的分数差）
     - 数据来源：closed month所在季度的评价
   - BPMM（TBD）
-  - 5 维度雷达图
+  - 各维度雷达图
 - **不设独立 Exit Readiness 落地页**；ERL 卡片是唯一入口。
 - 卡片内提供每个维度的「View Details」入口，直接跳转到该维度的 Score Details 页。
 - ERL 卡片及后续页面对当前可访问 Company Overview 的角色开放（具体权限子集待确认）。
@@ -56,7 +56,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 ### 2. 维度详情页（Dimension Detail Page，模板）
 
 **功能描述**：
-- 为 5 个维度（FRL / PRL / BERL / RRL / TRL）提供**同一套模板**，通过 dimension 参数驱动，避免重复维护。
+- 各个维度（FRL / PRL / BERL / RRL / TRL）使用**同一套模板**，通过 dimension 参数驱动，避免重复维护。
 - 页面为「View Details」进入后的题级详情视图，展示：
   - 维度名称（如 "Financial Readiness (FRL)"）
   - 该维度题目总数
