@@ -1,6 +1,7 @@
 # Excel 坐标提取轨 · 设计文档
 
 > 关联文档：
+> - 下游（第五阶段 · 开发设计）：[dev-design-doc](../开发设计/dev-design-doc.md) · [code-examples](../开发设计/code-examples.md)
 > - 旧轨调研：[python-design](../../智能解析/调研/python-design.md) · [system-architecture](../../智能解析/调研/system-architecture.md)
 > - 旧轨 cell 定位调研：[excel-preview-cell-locating](../../智能解析/调研/excel-preview-cell-locating.md)
 > - 阶段一已落地代码：`CIOaas-python/source/ai/agent/excel_extract_agent/`（提交 `bdafff51`、`bdd0bf7c`）
@@ -27,6 +28,10 @@
 抽取那 84 秒几乎全花在吐 token 上：9757 ÷ 117 ≈ 83 s，严丝合缝。**抽取阶段是输出受限
 的**，而输出量 = cell 数 × 每 cell 约 75 个 token（旧轨 `max_tokens` 公式
 `cells × 75 × 1.5` 即按此估）。
+
+> 口径说明：耗时均值含全部 228 次调用，tok/s 只能用其中 220 次 SUCCESS 记录算
+> ——FAILED 记录的 `usage_output_tokens` 是 NULL。两者分母不同，但都已在 `lg_uat`
+> 上复现。
 
 单个 Excel 文件（71 个文件 × 单次 run）：
 
@@ -84,7 +89,8 @@
 **① 坐标视图与 Excel 逐格一致。** 16 个 xlsx 渲染出的 **5,399 个坐标**，全部用
 openpyxl 原生 `ws["C12"]` 取值交叉核对，**不一致 0 个**。
 
-**② 模型能准确报回坐标。** 7 个最脏形态的实测（sonnet-5，temperature 0）：
+**② 模型能准确报回坐标。** 7 个文件的实测（sonnet-5，temperature 0）；下表按形态归并成
+6 类，`2019 Balance Sheet Detail`（首格 G1）与首行的 H2 同属"数据不从 A1 起"、合并进第一行：
 
 | 文件形态 | 条目列回读 | 期间列原文比对 |
 |---------|-----------|--------------|
@@ -143,7 +149,7 @@ Excel 原生缩进 `alignment.indent` 折算进同一个属性，口径见 §6.3
 | 0 | 载入工作簿、渲染 sheet 概览 | P | 文件 | `sheet_overview`（每 sheet 的真实 used 区间、行列数、公式健康度） |
 | 1 | **定位**：判是否财报、**逐表**给条目列 / 列头行 / 期间列 / 3 个锚点 | **L** | 概览 + 全 sheet 坐标视图（**不带样式**） | `is_financial` + `tables[]`，每表自带 `label_range` / `header_row` / `date_columns` / `label_anchors` |
 | 2 | **回读校验（定位）** | P | 步 1 输出 + 工作簿 | 通过 / FATAL（带证据重问一次）/ WARN |
-| 3 | **父链 + lg 指标**（D2：合并成一次调用） | **L** | **只有条目列那一列**的视图，带 `ind`/`bg`/`b`/`i`/`sz` | `{行号: {parent, lg}}` |
+| 3 | **父链 + lg 指标**（D2：合并成一次调用） | **L** | **只有条目列那一列**的视图，带 `ind`/`bg`/`b`/`i`/`sz` | `rows[{r, parent, lg, pf, cf}]`（见 §5.2） |
 | 4 | **校验（父链+lg）** | P | 步 3 输出 | lg 在白名单内 / 行号在区间内 / 无漏行 |
 | 5 | 取数：按坐标取值 + 单位/货币/百分比/公式标记 | P | 步 1/3 的坐标 | 原始 cell 值集合 |
 | 6 | **符号与货币规则**：哪些行/列要转负、多货币按行/列/单元格给 | **L** | 期间列的**格式摘要**（程序侧算好的货币前缀/百分比分布），不发全量格子 | 规则集（不是逐格值） |
@@ -157,8 +163,13 @@ Excel 原生缩进 `alignment.indent` 折算进同一个属性，口径见 §6.3
 ### 4.3 多 sheet / 多文件
 
 - **每个有内容的 sheet 独立跑一遍步 1**；判定非财报的 sheet 直接跳过后续步骤。
-- **多表不增加调用次数**（D7）：一次定位调用给出 `tables[]` 及逐表列头，LLM 调用次数与
-  一个 sheet 里有几张表无关。
+- **多表不增加调用次数**（D7）。三步各自都是**每 sheet 一次**，与一个 sheet 里有几张表
+  无关：
+  - **步 1**：一次定位调用给出 `tables[]` 及逐表的条目列 / 列头 / 期间列 / 锚点。
+  - **步 3**：视图发**各表条目列的并集**（多表时条目列可能不在同一列），一份
+    `rows[]` 覆盖全部表。**行号在 sheet 内唯一**——§7.2 检查 1 保证各表行段不重叠，
+    所以 `rows[{r, ...}]` 不需要再标属于哪张表，程序按行号反查即可。
+  - **步 6**：一次给出覆盖全部表的符号与货币规则；规则本身是行/列级的，坐标已能定位到表。
 
 #### 三层并发模型
 
@@ -217,6 +228,21 @@ sheet 越多单 sheet 完成时间越不可预测。**超过闸门的并发不�
 
 ---
 
+### 4.4 三个不在步骤表里的落库字段
+
+上面的 7 步覆盖了大部分落库字段，但有三个不是任何一步的"产物"，容易漏：
+
+| 字段 | 产出者 | 说明 |
+|------|--------|------|
+| `unit_type` | **程序** | 取值 `"CURRENCY"` / `"PERCENT"`——**不是**千/百万的量级单位，就看 `number_format` 含不含 `%`。旧轨这个字段是问 LLM 要的，新轨白拿：格式信息本来就在程序手上 |
+| `semantic_group` | **恒 `""`** | 跨表聚合同义账户用的短标签。**旧轨 excel 路径本来就不产它**，归一在 task 级 `finalize_extract_node` 一次性跑。不进任何提示词 |
+| `pf` / `cf` | **LLM 步 3 附带** | 见 §5.2 |
+
+逐字段的完整产出者映射（12 个 Stage 1b 字段 + 5 个"绝不能自己填"的下游字段）在
+[开发设计 §4](../开发设计/dev-design-doc.md)。
+
+---
+
 ## 5. 每步的输入输出契约
 
 契约设计的三条通则（都是阶段一实测逼出来的）：
@@ -244,7 +270,9 @@ tables         [ {
 ```
 
 **一律逐表给**（D7）。单表 sheet 就是 `tables` 里恰好一个元素——**一种形状、无特例分支**，
-代价约 20 token 的嵌套；89% 的 sheet 是单表（UAT 实测，见 §10）。
+代价约 20 token 的嵌套。⚠️ 单表占多数这件事只有**文件级**的实测支撑（UAT：89% 的文件
+只有 1 个 distinct `table_name`、73% 只有 1 个 `table_id`），**sheet 级占比拿不到**
+——库里没有 sheet 字段（§9.3）。别把这两个数当成 sheet 级结论。
 
 **刻意没有 `row_range`**：表的行跨度由 `min(header_row, label_range 起行) .. label_range 止行`
 派生。让模型再给一个独立区间等于多一个它能与自己矛盾的字段、多一处要校验的一致性。
@@ -258,11 +286,19 @@ tables         [ {
 而非修正集：
 
 ```
-rows  [{r: 12, parent: "ASSETS || Current Assets || Bank", lg: "Cash"}, ...]
+rows  [{r: 12, parent: "ASSETS || Current Assets || Bank", lg: "Cash",
+        pf: false, cf: false}, ...]
 ```
 
 - `parent` 每行都给完整 `account_label_join`
 - `lg` 每行都给，取值必须在 **16 个白名单**内
+- `pf` / `cf` 是模型**对自己 `lg` 判断的出处标注**，缺省 false：
+  - `pf` = `is_payroll_defaulted`——Payroll 父级不明、只好默认归 G&A Payroll
+  - `cf` = `is_cogs_rd_conflict_defaulted`——cloud / hosting / AWS 这类词在 COGS 与
+    R&D 之间冲突、只好默认归 COGS
+
+  ⚠️ 这两个键**不能省**。它们是落库字段，且 RAG override 命中改写 `lg_category` 时要
+  同时把它们清零——拿不到就无法区分"模型确信"与"模型兜底"，**训练信号链会断**。
 - 合并的收益：省一轮约 3.2 s 固定开销，且不必把刚生成的父链再发一遍作为 lg 步输入
   （60 行 × 73 字符 ≈ 1.5K token 的纯重复）
 
@@ -456,7 +492,8 @@ Excel 有两套表达缩进的机制，`openpyxl` 分两个地方给：
   合并后 system 约 14K 字符——仍只有旧轨那份 38K 的 37%。
 - **公共前缀不必逐字一致**。原打算靠共享前缀吃缓存，但机制上做不到：
   `cache_system` 只在 system 末块打**一个**断点，而"公共前缀单独发一条 system 消息"
-  会被上游 `convert_to_openai_messages` 合并成一条（`openai_compat/chat.py:137`），
+  会被上游 `convert_to_openai_messages` 合并成一条
+  （`llm/infrastructure/kernel/openai_compat/chat.py:137`），
   要做得改 llm 层。收益约 **$0.007/sheet**，不值。
 - **缓存全部先不开**（`cache_system=False`、`cache_conversation=False`）：
   - 优先保 sheet 级并行的墙钟，不为缓存命中而串行；
@@ -530,7 +567,7 @@ Excel 有两套表达缩进的机制，`openpyxl` 分两个地方给：
 | **密集空行** | 某文件 17 处跳号 | 行号跳号不补位，断档本身是段落分界信号（已落地） |
 | **大表** | 语料 cell 数 p90 672、最大 1240（旧轨 `_MAX_SHEET_ROWS_HARD_CAP=2000`） | 视图按需切片（`row_range`/`col_range`/`max_rows`），切片时自动补回区间外的合并 anchor（否则跨列合并里的**报告期间**会整段丢失）（已落地） |
 | **月/% 交替列** | 1 个文件（26 列里 12 个是月份） | 期间列逐列给，不用区间（已落地） |
-| **多表 sheet** | UAT：distinct `table_id` ≥2 的 **47/177 = 27%**、distinct `table_name`（报表标题）≥2 的 **20/177 = 11%**，3 张表的仅 2 个文件 | **D7：边界归模型判定，程序三条验伪**（§7.2）。⚠️ 47 是**上界**——库里没有 sheet 字段（§9.3），分不清"一个 sheet 两张表"与"两个 sheet 各一张表"，真正需要多表机器的是前者 |
+| **多表 sheet** | UAT（**全格式混合**，非仅 Excel）：distinct `table_id` ≥2 的 **47/177 = 27%**、distinct `table_name`（报表标题）≥2 的 **20/177 = 11%**，3 张表的仅 2 个文件 | **D7：边界归模型判定，程序三条验伪**（§7.2）。⚠️ 47 是**上界**——库里没有 sheet 字段（§9.3），分不清"一个 sheet 两张表"与"两个 sheet 各一张表"，真正需要多表机器的是前者 |
 
 ### 10.1 `.xls` 为什么保持现状（D6）
 
@@ -570,7 +607,9 @@ Excel 有两套表达缩进的机制，`openpyxl` 分两个地方给：
 
 - **不加开关，直接替换**。不做 env 三态、不做按公司灰度、**新旧不并行**（无 shadow
   双跑）。灰度靠环境层次（dev → test → uat → prod）本身。
-- **旧轨代码一行不改**。新轨是 `ai/agent/excel_extract_agent/` 独立子包，与
+- **旧轨节点代码一行不改**——切换**只动接线**（`build.py` 与 `parallel_files_node.py`
+  各两处，见[开发设计 §3.1](../开发设计/dev-design-doc.md)），不动任何旧节点内部。
+  新轨是 `ai/agent/excel_extract_agent/` 独立子包，与
   `financial_extract_graph` 平级。
 - **因此新轨必须覆盖旧轨的格式能力面**：`.csv` 要补（见 §10），`.xls` 见 D6。
 - **落库同形**（§9.1），新旧轨产出的行在库里无法区分，但切换时间点即分界
