@@ -55,9 +55,10 @@ source/ai/agent/excel_extract_agent/
 ⚠️ **步 8（取数后校验）本轮不落地**：设计文档 §7.3 自身标"待设计"（抽样比对 + 聚合行
 自校验的口径还没定）。它不阻塞批次 1 ~ 3（没有任何东西依赖它），但**上线前必须补**
 ——本轨的第一性原则是"坐标可回读"，只有坐标级校验、缺数值级交叉校验，等于只做了上半场。
-届时新增 `crosscheck.py`，并作为**批次 5** 排在切换之后（§12）。
+新增 `crosscheck.py`，作为**批次 5**（开发顺序上的最后一批；整个功能做完才上线，所以
+它仍在上线之前，见 §12）。
 
-### 2.1 只对 `build.py` 破例，`tools.py` 建占位
+### 2.1 只对 `build.py` 破例（`tools.py` 已按 D9 落地成真工具）
 
 `source/ai/CLAUDE.md` §三 规定 `agent/` 下每个智能体子包都要有 `build.py` +
 `nodes/` + `tools.py`。本包的处置**一破一守**：
@@ -76,6 +77,9 @@ source/ai/agent/excel_extract_agent/
 而且它**刻意不能上 LangGraph 子图**：LangGraph 的超步 barrier 会跟 sheet 级 4 路并发
 打架（同一原因让 `generate_title` 至今不挂图——见 `ai/CLAUDE.md`「LangGraph 图的特定
 约束」②）。三步流水线是严格串行 + FATAL 重问一次，没有需要图来表达的分支。
+
+⚠️ 别把这条与"为什么用固定状态机而不是自由 ReAct"混为一谈——后者的理由**不含速度**
+（实测两者墙钟持平），见[设计文档 §4.1](../设计/design-doc.md)。
 
 **代价**：`build.py` 这一项偏离 §三 的字面规定，要在 `ai/CLAUDE.md` 里把本包条目从
 现在的"⚠️ 尚无 `build.py`/`nodes`/`tools.py`——成图时按本文件 §三 补齐"改成事实描述，
@@ -256,7 +260,43 @@ rows: [{r, parent, lg, pf?, cf?}]
 
 > 上游设计文档 §5.2 需补这两个键——见 §13 待同步清单。
 
-### 4.2 `TableInfo` 表级字段
+### 4.2 `column_month` 改由模型给，不由程序解析 `text`
+
+**设计文档 §4.4 原写的是"程序确定性解析 `date_columns[].text`"。实现期发现这条走不通**，
+改成 **步 1 同时给 `text`（原文，供回读）与 `month`（归一后的 `YYYY-MM` 或空串）**。
+
+三条理由，一条比一条硬：
+
+1. **旧轨的 `column_month` 本来就是 LLM 给的**，不是程序算的。渲染器只把日期 cell 的
+   *显示串*按 `number_format` 的粒度归一成 `YYYY-MM` / `YYYY-MM-DD` / `YYYY`
+   （`excel_preprocess_node.py:979` 的 `_extract_date_display`），月份判断在提示词里。
+2. **有些列头的月份不在那一格里**。旧轨自己的注释点名了"裸 `Jan`（年份在上一行的常见
+   排布）"——程序只拿到 `text="Jan"` 解不出年份，而模型看得到上一行。
+3. **有些列头根本没有日历月**（见上方澄清块）：`As of October 21, 2020` 这种非月末
+   as-of 日期、`January 1-June 23` 这种跨期区间。程序解析器面对它们只能报错或猜，
+   而正确答案是**空**。
+
+**契约**：`date_columns: [{col, text, month}]`
+
+- `text` —— 原文逐字抄，**回读校验的靶子**（这条不变，是本轨最强的一道验证）
+- `month` —— `"YYYY-MM"`，**或空串**表示"这一列没有对应的日历月"（合法结果）
+
+**校验**（零额外输出，都在 `verify_locate` 里）：
+
+| 检查 | 级别 |
+|---|---|
+| `month` 字段必须存在（可以是空串，但不能缺） | FATAL |
+| 非空时必须匹配 `YYYY-MM` | FATAL |
+| `text` 本身能解析出月份时，必须与 `month` 一致 | FATAL —— 模型自相矛盾 |
+| `text` 能解析出月份、而 `month` 给了空串 | WARN —— 可能漏了 |
+
+第三条是白拿的交叉校验：`text` 已经因为回读而必须给，能解析时就顺手比一次。
+
+⚠️ `month` 为空的后果**与旧轨一致**：该行走到 Stage 2.5 会被判 `source_is_mapped=False`
+（判据含"该行所有 cell 的 `column_month` 都是源表直读"）。这是既有语义、不是新轨引入的
+回归。
+
+### 4.3 `TableInfo` 表级字段
 
 | 字段 | 来源 |
 |------|------|
@@ -285,21 +325,21 @@ rows: [{r, parent, lg, pf?, cf?}]
 
 | Stage | 是什么 | 新轨处置 | 依据 |
 |-------|--------|---------|------|
-| **1b.5** 父链修复 `shared.py:2239` | 修 LLM 写残的 `account_label_join` 前缀（三行窗口锚定） | ⚠️ **唯一需实测确认** | 见 §5.1 |
+| **1b.5** 父链修复 `shared.py:2239` | 修 LLM 写残的 `account_label_join` 前缀（三行窗口锚定） | **原样复用**（已实测） | 见 §5.1 |
 | **1c** RAG override `shared.py:2370-2519` | 用 `ai_training_data` 近邻覆盖 `lg_category` | **原样复用** | 它纠正的是**分类判断**，与坐标/数值来源正交。只认 cell dict 的 `account_label_join` + `lg_category` 两个字段 |
 | **1d** 列位/行位对齐 `shared.py:1094-1319` | 修多批 LLM 拼表的列/行冲突 | **空转**（预期 no-op） | 根因是"一张逻辑表由多批调用按页拼成"（`shared.py:1099-1105`）。新轨一个 sheet 一次定位调用，`column_position` 出厂即按月份 1..N |
 | **2** 链式推月份 `shared.py:1343-1423` | 按左右锚点外推缺失 `column_month` | **空转**（预期 no-op） | 它存在的唯一理由是"LLM 逐 cell 抽取可能漏标某列月份"。新轨逐列穷举 + `verify` 强制原文一致，不存在缺列。`is_predict_month` 因此恒 `False` |
 | **2.45** 系统填零 `shared.py:2070` | `value=None` → `0.0` + 标记 | **原样复用** | 业务规则（源表空白/横线该不该算 0），与数值谁读出来无关。程序读真空白格同样得 `None` |
 | **2.5** `source_is_mapped` 重算 `shared.py:2106-2157` | 按 `lg_category` + 月份可信度算映射状态 | **原样复用** | 见 §5.3——它会自动退化成简化语义，不需要改造 |
 | **2.6** `data_type` 校正 `shared.py:1429-1501` | 用月份 vs 参考日期纠正 LLM 的先验偏差 | **原样复用** | 纯算术规则。新轨的 `column_month` 更可靠，规则更简单地成立 |
-| **2.7** 跨表账户对齐补缺 `shared.py:1531-1729` | 同名多个 logical table 间补齐缺账户行 | ⚠️ **需实测确认**（原判"空转"已被数据推翻） | 见 §5.2 |
+| **2.7** 跨表账户对齐补缺 `shared.py:1531-1729` | 同名多个 logical table 间补齐缺账户行 | **原样复用**（已实测；原判"空转"是错的，它确实会触发，但行为符合业务意图） | 见 §5.2 |
 | **2.8** 拆 PROFORMA 尾列 `shared.py:1742` | 当月列从 ACTUALS 拆出 | **原样复用** | 纯规则（当月 vs 历史） |
 | **2.85** 跨表同月去重 `shared.py:1945` | 同 file 内"月度表 / YTD 表"重复 cell 软删 | **原样复用** | 源文档天然重复，新轨数值再精确也照样发生 |
 
-**要实测的有两个**：Stage 1b.5（§5.1）与 Stage 2.7（§5.2）。其余七个的分类可以从触发
+**两个需实测的都已测完**（§5.1 / §5.2），结论都是原样复用。其余七个的分类可以从触发
 条件直接推出，不需要跑数据。
 
-### 5.1 Stage 1b.5 要实测
+### 5.1 Stage 1b.5（已实测：原样复用）
 
 它修的是"LLM 把父链字符串写残"，用三行窗口锚定 + 尾段对齐。新轨的 LLM 给的是**全量
 完整链**（D3），理论上没有残缺可修——但它有可能对**正确的**链做出"修复"，那就是净损害。
@@ -307,13 +347,16 @@ rows: [{r, parent, lg, pf?, cf?}]
 **验证方法**（不靠推理，靠实测）：拿新轨产出的 `tables` 跑一遍 Stage 1b.5，逐 cell 比对
 前后 `account_label_join` 是否有变化。有变化即需要旁路。
 
-**旁路怎么做而不改旧轨**：`refine_extraction_node` 是按顺序调用的，旁路只能在新节点侧
-做——把新轨的父链**在节点内先自检一遍**（步 4 已经在校验行号与 lg 白名单，加一条"链非空
-且不以分隔符起止"），确保交给下游的链是良构的。若实测证明 1b.5 仍会改动良构链，再评估
-是否需要在 `refine_extraction_node` 加一个"上游已给全量链"的判据——那属于改旧轨，要
-单独拍板，不在本轨范围。
+**实测结论（已完成）**：构造一份典型的良构结构——两个语义段（`Income` / `Expenses`）、
+段内同缩进、含 `Total XXX` 收束行，正是栈式派生最容易串段的形态——喂给 1b.5，**8 条链
+被改动 0 条**。
 
-### 5.2 Stage 2.7 也要实测——原来的"空转"判断是错的
+所以 **1b.5 原样复用，不需要旁路**。这条开放风险关闭。
+
+（对照组：把其中一条链的前缀人为截断后再喂，它也没修——说明本形态不在它的触发条件里，
+不是被我们废掉了。我们要的答案是"会不会损坏良构链"，那个答案是不会。）
+
+### 5.2 Stage 2.7（已实测：会触发，但原样复用）
 
 本文初稿断言 Stage 2.7 对新轨空转，理由是"新轨一张表一个 TableInfo"。**这个理由只排除了
 "一个 sheet 内多表"，没排除"多个 sheet 各出一张同名表"**，而后者在真实数据里很常见。
@@ -330,11 +373,17 @@ Stage 2.7 的分组键就是 `table_name`（**不含 sheet 归属**），触发�
 `table_name` + ≥2 张表 + 月份连续 + `data_type` 一致"。新轨若在一个 workbook 的多个
 sheet 上读出同一个报表标题，**这一步会真实触发**。
 
-**它触发未必有害**——跨表补齐账户本来就是同一个业务意图（让前端按账户合并时视觉对齐），
-新轨的多 sheet 同名表和旧轨的多批同名表在这一点上诉求相同。所以处置不是"想办法绕过"，
-而是**实测确认它的行为符合预期**：拿一个多 sheet 同名表的真实文件跑新轨，检查补出来的
-占位行数量与位置是否合理，以及 `row_position` 让位 +1 会不会与 `source_row_id` 的分配键
-（§4.2）打架。
+**实测结论（已完成）**：造两张同名表（月份连续、账户集合不同，第二张缺 `AR`）喂给它，
+`raw_rows` 数 `[6, 4] → [6, 6]`——为第二张表补出 `AR` 的 2 个占位 cell（`value=None`）。
+**确实会触发。**
+
+但**行为符合业务意图**：跨表补齐账户就是为了让前端按账户合并时视觉对齐，新轨的多 sheet
+同名表与旧轨的多批同名表在这一点上诉求相同。所以处置是**原样复用**，不绕过。
+
+⚠️ 留一条给上线观察：占位行会让同表其余行 `row_position` 让位 +1，而 `source_row_id`
+的分配键含 `row_position`（§4.3）。这在旧轨上已经是既有行为、不是新轨引入的，但多 sheet
+同名表在新轨上会比旧轨更常见（旧轨是因体量拆表、新轨是因多 sheet），值得在真实多 sheet
+同名文件上确认一次行号稳定。
 
 ### 5.3 Stage 2.5 为什么不用改造
 
@@ -346,12 +395,28 @@ sheet 上读出同一个报表标题，**这一步会真实触发**。
 （`lg_category != UNMAPPED and account_label 非空`）。不是"需要砍掉那一支"，是那一支
 永不触发。零改动。
 
-> **审核期澄清（数据判定）**：曾担心"TOTAL / 合计列这类没有月份的列"会被 Stage 2 的
-> 锚点外推静默塞进一个编造的月份。实测否决了这个担心——`lg_uat` 上
-> `source_column_month IS NULL` 是 **0/59644 = 0.00%**，**旧轨从不产出无月份的 cell**。
-> 合计列在 `date_columns` 阶段就被排除（设计文档 §5.1：只列真期间列，排除
-> `%` / 差异 / 占比 / 合计），因此根本不会产生 `column_month=None` 的 cell，Stage 2
-> 碰不到它。新轨沿用同一口径即可，无需额外机制。
+> **审核期澄清（数据判定，含一处自我纠正）**
+>
+> 曾担心"没有月份的列"会被 Stage 2 的锚点外推静默塞进一个编造的月份。第一次核查只查了
+> `source_column_month IS NULL`（0/59644），据此判定"旧轨从不产出无月份的 cell"
+> ——**这个判定是错的**：那些行用的是**空串 `''` 而不是 NULL**。
+>
+> 正确的数据是：**1161/59644 = 1.95% 的行没有月份**，涉及 **22 个 table / 20 个文件
+> （11%）**。而且它们**不是合计列**——`source_column_order=1` 上就有 427 行、横跨全部
+> 22 个 table。看表名就清楚它们是什么：
+>
+> | 表名 | 空月份行数 |
+> |---|---|
+> | `Balance Sheet` / `Caravel Balance Sheet As of October 21, 2020` | 443 / 352 |
+> | `Wise Rock, LLC Profit and Loss January 1-June 23, 2026` | 162 |
+> | `Balance Sheet as of Dec 31, 19` | 84 |
+>
+> **非月末的 as-of 日期**（`As of October 21`）与**跨期区间**（`January 1-June 23`）
+> ——它们本来就没有"日历月"可对。旧轨的做法是给空串、让
+> `source_is_mapped=False`（实测这 1161 行**全部**是 False），把该行标记为不可用。
+>
+> **所以"没有月份"是一个必须支持的合法结果，不是错误。** 新轨的契约与校验都按这个来
+> （§4.2）。原先"程序确定性解析 `text` 得月份"的设想也随之修正——见本节。
 >
 > 顺带量到 `is_predict_month` 在旧轨占 **678/59644 = 1.14%**——Stage 2 确实在旧轨上
 > 起作用，新轨会把它归零。
@@ -462,9 +527,30 @@ encoding**，pandas 默认 utf-8。所以一个 gb18030 的 CSV 能过上传校�
 
 | # | 检查 | 级别 |
 |---|------|------|
-| 1 | 每张表都有自己的 `header_row`，且落在本表行段内 | FATAL |
+| 0 | 各表**派生跨度**不重叠 | FATAL |
+| 1a | `header_row` 不在本表条目区间下方（否则派生跨度都立不住） | FATAL |
+| 1b | **表内出现"重复列头行"** —— 见下 | FATAL |
 | 2 | 相邻两表边界处有分隔证据（空行断档，或边界行在条目列是标题性文本） | WARN |
 | 3 | 条目列里每个有文本的行都落在某张表的 `label_range` 内；连续 ≥5 行未覆盖 | FATAL（不足 5 行 WARN） |
+
+**⚠️ 检查 1 在实现时被拆成 1a/1b，因为文档原来写的那条在逐表契约下几乎是空的**：跨度
+既然由 `min(header_row, 条目起行)..条目止行` 派生，`header_row` 就**天然**落在跨度内，
+"落在本表行段内"无从失败。而"两张表被当成一张"这个失败模式在逐表契约下也不再表现为
+"缺 header_row"（模型给的那一张表自带一个合法的），于是原检查抓不到它。
+
+**1b 是真正的合并检测器**：两张表被并成一张时，**第二张表的列头行落在第一张表的区间
+里**——那一行在期间列上会与本表 `header_row` 的对应格**文本相同**。所以扫表内每一行，
+统计它在该表 `date_columns` 上与 `header_row` 文本相同的格子数，**≥2 即 FATAL**。
+取 2 而不是 1：单列重合可能只是巧合（两张表都有一列叫 `Total`）。零额外输出。
+
+**另外两处实现期补充**：
+
+- 新增 `date_columns_missing`（一张表没有任何期间列 → 取不出数，FATAL）。
+- 覆盖完整性检查把各表的 **`header_row` 也算作"已交代"**：那一行在条目列上常有个
+  `Period` / `Account` 之类的标签，它不是条目行、但也不是漏掉的东西。不排除的话每张表
+  都会白报一条 WARN（基线夹具上实测到了）。
+- "连续"按**文本行序列里的相邻**判、不按行号相邻：漏掉一整张表时它的条目行之间往往夹
+  着空行（段落分界），按行号相邻会把一段漏表拆成几个短段、每段都够不到阈值 5。
 
 这三条里有**两个算法整个仓库都没有先例**，骨架见
 [code-examples §7](./code-examples.md)：
@@ -532,17 +618,97 @@ encoding**，pandas 默认 utf-8。所以一个 gb18030 的 CSV 能过上传校�
 提示词变体，而多表本身就是少数场景，不值得为它开一条提示词分支。"整 sheet 重问 + 按表
 丢弃"是这两件事的正确组合。
 
-### 8.3 截断
+### 8.3 截断：`ask_json` 回 `(应答, 是否被截断)`
 
 `finish_reason == "length"` 要判。旧轨的 `_salvage_truncated_unit` **对本轨无用**——它
 只能拆 ≥2 张图的 vision 消息，HTML/文本轨返回 `None`（这也是旧轨 HTML 轨"截断会静默
-丢行"的根因）。
+丢行"的根因）。**不做 `json_repair` 抢救前缀**——半个 `tables[]` 比没有更危险（坐标不全
+但外观合法）。
 
-新轨输出量级低一个数量级，截断风险小得多，但仍要显式处理：判到 `length` 即视为该 sheet
-本步失败（走重问，重问时可缩小视图范围），**不做 `json_repair` 抢救前缀**——半个
-`tables[]` 比没有更危险（坐标不全但外观合法）。
+⚠️ **截断必须与其它失败分开回出去**，所以 `ask_json` 的返回是 `tuple[Optional[dict],
+bool]` 而不是 `Optional[dict]`：
 
-### 8.4 新增三个 `CallerNode` 枚举值
+| 失败种类 | 正确反应 |
+|---|---|
+| `finish_reason == "length"` | **缩整张 sheet 的批大小**重发（见 §8.4） |
+| 解析不出 JSON | **原样重发一次**，仍不行才放弃（切小了也不会变成合法 JSON） |
+
+两者反应相反，混成一个 `None` 就只能二选一。定位步与货币步的输出是 O(列)，拿到这个
+布尔量原样 `_` 丢弃即可（`answer, _ = ask_json(...)`）。
+
+另外 `ask_json` 里 `content` 为空要单独挡一下：`parse_json_response` 首行就
+`content.strip()`，provider 只回 reasoning 或拒答时 content 是 `None`，不挡直接
+`AttributeError`。
+
+### 8.4 步 3 的分批实现
+
+设计与实测依据见[设计文档 §4.5](../设计/design-doc.md#45-步-3-的分批取数d8)，这里只记
+落地形状。**只有步 3 分批**，另两步不动。
+
+`semantics.py` 的五个函数，`resolve_semantics` 是平铺主方法：
+
+| 函数 | 职责 |
+|---|---|
+| `_label_cells(view, geoms)` | 条目区每行的 `(行号, 标签原文, ind)`，取**最左非空**（同 `verify.label_at`），阶梯 / 单列共用一条规则 |
+| `_batch_size(cells, geoms)` | 按"预计每行输出 token"反推批大小，钳制 `[_BATCH_MIN, _BATCH_MAX] = [100, 250]` |
+| `_label_view(view, geoms, rows)` | 只渲染本批那一段：`row_range=(rows[0], rows[-1])`、`col_range` 取**全部条目列**、`with_styles=True` |
+| `_carry_over(answer, texts, batch)` | 挑三段承接文案之一并填行 |
+| `_ask_batch(...)` | 发一批：首答 → `verify_semantics(..., rows_scope=set(batch))` → FATAL 则带证据重问一次 → 返回 `(采用的应答, 是否截断)` |
+
+主循环用 `deque`，截断时**把剩余队列按新尺寸整个重切**（左半仍排最前：它的
+`open_stack` 要喂给右半，顺序颠倒承接链就反了）：
+
+```python
+size = _batch_size(cells, geoms)
+queue = deque(rows[i:i + size] for i in range(0, len(rows), size))
+shrinks = 0
+while queue:
+    batch = queue.popleft()
+    answer, truncated = _ask_batch(...)
+    if truncated and len(batch) > 1:
+        shrinks += 1
+        if shrinks > _MAX_SHRINKS:               # 250 缩 8 次已 < 1，正常路径够不到
+            return None
+        size = len(batch) // 2                   # ⚠️ 缩的是后续所有批次，不只这一批
+        rest = [r for b in queue for r in b]
+        queue = deque([batch[:size], batch[size:]]
+                      + [rest[i:i + size] for i in range(0, len(rest), size)])
+        continue
+    if answer is None:
+        return None                              # 已重发过一次，不再救
+    out.update(_index_rows(answer, set(batch)))  # ⚠️ 按本批过滤，防跨批静默覆盖
+    carry_over = _carry_over(answer, texts, batch)
+```
+
+**五处最容易写错**：
+
+1. **`verify_semantics` 必须传 `rows_scope`**。不传的话"每个条目行都要有记录"这条按
+   sheet 全集判，每一批都会报"漏了几百行"、每一批都触发一次带证据的重问，调用数直接
+   翻倍。**但行号合法性（落在某张表条目区内）仍按 sheet 全集判**——批外的行号是真的错，
+   不是"这批没轮到"。
+2. **单批 sheet 不走特例分支**。一批就是"批数为 1"，`carry_over` 走第三段文案。分叉出
+   一条"短表直发"的路径只会多一处要维护的行为差异。
+3. **发给模型的文案一律不许内联进 Python**（`coding.md` § 15 / `ai/CLAUDE.md` § 四）。
+   三段承接文案在 `excel_extract_semantics.v1.md` § 7.1~7.3、重问提示在 § 7.4（定位步
+   的在 `locate.v2.md` § 7.1），全部经 `_md_loader.load_fragment` 取出——这正是
+   `load_fragment` 当初为"切片批次才发的块"设计的用法，`_carry_over` 只负责挑哪一段、
+   填哪些行。
+
+   ⚠️ `load_fragment` 按 H3 标题**子串**匹配，且在**模块 import 期**执行：.md 里的标题
+   改一个字就 `ValueError`，整个应用起不来，不是某个请求失败。所以
+   `test_prompts.py` 必须有一组用例把这五个标题钉住。
+
+4. **模型应答的形状要挡类型**。`open_stack` 退化成 `["Assets", "Cash"]`（字符串数组）
+   是极常见的降级形状，只挡 `isinstance(stack, list)` 不挡元素类型的话，一个
+   `AttributeError` 会从 `resolve_semantics` 一路冒到 sheet worker，把**已经答对的全部
+   批次**一起作废——而触发它的只是一个可选字段。`rows` 同理（可能是字符串数组、也可能
+   整个是 dict）。
+
+5. **父链逐字校验的比对集合不能排除数值文本**。段落名本来就可能是纯数字（`2024` 这种
+   年度分段头、会计括号负数同理），排掉它们只挡住"模型把 100 当段落名"这种几乎无害的
+   情况，却会把一整批正确答案判成臆造。
+
+### 8.5 新增三个 `CallerNode` 枚举值
 
 按 `ai/CLAUDE.md`「新增 agent / node 标识」，加到 `common/enums/caller_node.py` 的
 financial_extract 分组，带中文注释。三个 LLM 步各一个，让 `ai_llm_call_log` 能按步聚合：
@@ -568,7 +734,7 @@ D4：按步拆文件、运行时拼成一个 system。三个文件：
 source/ai/prompts/extract/
 ├── excel_extract_common.v1.md        坐标口径 + 合并 + 三个标记 + 转义/日期约定
 ├── excel_extract_locate.v2.md        步 1 定位（含 per-table 输出 schema）
-├── excel_extract_semantics.v1.md     步 3 父链 + lg 指标
+├── excel_extract_semantics.v1.md     步 3 父链 + lg 指标（含 § 7.1~7.4 三个承接片段 + 重问提示）
 └── excel_extract_currency.v1.md      步 6 货币与符号规则
 ```
 
@@ -583,6 +749,12 @@ source/ai/prompts/extract/
 
 同步要改的还有该文件的**自检清单**（`:87-99`）与 `label_anchors` 那一节（`:75-85`），
 它们现在都是单表口径。
+
+`excel_extract_semantics` **不升版、留在 `v1`**：它从未进过 git（`git log --all` 为空），
+所以分批带来的出参变化（多一个 `open_stack`）是**原地改**。升成 v2 会凭空造出一个仓库里
+不存在的前身——版本号只对能被别人 checkout 出来的东西才有意义。`locate` 不同，它的 v1
+确实在 `bdafff51` / `bdd0bf7c` 里。该文件同时新增「§ 1 本批的范围与承接」一节、三个
+`carry_over` 片段（§ 7.1~7.3）与重问提示片段（§ 7.4），见 §8.4。
 
 ### 9.3 `_md_loader` 的三个语义要记住
 
@@ -699,16 +871,27 @@ docstring 写明"实际跑 LLM 的 unit 总数"）。本轨取 **sheet** 作为 
 
 ## 12. 落地顺序
 
-分四批，每批可独立提交与审核：
+分五批。**批次是开发与提交的单位，不是发布单位**——整个功能全部完成后一次上线，
+不分批发布：
 
 | 批次 | 内容 | 可独立验证？ |
 |------|------|-------------|
-| **1** | `render.py`：`ind` + 5 个样式 + `with_styles` + csv 支路；`test_render.py` 补齐 | 是。渲染结果可对着源文件逐格核 |
-| **2** | `verify.py`：per-table + D7 三条 + 步 4 三条；提示词 `locate.v2` + 拆三个 `.md`；`test_verify.py` 改 | 是。用批次 1 的视图 + 手写 answer 跑 |
-| **3** | `locate.py` / `semantics.py` / `currency.py` / `values.py` / `pipeline.py` + 单测 | 是。LLM mock 后纯逻辑可测 |
-| **4** | `nodes/extract_node.py` + 接线（`build.py` / `parallel_files_node.py`）+ `CallerNode` 枚举 + `ai/CLAUDE.md` 条目 | **不是**。要跑真文件端到端，含 §5.1 的 Stage 1b.5 实测 |
+| **1** | `render.py`：`ind` + 5 个样式 + `with_styles` + csv 支路；`tools.py` 占位 + `nodes/__init__.py`；`test_render.py` 补齐 | 是。渲染结果可对着源文件逐格核 |
+| **2** | `verify.py`：per-table + `Issue.table_index` + D7 三条 + 步 4 三条；提示词 `locate.v2` + 拆三个 `.md`；`test_verify.py` 改 | 是。用批次 1 的视图 + 手写 answer 跑 |
+| **3** | `llm_call.py` / `locate.py` / `semantics.py` / `currency.py` / `values.py` / `pipeline.py` + **`CallerNode` 三个枚举值** + 单测 | 是。LLM mock 后纯逻辑可测 |
+| **4** | `nodes/extract_node.py` + 接线（`build.py` / `parallel_files_node.py`）+ `ai/CLAUDE.md` 条目 | **不是**。要跑真文件端到端，验收清单见下 |
+| **5** | `crosscheck.py`：步 8 取数后校验（抽样比对 + 聚合行自校验）+ 步 7 的聚合行标记 | 口径见设计文档 §7.3（当前标"待设计"） |
 
-| **5** | `crosscheck.py`：步 8 取数后校验（抽样比对 + 聚合行自校验） | 上线**之后**补，口径见设计文档 §7.3（当前标"待设计"） |
+⚠️ **三处排序修正**（初稿排错了）：
+
+- **`CallerNode` 三个枚举值从批次 4 挪到批次 3**。批次 3 一发 LLM 调用就要传
+  `CallerNode.EXCEL_EXTRACT_LOCATE`，排在批次 4 的话批次 3 根本编译不过。
+- **步 7 的"聚合行标记"从批次 3 挪到批次 5**。落库表 **37 列里没有**聚合/求和行字段
+  （`state.py` 与 `extract_financial.py` 各 0 处命中），而 D5 定的是表结构零改动
+  ——这个标记**落不了库**，只能作运行期中间值；而它唯一的消费者就是步 8 的聚合行
+  自校验。所以批次 3 的 `values.py` 只做"按坐标取值 + 应用符号/货币规则"。
+- **批次 5 不是"上线后补"**。既然整个功能做完才上线，就不存在"生产上只有坐标级校验"
+  的窗口——原先写的那个缺口不成立。它只是开发顺序上排在最后。
 
 批次 1 ~ 3 不碰旧轨、不改接线，随时可停。
 
@@ -722,8 +905,55 @@ docstring 写明"实际跑 LLM 的 unit 总数"）。本轨取 **sheet** 作为 
 4. 确认 `n_extract_units` 取 sheet 口径（§10.5）后，`refine_extraction` 的四条错误升级
    判据在真实失败场景下仍能正确触发
 
-⚠️ 批次 5 之前上线，等于只有坐标级校验、没有数值级交叉校验。这是**明知的缺口**，
-不是遗漏——见 §2 末尾。
+⚠️ 上面第 1 条的验收在批次 5 之后**值得再跑一遍**：步 8 的聚合行自校验（子项之和 vs
+合计行）是唯一能自动扫出"坐标全对但取值 / 符号错"的手段，只有它在手时这轮验收才覆盖
+到数值层。批次 4 当时跑那一遍只能覆盖坐标层。
+
+---
+
+### 12.1 真文件验收挖出来的三处修复
+
+批次 4 的端到端验收（8 个 sheet、3092 个 cell、真实 LLM）跑出三个问题，都已修并回归：
+
+**① 符号双重取负——我引入的设计缺陷，也是最严重的一个**
+
+真实文件 `MXTR Balance Sheet` 上 `=SUM(C31:C32)` 的自校验对不上：
+
+```
+C31 = 43291.94    C32 = -13512    C33 = =SUM(C31:C32) 缓存 29779.94   ← 文件自洽
+抽取后的子项之和 = 56803.94 = 43291.94 + 13512                        ← C32 被翻了
+```
+
+`C32` **源值本来就是负数**，而步 6 因为科目名含 `Less:` 把它标了转负。根因是**我的提示词
+让模型按"科目名含 `Less:` 且数值为正时才标"判断，而步 6 看不到数值**（按设计只发格式
+统计）——那条规则要的信息模型手里根本没有。
+
+两处修：
+
+- **给步 6 每行的符号分布**（`[+]` / `[-]` / `[±]` / `[空]`，O(rows) 不是 O(cells)，
+  与"不发格子值"的口径一致），提示词明写"`[-]` 与 `[±]` 的行无论科目名长什么样都不要标"。
+- **程序侧兜底**：`SignRules.should_flip` 对**已经是负数**的值忽略**行级**取反并告警。
+  只兜行级不兜列级——行级针对 contra 科目，对已是负的值取反必然与意图相反；列级针对
+  "变动额 / 减项列"，那种列本就有正有负、取反是要的。
+
+效果：`sums_flagged: 7 → 0`（`sums_checked: 28` 不变）。**这条正是步 8 存在的理由的实证**
+——坐标全对、外观正常，只有聚合自校验能抓。
+
+**② 空 sheet 白发了一次 LLM 调用**
+
+`2019 Balance Sheet Detail.xlsx` 的 sheet#0 是个 **0 cell** 的
+`QuickBooks Desktop Export Tips` 说明页，对它发一次定位调用白花 4 秒。设计文档 §4.3 的
+口径本来就是"每个**有内容的** sheet 跑一遍步 1"，实现漏了这个过滤。已在
+`extract_node` 里按 `used_range() is None` 跳过（`sheets` 仍如实列出它）。
+
+**③ 覆盖完整性检查在几乎每个真实文件上白报 WARN**
+
+8 个 sheet 里有 3 个报 `label_rows_uncovered`（第 1~2 / 1~1 / 1~3 行）——那些是**表跨度
+之上**的脚手架行（公司名 / 报表标题 / 期间说明），不是"漏掉的条目行"。已把跨度最上沿
+之上的行排除在检查之外。效果：`uncovered_runs: ['1-2'] → []`。
+
+> 顺带在真实文件上看到 **FATAL 重问机制生效**：MXTR 首答 `anchors_matched: 2`（1 条
+> FATAL）→ 带证据重问 → `3` 并通过。这个环路此前只有单测覆盖。
 
 ---
 
@@ -734,7 +964,7 @@ docstring 写明"实际跑 LLM 的 unit 总数"）。本轨取 **sheet** 作为 
 | `../设计/design-doc.md` §5.2 | 步 3 输出契约补 `pf` / `cf` 两个键 | §4.1：漏了会断训练信号链 | **已改** |
 | `../设计/design-doc.md` §4.4 | 新增小节，记 `unit_type` 由程序从 `number_format` 派生、`semantic_group` 恒空串 | §4：设计文档的 7 步没覆盖这两个落库字段 | **已改** |
 | `CIOaas-python/source/ai/CLAUDE.md` | 本包条目从"尚无 build.py/nodes/tools.py，成图时补齐"改成"本包提供 per-format 节点实现、不自持 graph"；在 §五 追加一条例外，**范围仅限 `build.py`**（`tools.py` 按占位先例建，不属例外） | §2.1 | 待改（属代码仓库，随批次 4 一起） |
-| `CIOaas-python/source/common/enums/caller_node.py` | 新增三个值 | §8.4 | 待改（随批次 4） |
+| `CIOaas-python/source/common/enums/caller_node.py` | 新增三个值 | §8.5 | 待改（**随批次 3**——批次 3 就要用） |
 | `../设计/design-doc.md` §4.2 / §4.3 / §5.1 / §11 等 | 审核期修正 8 处：步 3 输出形状、单表占比的单位、"旧轨代码一行不改"补"节点"限定、7 个文件 vs 6 类形态、多表统计口径标注全格式、多表时步 3/6 仍每 sheet 一次、tok/s 的分母口径、`openai_compat` 完整路径 | 四路审核 | **已改** |
 
 ---
@@ -750,3 +980,113 @@ docstring 写明"实际跑 LLM 的 unit 总数"）。本轨取 **sheet** 作为 
 - **不用 `json_repair` 抢救截断的坐标 JSON**（§8.3，半个 `tables[]` 比没有更危险）。
 - **不加任何 env 开关**（D1）。sheet worker 数写模块常量。
 - **不改节点名 `"excel_preprocess"`**（§3.1，它是图边与 span 名的承重字符串）。
+
+
+---
+
+## 15. 步 1 的工具循环（D9）
+
+设计依据见[设计文档 §4.1](../设计/design-doc.md#41-步-1-是工具循环步-3--步-6-是固定调用d9-改)。
+这里只记落地形状。
+
+### 15.1 只能走异步，因为 `tools` 只在 `acomplete` 上
+
+`llm_db_router.complete`（同步）**没有** `tools` / `tool_choice` 参数，只有 `acomplete` 有。
+而本轨是"每 sheet 一条线程"的线程池。解法是 `llm_call.ask_json_with_tools` 里
+`asyncio.run(_tool_loop(...))`——**每条 worker 线程起一个自己的事件循环**，整条流水线
+不改成异步。代价只有每 sheet 一次事件循环创建（微秒级）。
+
+### 15.2 三个工具
+
+在 `tools.py`，吃**步 0 已经载入内存的** `SheetView`（工具不碰磁盘）：
+
+| 工具 | ref 形态 | 输出 | 上限 |
+|---|---|---|---|
+| `read_sheet` | — | `<tr r><td c>` 全表 | `_MAX_CHARS = 40000` |
+| `read_range` | `A1:G50` | 同上，矩形 | 同上 |
+| `read_line_column_range` | `A5:A200` / `A5:G5` / `B7` | 紧凑 `<c ref="A5">…</c>`，省约 30% | `_MAX_CELLS = 500` |
+
+**四条必须照做的**：
+
+1. **不用 LangChain `@tool`，用裸 schema + 显式 dispatch**。工具要访问本次调用的
+   `SheetView`，LangChain 那边要走 `ToolRuntime` 注入，而本包有
+   `from __future__ import annotations`，会把 `ToolRuntime[Ctx]` 字符串化导致注入**静默
+   失效**（见记忆 `langchain-toolruntime-future-annotations-gotcha`）。裸 schema 把 view
+   留在参数里，没这类坑；循环本来也要手搓（禁 `create_react_agent`）。
+2. **任何失败都返回可读文本，不抛**。抛出去整张 sheet 就废了；模型拿到"区间要形如
+   A1:G50"完全能自己纠正——这正是工具循环相对固定视图的价值。
+3. **截断必须显式**（`<truncated rows_not_shown=… hint=…/>`）。悄悄少发几行的后果是模型
+   把"视图到此为止"当成"表到此为止"，`label_range` 提前截断、后面几百行静默丢掉。
+4. **格子文本一律 `escape`**。不转义的话一个含 `<td c="Z">` 字样的备注格就能伪造出一列
+   坐标——坐标通道被内容注入，是本包第一性原则要防的那件事。
+
+### 15.3 循环期间关掉 `json_mode`
+
+模型要么回 `tool_calls`、要么回 JSON，强制 `response_format=json_object` 会和工具调用
+打架。最终那轮用 `parse_json_response`（含 json_repair 兜底）解析；解析不出就再问一次、
+明确要求只输出 JSON（`_JSON_ONLY_HINT`）。轮次上限 `_MAX_ROUNDS = 8`（实测同类 ReAct
+max 7）。
+
+### 15.4 回炉要重述首答
+
+`locate._restate` 把首答 `json.dumps` 成一条 assistant 消息再接证据。**不能像原来那样塞
+空串**：工具循环里模型看不到上一轮的工具结果（那是另一次 `acomplete` 的对话），空
+assistant 消息会让"逐条修正"失去修正对象。
+
+### 15.5 数值段折叠变成可选优化
+
+原先为"步 1 输入无上限"设计的**数值段折叠**（把一行里连续的数值格折成
+`<num c="B:Y" n="24"/>`，实测省 51%、把视图从 O(格) 降到 O(行)）**不再是必需项**——
+工具有上限、模型可以自己分段读。但它仍能让 `read_sheet` / `read_range` 便宜一半，
+且要注意**必须每段保留第一个格子的原文**，否则单独占一行的年份列头（纯数字 `2026`）
+会被吞掉，而提示词明确依赖它来补裸 `Jan` 的年份。本次未做。
+
+
+---
+
+## 16. D9 落地后的真实文件 E2E（挖出 6 个问题）
+
+跑了三个有代表性的文件、全程真 LLM：`2019 Balance Sheet Detail`（QuickBooks 阶梯版式
++ 无列头行的 Sheet2）、`Bevz Balance Sheet`（59 行 × 25 列，输入最大）、
+`MXTR P. L`（期间列月/%交替 + 孤立噪声格）。
+
+### 16.1 结果
+
+| 文件 / sheet | 轮次 | 用了什么工具 | 产出 |
+|---|---|---|---|
+| BS Detail · Tips（空 sheet） | 2 | `read_sheet` | 正确判非财报 |
+| **· Sheet1（阶梯版式）** | 2 | `read_sheet` | **70 条目行全覆盖**、orphan 0、月份 `2019-12` |
+| · Sheet2（无列头行） | 2 | `read_sheet` | 29 cell、月份空（前端补数据流程） |
+| Bevz BS | 3 | `read_range` ×2 分页 | 55 行 × 24 期间列 = 1320 cell |
+| MXTR P&L | 3 | `read_range` ×2 分页 | **27 列里只挑出 12 个月份列**、780 cell、SUM 自校验 51 项 0 flag |
+
+阶梯那张之前是 4 个 cell。模型自己按规模选工具（小表 `read_sheet` 一次看全、大表
+`read_range` 分页），轮次 2~3，与实测预期的 2.82 吻合。单 sheet 全流水线 25~48 s。
+
+**回炉循环被真实触发过一次并成功**：MXTR 首答把第 92 行（有数值）漏在 `label_range` 外
+→ `uncovered_rows_have_values` FATAL → 模型拿到证据后自己去查
+`read_range('A80:AA93')` → `read_range('A1:AA10')` → `read_line_column_range('A85:A93')`，
+**精准回到出问题的位置**。这是"证据接回同一个循环"相对盲重问的收益，实测到了。
+
+### 16.2 挖出来的 6 个问题（全部已修）
+
+| # | 问题 | 后果 | 修法 |
+|---|---|---|---|
+| 1 | 回喂 assistant 消息的 `tool_calls` 用了 router 的 `arguments` 键，而 LangChain 回放要 `args` | **第 1 轮不报、第 2 轮回放才 TypeError**，整张 sheet 废 | `llm_call._tool_loop` 转键；测试补 `convert_to_openai_messages` 真转一遍（原来的替身绕过了这层） |
+| 2 | 概览列出全文件 sheet，但工具只给当前一个 | 模型第一轮就去读别的 sheet、拿到错误文本，白烧一轮 | `views` 从 `extract_node` 透到 `locate_sheet`；跨 sheet 读本来也**有用**（QuickBooks 把一张表拆两个 sheet、列头只在第一个上） |
+| 3 | `_month_from_text` 不认 `Dec 31, 19`（`_MON_YEAR_RE` 中间夹了日期就不匹配） | 模型给空月份时 `date_col_month_empty_but_parseable` 永不响，**49 个格子静默落成无月份** | 加 `_MON_DAY_YEAR_RE`，沿用"月末或 1 号才算该月"口径（`As of October 21, 2020` 仍正确回 None）；提示词对照表补一行 |
+| 4 | 未覆盖的条目行**只按段长 ≥5 判 FATAL** | 同一文件两次跑，一次 70 cell 一次 68，差的是 `Total Equity` / `TOTAL LIABILITIES & EQUITY` 两个**有金额的收尾行**，而校验全绿 | 分级改看**这些行有没有数值**：有数值 = 确定丢数据 → FATAL（`uncovered_rows_have_values`）；无数值（脚注）才按段长判 |
+| 5 | 视图是转义过的，模型照抄 `T&amp;M Comm`，校验拿原文 `T&M Comm` 比 | 假 FATAL。实测语料 **75/5211 格**含 `&` 或 `<>`，每个用作锚点 / 列头原文 / 父链段都会中 | 新增 `_norm_claim()`（先 `html.unescape` 再归一），用在三处"模型声称的原文"比对上。**只反转义模型那一侧**，原文侧最坏多一次匹配成功、不会造成假失败 |
+| 6 | 单批 sheet 也算 `_carry_over`，模型没给 `open_stack` 时刷误导性告警 | 每张表一条噪声 WARNING | 只在 `queue` 非空时算 |
+
+### 16.3 一个必须记住的性质：ReAct 引入了跑与跑之间的抖动
+
+问题 4 是**同一个文件两次跑给出不同 `label_range`** 暴露的（70 cell vs 68 cell）。这是
+D9 的固有代价，不是 bug：
+
+- **不能靠"跑一遍看对不对"验收**，要靠**格式无关的不变量**兜。问题 4 的修法正是把一条
+  "看段长"的启发式换成一条"有没有数值"的不变量。
+- 抖动落在**契约**上（`label_range` 边界），不落在数值上——数值始终由程序按坐标取，
+  抽样回读三个文件全部 0 不符。
+- 所以 D9 之后，**校验的分级口径比以前更重要**：状态机时代一个 WARN 只是"这次有点怪"，
+  ReAct 时代它是"这次抖到了坏的那一侧"。
