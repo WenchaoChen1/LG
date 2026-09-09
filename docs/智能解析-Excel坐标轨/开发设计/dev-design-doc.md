@@ -733,7 +733,7 @@ D4：按步拆文件、运行时拼成一个 system。三个文件：
 ```
 source/ai/prompts/extract/
 ├── excel_extract_common.v1.md        坐标口径 + 合并 + 三个标记 + 转义/日期约定
-├── excel_extract_locate.v2.md        步 1 定位（含 per-table 输出 schema）
+├── excel_extract_locate.v3.md        步 1 定位（含 per-table 输出 schema + data_type）
 ├── excel_extract_semantics.v1.md     步 3 父链 + lg 指标（含 § 7.1~7.4 三个承接片段 + 重问提示）
 └── excel_extract_currency.v1.md      步 6 货币与符号规则
 ```
@@ -989,12 +989,32 @@ C31 = 43291.94    C32 = -13512    C33 = =SUM(C31:C32) 缓存 29779.94   ← 文�
 设计依据见[设计文档 §4.1](../设计/design-doc.md#41-步-1-是工具循环步-3--步-6-是固定调用d9-改)。
 这里只记落地形状。
 
-### 15.1 只能走异步，因为 `tools` 只在 `acomplete` 上
+### 15.1 走同步 `agent.invoke`，循环交给 `create_agent`
 
-`llm_db_router.complete`（同步）**没有** `tools` / `tool_choice` 参数，只有 `acomplete` 有。
-而本轨是"每 sheet 一条线程"的线程池。解法是 `llm_call.ask_json_with_tools` 里
-`asyncio.run(_tool_loop(...))`——**每条 worker 线程起一个自己的事件循环**，整条流水线
-不改成异步。代价只有每 sheet 一次事件循环创建（微秒级）。
+**（2026-09-08 改写。原文写的是"只能走异步、每条 worker 线程 `asyncio.run` 起一个事件
+循环"——那个前提和那个解法都已经不成立，且后者被当成 bug 删掉了。）**
+
+`llm_db_router.complete`（同步）**现在收** `tools` / `tool_choice` / `cache_conversation`，
+`DBRouterChatModel._generate` 也接上了它。所以本轨每 sheet 一条线程的线程池直接用
+`agent.invoke`，**不自建事件循环**。
+
+自建循环踩的是三个坑，都实测过：
+
+1. `writer.schedule_persist_call` 见到 running loop 就 `create_task`，主协程返回时循环随即
+   关闭 → **最后一轮的 `ai_llm_call_log` 记录丢掉**（缺的恰好是产出坐标契约、输入最大的
+   那次，按 trace 聚合的成本因此系统性偏低）。
+2. 异常路径下那个 task 永不完成 → `_inflight_tasks` 的强引用永不释放 → 累积到上限后
+   **整个进程的 LLM 追踪落库降级成同步阻塞写**。
+3. 进程级共享的 `AsyncOpenAI` 连接绑定事件循环（`openai_compat/chat.py` 有明写的单 loop
+   假设），keep-alive 连接建在已关闭的循环上 → 每个新循环白烧一次重试。
+
+循环本身用 `llm/infrastructure/langchain/` 的 `create_agent`（桥接回统一入口的唯一集成
+点），换来的是**工具调用的审计**：那个工厂恒挂 `ToolCallLogMiddleware`，每次工具调用写一条
+`ai_llm_tool_call_log` + 开一个 `mcp_tool` span。手搓循环这两样都没有。
+
+两处必须显式给：`provider="openrouter"`（两个 `cache_*` 断点的注入守着它）、
+`recursion_limit = 轮数 × 2`（LangGraph 数超步，一轮"模型 + 工具"两步；撞上限抛
+`GraphRecursionError`，调用方要接住转成"无应答"）。
 
 ### 15.2 三个工具
 
@@ -1008,11 +1028,15 @@ C31 = 43291.94    C32 = -13512    C33 = =SUM(C31:C32) 缓存 29779.94   ← 文�
 
 **四条必须照做的**：
 
-1. **不用 LangChain `@tool`，用裸 schema + 显式 dispatch**。工具要访问本次调用的
-   `SheetView`，LangChain 那边要走 `ToolRuntime` 注入，而本包有
-   `from __future__ import annotations`，会把 `ToolRuntime[Ctx]` 字符串化导致注入**静默
-   失效**（见记忆 `langchain-toolruntime-future-annotations-gotcha`）。裸 schema 把 view
-   留在参数里，没这类坑；循环本来也要手搓（禁 `create_react_agent`）。
+1. **用 LangChain 原生 `@tool`，`SheetView` 经 `ToolRuntime[ExcelToolCtx]` 注入**
+   （2026-09-08 改；原文写的是"用裸 schema + 显式 dispatch"）。这样工具才能交
+   `create_agent` 驱动、白拿工具调用审计。⚠️ **`tools.py` 因此不许写
+   `from __future__ import annotations`**：它会把 `ToolRuntime[Ctx]` 字符串化，历史上会让
+   注入静默失效（见记忆 `langchain-toolruntime-future-annotations-gotcha`）。实测当前
+   langchain 版本已能处理字符串化的注解，所以这条现在是**版本相关的防御**——留着是因为
+   踩过、且降版就复发。另外三个工具要在 `metadata` 里声明 `plain_text`：它们返回的是给
+   模型看的坐标视图原文、不走 `tool_result` 的 `{ok}` 约定，不声明的话每一次成功读取都会
+   被记成 `FAILED`。
 2. **任何失败都返回可读文本，不抛**。抛出去整张 sheet 就废了；模型拿到"区间要形如
    A1:G50"完全能自己纠正——这正是工具循环相对固定视图的价值。
 3. **截断必须显式**（`<truncated rows_not_shown=… hint=…/>`）。悄悄少发几行的后果是模型
