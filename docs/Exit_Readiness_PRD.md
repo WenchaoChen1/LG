@@ -47,7 +47,8 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - ERL 各维度列表:
     - 各维度closed month所在季度的ERL分数
     - 各维度所在阶段
-    - 各维度Perception Gap：Founder和GSV每个维度的分数差  
+    - 各维度Perception Gap：Founder和GSV每个维度的分数差
+    - 各维度View Details链接  
   - BPMM（TBD）
   - 雷达图
     - 各维度为点
@@ -55,26 +56,25 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
     - GSV填写的closed month所在季度的各维度的分数
     - 手动输入的Top GSV Quartile的closed month所在季度的各维度的分数
     - 手动输入的External Benchmarks的closed month所在季度的各维度的分数
-
+- 维度更新后，overview列表实时更新维度，维度未填写时，维度和Gap分析显示为空即可
 
 ---
 
-### 2. 维度详情页（Dimension Detail Page，模板）
+### 2. 维度详情页（Dimension Detail Page）
 
 **功能描述**：
 - 各个维度（FRL / PRL / BERL / RRL / TRL）使用**同一套模板**，通过 dimension 参数驱动，避免重复维护。
 - 页面为「View Details」进入后的题级详情视图，展示：
   - 维度名称（如 "Financial Readiness (FRL)"）
   - 该维度题目总数
-  - 该维度综合分数
-  - **Founder / GSV Tab 切换**（公司用户不显示 GSV Tab）
+  - **Founder / GSV Tab 切换**（公司用户不显示 GSV Tab，无需切换）
   - 元数据栏：Period、Submitted By、Role、Submitted At
-  - 该维度全部题目列表，每题显示 Era-level 标签（如 "Founder Era-1"）与得分
+  - 该维度全部题目列表，每题显示 Era-level 标签（如 "Founder Era-1"）与答案
+  - 各题目的附件（可下载）与Notes
 - **「View history」入口**：跳转到 Assessment History 页（限定当前维度）。
-- **「+ New」入口**：发起该维度新一轮评估（分别进入 Founder Flow 或 GSV Flow）。
+- **「+ New」入口**：发起该维度新一轮评估（不同端口分别进入 Founder Flow 或 GSV Flow）。
 - 权限规则：
-  - 创始人只能看到自己的数据，且不显示 GSV 专属字段（Benchmarkit、Top GSV Quartile 等）。
-  - GSV 团队可看到 GSV 专属字段。
+  - 创始人只能看到自己的数据，且不显示 GSV 专属字段（External Benchmark、Top GSV Quartile 等）。
 - 全端响应式（桌面 + 移动）。
 
 ---
@@ -82,21 +82,19 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 ### 3. ERL 评估表 — 创始人流程（Founder Flow）
 
 **功能描述**：
-- 面向 **Company User / Company Admin** 角色，在 Assessments 区块内访问。
+- 面向 **Company User / Company Admin** 角色。
 - 表单顶部提供**评估期选择器**（如 "Q3 2026"），有Save as draft、Cancel、Reset、submit按钮
-- 题库来源于 ERL Configuration，按 5 个维度组织；每个维度内按 3 个 Era 分组：
-  - Founder Era（Stage 1–3）
-  - Harvest & Growth Era（Stage 4–6）
-  - Exit Era（Stage 7–9）
+- 题库来源于 ERL Configuration中配置的维度和问题
 - **打分格式**：
   - 全部问题包含Era和level,为Yes/No + 固定顺序必答模式（在ERL configuration中配置的顺序）；
   - 五个维度的所有问题按照Era和等级依次显示
     - 例如用户回答完了Founder Era-1的问题，且答案全部为yes,该level折叠并显示Check,再显示下一level的问题，直到有No回答(或全部答完），就不再显示下一Level,激活提交按钮，分数就是此回答为No的Level减一；若9个层级都是yes回答，则最终得分为9
 - 每题字段：
-  - 可选「证据/备注（Evidence/Notes）」文本、可上传附件（单个最大10MB）
+  - Yes/No选项
+  - 选填：「证据/备注（Evidence/Notes）」文本、可上传附件（单个最大10MB）
   - 每题显示来源标签（Founder/CTO、Looking Glass、SharePoint 等）
 - 创始人**独立**完成，全程不可看到 GSV 分数。
-- 支持保存进度、稍后继续，无数据丢失。
+- 支持保存进度，无数据丢失。
 - **提交后即只读**，如需修改必须新建一次提交。
 - 同一季度允许多次提交，最新一次为 source of truth。
 - 每次提交生成带日期的记录（提交日期、评估人、基金/组合）。
@@ -109,23 +107,29 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
   - 如果题库有更新，且有未完成草稿，进入草稿时，会有弹窗提示，让用户选择是否继续提交旧版本题库
   - 问卷提交人已最终提交者为准
 - 全端响应式。
+  
 ---
 
 ### 4. ERL 评估表 — GSV 团队流程（GSV Flow）
 
 **功能描述**：
-- 面向 **Portfolio Manager / Portfolio Group Manager**，在 Assessments 区块内、按 portfolio 公司访问。
-- 使用与 Founder Flow **相同**的题库、Era 分组、打分标度（同样受 Yes/No + 固定顺序 TBD 影响）。
+- 面向 **Portfolio Manager / Portfolio Group Manager**
+- 表单顶部提供**评估期选择器**（如 "Q3 2026"），有Save as draft、Cancel、Reset、submit按钮
+- 题库来源于 ERL Configuration中配置的维度和问题
+- **打分格式**：
+  - 全部问题包含Era和level,为Yes/No + 固定顺序必答模式（在ERL configuration中配置的顺序）；
+  - 五个维度的所有问题按照Era和等级依次显示
+    - 例如用户回答完了Founder Era-1的问题，且答案全部为yes,该level折叠并显示Check,再显示下一level的问题，直到有No回答(或全部答完），就不再显示下一Level,激活提交按钮，分数就是此回答为No的Level减一；若9个层级都是yes回答，则最终得分为9
 - 每题字段：
-  - 可选择yes/no
-  - **来源标签**（Looking Glass、SharePoint、GSV Assessment、Board Transcripts / Fireflies 等）
-  - 可选「证据/备注」文本
-- 表单顶部提供**评估期选择器**（如 "Q3 2026"）。
-- 每个维度均可提交附件
-- 保存进度、可恢复。
-- 提交后只读；同一季度可多次提交，最新为 source of truth。
-- 每次提交生成带元数据的记录，进入 Assessment History。
-- Portfolio admin 可为其权限范围内任意公司完成/更新 GSV 评估。
+  - Yes/No选项
+  - 选填：「证据/备注（Evidence/Notes）」文本、可上传附件（单个最大10MB）
+  - 每题显示来源标签（Founder/CTO、Looking Glass、SharePoint 等）
+- 支持保存进度，无数据丢失。
+- **提交后即只读**，如需修改必须新建一次提交。
+- 同一季度允许多次提交，最新一次为 source of truth。
+- 每次提交生成带日期的记录（提交日期、评估人、基金/组合）。
+- 历史记录进入 Assessment History。
+- 仅限公司用户在其自身 portal 内完成，portfolio admin 不能代填。
 - 操作流程说明：
   - 点击Add New按钮，进入问卷回答页面，若有草稿则进入之前的草稿，提示草稿，显示上次保存时间和保存人；若无草稿则直接新增。
   - 答题完成后，可提交为该季度评价，若之前已提交该季度评价，则弹出提示：已提交该季度评价，是否再次提交？
