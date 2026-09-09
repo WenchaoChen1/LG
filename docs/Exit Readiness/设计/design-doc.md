@@ -1,7 +1,7 @@
 > 关联文档：
 > - **需求文档（本设计的唯一权威来源）**：[../../Exit_Readiness_PRD.md](../../Exit_Readiness_PRD.md)（**2026-09-04 修订版**，当前为 `49d9a29`）
 > - **需求方裁决（2026-09-06）**：① **提交粒度＝维度级**；② ~~**维度只停用不硬删**~~ → **v4.8 订正为「维度可物理删除」**，**维度集合与权重按期次快照**（快照机制不变，见 §0.14）；③ **展示期次＝closed month 所在季度，该季两端无提交即空态、不回退**。三条均已落入本版，见 §0.10-R1 / R2 / R3
-> - **需求方裁决（2026-09-08）**：① **数据模型重构**（表数 12 → 11；维度配置去版本化、期次绑定表删除、题库版本线改为每维一条、新增发布时维度快照表）；② **删除维度改软删**（`status` = `Activate` / `Deactivate`）；③ **权重不做任何快照、接受历史漂移**（§13-Q21 重新打开）；④ `erl_assessment` 删 `submission_seq` / `is_latest`，SOT 改按 `submitted_at DESC, id DESC`。逐条见版本说明 v4.15
+> - **需求方裁决（2026-09-08）**：① **数据模型重构**（表数 12 → 11；维度配置去版本化、期次绑定表删除、题库版本线改为每维一条、新增发布时维度快照表）；② **删除维度改软删**（`status` = `Active` / `Inactive`）；③ **权重不做任何快照、接受历史漂移**（§13-Q21 重新打开）；④ `erl_assessment` 删 `submission_seq` / `is_latest`，SOT 改按 `submitted_at DESC, id DESC`。逐条见版本说明 v4.15
 > - **PRD 回写建议**（本设计发现的 PRD 待改项，含可直接粘贴的改法）：见 §0.10-④
 > - 原型（Lovable，已发布，**仅作 UI 参考**）：`https://exit-readiness-hub.lovable.app`（项目 `exit-readiness-hub` / `ERL-Portfolio portal`）。**2026-09-03 03:32 更新过，当日已重抓并反解，见 §2.3.1** —— 该版原型也换成了 Yes/No 逐级解锁 + 五维权重，多数结论印证 v4.0；10 处与 PRD 冲突的地方一律按 PRD。**当日晚些时候 `/erl-configuration` 又改了一版（两个顶层 Tab + 题目表格 + `View history`），见 §2.3.1-⑤，v4.1 据此调整 C 模块 UI**。**2026-09-04 补充**：`/erl-configuration/history` 在已发布站上是 404（该路由不在已发布构建里），v4.2 依据的是需求方提供的整页截图，见 §2.3.1-⑥。**2026-09-06 补充**：需求方提供 ERL Card 的 Gap 区块整块截图，v4.4 据此定档该区块 UI（§0.10-D4）。⚠️ **原型全部为五维形态，在「维度可增删」这一点上已整体过期**（§0.10-D1）
 > - 后端规范：[../../../CIOaas-api/standards/architecture.md](../../../CIOaas-api/standards/architecture.md) · [../../../CIOaas-api/standards/coding.md](../../../CIOaas-api/standards/coding.md)
@@ -29,7 +29,7 @@
 | v4.2 | 2026-09-04 | **原型 `/erl-configuration/history` 截图**（仅 UI 参考，见 §2.3.1-⑥） | **C7 由「版本清单表」改为「版本快照页」—— 纯 UI 调整 + 一个只读接口，PRD 未变，计分 / 权限 / 数据模型一律不变**：① C7 页面由「一张版本列表表格」改为**「页头版本下拉 + 五维各一张只读题目表」**，即选一个版本看**那一版的整份题面**；② 为此新增**接口 26** `GET /erl/question/version/{versionNo}`（接口 25 只给版本元数据，取不到题面）；③ 接口 25 **保留不变**，改作 C7 的版本下拉数据源。逐条见 §2.3.1-⑥ |
 | v4.3 | 2026-09-04 | **原型 Company Overview 截图 + PRD §3.1 原文复核** | **§8.6 订正：三卡不是纵向排列，而是「左列 FI → DI ＋ 右列 ERL」两列** —— 这不是需求变更，是 v4.0 落地时的**误读回正**：PRD §3.1 说的是「原 DI 卡片的**位置**由 ERL 卡片替代」，而存量 Company Overview **本来就是左右两列**（`.btmContent` 为 `row` + `space-between`，`.finanStyle` / `.deveStyle` 各 604px，左 FI 右 DI），「原 DI 位置」= **右列**；v4.0 把「位置」读成了「顺序」，顺手把两列压成了单列纵排。原型截图与 PRD 原文一致，故按原型回正。逐条见 §8.6 |
 | v4.4 | 2026-09-06 | `docs/Exit_Readiness_PRD.md` **2026-09-03 / 09-04 修订**（9 次提交：`57225d2` / `8f2fcc0` / `9a203ce` / `0333162` / `08b7a32` / `8324a3f` / `4f959bb` / `273671a` / `49d9a29`）**+ 需求方 2026-09-06 三条裁决 + ERL Card Gap 区块截图** | **提交粒度换底 + 维度动态化 + Goldie 回归 V1**，三处均为结构性变更：① **提交单元由「整卷」改为「单个维度」**（需求方裁决，§13-Q19 随之关闭）；② **维度不再是五个固定枚举**，改为租户级可增删排序的配置数据，维度集合与权重**按期次快照**，历史分数永不漂移（§13-Q21 关闭）；③ **Goldie（E 模块）撤销「待定功能」标记回归 V1**，并换成 **GSV 生成 → Share to founder** 的单向分享模型，双 audience 双 prompt 作废（§13-Q22 关闭）；④ 展示期次缺省由「最新已提交期次」改为 **closed month 所在季度**，该季无提交即**空态、不回退**（新增对 FI 域的跨域依赖）；⑤ **A4 全维 Score Details 双端可达**（`Full View`），每张维度卡各带 `Add New` + `View History`，§13-Q17 的旧裁决被 PRD 推翻；⑥ 填报页按钮组定档 `Save as draft / Cancel / Reset / Submit`，Reset 需新接口（§13-Q23 关闭）；⑦ 题库更新在填报页给**非阻断提示**（推翻「无任何提示」的旧承诺）；⑧ 历史列表删 `Completion`、补 `Submitted`、分数改维度口径；⑨ 配置页第二 Tab 由 `Dimension Weights` 扩为 `Dimension Configuration`。逐条见 §0.10 |
-| v4.5 | 2026-09-06 | **需求方 2026-09-06 追加要求：两张版本表补「是否当前在用」的标记列** | **`erl_question_config_version` / `erl_dimension_config_version` 各加一列 `is_latest`（boolean，not null，默认 `false`）**，标识该行是否为**当前正在使用的最新版本**：题库版本标在**最新已发布版本**上（`DRAFT` 恒 `false`），维度配置版本标在**当前生效版本**上；两表各加一个**组织内**部分唯一索引 `WHERE is_latest` 保证唯一。取「最新已发布版本 / 当前生效版本」由「按 `version_no` 倒排取第一条」改为**直接命中标记列**，Publish（接口 21）与 Save（接口 24）在同一事务内完成标记的转移。**纯模型与取数路径调整，计分口径、权限口径、接口契约、UI 一律不变。** 逐条见 §0.11 |
+| ~~v4.5~~ | 2026-09-06 | **需求方 2026-09-06 追加要求：两张版本表补「是否当前在用」的标记列**（⚠️ **本版已整条失效**：`erl_dimension_config_version` 于 2026-09-08 整表删除，`erl_question_config_version.is_latest` 于 **2026-09-09 删列** —— 两个标记列都不存在了，判据回到 `status` + `version_no`，见 §5.1.1） | **`erl_question_config_version` / `erl_dimension_config_version` 各加一列 `is_latest`（boolean，not null，默认 `false`）**，标识该行是否为**当前正在使用的最新版本**：题库版本标在**最新已发布版本**上（`DRAFT` 恒 `false`），维度配置版本标在**当前生效版本**上；两表各加一个**组织内**部分唯一索引 `WHERE is_latest` 保证唯一。取「最新已发布版本 / 当前生效版本」由「按 `version_no` 倒排取第一条」改为**直接命中标记列**，Publish（接口 21）与 Save（接口 24）在同一事务内完成标记的转移。**纯模型与取数路径调整，计分口径、权限口径、接口契约、UI 一律不变。** 逐条见 §0.11 |
 | v4.6 | 2026-09-06 | **需求方 2026-09-06 追加裁决：附件双端统一题级** | **附件回退 v4.0 的「扩粒度」**：① **GSV 维度级附件取消**，Founder 与 GSV **一律逐题挂附件**（10MB/个上限不变）；② 表名由 `erl_assessment_attachment` **改回 `erl_answer_attachment`**，`answer_id` 收紧回 **not null**，**`assessment_id` 列删除**（该列当初只是「维度级附件没有作答可挂」时的归属列）；③ 接口 4 / 5 删入参 `dimensionAttachments`、接口 3 删顶层出参 `attachments`，前端 `DimensionAttachmentPanel` 与 B2 维度级附件区整体删除。**本裁决推翻 PRD `621e857`（2026-09-02）写入的两处措辞，须回写 PRD（新增 M13）。** 计分口径、权限口径、题库与维度配置一律不变。逐条见 §0.12 |
 | v4.7 | 2026-09-07 | **需求方 2026-09-07 追加要求：配置页可替租户做 ERL 配置** | **C 模块（题库 + 维度配置）11 个接口新增可选入参 `organizationId`**：缺省 = 登录态组织（行为与 v4.6 逐字节一致），传值则必须是调用者**自身组织或其组织树下的子孙组织**，否则 400。配置页右上新增租户下拉（数据源复用存量 `GET /api/web/organization/findByTree`，**根节点无子组织即隐藏** → Portfolio Group Manager 看不到）。**本版推翻 v4.0 起反复申明的「C 模块组织一律取自登录态、不接受入参」**（§4.3 / §5.1.1 / §5.1.2 / §6.4）。计分口径、题库版本模型、维度配置模型、表结构一律不变。逐条见 §0.13 |
 | v4.8 | 2026-09-07 | **需求方 2026-09-07 追加裁决：维度删除即物理删除** | **`erl_dimension_config_item.status` 整列删除，「删除维度 = Retire 软删」口径作废** —— 配置页删掉一行、Save 后该维度就**不在新生成的配置版本里**；**历史仍不漂移**，靠的是 `erl_company_period_config` 的**期次-版本绑定**（R2 的核心机制**不变**），与状态位无关。`ErlDimensionConfigStatusEnum` **保留但降级为纯派生的展示态**（某 code 在当前生效版本里还在 ⇒ `ACTIVE`，不在了 ⇒ `RETIRED`，历史期次据此标灰），卡片（A1 / A2）与评分详情响应里的 `status` 字段照常下发、形态不变。**权重合计口径**由「仅 `ACTIVE` 行合计」改为**版本内全部维度合计恰为 100.00**；接口 23 / 24 的维度项**不再有 `status`**。另：**配置页 C6 布局改版**（新增栏上移到面板头下一行、列表由表格改为卡片行、行内编辑、`code` 列撤下），新增维度的 `code` ~~取填写的 `Abbreviation`（大写化）~~ → **2026-09-08 推翻：改为 `{abbr 前 3 位}{4 位随机}`，见 §5.1.3**；原文为 `Abbreviation`（大写化）且**此后永不改变**，`abbr` 可随时改名。**§13-Q24 关闭**。逐条见 §0.14 |
@@ -39,7 +39,7 @@
 | v4.12 | **2026-09-07** | **2026-09-07 ERL 代码审核的两条 P0 + 实现回写**（报告见 `CIOaas-api/.claude/doc/features/ERL业务域代码审核报告-20260907.md`） | **并发正确性定档 + 两处「文档与实现相反」的收敛**，全部为实现侧回正、无新需求：① **`stale` 不再无条件清零** —— 差距分析落库前重算「提交批次指纹」，只有输入没变过才清，变了就写入新内容但保留 `stale = true`；抢锁失败不再静默丢弃，持锁者跑完（锁已释放后）重读 `stale` 决定是否补跑，上限 2 轮；锁 TTL 由 5 分钟提到 **600 秒**（原值小于单轮最坏耗时，锁会中途过期导致并发写同一份分析）（§7.5 时序图 / S7 / S8）；② **`erl_gap_analysis` 主行的三个写入方（重生成 / 置脏 / Share）一律加行锁**，刻意不用乐观锁（置脏跑在用户提交事务里，乐观锁失败会让整次提交回滚）；③ **`erl_assessment` 与 `erl_question_config_version` 各加 `version` 列**（`@Version` 乐观锁）+ 写路径加悲观锁，兜住「已 SUBMITTED 一律只读」与「已发布版本一字不改」这两条不变量（§5.1.1 / §5.2 / §7.7 / §12）；④ **「0 题维度可提交」四处写反的表述订正为「不可提交」** —— 视图侧 `canSubmit` 本来就要求该维有题，提交侧漏了这一条，属同一契约两个口径（§6.3 校验 3 / §7.2 / §9 / §11-11b）；⑤ **§4.3 补一条强制校验**：写接口的 `dimension` 必须属于该期次绑定的配置版本（此前 `ZZZ` 这类字符串能落库成 SUBMITTED）；⑥ §9 失败降级表补「乐观锁冲突」一行。**计分口径、权限口径、接口契约、UI 一律不变。** 逐条见 §0.18 |
 | v4.13 | **2026-09-07** | **2026-09-07 题库两张表与对应 Java 类改名**（与 interfaces 层既有的 `ErlQuestionConfigResponse` 命名对齐） | **纯改名，零语义变更**：① 表 `erl_question` → **`erl_question_config`**、`erl_question_version` → **`erl_question_config_version`**，两表的索引与唯一约束名一并对齐（`uk_erl_question_config_key` / `idx_erl_question_config_version_dim` / `uk_erl_question_config_version_draft` / `uk_erl_question_config_version_no` / `idx_erl_question_config_version_status` / `uk_erl_question_config_version_latest`）；② 对应 Java 类全套 `ErlQuestion*` → **`ErlQuestionConfig*`**（实体 / 仓储 / 服务 / DTO / 枚举 / 控制器 / 转换器 / Request / Response），与 interfaces 层**早已叫** `ErlQuestionConfigResponse` 的命名对齐；③ **两个例外不改名**：`ErlQuestionConfigResponse`（已含 `Config`）与 `ErlQuestionDetailResponse`（评估回放的只读逐题结构，A3 / A4 / B3 共用，**不属题库配置**；其 DTO 对应物 `ErlQuestionDetailDTO` 同理保留）；④ 迁移脚本 **sprint118 的 V1 / V3 / V4 就地更新**表名，**不新增改名脚本**。**HTTP 路径（`/erl/question` 系列）、列名（`question_key` / `question_text` / `question_version_id` / `version_no` / `dimension_config_version_id`）、其它 `erl_*` 表名、计分与权限口径、接口契约、UI 一律不变。** 逐条见 §0.19 |
 | v4.14 | **2026-09-07** | **需求方 2026-09-07 决定：ERL Configuration 的菜单入口改由管理后台配置** | **菜单入口的落库途径换掉，前置条件与操作要求一律不变**：① 原先往 `menu` 表插 `path = '/exitReadiness/configuration'` 根节点行、并给超管角色授权的迁移脚本 **`V2__erl_menu.sql` 已删除**，这两件事改为**在管理后台的菜单配置界面**完成；② §8.1.1 的三个前置条件**一个不少**——`menu` 表必须有该 `path` 的行、**`pid` 必须是 `'0'`（根节点）**、该菜单经 `r_role_menu` 授权给用户角色、配好后必须**清两处缓存**（服务端 `menu` cache + 浏览器 `localStorage.roles`）再重新登录，只是「落地位置」由 SQL 脚本换成后台界面；③ sprint118 的**可执行脚本由四份减为三份**（`V1` / `V3` / `V4`，文件名保留旧称不变）；④ **路由守卫按端类型（`roleType`）判、不按菜单权限判的口径不变**，其论据里的反例由「脚本没跑」换成「菜单未在管理后台配置」。**表结构、计分口径、权限口径、接口契约、UI 一律不变。** 逐条见 §0.20 |
-| **v4.15（本版）** | **2026-09-08** | **需求方 2026-09-08 对 §5 数据模型的连续四轮调整 + 三条口径裁决** | **数据模型重构，并向接口 / 流程 / UI / 建表 / 用例全面对齐**：① **表数 12 → 11**：删 `erl_dimension_config_version`（维度配置去版本化）与 `erl_company_period_config`（期次-配置绑定取消），增 `erl_question_config_dimension_version`（发布时逐维快照）；② **三张表改名**：`erl_dimension_config_item` → `erl_dimension_config`、`erl_benchmark_record` → `erl_reference_score`、`erl_benchmark_dimension` → `erl_reference_score_item`；③ **题库版本线改为每维一条**：`erl_question_config.version_id` → `version_no`（按 `dimension_code` 自增），定位键 `(dimension_code, version_no)`；组织级发布批次仍在 `erl_question_config_version`，两者由 §5.1.5 快照表对应；**草稿仍是组织级一份**（保住 §0.18-L4 的并发论证）；④ **`erl_question_config_version` 精简为八列**（删 `based_on_version_id` / `change_summary` / `dimension_config_version_id`）—— 接口 25 不再返回 `changeSummary`，接口 26 的 `dimensions[]` 改取 §5.1.5 快照；⑤ **`erl_assessment` 删 `submission_seq` / `is_latest`**（连带删 `uk_erl_assessment_seq` / `uk_erl_assessment_latest`，**部分唯一索引五个 → 三个**），「最新一次提交」改判 **`submitted_at DESC, id DESC` 首条**；同时新增 `dimension_name` / `dimension_abbr` 提交时快照；⑥ **维度删除改软删**：`erl_dimension_config.status` 重新落库，取值 `Activate` / `Deactivate`，权重合计 100% 只算 `Activate` 行，`Retired` 灰标由列值直接判定（v4.8 的派生态作废）；⑦ **列名统一**：`dimension` → `dimension_code`（题库 / 评估 / 基准）、`question_version_id` → `erl_question_config_version_id`、`assessment_id` → `erl_assessment_id`、`question_id` → `erl_question_config_id`、`answer_id` → `erl_assessment_answer_id`、`record_id` → `erl_reference_score_id`；⑧ **三条口径裁决**：权重**不做任何快照**（接受改权重 / 增删维度回溯改变历史期次的综合分与 Stage）—— **R2「历史永不漂移」正式失效、§7.10-W1 反转回「接受漂移」、§13-Q21 重新打开**；`file_name` / `file_size` 暂不删除；**⑨ `erl_dimension_config.dimension_code` 改为服务端生成的 `{abbr 前 3 位}{4 位随机}`**（如 `OPS4K7M`，≤ 7 字符），与 `dimension_abbr` 解耦、创建后永不变，推翻 v4.8-P8；同时 **`dimension_abbr` 恢复组织内 `Activate` 唯一**、**接口 24 改为显式判别（`isNew` / `deactivatedCodes` / `savedAt` 乐观锁 / `clientRef` 幂等键）**、**`dimension_code` 不再送进 LLM**（改送 `index`）；**⑩ `erl_question_config` 补 `organization_id`**（键位变 `(organization_id, dimension_code, version_no, question_key)`），收口跨租户串号，并使种子数据恢复按组织插、V5 免掉重编号步骤。**本版受影响面：§2 / §3 / §4 / §5 全节 / §6 约 60 处 / §7.1、§7.2、§7.5、§7.7、7.8、7.9、7.10、§7.11（整节重写）/ §8 / §9 / §10.1 / §11（十一条用例重写）/ §12 / §13 / 附录 A~C。** ⚠️ **开发前仍有待答项**：§13-Q21（权重与历史漂移）、§5.1.5 是否补 `weight` 列、§0.17-K1（软删后 C7 的显示规则）、`erl_question_config` 是否补 `organization_id`。 |
+| **v4.15（本版）** | **2026-09-08** | **需求方 2026-09-08 对 §5 数据模型的连续四轮调整 + 三条口径裁决** | **数据模型重构，并向接口 / 流程 / UI / 建表 / 用例全面对齐**：① **表数 12 → 11**：删 `erl_dimension_config_version`（维度配置去版本化）与 `erl_company_period_config`（期次-配置绑定取消），增 `erl_question_config_dimension_version`（发布时逐维快照）；② **三张表改名**：`erl_dimension_config_item` → `erl_dimension_config`、`erl_benchmark_record` → `erl_reference_score`、`erl_benchmark_dimension` → `erl_reference_score_item`；③ **题库版本线改为每维一条**：`erl_question_config.version_id` → `version_no`（按 `dimension_code` 自增），定位键 `(dimension_code, version_no)`；组织级发布批次仍在 `erl_question_config_version`，两者由 §5.1.5 快照表对应；**草稿仍是组织级一份**（保住 §0.18-L4 的并发论证）；④ **`erl_question_config_version` 精简为八列**（删 `based_on_version_id` / `change_summary` / `dimension_config_version_id`）—— 接口 25 不再返回 `changeSummary`，接口 26 的 `dimensions[]` 改取 §5.1.5 快照；⑤ **`erl_assessment` 删 `submission_seq` / `is_latest`**（连带删 `uk_erl_assessment_seq` / `uk_erl_assessment_latest`，**部分唯一索引五个 → 三个**），「最新一次提交」改判 **`submitted_at DESC, id DESC` 首条**；同时新增 `dimension_name` / `dimension_abbr` 提交时快照；⑥ **维度删除改软删**：`erl_dimension_config.status` 重新落库，取值 `Active` / `Inactive`，权重合计 100% 只算 `Active` 行，`Retired` 灰标由列值直接判定（v4.8 的派生态作废）；⑦ **列名统一**：`dimension` → `dimension_code`（题库 / 评估 / 基准）、`question_version_id` → `erl_question_config_version_id`、`assessment_id` → `erl_assessment_id`、`question_id` → `erl_question_config_id`、`answer_id` → `erl_assessment_answer_id`、`record_id` → `erl_reference_score_id`；⑧ **三条口径裁决**：权重**不做任何快照**（接受改权重 / 增删维度回溯改变历史期次的综合分与 Stage）—— **R2「历史永不漂移」正式失效、§7.10-W1 反转回「接受漂移」、§13-Q21 重新打开**；`file_name` / `file_size` 暂不删除（**⚠️ 2026-09-09 推翻：两列已删除，改按 `file_id` 查 `files`，见 §5.5**）；**⑨ `erl_dimension_config.dimension_code` 改为服务端生成的 `{abbr 前 3 位}{4 位随机}`**（如 `OPS4K7M`，≤ 7 字符），与 `dimension_abbr` 解耦、创建后永不变，推翻 v4.8-P8；同时 **`dimension_abbr` 恢复组织内 `Active` 唯一**、**接口 24 改为显式判别（`isNew` / `deactivatedCodes` / `savedAt` 乐观锁 / `clientRef` 幂等键）**、**`dimension_code` 不再送进 LLM**（改送 `index`）；**⑩ `erl_question_config` 补 `organization_id`**（键位变 `(organization_id, dimension_code, version_no, question_key)`），收口跨租户串号，并使种子数据恢复按组织插、V5 免掉重编号步骤。**本版受影响面：§2 / §3 / §4 / §5 全节 / §6 约 60 处 / §7.1、§7.2、§7.5、§7.7、7.8、7.9、7.10、§7.11（整节重写）/ §8 / §9 / §10.1 / §11（十一条用例重写）/ §12 / §13 / 附录 A~C。** ⚠️ **开发前仍有待答项**：§13-Q21（权重与历史漂移）、§5.1.5 是否补 `weight` 列、§0.17-K1（软删后 C7 的显示规则）、`erl_question_config` 是否补 `organization_id`。 |
 
 ---
 
@@ -312,7 +312,7 @@
 | # | 裁决 | 落点 | 关闭的旧问题 |
 |---|------|------|------|
 | **R1** | **提交粒度 = 维度级** —— 一次提交＝某公司某期次某端的**单个维度** | `erl_assessment` 加 `dimension` 列，唯一约束与两条部分唯一索引全部加 `dimension`；`erl_assessment_dimension` **整表删除**（维度级后恒一行，三列上提）；提交校验由「五维全终止」改为「**本维终止**」；`question_version_id` 绑定粒度变每维一份（同期次各维可绑不同题库版本，系统不阻止、不告警）；Assessment History 与 Score Details 要求的「每维 Add New / View History」由此天然成立 | **§13-Q19 关闭**（逐级解锁按维度独立）；**§13-Q23 缓解**（单维终止即可提交） |
-| **R2** | ~~**维度只停用不硬删**（v4.8 作废改物理删除）**+ 维度集合与权重整体版本化**：新增 3 张表；每个期次首次创建评估时绑定当时的配置版本、此后永不跟随 ⇒ 历史期次永不漂移~~ → **2026-09-08 整条反转**：① `erl_dimension_config_version` 与 `erl_company_period_config` **两张表均已删除**（§5.1.2 / §5.1.4），维度配置降为单表 `erl_dimension_config` 的**当前值**（§5.1.3）；② **无期次绑定**，任何期次一律读当前 `Activate` 集合；③ **「历史永不漂移」正式失效**（改权重 / 增删维度会回溯改变历史期次的综合分与 Stage），**§13-Q21 重新打开**；④ 「删除维度」~~物理删除（v4.8）~~ → **软删**（`status = 'Deactivate'` 落库） | 需求方 2026-09-06 裁决 → **2026-09-08 再裁决** | §5.1.2（墅碋）/ §5.1.3 / §5.1.4（墅碋）/ §7.1 / §7.10-W1 / §7.11（整节重写）/ §10.1 / §11-77 / §12 / §13-Q21 |
+| **R2** | ~~**维度只停用不硬删**（v4.8 作废改物理删除）**+ 维度集合与权重整体版本化**：新增 3 张表；每个期次首次创建评估时绑定当时的配置版本、此后永不跟随 ⇒ 历史期次永不漂移~~ → **2026-09-08 整条反转**：① `erl_dimension_config_version` 与 `erl_company_period_config` **两张表均已删除**（§5.1.2 / §5.1.4），维度配置降为单表 `erl_dimension_config` 的**当前值**（§5.1.3）；② **无期次绑定**，任何期次一律读当前 `Active` 集合；③ **「历史永不漂移」正式失效**（改权重 / 增删维度会回溯改变历史期次的综合分与 Stage），**§13-Q21 重新打开**；④ 「删除维度」~~物理删除（v4.8）~~ → **软删**（`status = 'Inactive'` 落库） | 需求方 2026-09-06 裁决 → **2026-09-08 再裁决** | §5.1.2（墅碋）/ §5.1.3 / §5.1.4（墅碋）/ §7.1 / §7.10-W1 / §7.11（整节重写）/ §10.1 / §11-77 / §12 / §13-Q21 |
 | **R3** | **展示期次缺省 = closed month 所在季度；该季两端均无提交 → 空态，不回退** | 接口 1 / 17 / 20 / 22 的 `period` 缺省由 ~~最新已提交期次~~ 改为 closed month 所在季度；closed month **沿用 Financial Intelligence 域既有口径**（按公司 Manual / Automatic 推导，来自 Financial Entry actuals），ERL **复用 FI 既有服务、不自己算**；closed month 取不到（无任何 actuals）→ 同样空态 + WARN，不回退 | 新增 **ERL → FI 的跨域依赖**（原设计对 FI 零依赖），见 §3 / §7.1.2 / §9 / §10.1 |
 
 > **R1 与 R3 的交互（易错点）**：维度级提交后，「该季有没有提交」要**按维度分别判定** —— ERL Card 的 Gap 区块正是靠这个逐维状态渲染绿 / 灰点（D4）。**整卡空态只在该期次一个维度都没提交时出现**；只要有一个维度提交过，卡片就要正常渲染，未提交的维度按空值展示。
@@ -395,16 +395,20 @@
 
 ---
 
-### 0.11 v4.4 → v4.5 修正清单（依据需求方 2026-09-06 追加要求：版本表补 `is_latest`）
+### 0.11 v4.4 → v4.5 修正清单（依据需求方 2026-09-06 追加要求：版本表补 `is_latest`）—— ⚠️ **本节 L1 / L3 / L5 / L6 已于 2026-09-09 整体作废**
+
+> ⚠️ **本节已失效，仅留档**（2026-09-09）：`is_latest` 这条路走完了一整圈 —— L2 的 `erl_dimension_config_version` 于 2026-09-08 随表删除；L1 的 `erl_question_config_version.is_latest` 于 **2026-09-09 删列**（连带 L3 的部分唯一索引、L5 的取数路径、L6 的种子标记一并回退）。判据回到本节想取代的那个「隐式推算」：**`status = 'PUBLISHED'` 中 `version_no` 最大的那一条**。
+>
+> **为什么回退是对的**（§5.1.1）：`version_no` 在组织内本就有唯一索引，草稿号恒为 `max + 1`，所以那条「隐式规则」其实是**天然唯一、无需兜底索引**的；标记列换来的只是 SQL 直查可读性，代价是每次 Publish 都要写两行版本头 —— 而那次多写正是「发布改写上一版最后编辑人 / 时间」这条债的成因。**L4 的「标记转移必须原子」随之无对象**。
 
 | # | 变了什么 | 为什么 | 影响章节 |
 |---|---------|--------|---------|
-| **L1** | `erl_question_config_version` **+ `is_latest`**（boolean，not null，默认 `false`）：标识该行是否为**当前正在使用的最新版本**。口径 = 本组织 `status = 'PUBLISHED'` 中最新的那一版；**`DRAFT` 行恒为 `false`**（草稿「在改、未生效」，不是在用的版本），被取代的旧发布版本置 `false` | 「哪一版在用」原先只能靠 `status = 'PUBLISHED'` + `version_no` 倒排**推算**，读的人得知道这条隐式规则；改为**表上自解释的标记列**，SQL 直查即可看出在用版本 | §5.1.1 / §7.9-① |
-| **L2** | `erl_dimension_config_version` **+ `is_latest`**（同上）：标识**当前生效版本**。本表无状态位，`is_latest = true` 的那条恒为 `version_no` 最大的一条 | 同 L1；且「当前生效版本」在 §5.1.4 的空态回退、§7.11-③ 的期次绑定里被反复引用，值得一个显式落点 | §5.1.2 / §5.1.4 / §7.11 |
-| **L3** | 两表各加一个**部分唯一索引**：`uk_erl_question_config_version_latest` / `uk_erl_dimension_config_version_latest`，`ON (organization_id) WHERE is_latest` —— **同一组织内至多一条 `true`**。建库脚本的部分唯一索引由 3 个增至 **5 个** | 「正在使用的版本只有一个」是本列的全部意义，靠代码自觉守不住；并发 Publish / Save 时由索引兜底 | §5.1.1 / §5.1.2 / §10.1 |
-| **L4** | **标记的转移在同一事务内完成**：Publish（接口 21）把上一条 `true` 的已发布版本置 `false`、本版置 `true`；Save（接口 24）把上一条 `true` 的配置版本置 `false`、新版本置 `true`。**旧版本的题目行 / item 行仍然永不改写**（只翻版本头上的标记位） | 两步写必须原子，否则中途失败会出现「零个在用版本」或「两个在用版本」 | §6.4 / §7.9-② / §7.11-② |
-| **L5** | 取数路径改走标记列：`findFirstByStatusAndOrganizationIdOrderByVersionNoDesc(PUBLISHED, org)` → 按 `organization_id + is_latest` 命中；维度配置的 `findFirstByOrganizationIdOrderByVersionNoDesc` 同理。**按 `version_no` 倒排的查询保留**，仍用于版本历史列表与算 `version_no = max + 1` | 语义与索引都更直接；`idx_erl_question_config_version_status` / `idx_erl_dimension_config_version` 因此降级为「版本序列」用途，不再是取在用版本的主路径 | §5.1.1 / §5.1.2 / §10.1 |
-| **L6** | **种子数据补标记**：题库 `version_no = 1` 的 `PUBLISHED` 行、维度配置 `version_no = 1` 的行，一律 `is_latest = true` | 漏标会让系统起来后「无在用版本」—— 填报页全空、维度配置读空态，与漏建版本行的后果相同 | §10.1 |
+| ~~**L1**~~ | ❌ **2026-09-09 作废（删列）** —— `erl_question_config_version` **+ `is_latest`**（boolean，not null，默认 `false`）：标识该行是否为**当前正在使用的最新版本**。口径 = 本组织 `status = 'PUBLISHED'` 中最新的那一版；**`DRAFT` 行恒为 `false`**（草稿「在改、未生效」，不是在用的版本），被取代的旧发布版本置 `false` | 「哪一版在用」原先只能靠 `status = 'PUBLISHED'` + `version_no` 倒排**推算**，读的人得知道这条隐式规则；改为**表上自解释的标记列**，SQL 直查即可看出在用版本 | §5.1.1 / §7.9-① |
+| ~~**L2**~~ | ❌ **2026-09-08 作废（整表删除）** —— `erl_dimension_config_version` **+ `is_latest`**（同上）：标识**当前生效版本**。本表无状态位，`is_latest = true` 的那条恒为 `version_no` 最大的一条 | 同 L1；且「当前生效版本」在 §5.1.4 的空态回退、§7.11-③ 的期次绑定里被反复引用，值得一个显式落点 | §5.1.2 / §5.1.4 / §7.11 |
+| ~~**L3**~~ | ❌ **2026-09-09 作废（两个索引都已不存在）** —— 两表各加一个**部分唯一索引**：`uk_erl_question_config_version_latest` / `uk_erl_dimension_config_version_latest`，`ON (organization_id) WHERE is_latest` —— **同一组织内至多一条 `true`**。建库脚本的部分唯一索引由 3 个增至 **5 个** | 「正在使用的版本只有一个」是本列的全部意义，靠代码自觉守不住；并发 Publish / Save 时由索引兜底 | §5.1.1 / §5.1.2 / §10.1 |
+| ~~**L4**~~ | ❌ **2026-09-09 作废（两个标记列都已不存在，无标记可转移）** —— **标记的转移在同一事务内完成**：Publish（接口 21）把上一条 `true` 的已发布版本置 `false`、本版置 `true`；Save（接口 24）把上一条 `true` 的配置版本置 `false`、新版本置 `true`。**旧版本的题目行 / item 行仍然永不改写**（只翻版本头上的标记位） | 两步写必须原子，否则中途失败会出现「零个在用版本」或「两个在用版本」 | §6.4 / §7.9-② / §7.11-② |
+| ~~**L5**~~ | ❌ **2026-09-09 作废（改回按 `version_no` 倒排）** —— 取数路径改走标记列：`findFirstByStatusAndOrganizationIdOrderByVersionNoDesc(PUBLISHED, org)` → 按 `organization_id + is_latest` 命中；维度配置的 `findFirstByOrganizationIdOrderByVersionNoDesc` 同理。**按 `version_no` 倒排的查询保留**，仍用于版本历史列表与算 `version_no = max + 1` | 语义与索引都更直接；`idx_erl_question_config_version_status` / `idx_erl_dimension_config_version` 因此降级为「版本序列」用途，不再是取在用版本的主路径 | §5.1.1 / §5.1.2 / §10.1 |
+| ~~**L6**~~ | ❌ **2026-09-09 作废（种子不再落该列）** —— **种子数据补标记**：题库 `version_no = 1` 的 `PUBLISHED` 行、维度配置 `version_no = 1` 的行，一律 `is_latest = true` | 漏标会让系统起来后「无在用版本」—— 填报页全空、维度配置读空态，与漏建版本行的后果相同 | §10.1 |
 
 > **不变的部分**（避免过度解读）：`is_latest` **不进任何接口出参**（配置页显示的仍是 `Published v3` / `Draft v4`，靠 `status` + `version_no`）、**不进前端**、**不改变版本绑定语义**（评估仍锚在 `erl_assessment.question_version_id`、期次仍锚在 `erl_company_period_config`，§7.9 / §7.11）。它只是「当前在用版本」这一事实的**显式落点**，取代原先的隐式推算。
 
@@ -428,7 +432,8 @@
 
 > **不变的部分**：10MB 双侧校验、直传通道与 `fileBusinessType = KNOWLEDGE_BASE`、异步入库与
 > `ingest_status` 三态、失败不阻断提交、改答回收与 Reset 一并删附件、**已入知识库的文件不回删知识库
-> 条目**（§7.10-W3）、`file_size` / `registry_id` / `ingest_status` 三列 —— 这些都与粒度无关，一律沿用。
+> 条目**（§7.10-W3）、~~`file_size`~~ / `registry_id` / `ingest_status` 三列 —— 这些都与粒度无关，一律沿用
+> （**2026-09-09 例外**：`file_size` 连同 `file_name` 已删列，改按 `file_id` 查 `files`，§5.5 —— 与 v4.6 的粒度调整无关，是后续独立裁决）。
 
 ### 0.13 v4.6 → v4.7 修正清单（依据需求方 2026-09-07 追加要求：super 可替租户配置）
 
@@ -505,7 +510,7 @@
 | **H2** | **接口 26 出参新增 `dimensions[{ code, name, abbr, sortOrder, weight }]`** —— 取该题库版本绑定的配置版本的 items，按 `sortOrder` 升序；仍**复用 `ErlQuestionConfigListResponse`**（不另造 DTO / Response），**接口 9 恒为 `null`**。绑定列为空时**服务端**回退当前生效配置，前端不做回退 | C7 是版本快照页，维度骨架必须与题面同源、同一次请求给全；让前端再拼一次「该看哪个配置版本」等于把版本解析逻辑复制到前端 | §6.4 / §8.4-C7 / §10.1 / §10.3 |
 | **H3** | **C7 页体归组骨架换源**：由 ~~接口 23（当前生效配置）~~ 改为**接口 26 出参的 `dimensions[]`**；卡头 `{全称} ({缩写})` 用**发布当时**的 name / abbr；接口 23 在该页**只剩一个用途** —— 判断某维度「今天是否还在配置里」以决定是否打 `Retired` 灰标（与 §6.1 `status` 的派生口径一致，v4.8）。某题目的 `dimension` 不在发布时集合内（脏数据 / 近似回填不准）时**仍兜底出卡**，name / abbr 退化为 code 并标 `Retired` —— **题目永不消失** | 「卡片来源」与「今天还在不在」是两件事，之前被合成了一件，于是被删维度的卡头退化成 `FRL (FRL)`、发布后新增的维度在旧版本上多出一张空卡。⚠️ **v4.11 部分作废**（§0.17-K1 ~ K3）：`Retired` 灰标与兜底卡在本页**整体取消**，今天已不在配置里的维度**整卡不显示**（连带其题目）；卡头仍用发布当时的 name / abbr | §8.4-C7 / §11-90 / §0.17 |
 | **H4** | **两条版本线的表述订正**：§5.1.2 与 §7.11 边界表注释里的「**互不联动**」改为**写侧单向记录**（Publish 时题库版本记下当时生效的配置版本 id），**读侧仍不联动** —— 题库发布不改变任何期次的 `erl_company_period_config` 绑定，维度配置 Save 也不产生题库版本、不改写任何已发布题库版本行。§7.11「所有按期次取维度」的清单里**移出 C7**：C7 没有期次概念，它按题库版本自己的绑定取维度 | 不订正的话，「互不联动」会被后来人当成「不许加这一列」的依据；但也必须写清订正的**边界**，否则会被误读成两条版本线开始互相激活 | §5.1.2 / §7.11 |
-| **H5** | **存量回填是近似的**：迁移脚本对 `status = 'PUBLISHED'` 且 `published_at` 非空的行，按同组织 `erl_dimension_config_version` 中 `saved_at <= published_at` 的最大 `version_no` 回填，**取不到则回落到该组织最早的那一版配置**（V1 种子先插题库版本、后插配置版本，`saved_at` 恒晚于`published_at` 几微秒，时间比对对种子行必然不成立；两行本是同一段种子建出来的，「首版发布时的配置」就是 `version_no` 最小那版），两支都取不到才留 `NULL`（读时回退当前生效配置）。脚本内注明**这不是精确重建** | ERL 尚未发版，正常环境命不中任何行；写成近似回填只为已建过库的本地 / 测试环境不至于整体回退到当前配置 | 附录 C / §10.1 |
+| ~~**H5**~~ | ❌ **2026-09-09 整条作废**（`V3` 已作废、`erl_dimension_config_version` 与 `saved_at` 均已删除；`V8` 改为按 `(批次 id, dimension_code)` **精确**回填，不再按时间近似） —— **存量回填是近似的**：迁移脚本对 `status = 'PUBLISHED'` 且 `published_at` 非空的行，按同组织 `erl_dimension_config_version` 中 `saved_at <= published_at` 的最大 `version_no` 回填，**取不到则回落到该组织最早的那一版配置**（V1 种子先插题库版本、后插配置版本，`saved_at` 恒晚于`published_at` 几微秒，时间比对对种子行必然不成立；两行本是同一段种子建出来的，「首版发布时的配置」就是 `version_no` 最小那版），两支都取不到才留 `NULL`（读时回退当前生效配置）。脚本内注明**这不是精确重建** | ERL 尚未发版，正常环境命不中任何行；写成近似回填只为已建过库的本地 / 测试环境不至于整体回退到当前配置 | 附录 C / §10.1 |
 
 > **不变的部分**（避免过度解读）：`erl_dimension_config_version` / `erl_dimension_config_item` / `erl_company_period_config` 三张表**一列未改**；**期次-版本绑定（§7.11）仍是历史分数不漂移的唯一机制，本版不动它**；接口 23 / 24 契约不变（C6 配置页行为逐字节不变）；题库两态发布流程（§7.9）、版本锁定（`erl_assessment.question_version_id`）、计分与权限口径一律不变。**表数仍为 12 张**（只加一列）。
 
@@ -591,7 +596,7 @@
 > **不变的部分**（避免过度解读）：ERL Configuration「仅管理端可见 + 按 `organizationId` 隔离」
 > 的口径（§8.1 / §4.3）、后端「C 模块写接口与 D 模块全部接口一律校验管理端」的第三层拦截、
 > `menu` / `r_role_menu` / `r_user_role` 三张表的结构与 `buildTree` / `getVerifyRoles` 的行为、
-> 以及 §10.1 里 12 张表、五个部分唯一索引、题库与维度配置种子 —— 本版一律未动。
+> 以及 §10.1 里 12 张表、五个部分唯一索引、题库与维度配置种子 —— 本版一律未动。（⚠️ **这两个数字是 v4.14 当时的口径**：现为 **11 张表、3 条部分唯一索引**，见 §10.1。）
 
 ---
 ---
@@ -601,8 +606,8 @@
 
 | 模块 | 功能点 | 在 V1 | PRD | 说明 |
 |------|--------|:-----:|-----|------|
-| A 展示 | **A1 ERL Card（Company Overview 页内）** | ✅ | §3.1 | **加权**综合分 + 当前 Stage + Gap Analysis 区块（**v4.4** 定档形态见 §8.4 / D4） + **维度列表**（条目数由当前 `status = 'Activate'` 的维度集合决定，**v4.4** 不再恒为 5，§5.1.3）（维度分 / Perception Gap **仅组合端**） + BPMM 参考数字 + 雷达图（**仅组合端**） + **`Full View ›`（v4.4，两端均有，A4 入口，§0.10-D5）** + **雷达图正下方 `Benchmarkit & Top GSV Quartile ›`（v4.4，仅管理端，§0.10-D7）**。**唯一入口，无独立落地页**。**v4.0：状态摘要徽章删除**（§0.9-10） |
-| A 展示 | A2 Dimension Radar 雷达图（卡片内） | ✅ **仅组合端** | §3.5 | 4 条序列：Founder / GSV / Benchmarkit / Top GSV Quartile。顶点数 = 当前 `status = 'Activate'` 的维度集合的维度数（**v4.4**，§0.10-D1）。**v4.0：PRD「该图仅在 Portfolio 端显示」→ 公司端整图不渲染**（§0.9-5） |
+| A 展示 | **A1 ERL Card（Company Overview 页内）** | ✅ | §3.1 | **加权**综合分 + 当前 Stage + Gap Analysis 区块（**v4.4** 定档形态见 §8.4 / D4） + **维度列表**（条目数由当前 `status = 'Active'` 的维度集合决定，**v4.4** 不再恒为 5，§5.1.3）（维度分 / Perception Gap **仅组合端**） + BPMM 参考数字 + 雷达图（**仅组合端**） + **`Full View ›`（v4.4，两端均有，A4 入口，§0.10-D5）** + **雷达图正下方 `Benchmarkit & Top GSV Quartile ›`（v4.4，仅管理端，§0.10-D7）**。**唯一入口，无独立落地页**。**v4.0：状态摘要徽章删除**（§0.9-10） |
+| A 展示 | A2 Dimension Radar 雷达图（卡片内） | ✅ **仅组合端** | §3.5 | 4 条序列：Founder / GSV / Benchmarkit / Top GSV Quartile。顶点数 = 当前 `status = 'Active'` 的维度集合的维度数（**v4.4**，§0.10-D1）。**v4.0：PRD「该图仅在 Portfolio 端显示」→ 公司端整图不渲染**（§0.9-5） |
 | A 展示 | **A3 维度详情页（Score Details，模板）** | ✅ | §3.2 / §3.5 | **一套模板全维度复用**（**v4.4**：由「5 维复用」改为按配置版本的维度列表复用）；含 score card 头、Perception Gap（**仅组合端**）、逐题列表、`View history`、`+ New`。**v4.0 删除三块**：状态摘要、Data Sources & Cadence（PRD 依据消失，§0.9-10 / -13）；Strengths & Priority Gaps 保留但依据改挂 §3.6（§0.9-11） |
 | A 展示 | **A4 全维 Score Details 页**（v3.5 复活） | ✅ | §3.7 + §3.5（**v4.4** 补 `57225d2`） | **一页看全维度逐题明细**（**v4.4**：维度卡张数按配置版本，不恒为五）：双端 Tab + 各维度折叠卡 + 页尾基准卡。入口 **v4.4 由「F2 `View` 唯一入口」扩为「F2 `View` + ERL Card 的 `Full View ›`（两端）」**（§0.10-D5）；**每张维度卡卡头各有 `Add New` / `View History`，原页级 `+ New` / `View history` 取消**（§0.10-D5）。原型 `/readiness/overall`（§0.7） |
 | A 展示 | ~~A5 "How It's Scored?" 评分标准弹窗~~ | ❌ **删除** | — | ~~**v4.0**：由「三段 Era 标准」改为**该题的单段判定标准 + 所属 `Era-level`**（每题现在只属一个 level，§0.9-21）~~ → ❌ **2026-09-06 裁决整体删除**（v4.9，§0.15）：判定标准字段 `criteria` 不进需求设计，弹窗唯一实质内容随之消失，组件与三处入口一并移除 |
@@ -611,13 +616,13 @@
 | B 填报 | B2 GSV 验证问卷 | ✅ | §3.4 | 同题库、同解锁规则 + **逐题附件（与 B1 同口径，v4.6）** + 评估团队；提交单元同为**单个维度**（**v4.4**，§0.10-R1）。**v4.0：手动维度分与软确认弹窗删除** |
 | B 填报 | **B4 Reset / 丢弃草稿**（**v4.4 新增**） | ✅ | §3.3（`08b7a32`） | 填报页 `Reset` 按钮：清空本次草稿的全部答案与附件、`unlocked_level` 回到 1；二次确认弹窗写明附件一并删除。**接口 28** `DELETE /erl/assessment/draft`（§6.3）；同时是 §13-Q23「摆脱旧版本草稿」的解法（§0.10-D8） |
 | B 填报 | B3 评估历史列表 | ✅ | §3.9 | 完整保留每次提交，突出最新 SOT。**v4.4**：新增 `Submitted` 列、删除 `Completion` 列、分数列改为**本维度 Overall Score + Stage 徽章**、`Portal` 列仅管理端渲染、详情限本维度（§0.10-D12） |
-| C 配置 | C1 题库列表（**`Question Library` 顶层 Tab** 内：各维度 Tab + Era band 分组表格，v4.1；**v4.4** 维度 Tab 数按当前 `status = 'Activate'` 的维度集合动态，不恒为五） | ✅ | §3.8 | **仅 portfolio portal**；题库按**组织（租户）**隔离（v4.0，§0.9-7） |
+| C 配置 | C1 题库列表（**`Question Library` 顶层 Tab** 内：各维度 Tab + Era band 分组表格，v4.1；**v4.4** 维度 Tab 数按当前 `status = 'Active'` 的维度集合动态，不恒为五） | ✅ | §3.8 | **仅 portfolio portal**；题库按**组织（租户）**隔离（v4.0，§0.9-7） |
 | C 配置 | C2 新增题目 / C3 编辑删除 | ✅ | §3.8 | 题干 / Era band（1–9 level）/ Source ~~/ **单段判定标准**（v4.0）~~ → ❌ **判定标准字段删除**（2026-09-06 裁决，v4.9，§0.15）；表单字段与 PRD §3.8 完全一致 |
 | C 配置 | **C4 Era Band 内拖拽重排（= 必答顺序）** | ✅ | §3.8 | 含管理员影响提示 |
 | C 配置 | **C5 题库版本化 + Publish 发布**（v3.3 改） | ✅ | §3.8 | 配置页改的是**草稿版本**；**新增 / 编辑 / 删除 / 重排全部经 Publish 才生效**；存在草稿版本即激活按钮（§7.9）。**v4.0：PRD 现文已与本设计一致**（`621e857` 采纳了 v3.6 的回写建议 M1/M2） |
-| C 配置 | **C6 维度配置**（v4.0 新增，**v4.4 由「五维权重设置」扩容改名**） | ✅ | §3.8（`0333162`）/ §3.1 | 配置页第二个顶层 Tab ~~`Dimension Weights`~~ → **`Dimension Configuration`**（**v4.4**，§0.10-D13）：可**新增 / 删除 / 排序 / 改权重**；维度集合与权重**整组保存**、~~保存即生成新配置版本~~ → **2026-09-08：就地整组替换，不产生版本**（§7.11）；权重合计**必须 = 100%** 且需脏态才激活 Save；综合分按**当前 `status = 'Activate'` 的维度集合**加权（§5.1.3 / §6.4 接口 23/24）。删除维度 = **物理删除**（新版本里不再有这一行），历史期次仍绑旧版本、照常显示（**v4.8**，§0.14） |
+| C 配置 | **C6 维度配置**（v4.0 新增，**v4.4 由「五维权重设置」扩容改名**） | ✅ | §3.8（`0333162`）/ §3.1 | 配置页第二个顶层 Tab ~~`Dimension Weights`~~ → **`Dimension Configuration`**（**v4.4**，§0.10-D13）：可**新增 / 删除 / 排序 / 改权重**；维度集合与权重**整组保存**、~~保存即生成新配置版本~~ → **2026-09-08：就地整组替换，不产生版本**（§7.11）；权重合计**必须 = 100%** 且需脏态才激活 Save；综合分按**当前 `status = 'Active'` 的维度集合**加权（§5.1.3 / §6.4 接口 23/24）。删除维度 = **物理删除**（新版本里不再有这一行），历史期次仍绑旧版本、照常显示（**v4.8**，§0.14） |
 | C 配置 | **C7 题库版本历史页**（v4.1 新增，**v4.2 改形态**） | ✅ | 原型 2026-09-03 改版（§2.3.1-⑤）+ 2026-09-04 截图（§2.3.1-⑥） | `Question Library` Tab 的 `View history` 入口；**v4.2 起是「版本快照页」**：页头版本下拉（取**接口 25**）+ **各维度各一张只读题目表**（取**接口 26**；**v4.4** 卡片张数按该版本的维度列表，不恒为五；**v4.10** 该维度列表由接口 26 出参 `dimensions[]` 下发 = 该版本**发布当时**绑定的配置版本，后续维度增删改名不影响历史展示）。~~不新增表（v4.10 仅加一列 `dimension_config_version_id`）~~ → **2026-09-08：该列已删，改为新增表 `erl_question_config_dimension_version`（§5.1.5）承载发布当时的逐维快照** |
-| D 基准 | D1 基准记录页 + **D2 新增记录（独立页）** | ✅ | §4 | Benchmarkit / Top GSV Quartile 的**外部静态数据接入口**，平台不计算；**每期次按维度各录两个分**（v3.1，§0.3；**v4.4** 维度条目数按当前 `status = 'Activate'` 的维度集合动态）。入口：ERL Card 雷达图正下方 `Benchmarkit & Top GSV Quartile ›`，**仅管理端**（**v4.4** 新增，§0.10-D7） |
+| D 基准 | D1 基准记录页 + **D2 新增记录（独立页）** | ✅ | §4 | Benchmarkit / Top GSV Quartile 的**外部静态数据接入口**，平台不计算；**每期次按维度各录两个分**（v3.1，§0.3；**v4.4** 维度条目数按当前 `status = 'Active'` 的维度集合动态）。入口：ERL Card 雷达图正下方 `Benchmarkit & Top GSV Quartile ›`，**仅管理端**（**v4.4** 新增，§0.10-D7） |
 | E AI | **E1 Gap Analysis & Suggested Actions** | ✅ | §3.6（**v4.4**：`8324a3f` 已删标题上的「待定功能」） | summary + 建议行动；~~Founder / GSV 两套口吻~~ → **v4.4 作废**：PRD 已删该段，改为**单一口吻 + GSV 手动 Share 给 Founder 端**（§0.10-D3）；ERL Card Gap 区块形态按 2026-09-06 原型定档（§0.10-D4）；提交后自动置脏重生成（依据改标「本设计」，§0.10-D19），**重生成后 `shared` 复位为 false**。~~可整块摘除~~ → **v4.4 作废**：**§13-Q22 关闭，E 模块确认进 V1**（§0.10-D2） |
 | E AI | **E2 每维 Strengths & Priority Gaps** | ✅ | §3.6（**v4.0：§5 依据已删**） | 由证据/备注推导；无备注标注「未提供备注」。~~随 E1 一同待定~~ → **v4.4 作废**：随 E1 一同进 V1（§0.10-D2）。**v4.4**：`STRENGTH` 枚举与 `strengths[]` 出参删除，「有 gap 才展示建议」（§0.10-D4） |
 | E AI | **E3 Share to Founder**（**v4.4 新增**） | ✅ | §3.6（`8324a3f` + `49d9a29`） | 差距分析默认**仅 GSV 团队可见**；该 `(company, period)` 下**每个维度**的 FOUNDER 与 GSV 两端都有 `SUBMITTED` 记录（**2026-09-08**：`is_latest` 列已删，改按 同 `(company_id, period, portal, dimension_code)` 内按 `submitted_at DESC, id DESC` 取首条 `SUBMITTED` 判存在）时，`Share to founder` 按钮才激活。**接口 27** `POST /erl/gapAnalysis/share`（仅管理端）；`shared = false` 时公司端读到空态（§0.10-D3） |
@@ -641,7 +646,7 @@
 | 「GSV vs. Founder 分数对比 Tab」MVP 替代方案 | ~~PRD §3.6 列为待决定，见 §13-Q6~~ → **v4.4 改依据**：PRD `273671a` 删掉「已知 TBD 与 MVP 备选方案」整段，该备选不复存在，理由改为「**PRD 未要求**」；**§13-Q6 关闭**（§0.10-D21） |
 | 题库导入导出、题库**公司级**覆盖 | PRD 未要求；题库按**组织（租户）**单份，组织内不再按公司细分（v4.0，§0.9-7） |
 | Fireflies 转录 / SharePoint 作为 Goldie 数据源 | ~~PRD §3.6 明确为后续阶段~~ → **v4.4 改依据**：同上，PRD `273671a` 已删该段，结论不变，理由改为「**PRD 未要求**」（§0.10-D21） |
-| **维度的物理删除**（v4.4 列为不做 → ~~v4.8 作废：物理删除已进 V1~~ → **2026-09-08 恢复为「不做」**） | 配置页删掉一行、Save 后该维度**置 `status = 'Deactivate'`（软删），行与 `weight` 原样保留、可恢复**（§5.1.3 / §7.11-④）。~~历史安全由期次-版本绑定保证~~ → **2026-09-08 换依据**：软删下行不消失，历史提交仍能取到名称与缩写。**仍不做**的只剩「有历史数据禁止删除」的**前置拦截** —— 软删无保护对象（§13-Q24） |
+| **维度的物理删除**（v4.4 列为不做 → ~~v4.8 作废：物理删除已进 V1~~ → **2026-09-08 恢复为「不做」**） | 配置页删掉一行、Save 后该维度**置 `status = 'Inactive'`（软删），行与 `weight` 原样保留、可恢复**（§5.1.3 / §7.11-④）。~~历史安全由期次-版本绑定保证~~ → **2026-09-08 换依据**：软删下行不消失，历史提交仍能取到名称与缩写。**仍不做**的只剩「有历史数据禁止删除」的**前置拦截** —— 软删无保护对象（§13-Q24） |
 | **展示期次在无数据时回退到更早期次**（**v4.4 新增**） | R3 定档：缺省期次 = closed month 所在季度，**该季度两端均无提交即空态，不回退**（§0.10-R3；原 §9 的降级回退逻辑作废） |
 
 ### 1.3 后续阶段索引
@@ -678,11 +683,11 @@
 - ~~**5 维度**：`FRL` / `PRL` / `BERL` / `RRL` / `TRL` 为领域常量~~ → **v4.4 作废**（§0.10-D1 / §0.10-R2）：**维度不是常量，而是租户级、可版本化的配置数据** —— 见 §5.1.3（`erl_dimension_config`，**2026-09-08 去版本化**：~~`erl_dimension_config_version` / `erl_dimension_config`~~ 两张表已删 / 改名）与 §5.1.5（`erl_question_config_dimension_version`，题库版本 ↔ 维度快照；原此处指的 `erl_company_period_config` 已于 **2026-09-08 删表**`，期次绑定配置版本）。
   - PRD §3.8（`0333162`）把维度列表写作 `FRL / PRL / BERL / RRL / TRL...`，**省略号即表示不固定五个**；配置页可新增 / 删除 / 排序 / 改权重
   - `FRL` Financial Readiness / `PRL` Product Readiness / `BERL` Brand Equity Readiness / `RRL` Risk Readiness / `TRL` Talent Readiness 现降级为**初始化种子数据**（组织的第 1 版配置），不再是编译期枚举 —— `ErlDimensionEnum` 与前端 `constants.ts` 的静态 `DIMENSIONS` 映射一并删除，改**接口驱动**（接口 23）
-  - 维度 `code` 是**组织内稳定标识**，历史数据靠它关联；~~`code` 新增时取用户填的 `Abbreviation`（大写化），v4.8~~ → **2026-09-08 作废：`code` 由服务端随机生成（与 `abbr` 无关），此后永不改变**（`abbr` 可随时改名，`code` 不跟随，§5.1.3）；删除维度 = **软删**（**2026-09-08 推翻 v4.8**：置 `status = 'Deactivate'`，行保留），历史提交记录照常显示（名称/缩写取评估行快照），但**实时聚合值（综合分 / Stage / 雷达图）会因停用而变**
-  - 全文凡「恒五行」「固定返回五项」「按五维固定顺序」等表述一律按「当前 `status = 'Activate'` 的维度集合的维度列表」理解
+  - 维度 `code` 是**组织内稳定标识**，历史数据靠它关联；~~`code` 新增时取用户填的 `Abbreviation`（大写化），v4.8~~ → **2026-09-08 作废：`code` 由服务端随机生成（与 `abbr` 无关），此后永不改变**（`abbr` 可随时改名，`code` 不跟随，§5.1.3）；删除维度 = **软删**（**2026-09-08 推翻 v4.8**：置 `status = 'Inactive'`，行保留），历史提交记录照常显示（名称/缩写取评估行快照），但**实时聚合值（综合分 / Stage / 雷达图）会因停用而变**
+  - 全文凡「恒五行」「固定返回五项」「按五维固定顺序」等表述一律按「当前 `status = 'Active'` 的维度集合的维度列表」理解
 - **9 级 Stage 分 3 个 Era**（**不变，仍是领域常量**）：Founder Era（Stage 1–3）、Harvest & Growth Era（Stage 4–6，~~PRD 注「分数约 6 表示公司进入该纪元，可开始接触投行」~~ → **v4.4 订正**：该注解 PRD 2026-09-03 已删除，本设计不再引用，§0.10-D22）、Exit Era（Stage 7–9）
 - **题目 level（= Era band）**：9 档 —— `Founder Era - 1/2/3`、`Harvest & Growth - 4/5/6`、`Exit Era - 7/8/9`。**一道题恒属一个 level**，一个 level 内可有多题（**v4.0**：PRD §3.3 的「level」与本设计的 `era_band` 是同一概念，字段名用 `era_band`、展示标签用 `Era-level`，§0.9-9）
-- **分数值域（v4.0 改）**：**维度分 = 0–9 整数**（最后一个全 Yes 的 level；level 1 即出现 No → `0`）；**综合分（UI 文案统一为 `Overall Score`，v4.4 定档，§0.10-D14）= 0.0–9.0 一位小数**，按**当前 `status = 'Activate'` 的维度集合**中各维度的权重加权求和（**v4.4**，§0.10-R2）。原「每题 1–9 分 / 维度分一位小数」随 1–9 打分格式一并删除（§0.9-1）
+- **分数值域（v4.0 改）**：**维度分 = 0–9 整数**（最后一个全 Yes 的 level；level 1 即出现 No → `0`）；**综合分（UI 文案统一为 `Overall Score`，v4.4 定档，§0.10-D14）= 0.0–9.0 一位小数**，按**当前 `status = 'Active'` 的维度集合**中各维度的权重加权求和（**v4.4**，§0.10-R2）。原「每题 1–9 分 / 维度分一位小数」随 1–9 打分格式一并删除（§0.9-1）
 - **评估频率**：季度（PRD §4「评估周期：季度提交」）；**展示缺省期次 = 该公司 closed month 所在季度**（**v4.4**，§0.10-R3，口径复用 Financial Intelligence 域既有服务，见 §3.1 / §3.2）
 - **提交粒度（v4.4 新增，§0.10-R1）**：一次提交 = **某公司 + 某期次 + 某端 + 单个维度**，不再是整卷五维
 - **gap severity**：`HIGH` / `MEDIUM` / `LOW`（仅 E 模块使用）
@@ -691,19 +696,19 @@
 
 > 探查方式：该 Lovable 项目对当前账号是 collaborator 身份，`get_project` / `list_files` 返回 403；改为抓取已发布站点（TanStack Start SSR）的路由 chunk 与渲染 HTML 还原。**原型无后端，全部数据为前端硬编码 mock**，数据模型与接口契约由本文档首次定义。
 >
-> ⚠️ **v4.4 总体注记（§0.10-D1 / §0.10-D13）**：本节及 §2.3.1 引用的原型（含 2026-09-03 / 09-04 两次重抓）**全部为「固定五维」形态** —— 五维 Tab、五个权重输入、雷达图五顶点、五张维度卡。PRD `0333162` 已把维度改为**可新增 / 删除 / 排序的租户级配置**，故原型在**动态维度这一点上已经过期**：下表凡以「五维」为形态的证据，**只作 UI 排版与文案参考，条目数一律按当前 `status = 'Activate'` 的维度集合动态渲染**，不得据此把维度数写死。
+> ⚠️ **v4.4 总体注记（§0.10-D1 / §0.10-D13）**：本节及 §2.3.1 引用的原型（含 2026-09-03 / 09-04 两次重抓）**全部为「固定五维」形态** —— 五维 Tab、五个权重输入、雷达图五顶点、五张维度卡。PRD `0333162` 已把维度改为**可新增 / 删除 / 排序的租户级配置**，故原型在**动态维度这一点上已经过期**：下表凡以「五维」为形态的证据，**只作 UI 排版与文案参考，条目数一律按当前 `status = 'Active'` 的维度集合动态渲染**，不得据此把维度数写死。
 
 | 结论 | 证据 | 与 PRD 的关系 |
 |------|------|---------------|
 | 综合分 = 五维简单平均 | (6.4+5.1+7.5+4.6+2.8)/5 = 5.28 → 显示 `5.3 /9` | ⚠️ **v4.0 降级为「等权特例」**：PRD §3.1 现要求按配置权重加权，各 20% 时与该式等价 —— 原型仍可用于校验加权实现（§7.1）。**v4.4 补注**：加权基数「五」参数化，按期次绑定配置版本的维度数取（§0.10-D1）；UI 文案统一为 `Overall Score`（§0.10-D14） |
 | Perception Gap = Founder − GSV | 五维全部吻合（PRL 7.4−5.1=2.3、BERL 8.1−7.5=0.6、RRL 7.0−4.6=2.4、TRL 5.2−2.8=2.4） | ✅ 公式采纳；**v4.0：仅组合端展示**（PRD §3.5「创始人只能查看自己的分数」，§0.9-4） |
 | 原型的维度分是一位小数（如 `6.4`） | 原型渲染 | ❌ **v4.0 不再适用**：维度分现在是 level 整数 0–9（§0.9-1）。**原型的分数展示、雷达图取值、Score Details 的逐题 `x.x/9` 均属旧口径，不得照抄** |
-| 基准为两条独立序列、**按期次 × 维度**存历史（**v4.4**：原写「× 五维」，维度数改为按当前 `status = 'Activate'` 的维度集合动态，§0.10-D1） | 基准页 `Latest by Dimension` 卡 + `Add Benchmark Record` 页的五维输入表（2026-08-27 截图） | ✅ 与 PRD §4「外部静态数据独立接入」相容，采纳（§5.6）。**v4.4**：录入表行数按当前生效配置版本渲染，不写死五行 |
+| 基准为两条独立序列、**按期次 × 维度**存历史（**v4.4**：原写「× 五维」，维度数改为按当前 `status = 'Active'` 的维度集合动态，§0.10-D1） | 基准页 `Latest by Dimension` 卡 + `Add Benchmark Record` 页的五维输入表（2026-08-27 截图） | ✅ 与 PRD §4「外部静态数据独立接入」相容，采纳（§5.6）。**v4.4**：录入表行数按当前生效配置版本渲染，不写死五行 |
 | 旧截图记录表的 `+0.3 vs prior` 环比列 | 旧基准页记录表 | ❌ 新原型两张卡均无此列，**不实现**（§0.3-5） |
 | 题量：FRL 31 题，五维合计 165 题 | 自评页进度条 `0 of 165` | ⚠️ PRD §3.3 写「30+ 题目」、§3.9 示例写 `45/45`。**题量由题库配置决定，代码不写死**；见 §13-Q4 |
 | FRL 6.4 标 `Exit Era` | 原型渲染 | ❌ **原型 bug**，不予沿用（§7.3） |
 | Portfolio ERL Tab 与 Dashboard 分数互相矛盾 | Example 1 两处数值完全不同 | ❌ 两份 mock 各写各的；本设计两处统一走 §7.1 实时计算 |
-| A4 全维 Score Details 页的结构（面包屑 / 双端 Tab / 四列元数据栏 / 五张维度折叠卡 / 页尾基准折叠卡） | 已发布站 `/readiness/overall` 的 chunk `readiness.overall-*.js`（2026-08-28 抓取） | ✅ 2026-08-28 裁决指定为 A4 的 UI 依据，**采纳**（§8.4）；四处有意偏离同处标注。**v4.4 两处补充**：① 折叠卡张数按当前 `status = 'Activate'` 的维度集合动态（§0.10-D1）；② 每张卡卡头加 `Add New` / `View History`，页级 `+ New` / `View history` 取消（§0.10-D5） |
+| A4 全维 Score Details 页的结构（面包屑 / 双端 Tab / 四列元数据栏 / 五张维度折叠卡 / 页尾基准折叠卡） | 已发布站 `/readiness/overall` 的 chunk `readiness.overall-*.js`（2026-08-28 抓取） | ✅ 2026-08-28 裁决指定为 A4 的 UI 依据，**采纳**（§8.4）；四处有意偏离同处标注。**v4.4 两处补充**：① 折叠卡张数按当前 `status = 'Active'` 的维度集合动态（§0.10-D1）；② 每张卡卡头加 `Add New` / `View History`，页级 `+ New` / `View history` 取消（§0.10-D5） |
 | 空态文案 `No gap analysis yet` + `Goldie needs scored questions with evidence notes ...` | `GoldieSuggestion` 组件 | ✅ 文案可复用（§9） |
 
 ### 2.3.1 原型 2026-09-03 重抓（**v4.0 新增**，原型当日 03:32 更新过）
@@ -774,7 +779,7 @@
 | 2 | **两个顶层 Tab**：`Question Library` / `Dimension Weights` | 「五维 Tab + **第 6 个 `Weights` Tab**」 | **改为两个顶层 Tab**；维度 Tab 下沉到 `Question Library` 内（§8.4 C1 / C6）。**v4.4**：第二个 Tab 改名 ~~`Dimension Weights`~~ → **`Dimension Configuration`**（§0.10-D13） |
 | 3 | 题库 Tab 内：五维 Tab + **题目表格**，列 `QUESTION / ERA BAND / SOURCE / ACTIONS`（另有最左拖拽列），按 Era band 分组、每组一条组头行（band 徽章 + `{n} questions`） | 「组内按 level 折叠分组」（折叠面板） | **改为表格 + 分组行，不再用折叠面板**（§8.4 C1） |
 | 4 | 题目行内的 `Era band` **下拉**可直接改 band | 「跨 band 移动请走接口 12 改 `eraBand`（编辑表单）」 | **改为行内下拉**，仍走接口 12 全量更新；接口 14 维持「只做同 band 拖拽重排」（§6.4 / §8.4 C4） |
-| 5 | 权重面板：标题 + 说明在左，`Total: {n}%` + `Save Weights` 在右，**五个百分比输入平铺一行**（无滑条） | 「五行（维度名 + 百分比数字输入 + **滑条**）」 | **取消滑条**，按原型平铺；其余口径（合计 ≠ 100% 禁用 Save、不进题库版本、不激活 Publish、保存前确认框）**不变**（§8.4 C6）。⚠️ **v4.4**：该面板已被 PRD `0333162` 的 `Dimension Configuration` 取代 —— 每行改为「维度名 + 排序手柄 + 权重输入 + 删除操作」+ 面板上的 `Add Dimension`，**行数动态**（**v4.8 再改一版**：新增栏上移到面板头下一行、列表改卡片行、`code` 列撤下，§8.4-C6）；Save 双条件（脏态 + `Activate` 行合计 100%）、~~整组保存生成新配置版本~~ → **2026-09-08：就地整组替换**；确认框文案 ~~「…历史分数不变」~~ → **「新配置立即全局生效，已有期次的综合分、Stage 与雷达图形状会随之变化」**（§0.10-D13） |
+| 5 | 权重面板：标题 + 说明在左，`Total: {n}%` + `Save Weights` 在右，**五个百分比输入平铺一行**（无滑条） | 「五行（维度名 + 百分比数字输入 + **滑条**）」 | **取消滑条**，按原型平铺；其余口径（合计 ≠ 100% 禁用 Save、不进题库版本、不激活 Publish、保存前确认框）**不变**（§8.4 C6）。⚠️ **v4.4**：该面板已被 PRD `0333162` 的 `Dimension Configuration` 取代 —— 每行改为「维度名 + 排序手柄 + 权重输入 + 删除操作」+ 面板上的 `Add Dimension`，**行数动态**（**v4.8 再改一版**：新增栏上移到面板头下一行、列表改卡片行、`code` 列撤下，§8.4-C6）；Save 双条件（脏态 + `Active` 行合计 100%）、~~整组保存生成新配置版本~~ → **2026-09-08：就地整组替换**；确认框文案 ~~「…历史分数不变」~~ → **「新配置立即全局生效，已有期次的综合分、Stage 与雷达图形状会随之变化」**（§0.10-D13） |
 | 6 | 操作区 `Add New` / `Publish` / `View history` 右对齐，位于五维 Tab 之上 | 只有 `Add New` 与 `Publish`（页面右上） | 采纳该布局；**`View history` 为新入口** → C7（§8.4 C7） |
 | 7 | `View history`：题库版本历史列表（版本号 + 状态 / 发布时间 / 发布人 / 变更计数 / 受影响维度） | 无此页 | **新增 C7 页 + 接口 25**；数据全部取自已有的 `erl_question_config_version`（`published_at` / `published_by` / `change_summary`），**不新增表**（§5.1.1 / §6.4 / §8.1 / §8.2 / §8.4 C7）。⚠️ **v4.2 已改形态**，见 §2.3.1-⑥ |
 
@@ -871,7 +876,7 @@ Gateway :9000  -->  CIOaas-web(Java) :5213/web
 | **计分不做策略抽象**，只有一个 level 计分器（v4.0 改） | PRD 已把打分格式定档，「保证未来切换不用重构」的要求随之删除 ⇒ 策略工厂成了为假想场景预留的扩展点，违反根 `CLAUDE.md` 的 YAGNI | ❌ v3.x 的 `ErlScoringStrategy` + `ErlScoringStrategyFactory` + `erl_assessment.scoring_mode` 快照（§0.9-1） |
 | 答案表 `erl_assessment_answer` **一行一题**，不做 JSON 大字段 | 需要按维度 / level 聚合、按题 join 题库、逐题挂附件与备注 | ❌ `answers jsonb` |
 | ~~**附件表同时承载题级与维度级两种挂载**（`answer_id` 可空）~~ → **v4.6 作废**（§0.12）：**附件只有题级一种粒度**，双端同口径 —— 表名改回 `erl_answer_attachment`、`answer_id` 回 not null、`assessment_id` 列删除（`dimension` 列已在 v4.4 删除） | 维度级附件本就只有 PRD §3.4 一句 12 字的依据，需求方 2026-09-06 裁决取消；粒度归一后「附件属于哪道题」是表上自明的事实，不再需要「空 / 非空」这种隐式区分标志 | ❌ 保留可空 `answer_id` 只在服务端拦维度级写入（表结构仍在说谎，日后必被误用）；❌ `erl_answer_attachment` + `erl_dimension_attachment` 两张近乎相同的表 |
-| **计分不落库、实时算**（含维度 level 分与加权综合分） | 与 §12「不冗余存储聚合分数」一致；level 分由答案唯一决定，无二义。~~v4.4 补充：实时算不等于按当前权重算 —— 一律按该期次绑定的配置版本计算~~ → **2026-09-08 反转**：期次绑定表已删，**加权综合分与 Stage 一律按当前 `status = 'Activate'` 的维度集合与其当前 `weight` 实时算**（§7.1 / §7.11）—— 故它们会随配置变更而**回溯改变历史期次的值**（已接受，§13-Q21）。「存在 null 维度分时按剩余维度归一化」的逻辑保留，基数由「五」改为该版本的维度数（§0.10-R2 / §0.10-D1） | ❌ 提交时把综合分 / Stage 写死；❌ ~~按「当前生效权重」实时算~~（v4.3 口径，**已被 R2 推翻** —— 会让历史期次的综合分随配置改动漂移） |
+| **计分不落库、实时算**（含维度 level 分与加权综合分） | 与 §12「不冗余存储聚合分数」一致；level 分由答案唯一决定，无二义。~~v4.4 补充：实时算不等于按当前权重算 —— 一律按该期次绑定的配置版本计算~~ → **2026-09-08 反转**：期次绑定表已删，**加权综合分与 Stage 一律按当前 `status = 'Active'` 的维度集合与其当前 `weight` 实时算**（§7.1 / §7.11）—— 故它们会随配置变更而**回溯改变历史期次的值**（已接受，§13-Q21）。「存在 null 维度分时按剩余维度归一化」的逻辑保留，基数由「五」改为该版本的维度数（§0.10-R2 / §0.10-D1） | ❌ 提交时把综合分 / Stage 写死；❌ ~~按「当前生效权重」实时算~~（v4.3 口径，**已被 R2 推翻** —— 会让历史期次的综合分随配置改动漂移） |
 | 草稿与正式提交**同一条记录**，用 `status` 区分；提交后该行冻结，再改则新建下一条 | PRD §3.3「支持保存进度」+「提交后即只读，如需修改必须新建一次提交」 | ❌ 独立草稿表 |
 | **题库版本化**：版本表 + 写时复制草稿版本，所有配置变更经 Publish 生效（v3.3，依 2026-08-28 裁决） | 需求方要求「所有变更都经发布」；状态位只能表达「新增未发布」，表达不了「同一题的编辑前后两份题干」 | ❌ v3.2 的 `publish_status` 状态位（编辑无法两态并存）；❌ 双表（草稿表 + 正式表，等于版本化但只能存两代、且两套 DDL 要同步维护） |
 | 题目删除 = **在草稿版本内物理删行**（v3.3 改；原为软删 `enabled=false`） | 历史评估绑定题库版本快照，已发布版本的行不会被删，软删标记失去价值 | ❌ 继续软删 —— 版本内还留一堆 `enabled=false` 的行，查询恒要带条件 |
@@ -948,9 +953,9 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 - **C 模块（题库 + 维度配置）的 `organization_id` 缺省取 `SecurityUtils.getOrganizationId()`，v4.7 起接受可选入参 `organizationId`**（v4.0 的「一律不接受入参」到此作废；v4.4 由「权重」扩为「维度配置」）：不传即登录态组织；传值时服务端按**组织树**复核 —— 只认调用者自身组织或其子孙组织，否则 `BadRequestException("You do not have access to this organization.")`。校验集中在 `ErlAccessService.resolveOrganizationId(...)`，各 service **显式传参**、不从请求上下文夹带。跨组织树读写他人题库 / 维度配置仍直接 `BadRequestException`。
 - **维度配置的租户隔离与合法性校验（v4.4 新增，§0.10-R2 / §0.10-D13）**：
   - 接口 23 / 24 只操作调用者 `organization_id` 名下的 `erl_dimension_config` 行（**2026-09-08**：~~`erl_dimension_config_version` / `erl_dimension_config`~~ 两张表已删 / 改名，入参也不再有 `versionId`）；写入时按 `(organization_id, dimension_code)` upsert，**跨组织的 `dimension_code` 天然命中不到**。
-  - 接口 24 保存前服务端**必须**校验（**2026-09-08 三处均已反转**）：① 数组每项**显式二选一**：带 `dimensionCode`（已有，必须命中本组织已有行）或带 `isNew: true` + `clientRef`（新增，服务端生成 code）；两者都不带 / 同时带 → 400。**并做集合完整性校验**：当前 `Activate` 集合 恰等于 带 code 的项 ∪ `deactivatedCodes`，对不上即 400（**2026-09-08**，防前端漏传造成静默软删 + 身份分叉）；~~新增的 code 不得命中已停用行的拦截~~ **降级为内部重试** —— 用户无法指定 code，天然撞不到旧 code；② **`status = 'Activate'` 的维度**的 `weight` 合计**恰为 `100.00`**（~~v4.8：不再区分 ACTIVE / RETIRED~~ 作废；`Deactivate` 行不计入），且**至少保留一个 `Activate` 维度**；③ 提交里**缺席的维度置 `status = 'Deactivate'`（软删，不删行）**（~~物理删除、`status` 入参已删，v4.8~~ 作废）。校验通过即**就地整组替换**（~~生成新配置版本~~ 作废）。
-  - 一切按期次渲染维度、计分、绘雷达图的读接口，**服务端按 `~~erl_company_period_config~~（**2026-09-08 已删表**）` 取当前 `status = 'Activate'` 的维度集合**，不接受前端传入的 `dimensionConfigVersionId`。
-- **填报写接口的维度合法性（2026-09-07 新增）**：接口 4 / 5 / 28（存草稿 / 提交 / Reset）的入参 `dimensionCode` **必须属于当前 `status = 'Activate'` 的维度集合**（**2026-09-08**：~~`~~erl_company_period_config~~（**2026-09-08 已删表**）` → `erl_dimension_config`~~ 两张表已删 / 改名，改查 `erl_dimension_config`；**`Deactivate` 的维度也算不合法**），否则 400，并按配置里的规范写法归一大小写。此前只校验「非空 + 转大写」，于是任何满足 `^[A-Za-z0-9]{1,8}$` 的字符串（如 `ZZZ`）都能一路落库成 `SUBMITTED`，污染 ERL Card / 组合层 / Share 门槛判定，还会白触发一次 LLM 差距分析。只读的接口 3 早就在校验（它要拿配置项渲染页头），漏的是这三个写接口。
+  - 接口 24 保存前服务端**必须**校验（**2026-09-08 三处均已反转**）：① 数组每项**显式二选一**：带 `dimensionCode`（已有，必须命中本组织已有行）或带 `isNew: true` + `clientRef`（新增，服务端生成 code）；两者都不带 / 同时带 → 400。**并做集合完整性校验**：当前 `Active` 集合 恰等于 带 code 的项 ∪ `deactivatedCodes`，对不上即 400（**2026-09-08**，防前端漏传造成静默软删 + 身份分叉）；~~新增的 code 不得命中已停用行的拦截~~ **降级为内部重试** —— 用户无法指定 code，天然撞不到旧 code；② **`status = 'Active'` 的维度**的 `weight` 合计**恰为 `100.00`**（~~v4.8：不再区分 ACTIVE / RETIRED~~ 作废；`Inactive` 行不计入），且**至少保留一个 `Active` 维度**；③ 提交里**缺席的维度置 `status = 'Inactive'`（软删，不删行）**（~~物理删除、`status` 入参已删，v4.8~~ 作废）。校验通过即**就地整组替换**（~~生成新配置版本~~ 作废）。
+  - 一切按期次渲染维度、计分、绘雷达图的读接口，**服务端按 `~~erl_company_period_config~~（**2026-09-08 已删表**）` 取当前 `status = 'Active'` 的维度集合**，不接受前端传入的 `dimensionConfigVersionId`。
+- **填报写接口的维度合法性（2026-09-07 新增）**：接口 4 / 5 / 28（存草稿 / 提交 / Reset）的入参 `dimensionCode` **必须属于当前 `status = 'Active'` 的维度集合**（**2026-09-08**：~~`~~erl_company_period_config~~（**2026-09-08 已删表**）` → `erl_dimension_config`~~ 两张表已删 / 改名，改查 `erl_dimension_config`；**`Inactive` 的维度也算不合法**），否则 400，并按配置里的规范写法归一大小写。此前只校验「非空 + 转大写」，于是任何满足 `^[A-Za-z0-9]{1,8}$` 的字符串（如 `ZZZ`）都能一路落库成 `SUBMITTED`，污染 ERL Card / 组合层 / Share 门槛判定，还会白触发一次 LLM 差距分析。只读的接口 3 早就在校验（它要拿配置项渲染页头），漏的是这三个写接口。
 - **差距分析的 share 可见性（v4.4 新增，§0.10-D3）**：接口 17 在**公司端**调用且该 `(company_id, period)` 的 `erl_gap_analysis.shared = false`（含记录不存在）时，**直接返回空态**，不下发 `summary` / `items` / `dimensions` 中的任何分析内容。**是不下发，不是下发后前端隐藏**。接口 27（Share）仅管理端可调。
 - `portal=GSV` 的读写（B2 填报、A3 的 GSV 逐题明细）、C 模块写接口、D 模块全部接口、E 的生成接口与**接口 27 Share**、F2 的跨公司查询，服务端一律校验调用者为管理端，否则 `BadRequestException`。
 - **公司端请求一律裁剪掉以下字段**（v4.0 收紧，PRD §3.5）：`gsvScore`、`perceptionGap`、整个 `radar`、`benchmark*`（`benchmarkitScore` / `topQuartileScore` / `benchmarkPosition`）。**是不下发，不是下发后前端隐藏**。
@@ -971,10 +976,10 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | 1 | `erl_question_config` | §5.1 | **2026-09-08**：`dimension` → `dimension_code`；`version_id` → **`version_no`**，定位键 `(dimension_code, version_no)`，**版本线改为每维一条** |
 | 2 | `erl_question_config_version` | §5.1.1 | **2026-09-08**：精简为八列（删 `based_on_version_id` / `change_summary` / `dimension_config_version_id`） |
 | 3 | **`erl_question_config_dimension_version`** | §5.1.5 | **2026-09-08 新增**：题库版本 ↔ 维度快照（发布当时的维度集合冻结在此） |
-| 4 | **`erl_dimension_config`** | §5.1.3 | **2026-09-08 改名 + 去版本化**：由 `erl_dimension_config_item` 改名，`version_id` → `organization_id`，列名加 `dimension_` 前缀，收回 `saved_at` / `saved_by`，重新加 `status`（`Activate` / `Deactivate`，删除维度改软删） |
-| 5 | `erl_assessment` | §5.2 | **2026-09-08**：`dimension` → `dimension_code` + 加 `dimension_name` / `dimension_abbr` 快照；`question_version_id` → `erl_question_config_version_id`；**删 `submission_seq` / `is_latest`** |
+| 4 | **`erl_dimension_config`** | §5.1.3 | **2026-09-08 改名 + 去版本化**：由 `erl_dimension_config_item` 改名，`version_id` → `organization_id`，列名加 `dimension_` 前缀，~~收回 `saved_at` / `saved_by`~~（**2026-09-09 两列删除**，改用审计列 `updated_at` / `updated_by`），重新加 `status`（`Active` / `Inactive`，删除维度改软删） |
+| 5 | `erl_assessment` | §5.2 | **2026-09-08**：`dimension` → `dimension_code` + 加 `dimension_name` / `dimension_abbr` 快照；`question_version_id` → `erl_question_config_version_id`；**删 `submission_seq` / `is_latest`**；**2026-09-09：加 `erl_question_config_dimension_version_id`**（可空，→ §5.1.5 快照行，取题一跳直达；存量行由 `V8` 精确回填） |
 | 6 | `erl_assessment_answer` | §5.4 | **2026-09-08**：`assessment_id` → `erl_assessment_id`；`question_id` → `erl_question_config_id` |
-| 7 | `erl_answer_attachment` | §5.5 | **2026-09-08**：`answer_id` → `erl_assessment_answer_id`（`file_name` / `file_size` **暂不删除**，保留） |
+| 7 | `erl_answer_attachment` | §5.5 | **2026-09-08**：`answer_id` → `erl_assessment_answer_id`；**2026-09-09：删 `file_name` / `file_size`**（推翻 v4.15-⑧「暂不删除」），文件名与字节数改按 `file_id` 查 `files`（`original_name` / `length`），10MB 上限亦按 `files.length` 复核 |
 | 8 | **`erl_reference_score`** | §5.6 | **2026-09-08 改名**：由 `erl_benchmark_record` 改名 |
 | 9 | **`erl_reference_score_item`** | §5.6.1 | **2026-09-08 改名 + 改列**：由 `erl_benchmark_dimension` 改名；`record_id` → `erl_reference_score_id`，`dimension` → `dimension_code` + 加 `dimension_name` / `dimension_abbr` 快照 |
 | 10 | `erl_gap_analysis` | §5.7 | **v4.4**：删 `audience`，加 `shared` / `shared_at` / `shared_by`（D3） |
@@ -1035,17 +1040,18 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | **`organization_id`** | **varchar(36)** | **not null** | **v4.0 新增**：所属组织（租户）。PRD §4「ERL 配置层级按照租户层级」；取值缺省来自 `SecurityUtils.getOrganizationId()`（§2.1）；**v4.7** 起管理端可用可选入参 `organizationId` 指定**自身组织树内**的组织（§4.3） |
 | `version_no` | int | not null | **组织内**递增的**发布批次号**（v4.0 由「全局」改），从 1 起；配置页显示 `Published v3` / `Draft v4`。⚠️ **2026-09-08：与 `erl_question_config.version_no` 不是同一个东西** —— 后者按 `dimension_code` 自增、是各维度题目集各自的版本号（§5.1），两者的对应关系落在 §5.1.5 |
 | `status` | varchar(16) | not null | `DRAFT`（在改，未生效）/ `PUBLISHED`（已生效） |
-| **`is_latest`** | **boolean** | **not null，默认 `false`** | **v4.5 新增**：本行是否为**当前正在使用的最新版本** —— 即本组织 `status = 'PUBLISHED'` 中最新的那一版（新发起的评估绑定它，§7.9-①）。`DRAFT` 行与被取代的旧发布版本一律 `false`；Publish 时同一事务内把上一条 `true` 置 `false`、本版置 `true`。取「最新已发布版本」由「按 `version_no` 倒排取第一条」改为**直接命中本列** |
+| ~~`is_latest`~~ | — | — | ❌ **2026-09-09 删除**（推翻 v4.5-L1 / -L3 / -L5 / -L6）：~~本行是否为当前正在使用的最新版本~~ → 判据回到**本组织 `status = 'PUBLISHED'` 中 `version_no` 最大的那一条**（新发起的评估绑定它，§7.9-①）。<br>**本次删列不丢任何不变量**：`version_no` 在组织内有唯一索引 `uk_erl_question_config_version_no`，且草稿号恒为 `max + 1`，故「`PUBLISHED` 里 `version_no` 最大」**天然唯一、不需要次级排序键** —— 与 2026-09-08 删 `erl_assessment.is_latest`（判据换成 `submitted_at DESC, id DESC`，`submitted_at` 无唯一约束、**丢掉了「至多一条 SOT」的索引兜底**，§5.2）**性质不同**。<br>**不用 `published_at` 作判据**：它只是时间戳、无唯一约束（同微秒两次发布就并列），草稿行还是 `null`。<br>**唯一的陷阱**：草稿行的 `version_no` 恒为最大，故取在用版本**必须带 `status = 'PUBLISHED'`**，漏了就会把未发布的草稿当成在用版本发到问卷上（§11-88 有专项用例守它）。<br>**附带收益**：Publish 不再需要「先把上一版置 `false`、再把本版置 `true`」的两阶段 flush（那个顺序本是为了绕开下面那条部分唯一索引），现在**一行都不碰上一版** —— 而那段 `saveAndFlush(previous)` 正是「发布题库会改写上一版的最后编辑人 / 时间」这条技术债的成因（触发审计基类 `@PreUpdate` 回填），随本次一并闭掉 |
 | `published_at` | timestamp | | `PUBLISHED` 才有值 |
 | `published_by` | varchar(128) | | 发布人姓名快照 |
 | `version` | bigint | not null, default 0 | **2026-09-07 新增**：JPA `@Version` 乐观锁版本号。草稿版本行是**同组织多管理员共编**的对象：A 的加题事务持有草稿行时、B 把同一行发布成 PUBLISHED，A 随后把新题写进那个版本号（`erl_question_config.version_no`）—— 一道从未发布过的题瞬间进入线上问卷。题目的增删改排写的是 `erl_question_config`、**不碰本表**，故防线是 `ensureDraftVersion` 对草稿行发的那条带版本谓词的 UPDATE。列由 `V4__erl_optimistic_lock.sql` 建，**必须部署前执行** |
 
 约束（**v4.0：全部加 `organization_id` 前缀**）：
 - **部分唯一索引** `uk_erl_question_config_version_draft ON erl_question_config_version (organization_id) WHERE status = 'DRAFT'` —— **同一组织内同时最多一份草稿版本**。题库按组织单份，草稿也就按组织单份（同组织的多个管理员共享同一份草稿，后果见 §7.9-④）。
-- `uk_erl_question_config_version_no (organization_id, version_no)`；索引 `idx_erl_question_config_version_status (organization_id, status, version_no DESC)`（版本历史列表、以及建草稿时算 `version_no = max + 1` 的路径；**取「本组织最新已发布版本」自 v4.5 起改走 `is_latest`**）。
-- **部分唯一索引** `uk_erl_question_config_version_latest ON erl_question_config_version (organization_id) WHERE is_latest` —— **同一组织内至多一条 `is_latest = true`**（**v4.5 新增**）：正在使用的版本只能有一个，由索引兜底，不靠代码自觉。
+- `uk_erl_question_config_version_no (organization_id, version_no)` —— **2026-09-09 起它同时是「至多一个在用版本」的兜底**：在用版本 = `PUBLISHED` 里 `version_no` 最大的那条，组织内号唯一 ⇒ 结果必然唯一。
+- 索引 `idx_erl_question_config_version_status (organization_id, status, version_no DESC)` —— 版本历史列表、建草稿时算 `version_no = max + 1`，**2026-09-09 起又回到「取本组织最新已发布版本」的主路径**（v4.5 曾把这条路让给 `is_latest`，该列已删）。
+- ~~**部分唯一索引** `uk_erl_question_config_version_latest ... WHERE is_latest`~~ → ❌ **2026-09-09 随列一并删除**（v4.5 新增）：它守的「正在使用的版本只有一个」已由 `uk_erl_question_config_version_no` 天然保证。**本表现存部分唯一索引只剩 `uk_erl_question_config_version_draft` 一条。**
 
-**2026-09-08 删除的三列**（本表精简为 `id` / `organization_id` / `version_no` / `status` / `is_latest` / `published_at` / `published_by` / `version` 八列）：
+**2026-09-08 删除的三列**（本表精简为 `id` / `organization_id` / `version_no` / `status` / `published_at` / `published_by` / `version` **七列** —— **2026-09-09** 再删 `is_latest`，由八列变七列）：
 - ❌ `based_on_version_id`（克隆来源版本）—— 写时复制建草稿时只是记一笔来源，读侧没有任何功能依赖它；版本序列由 `version_no` 表达即可。
 - ❌ `change_summary`（发布时的变更摘要快照：`added` / `modified` / `removed` / `reordered` 四个计数 + 受影响维度）—— 变更摘要不再落库快照，只在接口 9 实时算（供 Publish 按钮与确认框）；**接口 25 不再返回 `changeSummary`**。
 - ❌ `dimension_config_version_id`（v4.10 新增，发布当时生效的维度配置版本 id）—— **2026-09-08 起改由新表 `erl_question_config_dimension_version`（§5.1.5）承接**：不再用一个 id 引用整份配置版本，而是把发布当时的 `dimension_code` / `dimension_name` / `dimension_abbr` / `sort_order` **逐维抄进快照表**，「发布时的维度」因此不再依赖维度配置留存历史。
@@ -1056,7 +1062,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 
 ### 5.1.2 ~~`erl_dimension_config_version`~~ —— **2026-09-08 整表删除**
 
-~~维度配置版本表（v4.4 新增；PRD §3.8 / R2）~~ → **2026-09-08 整表删除**：**维度配置不再版本化**。原表承载的三件事各有新落点 —— 「有哪些维度、每维权重多少」落在去版本化后的 `erl_dimension_config`（§5.1.3，每组织一份**当前配置**），「谁在什么时候保存的」由 `erl_dimension_config` 的 `saved_at` / `saved_by` 两列承接，「某个题库版本发布当时的维度长什么样」改由新表 `erl_question_config_dimension_version`（§5.1.5）逐行快照。原表的 `version_no` / `is_latest` 两列与三个索引（`uk_erl_dimension_config_version_no` / `uk_erl_dimension_config_version_latest` / `idx_erl_dimension_config_version`）一并消失。
+~~维度配置版本表（v4.4 新增；PRD §3.8 / R2）~~ → **2026-09-08 整表删除**：**维度配置不再版本化**。原表承载的三件事各有新落点 —— 「有哪些维度、每维权重多少」落在去版本化后的 `erl_dimension_config`（§5.1.3，每组织一份**当前配置**），「谁在什么时候保存的」由 `erl_dimension_config` 的**审计列 `updated_at` / `updated_by`** 承接（**2026-09-09**：一度为此收回的 `saved_at` / `saved_by` 两列已删除，理由见 §5.1.3），「某个题库版本发布当时的维度长什么样」改由新表 `erl_question_config_dimension_version`（§5.1.5）逐行快照。原表的 `version_no` / `is_latest` 两列与三个索引（`uk_erl_dimension_config_version_no` / `uk_erl_dimension_config_version_latest` / `idx_erl_dimension_config_version`）一并消失。
 
 > ⚠️ **删表后失去落点的口径**：① 接口 24 Save 由「每次保存生成新版本」改为**就地整组替换**（§6.4 / §7.11），**改动前的旧值不再留存**；② `erl_company_period_config` 失去绑定对象，已一并删表（§5.1.4）；③ **R2「历史期次永不漂移」整条失效** —— 改权重 / 增删维度会回溯改变历史期次的综合分、Stage、雷达图，**§13-Q21 重新打开**。
 
@@ -1068,19 +1074,29 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | **`organization_id`** | **varchar(36)** | **not null** | **2026-09-08 取代 `version_id`**：所属组织（租户）。维度配置**每组织一份当前值**，不再挂在配置版本下；取值缺省来自 `SecurityUtils.getOrganizationId()`（§2.1），**v4.7** 起可由可选入参 `organizationId` 指定组织树内的组织（§4.3） |
 | **`dimension_code`** | **varchar(8)** | **not null** | **2026-09-08 改名**（原 `code`） **+ 同日追加裁决：改为系统生成的不透明标识**。**组织内稳定** —— `erl_question_config.dimension_code`、`erl_assessment.dimension_code`、`erl_reference_score_item.dimension_code`、`erl_question_config_dimension_version.dimension_code`、`erl_gap_analysis_item.dimension` 五处历史数据全靠它关联，故**一经创建即永不改变**。<br>**生成规则（**2026-09-08 定档**）**：新增维度时由**服务端随机生成一个唯一值**，**与 `dimension_abbr` 无任何关系**，此后新增 / 修改都**不跟随 `dimension_abbr` 变动**。~~v4.8：新增时取新增栏里填的 `Abbreviation`、大写化后写入~~ **作废**。<br>**具体形式**：**纯随机码（8 位大写字母 + 数字）**（**已于 2026-09-08 审查后否决，改为前缀 + 4 位随机**）（如 `K7M2XQ4B`）。不用 UUID 的理由：本列为 `varchar(8)` 且被上述五处引用，改 UUID 要把五处列宽拉到 36（连带五张表的 DDL 与实体），代价明显更大；36⁸ ≈ 2.8×10¹² 的空间配下方的唯一索引重试已绰绰有余。<br>**生成时碰撞**（命中 `uk_erl_dimension_config`）则**重新生成并重试**（上限 5 次，超限报 500）。<br>配置页**不显示本列**（§8.4-C6），行内编辑能改的只有名称 / 缩写 / 权重 |
 | **`dimension_name`** | **varchar(64)** | **not null** | **2026-09-08 改名**（原 `name`）：全称，如 `Financial Readiness` |
-| **`dimension_abbr`** | **varchar(8)** | **not null，1–8 字符** | **2026-09-08 改名**（原 `abbr`）：显示缩写。~~v4.8：新增时它就是 `dimension_code` 的来源~~ → **2026-09-08：与 `dimension_code` 解耦**，code 仅在**创建时**取它前 3 位做前缀，此后本列**可随时改名、code 一律不跟随**。雷达图顶点、A3 维度 chip、F2 列头、A4 卡头徽章用它。<br>**唯一性（**2026-09-08 定档**）**：**同一组织内 `Activate` 的行不得重复**（部分唯一索引，见下）。~~一度写作「不要求唯一」~~ **作废** —— 解耦 code 并不要求 abbr 非唯一，而重名会直接造成 F2 两列同名、雷达图两个同名顶点、送给 LLM 的维度列表歧义、`Restore` 无法判别。`Deactivate` 行**不占用**缩写（否则停用过的缩写永久不能再用） |
+| **`dimension_abbr`** | **varchar(8)** | **not null，1–8 字符** | **2026-09-08 改名**（原 `abbr`）：显示缩写。~~v4.8：新增时它就是 `dimension_code` 的来源~~ → **2026-09-08：与 `dimension_code` 解耦**，code 仅在**创建时**取它前 3 位做前缀，此后本列**可随时改名、code 一律不跟随**。雷达图顶点、A3 维度 chip、F2 列头、A4 卡头徽章用它。<br>**唯一性（**2026-09-08 定档**）**：**同一组织内 `Active` 的行不得重复**（部分唯一索引，见下）。~~一度写作「不要求唯一」~~ **作废** —— 解耦 code 并不要求 abbr 非唯一，而重名会直接造成 F2 两列同名、雷达图两个同名顶点、送给 LLM 的维度列表歧义、`Restore` 无法判别。`Inactive` 行**不占用**缩写（否则停用过的缩写永久不能再用） |
 | `sort_order` | int | not null | 展示顺序：维度卡列表、雷达图顶点、题库 Tab、F2 列序、Gap 状态点一律按它排（PRD §3.8 拖拽排序即改此列） |
-| `weight` | numeric(5,2) | not null, 0–100 | **百分比数值**（如 `20.00` 表示 20%）。**同一组织内 `status = 'Activate'` 的行合计必须 = 100.00**（2026-09-08：范围由「同一版本内全部行」改为「同一组织内的启用行」—— 软删后 `Deactivate` 行仍在表里，若计入则永远凑不满 100），由服务端在保存时校验（§6.4 接口 24）。`Deactivate` 行的 `weight` **原样保留不清零**，供历史回看 |
-| **`saved_at`** | **timestamp** | **not null** | **2026-09-08 由 `erl_dimension_config_version` 收回**：本行最后一次保存的时间。⚠️ **与审计基类的 `updated_at` 语义不同**：整组替换时只有**实际发生变化的行**会动 `updated_at`，而接口 23 要回显的是「这份配置整体上次保存于何时」（原版本头的语义），故**每次 Save 给整组行统一写入相同的 `saved_at` / `saved_by`** |
-| **`saved_by`** | **varchar(36)** | **not null** | **2026-09-08 由 `erl_dimension_config_version` 收回**：本行最后一次保存的保存人 |
-| **`status`** | **varchar(16)** | **not null，默认 `Activate`** | **2026-09-08 重新加回**（v4.8 曾整列删除）：维度启用状态，取值 **`Activate`（启用）/ `Deactivate`（停用）**。**配置页的「删除维度」= 置 `Deactivate` 的软删**（**不物理删行**）：停用后该维度不再出现在填报 / 计分 / 雷达图的当前口径里，但行仍在，历史数据（`erl_assessment.dimension_code`、`erl_reference_score_item`、Gap items 与 §5.1.5 的发布快照）仍能反查到它的名称与缩写。`Deactivate` 的维度可再置回 `Activate` 恢复 |
+| `weight` | numeric(5,2) | not null, 0–100 | **百分比数值**（如 `20.00` 表示 20%）。**同一组织内 `status = 'Active'` 的行合计必须 = 100.00**（2026-09-08：范围由「同一版本内全部行」改为「同一组织内的启用行」—— 软删后 `Inactive` 行仍在表里，若计入则永远凑不满 100），由服务端在保存时校验（§6.4 接口 24）。`Inactive` 行的 `weight` **原样保留不清零**，供历史回看 |
+| **`status`** | **varchar(16)** | **not null，默认 `Active`** | **2026-09-08 重新加回**（v4.8 曾整列删除）：维度启用状态，取值 **`Active`（启用）/ `Inactive`（停用）**（**2026-09-09 改名**：原 `Activate` / `Deactivate` —— 这一列表达的是**状态**，该用形容词，原值是动词、读起来像动作。列名 / 类型 / 语义一字未改，只换两个字面值；存量库由 `V10` 改值并按新谓词重建部分唯一索引，Java 侧 `fromDbValue` **临时兼容旧值**以免脚本未跑时读侧就炸）。**配置页的「删除维度」= 置 `Inactive` 的软删**（**不物理删行**）：停用后该维度不再出现在填报 / 计分 / 雷达图的当前口径里，但行仍在，历史数据（`erl_assessment.dimension_code`、`erl_reference_score_item`、Gap items 与 §5.1.5 的发布快照）仍能反查到它的名称与缩写。`Inactive` 的维度可再置回 `Active` 恢复 |
+
+> **~~`saved_at` / `saved_by`~~ —— 2026-09-09 两列删除**：「这份配置上次保存于何时 / 谁保存的」改由**审计基类的 `updated_at` / `updated_by`** 承接。**接口 23 / 24 的契约一字不变**（出参仍是 `savedAt` / `savedBy`，入参仍收 `savedAt` 乐观锁令牌，前端零改动），只换取数口径：`savedAt` = 该组织**全部行**（含 `Inactive`）的 `max(updated_at)`，`savedBy` 取其中 `updated_at` 最大那一行的 `updated_by`。
+> - **为什么两列是冗余的**：设列的理由曾是「整组替换只有实际发生变化的行会动 `updated_at`」，而 §7.11 的保存流程会**先把该组织全部已有行落成 `Inactive` 并 flush、再盖终态**（为腾空 `uk_erl_dimension_config_abbr` 这个部分唯一索引）—— 真发生变更的保存必然 bump 全组行的 `updated_at`，独立列拿不到任何额外信息。
+> - ⚠️ **实现硬约束：`savedAt` 必须从库里读回**（`select max(d.updatedAt) …`），**不得**取一级缓存里实体的字段值 —— `updated_at` 落库是 `timestamp(6)`（微秒），而审计基类写入的 `Instant.now()` 带纳秒；回显未截断的纳秒值，同一个管理员**连续保存第二次必被乐观锁判成「已被他人修改」**，而根本没有第二个人。也**不能靠客户端侧 `truncatedTo(MICROS)` 规避** —— pgjdbc 文本模式下 PG 是**四舍五入**到微秒，截断与舍入会差 1 微秒。
+> - **`savedBy` 的一处边界**（已接受）：接口 23 默认不带停用行，若全局 `updated_at` 最大的那行恰是 `Inactive` 行，`savedBy` 会取到这批行里较早的那个保存人 —— `savedAt` 不受影响（它查的是全部行），而 `savedBy` 当前**无任何展示方**（前端只存进 state 不渲染），故不为它多查一次库。
+
+> **取值改名的三处连带影响**（**2026-09-09**）：
+> - **部分唯一索引的谓词跟着改**：`uk_erl_dimension_config_abbr ... WHERE status = 'Active'`。⚠️ 存量库若只 `UPDATE` 数据、不重建索引，旧谓词（`= 'Activate'`）此后**一行都命不中** —— 「同组织启用维度的缩写唯一」这条约束会**静默失效**，不报任何错。`V10` 把这一步与改值放在同一个事务里。
+> - **线上取值统一为 `Active` / `Inactive`**：接口 23 / 24 与卡片、评分详情里的 `status` 出参**此前实际下发的是枚举名 `ACTIVATE` / `DEACTIVATE`**（`ErlDimensionConfigConverter` 走的是 `.name()`），与本文档写的取值**并不一致** —— 本次一并收口：**库值 = 线上值 = 文档值**同一套词。前端不消费该字段（`Retired` 灰标是靠「接口 23 的 code 集合里还有没有它」算的），故**前端零改动**。
+> - **读侧临时兼容旧值**：`ErlDimensionConfigStatusEnum.fromDbValue` 除认 `Active` / `Inactive` 外**也认旧值** `Activate` / `Deactivate`（映射到同一枚举、不抛异常）；**写侧永远只写新值**。⚠️ **2026-09-09 审核订正**：这条兼容**只保住「实体读到旧值不抛异常」这一件事，保不住按 `status` 过滤的查询** —— ERL 的热读路径是在 SQL 里过滤的（`findByOrganizationIdAndStatusOrderBySortOrderAsc(org, ACTIVE)`，转换器绑定的字面值是 `'Active'`），库里还是旧值时**一行都命不中**：维度列表空、卡片 / 雷达 / Score Details / 组合层 / Goldie 全空、接口 24 必 400，而且**不报错**。所以 `V10` **不是**「先发代码也撑得住」，见下一条。
+> - **`V10` 的发版顺序（**2026-09-09 审核订正**）**：**必须与代码同批，且脚本紧跟代码之后、窗口以分钟计；两个方向都坏，没有「不炸」的方向**。① **先发代码**（库还是旧值）⇒ 新代码按 `'Active'` 过滤一行命不中：维度列表空、卡片 / 雷达 / Score Details / 组合层 / Goldie 全空、接口 24 收到空入参 **400**（**静默空数据，比 500 难查**；但整组锁读 `findForUpdateByOrganizationId` **不带 `status` 过滤**，老行没丢、脚本跑完即恢复），代价是窗口内新写入不受「缩写唯一」保护。② **先跑脚本**（旧代码还在跑）⇒ 同样的静默空数据**再加两条 500** —— `Show deactivated` 与接口 24 的整组读会把新值读进**旧** `fromDbValue`，抛 `IllegalArgumentException`，**保存路径彻底堵死**。⇒ **选①、把窗口压到最短**。~~原先写作「建议先发代码、再跑脚本，读侧靠临时兼容撑得住」~~ —— 结论方向对、理由是错的，已作废。`V10` 全环境跑完、确认库里只剩新值后，这段兼容就是死代码、应连同两个 `LEGACY_*` 常量与那条单测一起删掉（已记入 `CIOaas-api/docs/待优化项.md`）。
+> - **入参字段名不改**：接口 23 的 `includeDeactivated` 与接口 24 的 `deactivatedCodes` **保持原名**（改名属接口契约破坏，且它们表达的是「动作 / 要停用哪些」而不是状态值本身），只是它们指向的那个状态值现在叫 `Inactive`。
 
 约束与索引（**2026-09-08：键位由 `version_id` 改为 `organization_id`**）：
 - `uk_erl_dimension_config (organization_id, dimension_code)` —— 同一组织内一个 code 只有一行。
 - 索引 `idx_erl_dimension_config_org (organization_id, sort_order)` —— 按组织取有序维度列表的主查询路径。
-- **部分唯一索引** `uk_erl_dimension_config_abbr ON erl_dimension_config (organization_id, dimension_abbr) WHERE status = 'Activate'`（**2026-09-08 新增**）—— **同一组织内启用的缩写唯一**。**部分唯一索引因此由三个增至四个**（§5.1.1 两个 + §5.2 一个 + 本条）。
-- **乐观锁**（**2026-09-08 新增**）：本表是「同组织多管理员整组替换」的写入对象，而整组替换 + 缺席即软删 = 典型的 lost update（A 加维度 X 保存，B 随后保存自己那份不含 X 的数组 ⇒ X 静默被 `Deactivate`，A 完全无感）。因此：**接口 24 入参必须带上接口 23 返回的 `savedAt` 作为前置条件**，不匹配即返回「配置已被他人修改，请重新加载」（与 §11-91-⑦ 的乐观锁口径一致）。
-- 保存仍是**整组替换**（一次提交整份启用维度集合），不支持单维更新 —— 否则中间态必然破坏「合计 100%」。⚠️ **去版本化后「整组替换」写的是本组织的这批行本身**（就地覆盖 `dimension_name` / `dimension_abbr` / `sort_order` / `weight` / `status`），**改动前的旧值不再留存**；提交里缺席的维度不删行，改为置 `status = 'Deactivate'`。
+- **部分唯一索引** `uk_erl_dimension_config_abbr ON erl_dimension_config (organization_id, dimension_abbr) WHERE status = 'Active'`（**2026-09-08 新增**）—— **同一组织内启用的缩写唯一**。**部分唯一索引因此由三个增至四个**（§5.1.1 两个 + §5.2 一个 + 本条）—— **2026-09-09 更正为三条**：`uk_erl_question_config_version_latest` 随 `is_latest` 删列一并消失（§5.1.1），故现存 = `uk_erl_question_config_version_draft`（§5.1.1）+ `uk_erl_assessment_draft`（§5.2）+ 本条。
+- **乐观锁**（**2026-09-08 新增**）：本表是「同组织多管理员整组替换」的写入对象，而整组替换 + 缺席即软删 = 典型的 lost update（A 加维度 X 保存，B 随后保存自己那份不含 X 的数组 ⇒ X 静默被置 `Inactive`，A 完全无感）。因此：**接口 24 入参必须带上接口 23 返回的 `savedAt` 作为前置条件**，不匹配即返回「配置已被他人修改，请重新加载」（与 §11-91-⑦ 的乐观锁口径一致）。**2026-09-09 换底**：该令牌取自审计列 —— 该组织**全部行**的 `max(updated_at)`，独立的 `saved_at` / `saved_by` 两列已删除（见上方墓碑说明）。
+- 保存仍是**整组替换**（一次提交整份启用维度集合），不支持单维更新 —— 否则中间态必然破坏「合计 100%」。⚠️ **去版本化后「整组替换」写的是本组织的这批行本身**（就地覆盖 `dimension_name` / `dimension_abbr` / `sort_order` / `weight` / `status`），**改动前的旧值不再留存**；提交里缺席的维度不删行，改为置 `status = 'Inactive'`。
 
 > **`dimension_code` 与 `dimension_abbr` 的关系（**2026-09-08 定档**）**：
 > - **新增**：用户只填 `Dimension name` 与 `Abbreviation`；`dimension_code` 由**服务端生成**为 `{abbr 前 3 位}{4 位随机}`（如 `OPS4K7M`），前端不传、不可指定。
@@ -1096,19 +1112,19 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 
 > **维度数量不再固定为五**> **维度数量不再固定为五**（§0.10-D1）：`FRL / PRL / BERL / RRL / TRL` 只是**种子数据**的形态，不是模型约束（PRD §3.8 的维度列表本身就写作 `FRL / PRL / BERL / RRL / TRL...`，省略号即「不固定五个」）。全文凡「五维之一」「恒五行」「固定五项」「按五维固定顺序」的表述一律改为「按维度配置中的维度集合，按 `sort_order` 排序」。`ErlDimensionEnum` 枚举与前端 `constants.ts` 的静态 `DIMENSIONS` 映射一并删除，改**接口驱动**（接口 23）。
 >
-> **种子数据**（**2026-09-08 简化**）：`erl_init.sql` 为已有组织各插五行 `erl_dimension_config`（`FRL / PRL / BERL / RRL / TRL`，`sort_order` 1–5，`weight` 各 `20.00`，`status = 'Activate'`），~~先建 `version_no = 1` 的配置版本再挂 item~~ 随版本表一并作废；使系统起来即与 PRD 修订前的「简单平均」等价，不出现「权重未配 → 综合分算不出」的空窗。
+> **种子数据**（**2026-09-08 简化**）：`erl_init.sql` 为已有组织各插五行 `erl_dimension_config`（`FRL / PRL / BERL / RRL / TRL`，`sort_order` 1–5，`weight` 各 `20.00`，`status = 'Active'`），~~先建 `version_no = 1` 的配置版本再挂 item~~ 随版本表一并作废；使系统起来即与 PRD 修订前的「简单平均」等价，不出现「权重未配 → 综合分算不出」的空窗。
 >
-> **删除维度 = 软删**（**2026-09-08 定档**，推翻 v4.8「删除即物理删除」）：UI 上仍**只有 `Delete` 一个动作**（垃圾桶 + 二次确认），落库是把 `status` 置 `Deactivate`，行与 `weight` 一律保留。二次确认后剩余维度的权重合计会不足 100%，**需在同一次 Save 里补齐**。已 `Deactivate` 的维度：① 不进填报页、不进当前的综合分与雷达图；② **已提交的历史记录照常显示**（B3 历史列表 / A4 详情 / C7 版本快照）—— 名称 / 缩写取 `erl_assessment.dimension_name` / `dimension_abbr` 行上快照或 §5.1.5 的发布快照，`Retired` 灰样式由 `status = 'Deactivate'` **直接判定**（v4.8 的派生口径作废，§0.14）；③ ⚠️ **但「按当前口径重算」的东西会变** —— 综合分、Stage、雷达图顶点集合一律只取 `Activate` 维度，故历史期次的这三项**会因停用而漂移**（已接受，§5.1.4 / §13-Q21）。**两者不矛盾：存下来的提交行还在、能看；实时算出来的聚合值会变。**
+> **删除维度 = 软删**（**2026-09-08 定档**，推翻 v4.8「删除即物理删除」）：UI 上仍**只有 `Delete` 一个动作**（垃圾桶 + 二次确认），落库是把 `status` 置 `Inactive`，行与 `weight` 一律保留。二次确认后剩余维度的权重合计会不足 100%，**需在同一次 Save 里补齐**。已 `Inactive` 的维度：① 不进填报页、不进当前的综合分与雷达图；② **已提交的历史记录照常显示**（B3 历史列表 / A4 详情 / C7 版本快照）—— 名称 / 缩写取 `erl_assessment.dimension_name` / `dimension_abbr` 行上快照或 §5.1.5 的发布快照，`Retired` 灰样式由 `status = 'Inactive'` **直接判定**（v4.8 的派生口径作废，§0.14）；③ ⚠️ **但「按当前口径重算」的东西会变** —— 综合分、Stage、雷达图顶点集合一律只取 `Active` 维度，故历史期次的这三项**会因停用而漂移**（已接受，§5.1.4 / §13-Q21）。**两者不矛盾：存下来的提交行还在、能看；实时算出来的聚合值会变。**
 >
-> ⚠️ **软删对 C7 的影响（§0.17-K1，本次未改）**：v4.11 定的「C7 只显示今天仍在维度配置里的维度」原本靠「维度被物理删掉」来判定；改软删后**没有维度会消失**，该规则要么改判 `status = 'Deactivate'`、要么整条取消。
+> ⚠️ **软删对 C7 的影响（§0.17-K1，本次未改）**：v4.11 定的「C7 只显示今天仍在维度配置里的维度」原本靠「维度被物理删掉」来判定；改软删后**没有维度会消失**，该规则要么改判 `status = 'Inactive'`、要么整条取消。
 
 ### 5.1.4 ~~`erl_company_period_config`~~ —— **2026-09-08 整表删除**
 
 ~~期次与配置版本的绑定（v4.4 新增；R2）~~ → **2026-09-08 整表删除**：维度配置去版本化后（§5.1.2 / §5.1.3）已无版本可绑，本表唯一的业务列 `dimension_config_version_id` 失去指向，整表随之取消。原表的唯一约束 `uk_erl_company_period_config` 与索引 `idx_erl_company_period_config` 一并消失。
 
-**取而代之的取数口径**：按期次渲染维度、算综合分与 Stage、画雷达图、Gap 状态点计数、Share 门槛 —— 一律读 `erl_dimension_config` 中该组织 **`status = 'Activate'`** 的当前维度集合（§5.1.3），按 `sort_order` 排序。历史期次上出现过、如今已 `Deactivate` 的维度，其名称 / 缩写可由 `erl_assessment` 行上的 `dimension_name` / `dimension_abbr` 快照还原（§5.2）。
+**取而代之的取数口径**：按期次渲染维度、算综合分与 Stage、画雷达图、Gap 状态点计数、Share 门槛 —— 一律读 `erl_dimension_config` 中该组织 **`status = 'Active'`** 的当前维度集合（§5.1.3），按 `sort_order` 排序。历史期次上出现过、如今已 `Inactive` 的维度，其名称 / 缩写可由 `erl_assessment` 行上的 `dimension_name` / `dimension_abbr` 快照还原（§5.2）。
 
-> ⚠️ **R2「历史期次永不漂移」正式失效**（需求方 2026-09-08 裁决：**接受漂移**）：① 改权重会**回溯改变**已提交历史期次的综合分与 Stage —— `erl_assessment` 上有每维的 `level_score` 快照，但**权重不在快照里**，综合分是实时加权算出来的（§7.1）；② 新增维度会让历史期次凭空多出一个「未填」的维度，`Deactivate` 维度会从历史雷达图上消失；③ **§13-Q21 重新打开**，取值「改权重影响历史」。
+> ⚠️ **R2「历史期次永不漂移」正式失效**（需求方 2026-09-08 裁决：**接受漂移**）：① 改权重会**回溯改变**已提交历史期次的综合分与 Stage —— `erl_assessment` 上有每维的 `level_score` 快照，但**权重不在快照里**，综合分是实时加权算出来的（§7.1）；② 新增维度会让历史期次凭空多出一个「未填」的维度，`Inactive` 维度会从历史雷达图上消失；③ **§13-Q21 重新打开**，取值「改权重影响历史」。
 >
 > **若要保住 R2**，最省的落点是在 `erl_assessment` 上补一列权重快照（提交时冻结本维度的 `weight`），综合分按行上的权重加权 —— 但这只救得回权重，救不回「那个期次有哪些维度」，完整方案仍需某种期次级的维度集合冻结。**本次未采纳。**
 
@@ -1132,11 +1148,13 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | `sort_order` | int | not null | 排序：C7 版本快照页的维度卡顺序按它排（= 发布当时 `erl_dimension_config.sort_order` 的快照） |
 | `bound_at` | timestamp | not null | 绑定时间（= 该题库版本的发布时刻） |
 
+> ⚠️ **本表的行会被评估行直接指向**（**2026-09-09**）：`erl_assessment.erl_question_config_dimension_version_id` 存的就是本表某一行的 id（§5.2）。因此「**已发布版本的快照行此后永不改写、永不删除**」这条不再只是历史展示的需要，而是**评估取题的前提** —— 行被删掉，那条评估就退回复合键路径（仍能取到题，但「作答依据」的直连断了）。Publish 时删行的那一支（§7.9-②'''' 边界 ①：草稿期克隆过、发布前又被置 `Inactive`）删的是**草稿版本**的行，评估只会绑到**已发布版本**的行上，两者不重叠。
+
 约束与索引：
 - `uk_erl_question_config_dimension_version (erl_question_config_version_id, dimension_code)` —— 同一题库版本内一个维度只有一行。
 - 索引 `idx_erl_question_config_dimension_version (erl_question_config_version_id, sort_order)` —— 按版本取有序维度列表的主查询路径（接口 26 出参 `dimensions[]`）。
 
-**写入时机：接口 21 Publish 在同一事务内**，把该组织当时 `erl_dimension_config` 中 **`status = 'Activate'` 的行**逐行快照进本表（每维一行，带上该维度当时的 `question_version_no`），`bound_at` = 发布时刻；**此后永不改写**。草稿（`DRAFT`）版本**不写本表** —— C7 选中草稿时读侧回退当前维度配置（§5.1.3）。
+**写入时机：接口 21 Publish 在同一事务内**，把该组织当时 `erl_dimension_config` 中 **`status = 'Active'` 的行**逐行快照进本表（每维一行，带上该维度当时的 `question_version_no`），`bound_at` = 发布时刻；**此后永不改写**。~~草稿（`DRAFT`）版本**不写本表** —— C7 选中草稿时读侧回退当前维度配置（§5.1.3）~~ → **2026-09-09 作废**（与本节开头的 ⚠️ 及实现一致）：**草稿版本行上也有快照行** —— 某维本轮首次被编辑、触发克隆时就写一行挂在草稿版本行上（`ErlQuestionConfigVersionServiceImpl.ensureDimensionCloned`），它是「本轮克隆过哪些维度」的**唯一记录**（§7.9-②''）。Publish 只是把同一条版本行翻成 `PUBLISHED`，这批行随之成为该发布版本的快照，**无需重写**；Publish 当时只补写「本轮未克隆过的 `Active` 维度」那几行。⚠️ 若按作废前那句实现成「草稿不写本表」，§7.9-②'' 的判据就没有落点，写时复制会退回用两个 `max` 比大小反推 —— 那有两个可达的静默错误分支（§7.9-②'' 已列）。
 
 > **`question_version_no` 与 `erl_question_config_version_id` 不冗余**（2026-09-08 澄清）：前者是**该维度题目集自己的版本号**（`erl_question_config.version_no`，按 `dimension_code` 自增，§5.1），后者是**组织级的发布批次**（§5.1.1）。本表正是两者的对应关系表 —— 一行 = 「第 n 次发布时，维度 X 用的是它自己的第 m 版题目」。取某个发布版本下某维度的题目：先按 `erl_question_config_version_id` 查出本行，再用 `(dimension_code, question_version_no)` 回 `erl_question_config` 取题。
 >
@@ -1152,14 +1170,15 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | `company_id` | varchar(36) | not null | |
 | `period` | varchar(8) | not null | 形如 `2026Q3` |
 | `portal` | varchar(8) | not null | `FOUNDER` / `GSV` |
-| **`dimension_code`** | **varchar(8)** | **not null** | **2026-09-08 改名**（原 `dimension`）：本次提交所属维度的 code（对应 `erl_dimension_config.dimension_code`，§5.1.3）。取值域 = 该组织当前 `status = 'Activate'` 的维度集合，**不是固定五值枚举**（D1） |
-| **`dimension_name`** | **varchar(64)** | **not null** | **2026-09-08 新增**：提交时该维度全称的**快照**。维度日后改名或 `Deactivate` 后，历史详情、雷达图图例、Gap 报告仍显示当时的名字 |
+| **`dimension_code`** | **varchar(8)** | **not null** | **2026-09-08 改名**（原 `dimension`）：本次提交所属维度的 code（对应 `erl_dimension_config.dimension_code`，§5.1.3）。取值域 = 该组织当前 `status = 'Active'` 的维度集合，**不是固定五值枚举**（D1） |
+| **`dimension_name`** | **varchar(64)** | **not null** | **2026-09-08 新增**：提交时该维度全称的**快照**。维度日后改名或 `Inactive` 后，历史详情、雷达图图例、Gap 报告仍显示当时的名字 |
 | **`dimension_abbr`** | **varchar(8)** | **not null** | **2026-09-08 新增**：提交时该维度缩写的**快照**，同上 |
 | `status` | varchar(16) | not null | `DRAFT` / `SUBMITTED` |
 | ~~`submission_seq`~~ | — | — | ❌ **2026-09-08 删除**：同组内的提交序号。历史提交的先后改按 `submitted_at` 倒排（见下方 ⚠️） |
 | ~~`is_latest`~~ | — | — | ❌ **2026-09-08 删除**：SOT 标记。「最新一次提交」改按 `submitted_at` 取最大（见下方 ⚠️） |
 | ~~`scoring_mode`~~ | — | — | ❌ **v4.0 删除**：PRD 已把打分格式定档，只剩一种计分模型，快照列无消费者（§0.9-1 / §7.2） |
 | **`erl_question_config_version_id`** | **varchar(36)** | **not null** | **2026-09-08 改名**（原 `question_version_id`） → `erl_question_config_version.id`（§5.1.1）：本次作答所依据的**题库版本快照**。**创建评估时写入当时最新的已发布版本，此后永不改写**（含 `DRAFT` 期间 —— v3.4 取消重基，见 §7.9-⑤）。填报、计分、历史详情、Goldie 输入**全部按此版本**渲染与计算。**v4.4（R1）：绑定粒度由「每卷一份」变为「每维一份」** —— 见下方说明 |
+| **`erl_question_config_dimension_version_id`** | **varchar(36)** | **可空** | **2026-09-09 新增** → `erl_question_config_dimension_version.id`（§5.1.5）：本次作答所依据的**那一维的题目集快照行**。上一列绑的是**组织级发布批次**，要取「这一维当时用的是第几版题目」还得拿 `(erl_question_config_version_id, dimension_code)` 去 §5.1.5 按复合键反查；本列把**那一行的 id 直接记在评估上**，一跳 `findById` 即得 `question_version_no`（连同发布当时的维度名 / 缩写 / 排序）。**创建草稿时写入，此后永不改写**（与上一列同口径，v3.4 已否决重基）。<br>**为什么可空**：① 本仓库 `ddl-auto: update` **加不上 NOT NULL 列**（同 `version` 列的处境）；② 该维度在所绑那一版下**可能本来就没有快照行**（例如它在那次 Publish 之后才启用），此时 `null` 是**正确状态、不是异常**。<br>**读侧优先级**：非空 ⇒ 一跳直达，但要过三道校验 —— 行还在、行的 `dimension_code` 与评估行一致、行的 `erl_question_config_version_id` 等于评估绑定的批次；任一不成立即按**脏数据**处理（打 WARN 后回退，**不抛异常**）。正常路径下两列是同一时刻由同一个版本行写入的，永远相等；不相等只能是手工改数或迁移写歪，此时宁可回退也不能拿别的维度 / 别的一版的号去取题。为空 ⇒ **回退原来的复合键查询**（存量行与上面②那种情形）。两条路径结果必须一致。<br>**不取代 `erl_question_config_version_id`**：`organization_id`（评估表上没有）与版本号徽章（`questionVersionNo` / `hasNewerQuestionSet`）仍从批次列解，本列只是取题的捷径。存量行由 `V8` 精确回填（§10.1） |
 | **`level_score`** | **smallint** | **提交时非空，0–9** | **v4.4 由 `erl_assessment_dimension` 上提（R1），语义与取值域不变**：本维度得分 = 最后一个全 Yes 的 level。`0` = level 1 内就有 No；`9` = 九级全 Yes（PRD `a6b0906`）。`DRAFT` 期间为 `null`（尚未终止），提交时由服务端算出并落库 |
 | **`terminated_level`** | **smallint** | 0–9 | **v4.4 由 `erl_assessment_dimension` 上提（R1）**：**首次出现 No 的 level**（`level_score + 1`）；九级全 Yes 时为 `null`。冗余存一列是为了历史详情页能直接标出「止于 Level n」而不必重扫答案 |
 | **`unlocked_level`** | **smallint** | not null, 1–9 | **v4.4 由 `erl_assessment_dimension` 上提（R1）**：**草稿期的解锁进度**，当前已解锁到第几 level。创建草稿时写 `1`，填报页据此渲染（§7.2）；提交后即等于 `terminated_level ?? 9` |
@@ -1173,7 +1192,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 **约束变更（v2.1 的关键修正；v4.4 起每一条都加维度列；**2026-09-08 随两列删除再减两条**）**：
 - ❌ 删除 v2.1 的 `uk_erl_assessment (company_id, period, portal)` —— 它与 PRD「同一季度允许多次提交」直接冲突。
 - ❌ **2026-09-08 删除** `uk_erl_assessment_seq` —— 随 `submission_seq` 列一并消失。
-- ❌ **2026-09-08 删除** `uk_erl_assessment_latest` —— 随 `is_latest` 列一并消失；**部分唯一索引本轮删 2 条**（`uk_erl_assessment_latest` 与随表删除的 `uk_erl_dimension_config_version_latest`）**、新增 1 条**（`uk_erl_dimension_config_abbr`，§5.1.3），**现存 4 条**（§5.1.1 两个 + 本表的 `uk_erl_assessment_draft` + 缩写唯一）。
+- ❌ **2026-09-08 删除** `uk_erl_assessment_latest` —— 随 `is_latest` 列一并消失；**部分唯一索引本轮删 2 条**（`uk_erl_assessment_latest` 与随表删除的 `uk_erl_dimension_config_version_latest`）**、新增 1 条**（`uk_erl_dimension_config_abbr`，§5.1.3），现存 ~~4 条~~ → **2026-09-09：3 条**（`uk_erl_question_config_version_draft` + 本表的 `uk_erl_assessment_draft` + 缩写唯一 —— `uk_erl_question_config_version_latest` 随题库版本表的 `is_latest` 一并删除，§5.1.1）。
 - ✅ **部分唯一索引** `uk_erl_assessment_draft ON erl_assessment (company_id, period, portal, dimension_code) WHERE status = 'DRAFT'` —— **每维**同时只允许一份在填草稿（草稿仍是公司共享、不含用户维度，D9）。**本表唯一存活的部分唯一索引。**
 - 索引 `idx_erl_assessment_company_period (company_id, period, portal, dimension_code, submitted_at DESC, id DESC)` —— **2026-09-08：列改名，并升级为「取最新提交」的主路径**（原先靠 `is_latest` 命中）。
 
@@ -1233,10 +1252,16 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | ~~`dimension`~~ | — | — | ❌ **v4.4 删除**（§0.10-R1）：v4.0 新增的冗余维度列；维度已在 `erl_assessment.dimension_code` 上（§5.2） |
 | **`erl_assessment_answer_id`** | **varchar(36)** | **not null** | **2026-09-08 改名**（原 `answer_id`） → `erl_assessment_answer.id`（§5.4）。**附件恒挂在一条作答上**，双端同口径；所属评估、维度、期次、端一律经该作答带出。~~v4.0 放开为可空以承载维度级附件、并以「空 / 非空」区分粒度~~ → v4.6 作废 |
 | `file_id` | varchar(36) | not null | 直传通道返回的 `files.id` |
-| `file_name` | varchar(255) | not null | 原始文件名快照 |
-| **`file_size`** | **bigint** | **not null** | **v4.0 新增**：字节数。落库前校验 **≤ 10 \* 1024 \* 1024**（PRD §3.3「单个最大 10MB」），前端同校验（§6.7） |
+| ~~`file_name`~~ | — | — | ❌ **2026-09-09 删除**（推翻 v4.15-⑧「`file_name` / `file_size` 暂不删除」）：~~原始文件名快照~~ → 按 `file_id` 取 `files.original_name` |
+| ~~`file_size`~~ | — | — | ❌ **2026-09-09 删除**（同上）：~~v4.0 新增的字节数快照~~ → 按 `file_id` 取 `files.length`；**10MB 上限也改按 `files.length` 复核** |
 | `registry_id` | varchar(36) | | 知识库登记行 id（Python 回传）；未入库成功时为 `null` |
 | `ingest_status` | varchar(16) | not null | `PENDING` / `SUCCESS` / `FAILED` —— 入 Memory File 的结果 |
+
+> **~~`file_name` / `file_size`~~ —— 2026-09-09 两列删除**：文件名与字节数**不再在附件行上快照**，一律按 `file_id` 去 `files` 取（`original_name` / `length`）—— 那本就是这两个值的**真值来源**，附件行只是「这道题挂了哪个文件」的指针。
+> - **入参收敛**：接口 4 / 5 的 `answers[].attachments[]` **只收 `fileId`**（`fileName` / `fileSize` 入参删除）。存量前端仍会多发这两个字段，服务端忽略（`fail-on-unknown-properties: false`），**前端零改动**。
+> - **10MB 上限改按 `files.length` 复核**（§6.7 第 ③ 步）：比原来的「信客户端自报的 `fileSize`」更硬 —— 但**这有个前提**（**2026-09-09 审核补**）：`files.length` 在 `presign` 阶段落的**也是客户端自报的数**，只有 `verify` 才用 S3 `HeadObject` 的真实大小覆盖它并写上 `etag`。所以服务端**先断言 `files.etag` 非空**（= 已 verify）再看 `length`；少了这一条，「presign 声明 1MB → PUT 一个 100MB 对象 → 跳过 verify → 挂上来」就能绕过上限（`KNOWLEDGE_BASE` 的 presign 上限是 1024MB，绕过空间很大）。前端 `storageService.uploadFile` 走的是 `putAndVerify`，正常链路必然已 verify。<br>⚠️ **仍未校验的一项**：`fileId` 的**归属**（谁上传的、是不是 `KNOWLEDGE_BASE` 业务类型、属不属于本公司）—— 任意 `files.id` 都能挂到本公司作答上，属存量口径，已记入 `CIOaas-api/docs/待优化项.md`。两种取不到大小的情况**一律 400**：① `file_id` 在 `files` 里查不到；② 查到了但 `length <= 0`（直传只 presign 占了行、还没 verify，或 legacy 行从未回填大小）—— **不得**把 `0` 当成「0 字节，肯定不超限」放过去，S3 上那个对象可以任意大。
+> - **出参不变**：`fileName` / `fileSize` 照旧下发（B2 / A3 / A4 的附件行要显示名字与大小），只是改由 `files` **批量**回填（一次 `findAllById`，绝不逐个查 —— `coding.md §10`）。
+> - ⚠️ **代价（已接受）**：快照消失后，历史附件的名字与大小**依赖 `files` 行仍在**。`files` 行若被清理，回显变 `null`（`file_id` / `registry_id` / `ingest_status` 仍在，附件行本身不丢、知识库条目也不受影响）。当前没有任何清理 `files` 的定时任务，故这是理论风险而非现存缺陷。
 
 索引 `idx_erl_attachment_answer (erl_assessment_answer_id)`（**v4.6**：`idx_erl_attachment_assessment` 随 `assessment_id` 列一并删除）、以及建库脚本里那条按 `file_id` 的索引（Python 回写 `ingest_status` 用，§6.7 第 ⑥ 步）。**按维度 / 按一次提交查附件 = 先取该评估的作答行，再按 `erl_assessment_answer_id` 批量取**（`findByAnswerIdIn`，本就是填报页、维度页、A4 的既有主路径）。
 
@@ -1264,12 +1289,12 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | `id` | varchar(36) | PK | |
 | **`erl_reference_score_id`** | **varchar(36)** | **not null** | **2026-09-08 改名**（原 `record_id`） → `erl_reference_score.id`（§5.6） |
 | **`dimension_code`** | **varchar(8)** | **not null** | **2026-09-08 改名**（原 `dimension`）：维度 code，取值来自 `erl_dimension_config.dimension_code`（§5.1.3），~~固定五值枚举~~ 已作废（D1） |
-| **`dimension_name`** | **varchar(64)** | **not null** | **2026-09-08 新增**：录入时该维度全称的**快照**，同 `erl_assessment`（§5.2）—— 维度日后改名或 `Deactivate` 后，历史基准记录仍显示当时的名字。⚠️ 原先这两列**不落库、由 service 按配置回填**，现在是表列，**映射方向反转** |
+| **`dimension_name`** | **varchar(64)** | **not null** | **2026-09-08 新增**：录入时该维度全称的**快照**，同 `erl_assessment`（§5.2）—— 维度日后改名或 `Inactive` 后，历史基准记录仍显示当时的名字。⚠️ 原先这两列**不落库、由 service 按配置回填**，现在是表列，**映射方向反转** |
 | **`dimension_abbr`** | **varchar(8)** | **not null** | **2026-09-08 新增**：录入时该维度缩写的**快照**，雷达图基准环的图例用它 |
 | `benchmarkit_score` | numeric(3,1) | not null | 1–9 |
 | `top_quartile_score` | numeric(3,1) | not null | 1–9 |
 
-唯一约束 `uk_erl_reference_score_item (erl_reference_score_id, dimension_code)`；索引 `idx_erl_reference_score_item (erl_reference_score_id)`（**2026-09-08 随表与列改名**）。~~**一条记录必须齐五维**（D2 页十个输入框全必填）~~ → **v4.4 参数化**（§0.10-D1）：**一条记录必须齐当前 `status = 'Activate'` 的全部维度**（**2026-09-08**：原「该期次绑定配置版本中的全部维度」随 §5.1.4 删表作废），D2 页按该维度集合渲染「每维两个输入框」并**全部必填**（§8.4），否则提交被拒 —— 缺维会让雷达图与维度页的基准位置出现空轴。
+唯一约束 `uk_erl_reference_score_item (erl_reference_score_id, dimension_code)`；索引 `idx_erl_reference_score_item (erl_reference_score_id)`（**2026-09-08 随表与列改名**）。~~**一条记录必须齐五维**（D2 页十个输入框全必填）~~ → **v4.4 参数化**（§0.10-D1）：**一条记录必须齐当前 `status = 'Active'` 的全部维度**（**2026-09-08**：原「该期次绑定配置版本中的全部维度」随 §5.1.4 删表作废），D2 页按该维度集合渲染「每维两个输入框」并**全部必填**（§8.4），否则提交被拒 —— 缺维会让雷达图与维度页的基准位置出现空轴。
 
 > **为什么拆两张表而不是在单表加 `dimension_code` 列**：`note` 与录入人属于「一次录入」的属性，摊到每个维度一行会重复且可能不一致（改一次备注要改 N 行）。**v4.4 订正**：原文说「该主从结构与 `erl_assessment` / `erl_assessment_dimension`（§5.2 / §5.3）一致」—— ~~该类比~~ 已随 §5.3 整表删除而失效（`erl_assessment` 现在自己就是维度级的，不再有从表）。现存的同构主从结构是 `erl_gap_analysis` / `erl_gap_analysis_item`（§5.7 / §5.8）。
 >
@@ -1295,7 +1320,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 
 唯一约束 `uk_erl_gap_analysis (company_id, period)` —— **v4.4** 由 ~~`(company_id, period, audience)`~~ 去掉 `audience`（D3）。重新生成 = 覆盖本行 + 全量替换其 item 行。
 
-**Share 激活门槛**（PRD §3.6「只有所有维度两方都完成时」）：该 `(company, period)` 下**每一个维度**（**2026-09-08**：§5.1.4 已删表，改按 `erl_dimension_config` 当前 `status = 'Activate'` 的维度集合，§5.1.3）取的 `FOUNDER` 与 `GSV` 两端**都有** `SUBMITTED` 记录时（**2026-09-08**：`is_latest` 列已删，改按同 `(company_id, period, portal, dimension_code)` 内 `submitted_at DESC, id DESC` 取首条判存在），`Share to founder` 按钮才激活；否则置灰（§8.4 / D4）。
+**Share 激活门槛**（PRD §3.6「只有所有维度两方都完成时」）：该 `(company, period)` 下**每一个维度**（**2026-09-08**：§5.1.4 已删表，改按 `erl_dimension_config` 当前 `status = 'Active'` 的维度集合，§5.1.3）取的 `FOUNDER` 与 `GSV` 两端**都有** `SUBMITTED` 记录时（**2026-09-08**：`is_latest` 列已删，改按同 `(company_id, period, portal, dimension_code)` 内 `submitted_at DESC, id DESC` 取首条判存在），`Share to founder` 按钮才激活；否则置灰（§8.4 / D4）。
 
 > ⚠️ **重生成时 `shared` 复位为 `false`**（**v4.4 定档**，§0.10-D3）：PRD 与原设计都没定义「Share 之后又有新提交」的边界，而重生成会**静默改写 Founder 已经看到的内容**。本版定档 —— 置 `stale = true` 触发重生成时，同一事务内把 `shared` 置回 `false`、清空 `shared_at` / `shared_by`；重生成完成后管理端提示「内容已更新，需重新分享」，需 GSV **重新 Share**，Founder 端在此期间回到空态。
 >
@@ -1356,7 +1381,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 >
 > **v4.4 三条全局改动，逐接口不再重复声明**：
 > ① **维度级提交（R1）** —— 一次提交 = 某公司某期次某端的**单个维度**，填报域（接口 3 / 4 / 5 / 28）的请求体与响应体一律带 `dimension`，原「一条评估含五维」的数组结构降为单维平铺。
-> ② **动态维度（D1 / R2）** —— 全文不再有「固定五项 / 五维固定顺序」；维度列表、顺序、权重一律**按当前 `status = 'Activate'` 的维度集合**（`~~erl_company_period_config~~（**2026-09-08 已删表**）` → `erl_dimension_config`，§5）返回，期次尚无任何评估时按当前 `status = 'Activate'` 的维度集合返回。
+> ② **动态维度（D1 / R2）** —— 全文不再有「固定五项 / 五维固定顺序」；维度列表、顺序、权重一律**按当前 `status = 'Active'` 的维度集合**（`~~erl_company_period_config~~（**2026-09-08 已删表**）` → `erl_dimension_config`，§5）返回，期次尚无任何评估时按当前 `status = 'Active'` 的维度集合返回。
 > ③ **`period` 缺省口径（R3）** —— 所有 `period` 可选的读接口（1 / 17 / 20 / 22 等），缺省值为**该公司 closed month 所在季度**（复用 Financial Intelligence 域既有服务）；该季度无提交即**返回空态，不回退**到更早期次。
 
 ### 6.1 ERL Card（A1 / A2，PRD §3.1）
@@ -1367,19 +1392,19 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 
 `dimensions[]` 每项（**v4.0 改**，**v4.4 补 Gap 区块字段**）：`code`（维度代码，v4.4 起以此为准；即原 `dimension` 字段）/ `name` / `abbr` / `weight`（该维权重百分比，供卡片标注加权口径）/ `founderScore`（**0–9 整数**）/ `gsvScore` / `perceptionGap` / `gapDirection`（`POSITIVE`/`NEGATIVE`/`NONE`）/ `era` / `detailUrl` / **`bothSubmitted`** / **`hasGap`**。
 
-- **`dimensions[]` 不再恒五项（v4.4，D1 / R2）**：按当前 `status = 'Activate'` 的维度集合返回，顺序取 `sort_order`；该期次尚无任何评估时按当前 `status = 'Activate'` 的维度集合返回。**已在当前 `status = 'Activate'` 的维度集合里删掉的维度**在历史期次照常返回（前端可加 `Retired` 灰样式；该态由「是否还在当前 `status = 'Activate'` 的维度集合里」派生，v4.8），不进新期次。
-- **`status`（~~`ACTIVE` / `RETIRED`、v4.8 起纯派生~~ → **2026-09-08：`Activate` / `Deactivate`，落库列**）** —— `dimensions[]` 每项随带，**直接下发 `erl_dimension_config.status` 列值**（§5.1.3）：该维度启用中 ⇒ `Activate`，已软删停用 ⇒ `Deactivate`（前端据此给历史期次的维度标灰）。~~不落库 / 由「是否还在当前生效版本里」推导~~ 作废（§0.14 随之失效）。⚠️ 与 v4.0 从接口 1 / 2 删掉的那个 `status`（`MET` / `PARTIAL` / `GAP`，§0.9-10）**不是同一个字段**，不要混淆。
+- **`dimensions[]` 不再恒五项（v4.4，D1 / R2）**：按当前 `status = 'Active'` 的维度集合返回，顺序取 `sort_order`；该期次尚无任何评估时按当前 `status = 'Active'` 的维度集合返回。**已在当前 `status = 'Active'` 的维度集合里删掉的维度**在历史期次照常返回（前端可加 `Retired` 灰样式；该态由「是否还在当前 `status = 'Active'` 的维度集合里」派生，v4.8），不进新期次。
+- **`status`（~~`ACTIVE` / `RETIRED`、v4.8 起纯派生~~ → **2026-09-08：`Active` / `Inactive`，落库列**）** —— `dimensions[]` 每项随带，**直接下发 `erl_dimension_config.status` 列值**（§5.1.3）：该维度启用中 ⇒ `Active`，已软删停用 ⇒ `Inactive`（前端据此给历史期次的维度标灰）。~~不落库 / 由「是否还在当前生效版本里」推导~~ 作废（§0.14 随之失效）。⚠️ 与 v4.0 从接口 1 / 2 删掉的那个 `status`（`MET` / `PARTIAL` / `GAP`，§0.9-10）**不是同一个字段**，不要混淆。
 - **`bothSubmitted` / `hasGap`（v4.4 新增，D4）** —— 卡片 Gap 区块每维小卡的两条**互相独立**的信息，前端不要合成一个枚举：
   - `bothSubmitted` 决定**圆点颜色**（该维 FOUNDER 与 GSV 两端都有 `SUBMITTED` 记录（**2026-09-08**：同 `(company_id, period, portal, dimension_code)` 内按 `submitted_at DESC, id DESC` 取首条 `SUBMITTED`） → 绿点，否则灰点）；
   - `hasGap` 决定**文字**（`bothSubmitted = false` → `Not submitted`；`true` 且 `hasGap = true` → `Gap analysis ready`；`true` 且 `hasGap = false` → `No Gap`）。
   - 计数文案 `{n} of {total} dimensions have gap analysis for {period}` 由前端按本数组自算（`n` = `bothSubmitted && hasGap` 的项数，`total` = 数组长度），**不另加计数字段**。
-- **`shared`（v4.4 新增，D3）**：该 `(company, period)` 的差距分析是否已分享给 Founder 端。管理端据此决定 `Share to founder` 按钮态（**每一个维度两端都已提交**才激活，未达成置灰，底部提示 `Share unlocks once gap analysis is available for all {total} dimensions in {period}.`（**2026-09-08**：`{total}` = 当前 `Activate` 维度数））；公司端 `shared = false` 时整个 Gap 区块显示空态（同接口 17，§6.6）。Share 动作走**接口 27**。
+- **`shared`（v4.4 新增，D3）**：该 `(company, period)` 的差距分析是否已分享给 Founder 端。管理端据此决定 `Share to founder` 按钮态（**每一个维度两端都已提交**才激活，未达成置灰，底部提示 `Share unlocks once gap analysis is available for all {total} dimensions in {period}.`（**2026-09-08**：`{total}` = 当前 `Active` 维度数））；公司端 `shared = false` 时整个 Gap 区块显示空态（同接口 17，§6.6）。Share 动作走**接口 27**。
 
 - ❌ **删除 `status`**（`MET`/`PARTIAL`/`GAP`）—— PRD 2026-09-02 删去「每维度状态摘要」展示项，该枚举零依据（§0.9-10）。
 - ⚠️ **公司端不下发 `gsvScore` / `perceptionGap` / `gapDirection`**（v4.0，PRD §3.5「创始人只能查看自己的分数」，§4.3）。
 - `overallScore` 为**加权**综合分（§7.1），随出参附 `weightsApplied[{dimension, weight}]`，供前端在 tooltip 里说明「按 FRL 30% / PRL 20% … 加权」。
 
-`radar`（**v4.0 改**，**v4.4 顶点数动态化**）：**仅管理端下发；公司端整个字段不返回**（PRD §3.5「该图仅在 Portfolio 端显示」，§0.9-5）。结构为 `series[]`，每项 `{ key, label, values[] }`，~~`values[5]` 按 `FRL / PRL / BERL / RRL / TRL` 固定顺序~~ → **v4.4 作废**：`values` 与出参 `dimensions[]` **同长、同序**（按当前 `status = 'Activate'` 的维度集合的 `sort_order`），前端按数组长度渲染顶点数（§0.10-D1）。取值为**维度 level 分（0–9 整数）**。四条序列：`FOUNDER` / `GSV` / `BENCHMARKIT` / `TOP_GSV_QUARTILE`，后两条取**适用基准记录的各维度分**（§7.8），无适用记录时该序列不下发。
+`radar`（**v4.0 改**，**v4.4 顶点数动态化**）：**仅管理端下发；公司端整个字段不返回**（PRD §3.5「该图仅在 Portfolio 端显示」，§0.9-5）。结构为 `series[]`，每项 `{ key, label, values[] }`，~~`values[5]` 按 `FRL / PRL / BERL / RRL / TRL` 固定顺序~~ → **v4.4 作废**：`values` 与出参 `dimensions[]` **同长、同序**（按当前 `status = 'Active'` 的维度集合的 `sort_order`），前端按数组长度渲染顶点数（§0.10-D1）。取值为**维度 level 分（0–9 整数）**。四条序列：`FOUNDER` / `GSV` / `BENCHMARKIT` / `TOP_GSV_QUARTILE`，后两条取**适用基准记录的各维度分**（§7.8），无适用记录时该序列不下发。
 
 - **`benchmarkUrl`（v4.4 新增，D7）**：`/exitReadiness/benchmark?companyId={id}`，**仅管理端下发**（与 `radar` 同条件，公司端整个字段不返回）。前端在**雷达图正下方**渲染链接 `Benchmarkit & Top GSV Quartile ›`（PRD §3.5，`9a203ce`）—— 这是基准页 D1 的**站内唯一入口**，§8.1.1 原「入口在维度详情页 / A4 页内链接」的描述一并订正（该链接在 §8.4 的 A3 / A4 交互表里从未定义，按原文档实现基准页站内不可达）。
 - `bpmmScore` 为 1–5 参考数字，来源见 §13-Q1；无数据返回 `null`，前端隐藏该行。
@@ -1414,8 +1439,8 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | 22 | `GET /erl/scoreDetails` | A4 一页取全维度逐题明细 | `companyId`、`period`（可选，**v4.4：缺省为 closed month 所在季度**，R3）、`portal`（**v4.4：改为可选**，见下） | `header`、`submission`、`dimensions[]`、`benchmark` |
 
 - **`header`（v3.6 新增，v4.0 微调）**：`overallScore`（**加权**）/ `stage` / `era` / `weightsApplied[]` —— A4 是 F2 `View` 的落地页，PM 点进来不该只看到逐题明细而拿不到整体判断（§0.8-12）。**仅此四项**，Perception Gap / Strengths & Gaps / 雷达图仍不在 A4 上重复（§8.4「A4 与 A3 的关系」）。无提交时前三项均为 `null`。
-- `dimensions[]` ~~**固定返回五项**，顺序 `FRL / PRL / BERL / RRL / TRL`~~ → **v4.4 作废**（D1 / R2）：**按当前 `status = 'Activate'` 的维度集合动态返回**，顺序取 `sort_order`；期次尚无评估时按当前 `status = 'Activate'` 的维度集合。每项（**v4.0 改**）：`code`（原 `dimension`）/ `name` / `abbr` / `levelScore`（0–9 整数）/ `terminatedLevel` / `weight` / `questionCount`（**该维已作答题数**）/ `totalQuestionCount`（该版本该维全部题数）/ `questions[]` / **`addNewUrl`** / **`historyUrl`**。❌ 删除 `score`（一位小数口径）与 `scoredCount`（`SCORE` 题计数，已无此概念）。
-- **`status`（**2026-09-08**：`Activate` / `Deactivate`）**：`dimensions[]` 每项随带，口径与接口 1 完全相同（直接下发落库列值，不再派生，§5.1.3）。
+- `dimensions[]` ~~**固定返回五项**，顺序 `FRL / PRL / BERL / RRL / TRL`~~ → **v4.4 作废**（D1 / R2）：**按当前 `status = 'Active'` 的维度集合动态返回**，顺序取 `sort_order`；期次尚无评估时按当前 `status = 'Active'` 的维度集合。每项（**v4.0 改**）：`code`（原 `dimension`）/ `name` / `abbr` / `levelScore`（0–9 整数）/ `terminatedLevel` / `weight` / `questionCount`（**该维已作答题数**）/ `totalQuestionCount`（该版本该维全部题数）/ `questions[]` / **`addNewUrl`** / **`historyUrl`**。❌ 删除 `score`（一位小数口径）与 `scoredCount`（`SCORE` 题计数，已无此概念）。
+- **`status`（**2026-09-08**：`Active` / `Inactive`）**：`dimensions[]` 每项随带，口径与接口 1 完全相同（直接下发落库列值，不再派生，§5.1.3）。
 - **每张维度卡的卡头入口（v4.4 新增，D5，PRD §3.5 / §3.7）**：后端随每维下发两个链接，体例同 F2 的 `detailUrl` —— `addNewUrl` = `/exitReadiness/assessment?companyId={id}&period={period}&dimension={code}`（`Add New`），`historyUrl` = `/exitReadiness/history?companyId={id}&dimension={code}`（`View History`）。两个能力 A3 已有，v4.4 只是**位置挪到 A4 的每张维度卡卡头**；原**页级** `+ New` / `View history` 取消（PRD 未提，且与维度级提交矛盾）。§8.4「A4 上不加跳 A3 的入口（YAGNI）」这条判断随之**撤回**。
 - **`portal` 改为可选，管理端两端一起返回（v4.4，D5，PRD §3.7「组合端需同时呈现 GSV 与 Founder 的记录」）**：管理端不传 `portal` 时，`dimensions[]` 每项以 **`portals[{ portal, submission, levelScore, terminatedLevel, questionCount, totalQuestionCount, questions[] }]`** 承载两端数据，顶层 `submission` 为 `null`；显式传 `portal` 时行为与 v4.3 完全一致（单端，顶层 `submission` 照旧）。**公司端忽略该入参，恒按 `FOUNDER` 单端返回**（PRD §3.5「创始人只能查看自己的分数」，§4.3）。
 - **`questions[]` 与接口 2 完全同一个结构**（同一个 `ErlQuestionDetailDTO`）：`questionText` / `eraBand` / `eraLabel` / `evidenceSource` / `yesNo` / `note` / `attachments[]` —— **不新造第二套题目结构**；❌ 同接口 2 **无 `criteria`**（**v4.9**，§0.15）。
@@ -1431,7 +1456,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | # | 方法 / 路径 | 用途 | 关键入参 | 关键出参 |
 |---|-------------|------|----------|----------|
 | 3 | `GET /erl/assessment` | B1 / B2 打开问卷（含回填草稿）；**恒按该评估绑定的题库版本渲染**（§7.9-⑤） | `companyId`、`period`、`portal`、**`dimension`**（v4.4 必填，R1） | `assessmentId`、`status`、`dimension`、`questionVersionNo`、`answeredCount`、`totalCount`、`levelScore`、`canSubmit`、`levels[]`、**`lastSavedAt`**、**`lastSavedBy`**、**`latestPublishedVersionNo`**、**`hasNewerQuestionSet`** |
-| 4 | `POST /erl/assessment/draft` | 自动存草稿（幂等增量）+ **回算解锁进度** | `companyId`、`period`、`portal`、**`dimension`**（v4.4 必填）、`answers[{questionId, yesNo, note?, attachments[{fileId, fileName, fileSize}]}]`（**v4.6：顶层 `dimensionAttachments` 入参删除** —— 附件双端统一题级，只经 `answers[].attachments` 提交，§0.12） | `unlockedLevel`、`levelScore`、`terminated`、`answeredCount`、`canSubmit`、`savedAt`、**`lastSavedBy`** |
+| 4 | `POST /erl/assessment/draft` | 自动存草稿（幂等增量）+ **回算解锁进度** | `companyId`、`period`、`portal`、**`dimension`**（v4.4 必填）、`answers[{questionId, yesNo, note?, attachments[{fileId}]}]`（**2026-09-09**：`fileName` / `fileSize` 入参删除，服务端按 `file_id` 查 `files`，§5.5）（**v4.6：顶层 `dimensionAttachments` 入参删除** —— 附件双端统一题级，只经 `answers[].attachments` 提交，§0.12） | `unlockedLevel`、`levelScore`、`terminated`、`answeredCount`、`canSubmit`、`savedAt`、**`lastSavedBy`** |
 | 5 | `POST /erl/assessment/submit` | 提交**本维度** | 同接口 4（**v4.0：`dimensionScores` / `divergenceAcks` 入参删除**，§0.9-3） | `assessmentId`、`dimensionCode`（+ `dimensionName` / `dimensionAbbr` 快照）、~~`submissionSeq`~~（**2026-09-08 删除**，列已删）、`levelScore`、`terminatedLevel`、`era` |
 | 6 | `GET /erl/assessment/periods` | 期次下拉 | `companyId`、**可选 `dimension`**（v4.4） | `periods[]`（`period` + 各端 `latestStatus` + `submissionCount`，**v4.4：口径见下**） |
 | 7 | `GET /erl/assessment/history` | B3 历史列表 | `companyId`、可选 `dimension`（**v4.4 口径已变，见下**）、可选 `portal` | `records[]` |
@@ -1444,7 +1469,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 - **`lastSavedAt` / `lastSavedBy`（接口 3 出参，v4.4 新增，D9，PRD §3.3）**：取 `erl_assessment.updated_at` / `updated_by` join 用户表得到 `{ name, role }`，**不新增快照列**。填报页顶部显示 `Last saved {time} by {name} ({role})`。配套的产品语义必须写明：**草稿是公司共享的、不区分账户** —— A 保存后 B 打开看到的是 A 的内容，B 的保存**直接覆盖**（草稿唯一索引 `(company_id, period, portal, dimension_code) WHERE status = 'DRAFT'` 不含用户维度，模型上天然如此）。提交人则以**最终点提交的那个人**为准（`submitter_name` / `submitter_role` 提交时快照），即使草稿全程由他人保存。
 - **`latestPublishedVersionNo` / `hasNewerQuestionSet`（接口 3 出参，v4.4 新增，D10，PRD §3.3「若题库已更新，则提示题库更新，不做强制退出和更新」）**：`hasNewerQuestionSet = latestPublishedVersionNo > questionVersionNo`。版本锁定本体不变（仍恒按绑定版本渲染，§7.9-⑤），~~填报页无任何提示、无任何变化~~ → **v4.4 作废**：填报页顶部挂一条**非阻断、可关闭、无操作按钮**的 banner `The question library has been updated (v{n}). This assessment continues on v{m}.`（§9 与 §7.10-N1 / N3 的表述同步订正）。
 - 草稿保存**幂等增量**：只 upsert 传入的 `answers`（含其 `attachments`），不影响未传项。**服务端在每次保存后按 §7.2 重算该维的 `unlocked_level` / `level_score` / `terminated_level` 并回写**（**v4.4：三列已上提到 `erl_assessment`**，R1），出参把新的解锁进度带回前端 —— **解锁判定只在服务端做**，前端不自行推断（否则前端算法与提交校验会漂移）。
-- ~~**期次绑定维度配置版本（v4.4 新增，R2）**：首次创建评估时写入 `erl_company_period_config` 并永不改写~~ → **2026-09-08 整条作废**：该表已删（§5.1.4），**不再有任何期次-配置绑定**。后续任何期次的维度列表、权重、综合分、Stage、雷达图一律读 `erl_dimension_config` 当前 `Activate` 行 —— **历史会随改权重 / 增删维度而漂移（已接受，§13-Q21）**。
+- ~~**期次绑定维度配置版本（v4.4 新增，R2）**：首次创建评估时写入 `erl_company_period_config` 并永不改写~~ → **2026-09-08 整条作废**：该表已删（§5.1.4），**不再有任何期次-配置绑定**。后续任何期次的维度列表、权重、综合分、Stage、雷达图一律读 `erl_dimension_config` 当前 `Active` 行 —— **历史会随改权重 / 增删维度而漂移（已接受，§13-Q21）**。
 - **拒绝对未解锁 level 的题作答**（v4.0）：`answers` 中出现 `eraBand > unlockedLevel` 的题 → `BadRequestException("Answer levels in order.")`。这是逐级解锁的服务端兜底，防绕过前端直接提交后续 level。
 - **改答已作答的题会重算并可能回收解锁**（v4.0 定档）：把某题从 No 改回 Yes → 该 level 若因此全 Yes，则解锁下一 level；把某题从 Yes 改成 No → **该 level 之后的所有答案与附件一并删除**（它们已不该存在），出参 `unlockedLevel`（**v4.4：原 `dimensions[].unlockedLevel`**）回退。前端据此收起后续 level 并提示 `Later levels were reset because an earlier answer changed to No.`
 - `totalCount` = 该题集版本**本维度**的全部题数（**v4.4：口径随维度级提交收敛到单维**）；`answeredCount` = 本维度已作答题数（= `erl_assessment_answer` 行数（`where erl_assessment_id = ?`））。逐级解锁下二者通常**不相等**，这是正常的（§0.9-17）。
@@ -1461,7 +1486,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
   - 目标行不存在或已 `SUBMITTED` → `BadRequestException("No draft to reset.")`；已提交记录**不受影响**。
   - 该接口同时是 §13-Q23「摆脱不掉的旧草稿」的解法 —— 叠加 R1 的单维终止门槛，**§13-Q23 关闭**。
   - 顶部按钮组定档为 `Save as draft` / `Cancel` / `Reset` / `Submit`：`Save as draft` = 手动 flush（走接口 4，与 1.5s 去抖自动保存**并存不互斥**）；`Cancel` = 直接离开页面，草稿已在服务端，**不做任何数据操作**（不调接口）。
-- **接口 6 的口径（v4.4，R1）**：维度级提交后 `latestStatus` / `submissionCount` 天然是「该端**该维度**」的口径 —— 传 `dimension` 时按该维度返回；不传时 `latestStatus` 取该端**各维度的最保守值**（有任一维度未提交即 `DRAFT`），`submissionCount` 取各维度之和。维度列表按当前 `status = 'Activate'` 的维度集合取（D1）。
+- **接口 6 的口径（v4.4，R1）**：维度级提交后 `latestStatus` / `submissionCount` 天然是「该端**该维度**」的口径 —— 传 `dimension` 时按该维度返回；不传时 `latestStatus` 取该端**各维度的最保守值**（有任一维度未提交即 `DRAFT`），`submissionCount` 取各维度之和。维度列表按当前 `status = 'Active'` 的维度集合取（D1）。
 - `records[]` 字段（PRD §3.9，**v4.4 按 D12 / R1 调整**）：`assessmentId` / `period` / `portal` / **`dimensionCode`**（v4.4 新增，一条记录 = 一个维度；**2026-09-08 改名** + 随带 `dimensionName` / `dimensionAbbr` 快照）/ `submittedAt` / `submitterName` / `submitterRole` / `fund` / `answeredCount` / `totalCount` / `levelScore` / `terminatedLevel` / `stage` / `era` / ~~**`isLatest`**~~（**2026-09-08 删除**，列已删） / **`questionVersionNo`**（v3.4 新增 —— 同期次多次提交可能基于不同题库版本，题数分母因此不同，不标版本号会被当成 bug，见 §7.10-N2）。默认 `submittedAt DESC`。
   - **排序与 SOT（**2026-09-08**）**：`records[]` 排序键为 `period, portal, dimension_code, submitted_at DESC, id DESC`；**每个 `(period, portal, dimensionCode)` 分组内的首行即该组 SOT**。⚠️ 不传 `dimensionCode` 时本接口返回**多个四元组混排**，前端的 `Current` 徽章**必须分组后各取首行**，不能只取全表第一行（§8.4-B3）。
   - **提交序号**：`submission_seq` 已删，本接口**不再下发任何序号字段**；B3 列表**不再显示 `Submission #n`**（若后续仍要序号，只能按分组内行号实时算，**翻页会漂移**）。
@@ -1487,20 +1512,20 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | 13 | `DELETE /erl/question/{questionKey}` | C3 删除（**草稿版本内物理删行**） | path `questionKey` + **query `dimensionCode`（2026-09-08 新增，必传）** |
 | 14 | **`PUT /erl/question/reorder`** | **C4 拖拽重排（v3.0 新增）** | `dimension`、`eraBand`、**`questionKeys[]`**（该 band 内的完整新顺序） |
 | 21 | **`POST /erl/question/publish`** | **C5 发布草稿版本（v3.3 重定义）** | 仅可选 `organizationId`（v4.7）；出参 `versionNo`、`publishedAt`、~~`changeSummary{...}`~~（**2026-09-08 删除**，`change_summary` 列已删）+ **新增 `dimensions[{ dimensionCode, dimensionName, dimensionAbbr, questionVersionNo, sortOrder }]`**（本次发布写入 `erl_question_config_dimension_version` 的逐维快照，§5.1.5；**2026-09-08 编码阶段补 `dimensionName` / `dimensionAbbr`** —— 快照行本就存着它们，与接口 26 共用同一个出参结构，发布后的 toast 也能直接报维度名而不是一串 code） |
-| 23 | **`GET /erl/dimension/config`** | **C6 读维度配置**（v4.0 的 `GET /erl/weight` → v4.4 扩为 `Dimension Configuration`，D13） | 可选 `organizationId`（v4.7，缺省 = 登录态组织）+ **可选 `includeDeactivated`**（**2026-09-08 新增**，默认 `false`）；出参 ~~`versionNo`~~（**2026-09-08 删除**，配置已去版本化）、`savedAt` / `savedBy`（取本组织各行的 **max**，即「这份配置上次保存于何时」）、`dimensions[{dimensionCode, dimensionName, dimensionAbbr, sortOrder, weight, **status**}]`（**2026-09-08**：字段改名 + **`status` 重新下发**，~~v4.8：删 `status`~~ 作废；默认只返 `Activate` 行，带 `includeDeactivated=true` 时返全量供 C6 回看与恢复）、`total`（**2026-09-08**：改为 **`Activate` 行**的权重合计 —— 含 `Deactivate` 行的合计永远不是 100，前端的 Exceeds/Needs 提示会算错） |
-| 24 | **`PUT /erl/dimension/config`** | **C6 整组保存维度配置**（D13） | **顶层**：`savedAt`（**2026-09-08 必传**，取自上一次接口 23；不匹配即「配置已被他人修改，请重新加载」，防 lost update）+ `deactivatedCodes[]`（**2026-09-08 必传**，本次要停用的已有维度 code，**可为空数组**）+ `dimensions[]`（**整组替换**）。<br>**数组每项二选一**（**2026-09-08 改为显式判别**，~~`dimensionCode` 可缺省~~ 作废）：① **已有维度**：`{dimensionCode, dimensionName, dimensionAbbr, sortOrder, weight}` —— `dimensionCode` 必须命中本组织已有行；② **新增维度**：`{isNew: true, clientRef, dimensionName, dimensionAbbr, sortOrder, weight}` —— **不带 `dimensionCode`**，`clientRef` 是前端生成的**幂等键**（本次请求内唯一）。**两者都不带、或同时带 `dimensionCode` 与 `isNew` → 400**。<br>出参：同 23（无 `versionNo`）**+ `created[{clientRef, dimensionCode}]` 映射**（**2026-09-08 新增** —— 允许同名同缩写时前端无法从整份列表里把新 code 对回本地哪一行，必须靠它）；出参 `dimensions[]` **按 `sortOrder` 升序**（契约保证） |
+| 23 | **`GET /erl/dimension/config`** | **C6 读维度配置**（v4.0 的 `GET /erl/weight` → v4.4 扩为 `Dimension Configuration`，D13） | 可选 `organizationId`（v4.7，缺省 = 登录态组织）+ **可选 `includeDeactivated`**（**2026-09-08 新增**，默认 `false`）；出参 ~~`versionNo`~~（**2026-09-08 删除**，配置已去版本化）、`savedAt` / `savedBy`（**2026-09-09 换底**：取本组织**全部行审计列 `updated_at` 的 max**、`savedBy` 取该行的 `updated_by`；`saved_at` / `saved_by` 两列已删，**契约不变**）、`dimensions[{dimensionCode, dimensionName, dimensionAbbr, sortOrder, weight, **status**}]`（**2026-09-08**：字段改名 + **`status` 重新下发**，~~v4.8：删 `status`~~ 作废；默认只返 `Active` 行，带 `includeDeactivated=true` 时返全量供 C6 回看与恢复）、`total`（**2026-09-08**：改为 **`Active` 行**的权重合计 —— 含 `Inactive` 行的合计永远不是 100，前端的 Exceeds/Needs 提示会算错） |
+| 24 | **`PUT /erl/dimension/config`** | **C6 整组保存维度配置**（D13） | **顶层**：`savedAt`（**2026-09-08 必传**，取自上一次接口 23；不匹配即「配置已被他人修改，请重新加载」，防 lost update。**2026-09-09 补边界**：该组织**首次保存**时库里一行都没有、令牌本身就是 `null`，此时**必须传 null** —— 一边有一边没有同样算冲突；不匹配返回的是 **HTTP 400 业务错误**，不是 409）+ `deactivatedCodes[]`（**2026-09-08 必传**，本次要停用的已有维度 code，**可为空数组**）+ `dimensions[]`（**整组替换**）。<br>**数组每项二选一**（**2026-09-08 改为显式判别**，~~`dimensionCode` 可缺省~~ 作废）：① **已有维度**：`{dimensionCode, dimensionName, dimensionAbbr, sortOrder, weight}` —— `dimensionCode` 必须命中本组织已有行；② **新增维度**：`{isNew: true, clientRef, dimensionName, dimensionAbbr, sortOrder, weight}` —— **不带 `dimensionCode`**，`clientRef` 是前端生成的**幂等键**（本次请求内唯一）。**两者都不带、或同时带 `dimensionCode` 与 `isNew` → 400**。<br>**另有一个顶层可选入参 `confirmCreateAnyway`（boolean）**（**2026-09-09 补记，此前漏写**，实现早已有）：新增维度的 `dimensionName` + `dimensionAbbr` 命中某个 `Inactive` 行时**软阻断**，返回需显式确认的业务错误「已有同名的已停用维度，是否改为恢复它？」，带 `confirmCreateAnyway = true` 重放才创建新维度（新 code）—— 这是 `Inactive` 软删模型的直接产物（§11-86-⑩ 有对应用例）。<br>出参：同 23（无 `versionNo`）**+ `created[{clientRef, dimensionCode}]` 映射**（**2026-09-08 新增** —— 允许同名同缩写时前端无法从整份列表里把新 code 对回本地哪一行，必须靠它）；出参 `dimensions[]` **按 `sortOrder` 升序**（契约保证） |
 | 25 | **`GET /erl/question/version`** | **C7 版本清单（v4.1 新增）** —— v4.2 起是 C7 页头版本下拉的数据源 | 仅可选 `organizationId`（v4.7，缺省 = 登录态组织）；出参 `versions[]` |
 | 26 | **`GET /erl/question/version/{versionNo}`** | **C7 某一版的整份题面（v4.2 新增）** | path `versionNo`；出参复用接口 9 的 `{ version, questions[] }` + **v4.10 新增 `dimensions[]`**（**v4.4：全部维度一次给全，项数动态**） |
 
 - **C 模块 11 个接口（9-14 / 21 / 23 / 24 / 25 / 26）的组织归属：缺省取 `SecurityUtils.getOrganizationId()`，v4.7 起接受可选 query 入参 `organizationId`**（POST / PUT 亦走 query，不进 Request 体），且只认调用者组织树内的组织（§4.3）；仅管理端可调。
 - **接口 24 的校验（v4.4 重写，D13 / R2）**：
-  1. **`status = 'Activate'` 的维度权重合计恰为 `100.00`**（`numeric(5,2)` 精确比较，不用浮点等值；~~v4.8：不再有「仅 ACTIVE 行合计」这一说~~ → **2026-09-08 反转**：软删后 `Deactivate` 行仍在表里，若计入则永远凑不满 100），每个 `0 ≤ weight ≤ 100`，否则 `BadRequestException("Dimension weights must add up to 100%.")`。前端 Save 按钮同条件禁用，**服务端不因前端已拦就省掉校验**。
-  2. **维度集合合法**（**2026-09-08 整条重写** —— 原文「新增维度的 `code` = 该项 `abbr` 的大写形式」与「与旧版本比对」均已作废）：① **带 `dimensionCode` 的项**必须命中本组织已有行，否则 400（跨组织的 code 天然命中不到）；② **带 `isNew` 的项**由服务端生成 code（§5.1.3），**不对 code 做任何格式 / 长度 / 大写校验**（同一列里 `FRL` 与 `OPS4K7M` 并存，任何断言都会误杀一方）；③ `dimensionAbbr` **1–8 字符**且在本次提交的数组内不重复、也不与本组织其它 `Activate` 行重复（§5.1.3 的 `uk_erl_dimension_config_abbr`）—— **解耦后 `abbr → code` 那条隐式长度约束消失了，必须显式补上**；④ `sortOrder` 无重复；⑤ **至少保留一个 `Activate` 维度**（全停用时合计恒为 0，Save 永远失败）；⑥ **集合完整性校验（本次新增，防静默软删）**：`当前 Activate 集合` 必须恰等于 `带 code 的项` ∪ `deactivatedCodes`。对不上即 **400** 并列出缺口 —— 前端漏传一行的 code 就会落到这里，**不得静默当新增处理**；⑦ **同名软拦截**：带 `isNew` 的项如果 `(dimensionName, dimensionAbbr)` 命中本组织某个 **`Deactivate`** 行 → 返回需显式确认的业务错误「已有同名的已停用维度，是否改为恢复它？」（带 `confirmCreateAnyway` 重放才放行）—— 否则管理员误删后重填会建出**孪生维度**，历史全挂在旧停用行上且产品内无补救入口。
+  1. **`status = 'Active'` 的维度权重合计恰为 `100.00`**（`numeric(5,2)` 精确比较，不用浮点等值；~~v4.8：不再有「仅 ACTIVE 行合计」这一说~~ → **2026-09-08 反转**：软删后 `Inactive` 行仍在表里，若计入则永远凑不满 100），每个 `0 ≤ weight ≤ 100`，否则 `BadRequestException("Dimension weights must add up to 100%.")`。前端 Save 按钮同条件禁用，**服务端不因前端已拦就省掉校验**。
+  2. **维度集合合法**（**2026-09-08 整条重写** —— 原文「新增维度的 `code` = 该项 `abbr` 的大写形式」与「与旧版本比对」均已作废）：① **带 `dimensionCode` 的项**必须命中本组织已有行，否则 400（跨组织的 code 天然命中不到）；② **带 `isNew` 的项**由服务端生成 code（§5.1.3），**不对 code 做任何格式 / 长度 / 大写校验**（同一列里 `FRL` 与 `OPS4K7M` 并存，任何断言都会误杀一方）；③ `dimensionAbbr` **1–8 字符**且在本次提交的数组内不重复、也不与本组织其它 `Active` 行重复（§5.1.3 的 `uk_erl_dimension_config_abbr`）—— **解耦后 `abbr → code` 那条隐式长度约束消失了，必须显式补上**；④ `sortOrder` 无重复；⑤ **至少保留一个 `Active` 维度**（全停用时合计恒为 0，Save 永远失败）；⑥ **集合完整性校验（本次新增，防静默软删）**：`当前 Active 集合` 必须恰等于 `带 code 的项` ∪ `deactivatedCodes`。对不上即 **400** 并列出缺口 —— 前端漏传一行的 code 就会落到这里，**不得静默当新增处理**；⑦ **同名软拦截**：带 `isNew` 的项如果 `(dimensionName, dimensionAbbr)` 命中本组织某个 **`Inactive`** 行 → 返回需显式确认的业务错误「已有同名的已停用维度，是否改为恢复它？」（带 `confirmCreateAnyway` 重放才放行）—— 否则管理员误删后重填会建出**孪生维度**，历史全挂在旧停用行上且产品内无补救入口。
   3. ~~五维齐全 / 必须齐五维~~ → **v4.4 作废**（D1）：维度集合本身由本接口定义，不存在「齐五维」这一校验。
   - **Save 按钮双条件**：① 脏态（维度增 / 删 / 排序 / 权重任一变化）② 权重合计 = 100%；越界提示 `Exceeds 100% by {n}%` / `Needs {n}% more`。
-- ~~**保存即生成新的配置版本（v4.4，R2）**~~ → **2026-09-08：就地整组替换，不产生版本**：每次接口 24 成功即按 `(organization_id, dimension_code)` **upsert** `erl_dimension_config`（覆盖 name / abbr / sort_order / weight / status，写 `saved_at` / `saved_by`），**提交里缺席的维度置 `status = 'Deactivate'`（软删，不删行）**；`erl_dimension_config_version` 已整表删除，无版本行、无 `is_latest`。**保存即全局生效**。
+- ~~**保存即生成新的配置版本（v4.4，R2）**~~ → **2026-09-08：就地整组替换，不产生版本**：每次接口 24 成功即按 `(organization_id, dimension_code)` **upsert** `erl_dimension_config`（覆盖 name / abbr / sort_order / weight / status；**2026-09-09**：不再写 `saved_at` / `saved_by`，两列已删，「上次保存于何时 / 谁保存的」由审计列 `updated_at` / `updated_by` 承接），**提交里缺席的维度置 `status = 'Inactive'`（软删，不删行）**；`erl_dimension_config_version` 已整表删除，无版本行、无 `is_latest`。**保存即全局生效**。
   - **保存即生效，保存后立即影响所有期次（含历史期次）的综合分与 Stage**（v4.0 口径 → ~~v4.4 作废（R2）：从下一个未绑定期次起生效、历史永不漂移~~ → **2026-09-08 再次反转回 v4.0**）。Save 确认框文案同步为「**新配置立即全局生效，已有期次的综合分、Stage 与雷达图形状会随之变化**」（§8.4 C6）。⚠️ **连带副作用（**2026-09-08 新增**）**：改维度集合会回溯改变 Share 门槛（§7.5-S1）与 Gap 区块的 `{n} of {total}` 计数，而§7.5 原本「置脏的触发点只有评估提交一个」⇒ **接口 24 保存成功后必须同事务把该组织全部 `erl_gap_analysis` 置 `stale = true` 并复位 `shared = false`**，否则公司端会继续看到一份按旧维度集合生成、且已不满足门槛的分析。
-  - 配置页的「删除维度」= **软删**（**2026-09-08 推翻 v4.8 的物理删除**）：该维度**不出现在接口 24 提交的 `dimensions[]` 里**，服务端据此置 `status = 'Deactivate'`；**行与 `weight` 原样保留**，历史提交记录照常可查，`Retired` 灰样式由 `status` 列**直接判定**（~~派生~~ 作废）。**无条件允许删除**，不做「有历史数据禁止删除」的前置拦截（§13-Q24）。
+  - 配置页的「删除维度」= **软删**（**2026-09-08 推翻 v4.8 的物理删除**）：该维度**不出现在接口 24 提交的 `dimensions[]` 里**，服务端据此置 `status = 'Inactive'`；**行与 `weight` 原样保留**，历史提交记录照常可查，`Retired` 灰样式由 `status` 列**直接判定**（~~派生~~ 作废）。**无条件允许删除**，不做「有历史数据禁止删除」的前置拦截（§13-Q24）。
 - **`Dimension Configuration` 的改动不进题库版本、不激活 Publish，走自己的 Save**（§5.1.2 / §0.9-19；题库 Tab 的 Publish 语义不变，§7.9）。
 - **单题接口（11 / 12 / 13）新增必传 query 参数 `dimensionCode`（**2026-09-08**）**：题目行的键位已是
   `(organization_id, dimension_code, version_no, question_key)`，而题目集版本号按维度各自自增 ——
@@ -1513,7 +1538,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 - **接口 10 / 12 / 13 / 14 均触发写时复制**：进入 service 先 `ensureDraftVersion()`（**2026-09-08 改为两级判据**，§7.9-②）—— ① 无草稿版本行则同事务内建一条（组织级 `version_no = max + 1`），有则**取行锁复用**；② **再判本维度本轮是否已克隆**（`draftDimensionVersions()`），未克隆才克隆该维题目行并拿新的 `version_no`。~~整份克隆最新已发布版本~~ 作废（只克隆被改动的那个维度）。**漏了第二级判据 = 直接写穿已发布版本**，再在草稿版本上执行本次变更。四个接口都不改已发布版本一个字节。
 - 接口 14 在一个事务内按数组下标重写该 band 全部题目的 `sort_order`；**只允许同 band 内重排**。**跨 band 移动不走本接口**，而是由题目行内的 `Era band` 下拉触发**接口 12 的全量更新**（v4.1，§8.4 C4；v4.0「跨 band 移动请走编辑表单」的写法作废）。
 - 接口 9 出参：根节点增加 `version { versionNo, status, lastEditedBy, lastEditedAt }`（**2026-09-08**：~~`basedOnPublishedVersionNo`~~ 删除 —— `based_on_version_id` 列已删，§5.1.1） 与 **`changeSummary { added, modified, removed, reordered, hasDraft }`** —— **`hasDraft` 即 Publish 按钮的激活依据**（存在草稿版本 = 有未发布变更）；每题增加 `changeType`（`ADDED` / `MODIFIED` / `REORDERED` / `UNCHANGED`，由草稿与最新已发布版本按 `question_key` 逐字段 diff 得出），供列表打徽章。**`changeSummary` 是全局的，切 Tab 不重算**（PRD §3.8「~~五个维度~~**任意维度**有变更，按钮即激活」，**v4.4：维度数动态**）。
-- 接口 21 在一个事务内把草稿版本 `status` 置 `PUBLISHED`、写 `published_at` / `published_by`（**2026-09-08**：~~`change_summary` 快照~~ 列已删），**并为每个 `Activate` 维度写一行 `erl_question_config_dimension_version`**（`dimension_code` / `dimension_name` / `dimension_abbr` / `question_version_no` / `sort_order` / `bound_at`，§5.1.5），同事务内把上一条 `is_latest` 置 `false`、本版置 `true`。**无草稿版本时返回 400**（前端按钮此时已禁用）；不做「重复点击幂等」的特殊处理 —— 发布成功后草稿已不存在，第二次点击落到同一分支。
+- 接口 21 在一个事务内把草稿版本 `status` 置 `PUBLISHED`、写 `published_at` / `published_by`（**2026-09-08**：~~`change_summary` 快照~~ 列已删），**并为每个 `Active` 维度写一行 `erl_question_config_dimension_version`**（`dimension_code` / `dimension_name` / `dimension_abbr` / `question_version_no` / `sort_order` / `bound_at`，§5.1.5），同事务内把上一条 `is_latest` 置 `false`、本版置 `true`。**无草稿版本时返回 400**（前端按钮此时已禁用）；不做「重复点击幂等」的特殊处理 —— 发布成功后草稿已不存在，第二次点击落到同一分支。
 - **接口 25 出参（v4.1）**：`versions[]`，每项 `versionNo` / `status`（`DRAFT` | `PUBLISHED`）/ `publishedAt` / `publishedBy` / `lastEditedBy` / `lastEditedAt`（**2026-09-08 删两个字段**：~~`basedOnPublishedVersionNo`~~、~~`changeSummary{...}`~~ —— `based_on_version_id` 与 `change_summary` 两列均已删，§5.1.1）。**按 `versionNo` 倒序，草稿（`DRAFT`）排在最前**。
   - ~~`changeSummary` 取 `erl_question_config_version.change_summary` 的发布快照、不实时重算~~ → **2026-09-08：该列已删，接口 25 不再返回 `changeSummary`**。不改为实时重算的理由不变：历史版本的对比基线早已随后续发布改变，实时 diff 会算出与当时不同的数字（接口 9 的实时 diff 保留，供 Publish 按钮用）。
   - **仅可选入参 `organizationId`**（缺省取 `SecurityUtils.getOrganizationId()`，v4.7 起可指定组织树内的组织）、**仅管理端可调**，公司端 400（同接口 23 / 24，§4.3）。**只读接口，不触发写时复制**（不调 `ensureDraftVersion()`）。
@@ -1521,7 +1546,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 - **接口 26（v4.2 新增）**：出参**复用接口 9 的 `ErlQuestionConfigListResponse`**（`version` + `questions[]` + **v4.10 新增 `dimensions[]`**），不为它另造一对 DTO/Response。与接口 9 的四点不同：
   - **版本由 `versionNo` 指定**，不是「草稿优先的当前版本」—— 这正是历史版本取不到题面的那道坎；`versionNo` **只在组织内唯一**，故解析时必须带组织（缺省登录态，v4.7 起可由可选入参 `organizationId` 指定并经 §4.3 复核），查不到即 `BadRequestException("Question set version not found.")`。
   - **全部维度一次给全**（接口 9 是单维度），复用已有的 `findByVersionIdOrderByDimensionAscEraBandAscSortOrderAsc`。⚠️ 其中维度序是 `dimension` 列的**字典序**，不是业务序，~~前端按五维固定顺序自行归组~~ → ~~**v4.4 改**（D1）：前端按接口 23 返回的维度配置（`sortOrder`）自行归组与排序~~ → **v4.10 再改**（§0.16-H2 / -H3）：**前端按本接口新增的 `dimensions[]` 归组与排序**，**不再读接口 23 的当前生效配置**（`ErlDimensionEnum` 枚举与前端静态 `DIMENSIONS` 映射仍是删除状态）。
-  - **`dimensions[{ dimensionCode, dimensionName, dimensionAbbr, sortOrder, weight }]`（v4.10 新增，**2026-09-08 换数据源 + 改字段名**）**：~~取该题库版本 `dimension_config_version_id` 所指配置版本的 items~~ → **取 `erl_question_config_dimension_version` 中该 `erl_question_config_version_id` 的逐维快照行**（§5.1.5），按 `sortOrder` 升序。名称 / 缩写 / 顺序均为**发布当时的快照**，后续改名不影响。⚠️ **`weight` 不在快照表里**（§5.1.5 已标待裁决）—— 当前取 `erl_dimension_config` 的**实时值**并会随改权重漂移；C7 页面本身不显示权重，因此该字段实际无消费方。~~绑定列为空时服务端回退当前生效配置~~ → 改为：**草稿版本（无快照行）时回退当前 `Activate` 集合**。**接口 9 恒为 `null`** —— 配置页 C1 的维度骨架另走接口 23。
+  - **`dimensions[{ dimensionCode, dimensionName, dimensionAbbr, sortOrder, weight }]`（v4.10 新增，**2026-09-08 换数据源 + 改字段名**）**：~~取该题库版本 `dimension_config_version_id` 所指配置版本的 items~~ → **取 `erl_question_config_dimension_version` 中该 `erl_question_config_version_id` 的逐维快照行**（§5.1.5），按 `sortOrder` 升序。名称 / 缩写 / 顺序均为**发布当时的快照**，后续改名不影响。⚠️ **`weight` 不在快照表里**（§5.1.5 已标待裁决）—— 当前取 `erl_dimension_config` 的**实时值**并会随改权重漂移；C7 页面本身不显示权重，因此该字段实际无消费方。~~绑定列为空时服务端回退当前生效配置~~ → 改为：**草稿版本（无快照行）时回退当前 `Active` 集合**。**接口 9 恒为 `null`** —— 配置页 C1 的维度骨架另走接口 23。
   - **`changeSummary` 与每题 `changeType` 恒为 `null`** —— 那是「草稿 vs 最新已发布」的实时 diff，套到历史版本上没有意义（历史版本的对比基线早已改变，同 §5.1.1 对 `change_summary` 不重算的理由）。
   - **只读接口，不触发写时复制**（不调 `ensureDraftVersion()`）；**仅管理端**，公司端 400（同接口 23 / 24 / 25，§4.3）。**不新增表**，也**不新增「查全部题」的无版本查询** —— 仍先解析出 `versionId` 再查（§10.1）。
 - 新增题目（接口 10）`sort_order = 该 band 当前 max + 1`，`question_key` 新生成 UUID。
@@ -1550,7 +1575,7 @@ records[] { id, period, isLatest,
             dimensions[{ code, name, abbr, benchmarkitScore, topQuartileScore }] }
 ```
 
-- **维度列表动态（v4.4，D1 / R2）**：~~固定五维顺序 `FRL/PRL/BERL/RRL/TRL`~~ 作废 —— 读接口 15 按**该记录 `period` 绑定的配置版本**返回维度与顺序（该期次无绑定时按当前 `status = 'Activate'` 的维度集合），写接口 16 按**当前 `status = 'Activate'` 的维度集合的全部维度**校验。
+- **维度列表动态（v4.4，D1 / R2）**：~~固定五维顺序 `FRL/PRL/BERL/RRL/TRL`~~ 作废 —— 读接口 15 按**该记录 `period` 绑定的配置版本**返回维度与顺序（该期次无绑定时按当前 `status = 'Active'` 的维度集合），写接口 16 按**当前 `status = 'Active'` 的维度集合的全部维度**校验。
 - **页面入口（v4.4 补，D7）**：D1 页的站内入口是 **ERL Card 雷达图正下方的链接 `Benchmarkit & Top GSV Quartile ›`**（`/exitReadiness/benchmark?companyId=`，随接口 1 的 `benchmarkUrl` 下发，**仅管理端渲染**）。§8.1.1 原「入口在维度详情页 / A4 页内链接」的描述**订正为本条** —— 该链接在 §8.4 的 A3 / A4 交互表里从未定义，按原文档实现 `/exitReadiness/benchmark` 与 `/benchmark/add` 站内不可达（既有文档缺口，本版一并补上）。
 - `records[]` 按 `period` **倒序**；只有首条 `isLatest = true`（D1 的 `LATEST` 徽章）。⚠️ **2026-09-08 澄清**：这个 `isLatest` 是**基准记录的派生字段**（按 `period` 倒序的首条），**与已删除的 `erl_assessment.is_latest` 列没有任何关系**，不受本次改动影响、**不要跟着删**。
 - **`Details` 不额外发请求** —— 每条记录的各维度明细随 `records[]` 一并下发（单公司按季度累积，量级极小），前端行内展开 / Modal 渲染，复用 `Latest by Dimension` 的表格组件。
@@ -1622,8 +1647,10 @@ POST /api/ai/erl/gap-analysis
 ① 前端  storageService.uploadFile(file, 'KNOWLEDGE_BASE')   →  fileId
                 （内部 presign → S3 PUT → verify，见 §2.1）
 ② 前端  POST /erl/assessment/draft   { companyId, period, portal, dimension, ... }   ← v4.4：维度在请求体顶层（R1）
-          双端一律题级     answers[].attachments[{fileId, fileName, fileSize}]      ← v4.6：dimensionAttachments 入参已删除
-③ Java  服务端复核 fileSize ≤ 10MB → 落 erl_answer_attachment（ingest_status = PENDING）
+          双端一律题级     answers[].attachments[{fileId}]        ← v4.6：dimensionAttachments 入参已删除
+                                                                 ← 2026-09-09：fileName / fileSize 入参删除
+③ Java  按 file_id 查 files，复核 files.length ≤ 10MB → 落 erl_answer_attachment（ingest_status = PENDING）
+                （2026-09-09：不再落 file_name / file_size 快照，也不再信入参自报的大小）
 ④ Java  异步 POST /api/ai/erl/attachments/ingest  { companyId, fileIds[] }
 ⑤ Python  ensure_kb_space → ingest_kb_file → file_registry 登记 → start_vectorization
 ⑥ Python  回传 [{fileId, registryId, status}]  →  Java 回写 ingest_status / registry_id
@@ -1633,7 +1660,7 @@ POST /api/ai/erl/gap-analysis
 |---|-------------|------|
 | 19 | `DELETE /erl/assessment/attachment/{id}` | 草稿态删除附件（已提交则拒绝）。**路径不变**（v4.6：附件只剩题级，鉴权改经「附件 → 作答 → 评估」回溯所属评估） |
 
-- **10MB 双侧校验（v4.0）**：前端 `ERL_MAX_FILE_BYTES = 10 * 1024 * 1024`（**不复用 chat 的 20MB 常量**，§2.1），超限文件不发起上传并提示 `File exceeds the 10 MB limit.`；服务端在第③步复核 `fileSize`，超限 `BadRequestException` —— 前端可绕过，服务端是底线。
+- **10MB 双侧校验（v4.0）**：前端 `ERL_MAX_FILE_BYTES = 10 * 1024 * 1024`（**不复用 chat 的 20MB 常量**，§2.1），超限文件不发起上传并提示 `File exceeds the 10 MB limit.`；服务端在第③步**按 `files.length`** 复核（**2026-09-09 换源**：原先复核的是入参自报的 `fileSize`，该入参已删除），超限 `BadRequestException`；`file_id` 查不到、或 `files.length <= 0`（未 verify / legacy 未回填）同样 400 —— 前端可绕过，服务端是底线。
 - **为什么不直接调 `POST /api/ai/file-registry/records`**：该接口是低层入口，只建登记行、**不建 rag 条目也不向量化**（§2.1），文件会进知识库列表却检索不到，Goldie 拿不到内容 —— 与 PRD「供 Goldie 后续分析」的目的相悖。
 - 入库失败**不阻断评估提交**：`ingest_status = FAILED`，前端在附件旁给重试入口。
 - **本链路与 Goldie 无耦合**（v4.0，**v4.4 去掉条件语**）：PRD §4「所有~~维度~~**题目**附件同步写入公司 Memory File」是独立的全局约束（§1.3）—— **v4.6：措辞按本版回写 PRD（M13）**，链路本身与粒度无关，一个 `fileId` 一条知识库条目。~~即使 Goldie 待定也要做~~ → **v4.4 作废**：Goldie 已进 V1（§0.10-D2），不存在「待定」前提。
@@ -1648,9 +1675,9 @@ POST /api/ai/erl/gap-analysis
 
 - **`detailUrl`（v3.5 改）**：`View` 列的跳转目标 —— 按 2026-08-28 裁决指向 **A4 全维 Score Details 页**。后端下发 `/exitReadiness/scoreDetails?companyId={id}&period={period}`，**不带维度参数**（v3.2 的「维度详情页 + 默认 FRL」作废，§0.7-3）；带该行取数所用期次；无评估的公司仍下发（进页面看空态）。
 - 只返回当前登录用户**有权访问的公司集**（§4.3）。
-- **维度列动态化（v4.4，D1）**：~~出参硬编码五列 `frl, prl, berl, rrl, trl`~~ → **作废**，改为 `dimensionScores[{ code, abbr, score }]`；表格列头取根节点 `dimensionColumns[]`（按 `sort_order`），前端**不得**再依赖静态 `DIMENSIONS` 映射渲染列。⚠️ 跨组织同屏时各公司的维度集合可能不同 —— `dimensionColumns[]` 取**当前登录用户所属组织当前 `status = 'Activate'` 的维度集合**的维度作为列集合，某公司缺该维度时 `score = null`，前端显示 `—`。
+- **维度列动态化（v4.4，D1）**：~~出参硬编码五列 `frl, prl, berl, rrl, trl`~~ → **作废**，改为 `dimensionScores[{ code, abbr, score }]`；表格列头取根节点 `dimensionColumns[]`（按 `sort_order`），前端**不得**再依赖静态 `DIMENSIONS` 映射渲染列。⚠️ 跨组织同屏时各公司的维度集合可能不同 —— `dimensionColumns[]` 取**当前登录用户所属组织当前 `status = 'Active'` 的维度集合**的维度作为列集合，某公司缺该维度时 `score = null`，前端显示 `—`。
 - ~~每家取其**最新已提交期次**的 `is_latest` GSV 评估~~ → **v4.4 作废**（R3）：不传 `period` 时按**该公司 closed month 所在季度**取该期次各维度的 GSV **最新一条 `SUBMITTED`**（**2026-09-08**：原 `is_latest` 已删，改按 `submitted_at DESC, id DESC`），**该季度无提交即整行空态（`overallScore = null`，各维 `—`），不回退到更早期次**；closed month 取不到同样空态 + WARN 日志。无评估的公司仍列出。
-- **v4.0**：各维度列的值是 **level 分（0–9 整数）**，`overallScore` 是**按该公司当前 `status = 'Activate'` 的维度集合的权重**（**v4.4：不再是「当前权重」**，R2）加权算出的一位小数。⚠️ **跨组织同屏时权重可能不同** —— F2 只列当前用户有权访问的公司，正常场景同属一个组织；若出现跨组织，综合分**各按各自组织的权重算**，并在表头 tooltip 说明（不做归一化，那会改变每家公司自己的分数）。
+- **v4.0**：各维度列的值是 **level 分（0–9 整数）**，`overallScore` 是**按该公司当前 `status = 'Active'` 的维度集合的权重**（**v4.4：不再是「当前权重」**，R2）加权算出的一位小数。⚠️ **跨组织同屏时权重可能不同** —— F2 只列当前用户有权访问的公司，正常场景同属一个组织；若出现跨组织，综合分**各按各自组织的权重算**，并在表头 tooltip 说明（不做归一化，那会改变每家公司自己的分数）。
 - **排序与筛选在服务端做**（~~PRD §3.7「支持按分数、Stage、维度进行排序与筛选」~~ → **v4.4 改标依据**：**本设计（PRD 2026-09-03 已删除该条依据）**，D15 —— 功能保留，只是依据来源变更）：`sortBy` 白名单**动态化**（⚠️ **2026-09-08**：白名单与请求值一律用 **`dimensionCode`**，而 F2 列头显示的是 **`dimensionAbbr`** —— 二者过去恒相等，`code` 改为 `{前缀}{随机}` 后**完全不同**；点列头排序必须取 `dimensionColumns[].dimensionCode`，**不得用列头文案**，否则稳定 400）为 `{name, overallScore, stage} ∪ {当前配置版本各维度的 code}`（**v4.4：原硬编码 `FRL/PRL/BERL/RRL/TRL` 作废**），非白名单值 `BadRequestException`；筛选支持 Stage 精确值与分数区间。
 - **必须批量聚合**：一次查出全部公司的答案并在内存归组，禁止按公司循环查询（N+1）。**v4.4**：维度级提交后每家每期次有 N 行 `erl_assessment`（每维一行），聚合时按 `(company_id, dimension)` 归组后按 `submitted_at DESC, id DESC` 取首条（**2026-09-08**），仍是一次查询。
 
@@ -1664,7 +1691,7 @@ POST /api/ai/erl/gap-analysis
 |------|------|:---:|
 | 单题 | 只有 **Yes / No** 两个取值，**本身不折算成分数**（v4.0：1–9 单题分已删除） | 已定档（PRD §3.3 / §3.4） |
 | **维度分（Founder / GSV 同口径，v4.0 换底）** | **该维度最后一个「全部 Yes」的 level**，取值 **0–9 整数**：<br>· 某 level 内**出现任一 No** → 维度分 = **该 level − 1**（PRD §3.3「分数就是此回答为 No 的 Level 减一」）<br>· level 1 内即出现 No → **`0`**<br>· **九个 level 全 Yes → `9`**（PRD `a6b0906`）<br>· 该维在该题集版本内 **0 题** → `null`（不按 0 计，§0.9-20） | 已定档（PRD §3.1 / §3.3） |
-| **综合分（v4.0 换底 · v4.4 换权重来源）** | **Σ(维度分 × 该维权重%)**，保留 1 位小数，以 `X/9` 展示。<br>**权重来源（**2026-09-08 改回当前值**）**：~~取 `erl_dimension_weight` 当前值~~ → ~~v4.4：取该期次经 `erl_company_period_config` 绑定的配置版本~~ → **2026-09-08 作废**（两张表已删，§5.1.2 / §5.1.4）：**取 `erl_dimension_config` 中该组织 `status = 'Activate'` 行的当前 `weight`、实时计算**。⚠️ **改权重会回溯改变已提交历史期次的综合分与 Stage**（需求方 2026-09-08 裁决：**接受漂移**，权重不做任何快照；§13-Q21 重新打开）。<br>**维度集合**：参与加权的是当前 **`status = 'Activate'`** 的维度集合（**2026-09-08**：`status` 列已加回并落库，`Deactivate` 行不参与），**个数不固定、不假设五维**（§0.10-D1）；同一组织内 `Activate` 行权重合计恒 `100.00`（接口 24 服务端校验）。<br>**存在 `null` 维度分时**：剔除该维，其余维度权重**按比例归一化**后加权（§0.9-20；原文的「其余四维」按 v4.4 参数化为「其余维度」），并在展示侧标注口径 | 已定档（PRD §3.1 / §3.8）+ **v4.4**（§0.10-R2 / D1） |
+| **综合分（v4.0 换底 · v4.4 换权重来源）** | **Σ(维度分 × 该维权重%)**，保留 1 位小数，以 `X/9` 展示。<br>**权重来源（**2026-09-08 改回当前值**）**：~~取 `erl_dimension_weight` 当前值~~ → ~~v4.4：取该期次经 `erl_company_period_config` 绑定的配置版本~~ → **2026-09-08 作废**（两张表已删，§5.1.2 / §5.1.4）：**取 `erl_dimension_config` 中该组织 `status = 'Active'` 行的当前 `weight`、实时计算**。⚠️ **改权重会回溯改变已提交历史期次的综合分与 Stage**（需求方 2026-09-08 裁决：**接受漂移**，权重不做任何快照；§13-Q21 重新打开）。<br>**维度集合**：参与加权的是当前 **`status = 'Active'`** 的维度集合（**2026-09-08**：`status` 列已加回并落库，`Inactive` 行不参与），**个数不固定、不假设五维**（§0.10-D1）；同一组织内 `Active` 行权重合计恒 `100.00`（接口 24 服务端校验）。<br>**存在 `null` 维度分时**：剔除该维，其余维度权重**按比例归一化**后加权（§0.9-20；原文的「其余四维」按 v4.4 参数化为「其余维度」），并在展示侧标注口径 | 已定档（PRD §3.1 / §3.8）+ **v4.4**（§0.10-R2 / D1） |
 | Perception Gap | `Founder 维度分 − GSV 维度分`（两个整数相减，结果为整数）；`> 0` 显示 `Positive`，`< 0` 显示 `Negative`，取绝对值展示。**v4.0：仅管理端展示** | 公式已确认（PRD §3.5）；可见性见 §4.2 |
 | Era / Stage | 见 §7.3（**v4.0 补 `score = 0` 的取值**） | 已确认 2026-08-26 + v4.0 补边界 |
 | ~~每维状态摘要~~ | ❌ **v4.0 删除**：PRD 2026-09-02 删去该展示项（§0.9-10） | — |
@@ -1681,14 +1708,14 @@ POST /api/ai/erl/gap-analysis
 已答题数      = 3 + 4 + 2 = 9        （level 3 的 2 题都要答完才算答满该 level）
 level 4/5 的题 从未解锁 → 不下发、不落答案行
 
-综合分（示例：当前 Activate 的维度集合有 5 个维度
+综合分（示例：当前 Active 的维度集合有 5 个维度
         权重 FRL 30% / PRL 20% / BERL 20% / RRL 15% / TRL 15%，维度分 2 / 5 / 7 / 4 / 1）
               = 2×0.30 + 5×0.20 + 7×0.20 + 4×0.15 + 1×0.15 = 0.6+1.0+1.4+0.6+0.15 = 3.75 → 3.8 /9
 ```
 
 > **v4.4 · 示例只是示例，维度数不固定**：上式取五维仅因原型如此，**实现不得写死 5**（§0.10-D1）。
-> 真正的算法是「遍历当前 `status = 'Activate'` 的全部维度，Σ(维度分 × weight%)」——
-> 维度个数、代码、排序、权重全部来自 `erl_dimension_config`（`organization_id` + `status='Activate'`，按 `sort_order`；**2026-09-08**：原 `erl_company_period_config → erl_dimension_config_item` 两张表已删，§7.11），
+> 真正的算法是「遍历当前 `status = 'Active'` 的全部维度，Σ(维度分 × weight%)」——
+> 维度个数、代码、排序、权重全部来自 `erl_dimension_config`（`organization_id` + `status='Active'`，按 `sort_order`；**2026-09-08**：原 `erl_company_period_config → erl_dimension_config_item` 两张表已删，§7.11），
 > 而**不是**枚举 `ErlDimensionEnum` 或前端 `constants.ts` 的静态映射（两者均已删除）。
 > 同理，`null` 归一化的分母是「剩余维度的权重之和」，不是硬编码的四维。
 
@@ -1742,7 +1769,7 @@ level 4/5 的题 从未解锁 → 不下发、不落答案行
   以及其余任何 `period` 可选的读接口 —— 缺省口径统一走本节，**不得各接口各写一套**（收在一个 `ErlPeriodResolver` 里，§10.1）。
 - **这是 ERL 域对 FI 域的新增跨域依赖**：原设计对 FI **零依赖**，v4.4 起 ERL 读侧依赖 FI 的 closed month 服务。
   依赖方向为**单向只读**（ERL → FI），不反向、不写 FI 数据；FI 侧不可用时按「closed month 取不到」处理（空态 + WARN），**不阻断整页**。
-- **维度配置版本的取用与本节一致**：先定期次（期次只决定取哪批评估数据）；**维度集合与期次无关，一律读当前 `status = 'Activate'` 的配置**（**2026-09-08**：`erl_company_period_config` 已删表，§7.11）；期次都定不下来时不渲染任何维度。
+- **维度配置版本的取用与本节一致**：先定期次（期次只决定取哪批评估数据）；**维度集合与期次无关，一律读当前 `status = 'Active'` 的配置**（**2026-09-08**：`erl_company_period_config` 已删表，§7.11）；期次都定不下来时不渲染任何维度。
 
 ### 7.2 逐级解锁计分模型（**v4.0 全节重写**，PRD §3.3 已定档 —— **v4.4：提交粒度改为维度级**）
 
@@ -1801,7 +1828,7 @@ levels 为空（该维 0 题）：
 **② 唯一实现，不做策略抽象**
 
 - 计分逻辑收在 **`application/scoring/ErlLevelScorer`** 一个类里（§10.1），对外只有两个方法：`computeDimension(orderedQuestions, answers)` → `{levelScore, terminatedLevel, unlockedLevel}`；`computeOverall(dimensionScores, weights)` → 加权综合分。
-  - **v4.4**：`computeOverall` 的 `weights` 入参**由调用方取自 `erl_dimension_config` 当前 `Activate` 行**（**2026-09-08**：原「按期次取绑定版本」作废，§7.11），`ErlLevelScorer` 本身不查库、不感知「当前生效版本」；`dimensionScores` 是**变长**集合，方法内不得假设 5 项（§0.10-D1 / R2）。
+  - **v4.4**：`computeOverall` 的 `weights` 入参**由调用方取自 `erl_dimension_config` 当前 `Active` 行**（**2026-09-08**：原「按期次取绑定版本」作废，§7.11），`ErlLevelScorer` 本身不查库、不感知「当前生效版本」；`dimensionScores` 是**变长**集合，方法内不得假设 5 项（§0.10-D1 / R2）。
 - ❌ **删除** `ErlScoringStrategy` / `Score1To9Strategy` / `ErlScoringStrategyFactory` / `ErlScoringModeEnum` / `erl_assessment.scoring_mode`（§0.9-1）：PRD 已把格式定档，「保证未来切换不用重构」的要求随之删除，为单一实现留一层策略工厂属违反根 `CLAUDE.md` 的 YAGNI。
 - 五处消费者（填报解锁、提交校验、展示计分、组合层、Goldie 输入组装）**一律调该类**，不得内联 level 判定。
 
@@ -1911,7 +1938,7 @@ Founder 或 GSV 提交某一个维度的评估（接口 5，事务提交成功�
 
 | # | 规则 |
 |---|------|
-| S1 | **生成门槛**：该 `(company, period)` 下**每一个维度**（**2026-09-08**：按当前 `status = 'Activate'` 的维度集合，原「该期次绑定的配置版本」作废，§7.11）的 **FOUNDER 与 GSV 两端**都有 `SUBMITTED` 记录时，才生成/刷新分析；未达成时保持 `stale = true` 且不调 LLM。**2026-09-08**：`is_latest` 列已删，「两端都有」改为按 `(company_id, period, portal, dimension_code)` 按 `submitted_at DESC, id DESC` 取首条判定是否存在 |
+| S1 | **生成门槛**：该 `(company, period)` 下**每一个维度**（**2026-09-08**：按当前 `status = 'Active'` 的维度集合，原「该期次绑定的配置版本」作废，§7.11）的 **FOUNDER 与 GSV 两端**都有 `SUBMITTED` 记录时，才生成/刷新分析；未达成时保持 `stale = true` 且不调 LLM。**2026-09-08**：`is_latest` 列已删，「两端都有」改为按 `(company_id, period, portal, dimension_code)` 按 `submitted_at DESC, id DESC` 取首条判定是否存在 |
 | S2 | **Share 按钮激活门槛 = S1 同一条件**（PRD 原文「只有所有维度两方都完成时」）；未达成置灰，底部提示 `Share unlocks once gap analysis is available for all {total} dimensions in {period}.` |
 | S3 | **公司端可见性**：`shared = false` 时接口 17 对公司端直接返回**空态**（不是「有内容但灰掉」）；`shared = true` 后 Founder 只读可见 |
 | S4 | **重生成 ⇒ 复位**（本版定档的新边界，PRD 与旧设计均未定义）：Share 之后任一端又提交新评估触发重生成时，**`shared` 复位为 `false`**，`shared_at` / `shared_by` 清空 —— **必须 GSV 重新 Share**，Founder 端在重新分享前回到空态。理由：否则会**静默改写 Founder 已经看过的内容**，且分享这个动作的语义（「我确认过这版内容可以给创始人看」）会被架空 |
@@ -1976,7 +2003,7 @@ PRD §3.5 的「**Data Sources & Cadence（按维度）**：显示主要与补�
 | 口径 | 规则 |
 |------|------|
 | 基准分本身 | **外部输入，平台不计算、不折算**（PRD §4）；1–9，一位小数，按维度存 |
-| `benchmarkitAvg` / `topQuartileAvg` | 该记录**各维基准分的算术平均**，保留 1 位小数（D1 记录表两列）。~~五维必填~~ → **v4.4 参数化**（§0.10-D1）：录入表单按**当前 `status = 'Activate'` 的维度**动态渲染（**2026-09-08**：原「当前生效配置版本」作废），**全部必填**，故仍无缺维分母问题；分母是该记录实际的维度个数，**不写死 5** |
+| `benchmarkitAvg` / `topQuartileAvg` | 该记录**各维基准分的算术平均**，保留 1 位小数（D1 记录表两列）。~~五维必填~~ → **v4.4 参数化**（§0.10-D1）：录入表单按**当前 `status = 'Active'` 的维度**动态渲染（**2026-09-08**：原「当前生效配置版本」作废），**全部必填**，故仍无缺维分母问题；分母是该记录实际的维度个数，**不写死 5** |
 | `recordedAt` | 由 `period` 推导为**期末日**（`2026Q2 → 2026-06-30`），不另存字段 |
 | **卡片 / 维度页取哪条记录**（「适用记录」） | 取该公司 `period ≤ 当前展示期次` 中**最近的一条** —— 评估期次晚于最后一次基准录入时沿用最近基准，不留空；无满足条件的记录则视同无基准（§9）。<br>**v4.4 澄清**：这里的「当前展示期次」由 §7.1.2 确定（closed month 所在季度）。**基准记录的「向前沿用」与 §7.1.2 明令禁止的「期次回退」不是一回事** —— 前者是在**已确定的展示期次**内挑一条外部录入的参照值（基准本就按季稀疏录入），后者是把**整页的展示期次**偷偷换成上一季。基准可以沿用，评估分数不可以 |
 | `latest` 卡取哪条 | 记录表首条（`period` 最大），卡头显示 `Latest by Dimension · {period}` |
@@ -1995,10 +2022,10 @@ PRD §3.5 的「**Data Sources & Cadence（按维度）**：显示主要与补�
 
 | 概念 | 落地 |
 |------|------|
-| 已发布版本 | `erl_question_config_version.status = 'PUBLISHED'` 中**本组织** `is_latest = true` 的那条（**v4.5**：由「按 `version_no` 倒排取第一条」改为直接命中标记列，两者等价）。**只被「新发起一次评估」这一个动作读取**（v3.4 订正） |
+| 已发布版本 | `erl_question_config_version.status = 'PUBLISHED'` 中**本组织 `version_no` 最大**的那条（**2026-09-09**：`is_latest` 标记列已删，判据回到倒排取第一条；`version_no` 组织内唯一 ⇒ 结果唯一，§5.1.1）。⚠️ **必须带 `status` 条件** —— 草稿行的 `version_no` 恒为最大。**只被「新发起一次评估」这一个动作读取**（v3.4 订正） |
 | 草稿版本 | `status = 'DRAFT'`，**每个组织最多一份**（部分唯一索引保证，v4.0 由「全局一份」改）。**只有 ERL Configuration 页读它** |
 | 一道题的跨版本身份 | `question_key`（§5.1）。`id` 每版一换，`key` 恒定 |
-| 一次评估依据的题面 | `erl_assessment.erl_question_config_version_id` 快照（**2026-09-08 改名**）。**填报页、维度详情页、计分、组合层、Goldie 输入一律读它，而不是最新已发布版本**（v3.4 订正） |
+| 一次评估依据的题面 | `erl_assessment.erl_question_config_version_id` 快照（**2026-09-08 改名**）+ **`erl_question_config_dimension_version_id`**（**2026-09-09 新增**：该维题目集快照行的 id，取题一跳直达，为空回退复合键查询，§5.2）。**填报页、维度详情页、计分、组合层、Goldie 输入一律读它，而不是最新已发布版本**（v3.4 订正） |
 | **绑定粒度（v4.4 新增，§0.10-R1）** | ~~每次评估（整卷含五维）一份~~ → **v4.4**：**每维一份** —— `erl_question_config_version_id` 挂在维度级的 `erl_assessment` 行上，故**同一公司同一期次的各个维度可能绑不同的题库版本**（如 FRL 绑 v3、PRL 绑 v4，只因两维不是同一天开始填的）。**系统不阻止、不告警**，各维按各自绑定的版本渲染、计分、组装 Goldie 输入 |
 
 > ⚠️ **v3.4 订正**：v3.3 曾写「填报 / 展示 / 计分 / 组合层一律只读最新已发布版本」—— 那是重基模型下的表述。**版本锁定后它不成立**：一次评估从创建到提交、再到被展示与计分，全程锚在自己的 `question_version_id` 上。取「最新已发布版本」的地方**全系统只有一处** —— 创建新评估记录时（`ErlAssessmentService` 的首次 `POST draft`）。
@@ -2032,12 +2059,13 @@ PRD §3.5 的「**Data Sources & Cadence（按维度）**：显示主要与补�
         │
         └──► DRAFT.status = PUBLISHED，写 published_at / by
              （2026-09-08：change_summary 列已删，不再写快照）
-             同一事务内：为每个 status='Activate' 的维度写一行
+             同一事务内：为每个 status='Active' 的维度写一行
              erl_question_config_dimension_version（code/name/abbr/
              question_version_no/sort_order/bound_at）—— 发布当时的维度快照
              ↑ question_version_no = max(version_no WHERE organization_id = 本组织 AND dimension_code = 该维)，
                本轮被克隆过的维度拿到新号，未改动的拿到与上一版相同的旧号
-             同一事务内：上一条 is_latest = true 的已发布版本置 false，本版置 true（v4.5）
+             本版 status 翻成 PUBLISHED，它自己就成了「PUBLISHED 里 version_no 最大」的那一版
+             （2026-09-09：is_latest 已删，**一行都不碰上一版**，也不再有标记转移这一步）
              → 此刻起**新发起的评估**用新版本
              → **已存在的评估（含正在填的草稿）继续用各自绑定的旧版本**（v3.4 版本锁定）
              → **Publish 不推进任何 version_no**（推进发生在每维首次编辑的克隆时刻）
@@ -2072,7 +2100,7 @@ ensureDimensionCloned(organizationId, dimensionCode)：
            返回 draftNo
 
 draftDimensionVersions(organizationId)：
-    对每个 status = 'Activate' 的维度：
+    对每个 status = 'Active' 的维度：
         published = 最新已发布版本的快照行.question_version_no（无则 0）
         若草稿行有该维快照 ⇒ 本轮**已克隆**，草稿题集 = 快照行.question_version_no
         否则                ⇒ 本轮**未改**，草稿题集 = published
@@ -2081,8 +2109,8 @@ draftDimensionVersions(organizationId)：
 > 💡 **顺带拿到的好处**：草稿行与发布行是**同一条 `erl_question_config_version`**
 > （Publish 只是把它的 `status` 翻成 `PUBLISHED`，`id` 不变），所以克隆时写下的那批快照行
 > **自动成为该发布版本的快照**，无需重写。Publish 时只剩两件事：为**本轮未克隆**的
-> `Activate` 维度补行（取旧号 / 从未有题写 `0`），以及删掉「草稿期克隆过、发布前又被
-> `Deactivate`」的行（②'''' 边界 ①）。
+> `Active` 维度补行（取旧号 / 从未有题写 `0`），以及删掉「草稿期克隆过、发布前又被
+> `Inactive`」的行（②'''' 边界 ①）。
 
 三个消费方：① 写时复制的第二级判据（上图）；② 草稿态的读侧取题（§7.9-②’）；③ 发布前的变更摘要 diff（§7.9-③）—— **diff 必须逐维做**，跨维度的整版本查询在新模型下不成立（§10.1）。
 
@@ -2100,9 +2128,9 @@ draftDimensionVersions(organizationId)：
 |------|------|
 | 本轮被克隆改过的维度 | 新克隆出的那个号（= 该维 `max`） |
 | 本轮未改动的维度 | 与上一版快照**相同的旧号**（该维 `max` 恰等于它） |
-| **`Activate` 但从未有题的维度**（新增后还没加题） | `max` 为空 ⇒ **写 `0`**，表示「该版本下本维题集为空」。**仍要写这一行**（否则 C7 缺卡）；该维的填报与提交由 §6.3 校验 3「0 题维度不可提交」拦住 |
+| **`Active` 但从未有题的维度**（新增后还没加题） | `max` 为空 ⇒ **写 `0`**，表示「该版本下本维题集为空」。**仍要写这一行**（否则 C7 缺卡）；该维的填报与提交由 §6.3 校验 3「0 题维度不可提交」拦住 |
 
-另两个并发边界：① 某维在草稿期被克隆改过、**发布前又被 `Deactivate`** ⇒ 不写快照，其克隆行成为**孤儿行**（无快照指向，但仍是该维 `max`）—— 日后该维被恢复为 `Activate` 时会被下一轮直接用上，**需在恢复时提示管理员确认**；② 发布前新 `Activate` 但本轮未克隆的维度 ⇒ 按上表第二/第三行取值，正常写快照。
+另两个并发边界：① 某维在草稿期被克隆改过、**发布前又被置 `Inactive`** ⇒ 不写快照，其克隆行成为**孤儿行**（无快照指向，但仍是该维 `max`）—— 日后该维被恢复为 `Active` 时会被下一轮直接用上，**需在恢复时提示管理员确认**；② 发布前新 `Active` 但本轮未克隆的维度 ⇒ 按上表第二/第三行取值，正常写快照。
 
 **②’ 两个 `version_no` 的分工与读侧解析（**2026-09-08 新增**）**
 
@@ -2115,13 +2143,14 @@ draftDimensionVersions(organizationId)：
 
 - **已发布版本**：先按 `erl_question_config_version_id` + `dimension_code` 命中快照行拿到 `question_version_no`，再按 `(dimension_code, version_no)` 取题。
 - **草稿版本**（快照只在 Publish 时写，草稿行无快照）：取该维的 `max(version_no)` —— 本轮未被改动的维度，其 max 恰等于已发布号，行为自洽。
+- **已绑定快照行的评估**（**2026-09-09 新增**，优先级最高）：`erl_assessment.erl_question_config_dimension_version_id` 非空时**直接一跳**取该行的 `question_version_no`，不再按复合键反查（§5.2）—— 前提是该行还在、维度与批次都对得上，否则打 WARN 回退。为空（存量行、或该维在那一版下本就没有快照行）时回落到上面两条路径 —— **三条路径对同一份数据必须解出同一个号**。
 
 > **为什么草稿仍是「组织级一份」而不是每维一份**（**2026-09-08 定口径**）：§5.1.1 保留了 `uk_erl_question_config_version_draft ON (organization_id) WHERE status = 'DRAFT'`，即每组织至多一份草稿。这同时保住了 §0.18-L4 的并发论证 —— 所有题库编辑仍经同一条草稿版本行的 `@Version` 乐观锁 + 悲观锁，如果改成每维一份草稿，那条论证会失效。
 
 **③ Publish 按钮**
 
 - **激活条件 = 存在草稿版本**。✅ **v4.0：与 PRD 现文完全一致** —— PRD 2026-09-02 已把条件写成「有**新问题、新顺序或新编辑内容**」（即四类变更任一），不再是 v3.2 时的「只有新问题」。
-- **维度配置不受 Publish 管辖**（v4.0 原「权重不受 Publish 管辖」，**v4.4 扩展**）：配置页第二个 Tab 已由 ~~`Dimension Weights`（只管权重）~~ 改为 **`Dimension Configuration`**（维度新增 / 删除 / 排序 / 权重，§0.10-D13），它有**自己的 Save 按钮**与「权重合计 = 100.00」校验，~~保存即生成新的维度配置版本~~ → **2026-09-08：就地整组替换，不产生版本**（§7.11），**不产生题库版本、不激活 Publish 按钮**（§6.4 接口 24）。反之，题库 Publish **不改**维度配置，但**会读**当时 `Activate` 的维度写入 §5.1.5 快照 —— ~~两条版本线完全独立~~ 改为**只剩题库一条版本线**。
+- **维度配置不受 Publish 管辖**（v4.0 原「权重不受 Publish 管辖」，**v4.4 扩展**）：配置页第二个 Tab 已由 ~~`Dimension Weights`（只管权重）~~ 改为 **`Dimension Configuration`**（维度新增 / 删除 / 排序 / 权重，§0.10-D13），它有**自己的 Save 按钮**与「权重合计 = 100.00」校验，~~保存即生成新的维度配置版本~~ → **2026-09-08：就地整组替换，不产生版本**（§7.11），**不产生题库版本、不激活 Publish 按钮**（§6.4 接口 24）。反之，题库 Publish **不改**维度配置，但**会读**当时 `Active` 的维度写入 §5.1.5 快照 —— ~~两条版本线完全独立~~ 改为**只剩题库一条版本线**。
 - 按钮**不分维度**：一次发布整个草稿版本（**该版本内的全部维度一起**，v4.4 不再表述为「五维一起」），不做单维发布（依裁决，§12）。
 - 变更摘要由草稿与最新已发布版本按 `question_key` 逐字段 diff 得出（**2026-09-08**：**必须逐维做** —— 先用 `draftDimensionVersions()`（§7.9-②’’）解出每维的草稿号与已发布号，再逐维比；跨维度的整版本查询在新模型下不成立）（`added` / `modified` / `removed` / `reordered`），用于按钮旁提示与发布确认框。⚠️ **2026-09-08：只实时算、不落库**—— `change_summary` 列已删（§5.1.1），故**接口 25（C7 版本历史）的 `changeSummary` 出参已无数据源**：历史版本的对比基线早已随后续发布改变，实时 diff 会算出与当时不同的数字，因此**接口 25 不再返回该字段**（接口 9 的实时 diff 保留，供 Publish 按钮与确认框用）。
 
@@ -2138,7 +2167,7 @@ V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 �
 
 > 裁决原文：「**保留旧答案，以正在编辑的版本为准** —— Founder 用 v3 版本打开就是 v3，GSV 用 v4 填。」v3.3 的重基（rebase）机制**整体删除**。
 
-**规则只有一条**：一次评估在**创建时**绑定当时最新的已发布版本（写入 `erl_assessment.erl_question_config_version_id`，**2026-09-08 改名**），**此后永不改写** —— 无论期间题库发布了多少个新版本。
+**规则只有一条**：一次评估在**创建时**绑定当时最新的已发布版本（写入 `erl_assessment.erl_question_config_version_id`，**2026-09-08 改名**；**2026-09-09** 同一时刻再写 `erl_question_config_dimension_version_id` —— 本维在那一版下的快照行 id，取不到则留 `null`，§5.2），**此后永不改写** —— 无论期间题库发布了多少个新版本。
 
 | 场景 | 行为 |
 |------|------|
@@ -2164,7 +2193,7 @@ V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 �
 
 **⑥ 首版与部署**
 
-- `erl_init.sql` 种子数据落 `version_no = 1`、`status = 'PUBLISHED'`、`is_latest = true`、`published_by = 'system'`，题目行 `question_key` 与 `id` 各自生成 —— 否则系统起来后没有已发布版本，填报页全空。
+- `erl_init.sql` 种子数据落 `version_no = 1`、`status = 'PUBLISHED'`、`published_by = 'system'`（**2026-09-09**：`is_latest` 已删，不再落该列），题目行 `question_key` 与 `id` 各自生成 —— 否则系统起来后没有已发布版本，填报页全空。
 - **2026-09-08 补两项**：① 题目行按维度各落 `erl_question_config.version_no = 1`（不再挂 `version_id`）；② **必须为每个维度写一行 `erl_question_config_dimension_version`**（`question_version_no = 1`）—— 漏写则接口 26 解析不出任何维度、C7 页体全空。
 - 上线后**不允许直接改库里已发布版本的题目行**（会让历史评估的题面漂移）；任何修正都走配置页 → 草稿 → Publish。
 
@@ -2193,12 +2222,12 @@ V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 �
 | **N1** | **旧版本草稿的时效** | B | **可无限期停留**：提交时**不校验**绑定版本是否最新，半年前的草稿按半年前的题集提交。~~期间填报页无任何提示~~ → **v4.4 订正**（§0.10-D10）：**行为不变，但要提示** —— 填报页顶部一条非阻断、可关闭的 banner 告知「题库已更新到 v{n}，本次评估继续用 v{m}」，用户可自行决定是否 Reset 重开（接口 28） | 设过期时间强制重开 —— 会丢已填内容，与「不丢数据」的取向冲突 |
 | **N2** | **同期次多次提交跨版本** | B | **允许**：第 1 次基于 v3、第 2 次基于 v4。**历史列表与 Scorecard 必须标题集版本号**（v4.4：标在**分数列下方的次级文字**，`Completion` 列已删，§7.1.1 / §0.10-D12），否则题数不同会被当成 bug | 强制同期次同版本 —— 同 13 的问题 |
 | **N3** | **在填评估「升级到最新题集」按钮** | B | **不做**。代价：新版若修正了写错的题干，在填的人享受不到 —— 但 v4.4 起用户至少**知道有新版**（N1 的 banner，§0.10-D10）。~~「重开一份」需先提交旧草稿再 `+ New`（唯一草稿约束 + 无丢弃接口，v3.6 定档）~~ → **v4.4 作废**（§0.10-D8）：直接 **Reset（接口 28）丢弃草稿 → `Add New`** 即可，不再需要垃圾提交（§7.7 / §7.9-⑤） | 做升级按钮 —— 等于把已删除的重基又请回来 |
-| **N4（v4.4 新增，v4.8 换依据，**2026-09-08 换机制**）** | **维度删除对历史期次的影响** | A | **删除 = 软删**（`status = 'Deactivate'`，行与 `weight` 原样保留，§5.1.3）：① **历史提交记录照常显示** —— 名称 / 缩写取 `erl_assessment.dimension_name` / `dimension_abbr` 行上快照（§5.2），`Retired` 灰标由 `status` **直接判定**（~~由「是否还在当前生效版本里」派生~~ 作废）；② 不进新期次的问卷、不参与新期次的综合分与 Share 门槛（§7.5-S1）。⚠️ **但历史期次的综合分、Stage 与雷达图形状会因此漂移**（该维退出分母、剩余权重重新归一化）—— 这是 2026-09-08 已接受的代价，~~旧版本 item 行原样保留、历史不变形~~ 随两张表删除而作废。V1 仍**不做**「有历史数据禁止删除」的前置拦截（软删下行不消失） | 物理删除 —— 历史记录连名字都查不到，2026-09-08 已否决 |
+| **N4（v4.4 新增，v4.8 换依据，**2026-09-08 换机制**）** | **维度删除对历史期次的影响** | A | **删除 = 软删**（`status = 'Inactive'`，行与 `weight` 原样保留，§5.1.3）：① **历史提交记录照常显示** —— 名称 / 缩写取 `erl_assessment.dimension_name` / `dimension_abbr` 行上快照（§5.2），`Retired` 灰标由 `status` **直接判定**（~~由「是否还在当前生效版本里」派生~~ 作废）；② 不进新期次的问卷、不参与新期次的综合分与 Share 门槛（§7.5-S1）。⚠️ **但历史期次的综合分、Stage 与雷达图形状会因此漂移**（该维退出分母、剩余权重重新归一化）—— 这是 2026-09-08 已接受的代价，~~旧版本 item 行原样保留、历史不变形~~ 随两张表删除而作废。V1 仍**不做**「有历史数据禁止删除」的前置拦截（软删下行不消失） | 物理删除 —— 历史记录连名字都查不到，2026-09-08 已否决 |
 | **N5（v4.4 新增）** | **同一期次的各维度绑不同题库版本** | B | **允许，各自独立**（维度级提交的必然结果，§0.10-R1）：渲染按各维自己的 `erl_question_config_version_id`（再经 §5.1.5 快照解析出该维的 `question_version_no`），计分按各维自己的 level 结构（`max(levels)` 可能因版本而异），Goldie 输入按各维自己的题面组装。**不阻止、不告警**，仅在历史列表/Scorecard 的分数列下方标出各维的版本号 | 要求同期次全维同版本 —— 会让「发布」被任一在填维度无限期阻塞，且与维度级提交直接矛盾 |
 
 > **v4.0：本表新增 W1 ~ W3 三条**（权重与跨组织带来的边界）；~~W1 是 C 类~~ → ~~v4.4：升为 A 类、§13-Q21 关闭~~ → **2026-09-08：W1 仍是 A 类（已裁决），但取值反转为「接受漂移」，§13-Q21 重新打开**。v3.4 关闭的第 10–13 条不受影响。取「最新已发布版本」的代码路径全系统只有一处（创建评估记录时），是本模块的**唯一版本入口**，代码审查专项检查。
 >
-> **v4.4：本表新增 N4 / N5 两条**（动态维度与维度级提交带来的边界）。⚠️ ~~本模块有两条互相独立的版本线~~ → **2026-09-08 订正：只剩一条版本线** —— **题库版本**（`erl_question_config_version`，Publish 生效，绑在 `erl_assessment.erl_question_config_version_id`；版本内各维的题目集另有按 `dimension_code` 自增的 `erl_question_config.version_no`，两者由 §5.1.5 快照表对应）。~~维度配置版本（`erl_dimension_config_version`，绑在 `erl_company_period_config`）~~ **两张表均已删除**（§5.1.2 / §5.1.4）：维度配置只有一份**当前值**，不再有版本线，也不再与期次绑定。Publish 时只是把当时 `Activate` 的维度**逐维快照**进 §5.1.5，供 C7 回看。
+> **v4.4：本表新增 N4 / N5 两条**（动态维度与维度级提交带来的边界）。⚠️ ~~本模块有两条互相独立的版本线~~ → **2026-09-08 订正：只剩一条版本线** —— **题库版本**（`erl_question_config_version`，Publish 生效，绑在 `erl_assessment.erl_question_config_version_id`；版本内各维的题目集另有按 `dimension_code` 自增的 `erl_question_config.version_no`，两者由 §5.1.5 快照表对应）。~~维度配置版本（`erl_dimension_config_version`，绑在 `erl_company_period_config`）~~ **两张表均已删除**（§5.1.2 / §5.1.4）：维度配置只有一份**当前值**，不再有版本线，也不再与期次绑定。Publish 时只是把当时 `Active` 的维度**逐维快照**进 §5.1.5，供 C7 回看。
 >
 > **v4.0 另新增的一条计分边界**（不属版本化，记在此处便于集中核对）：**逐级解锁的「同一 level 内是否要答完才算终止」** —— 定档为**要答完**（§7.2-①）。若取反面（见 No 即终止、不必答完该 level），Goldie 会缺失该 level 内其余准则的达成情况，且 `answeredCount` 会因用户答题顺序不同而不同 —— 同一份实际情况能产生两个不同的完成度。
 
@@ -2210,8 +2239,8 @@ V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 �
 
 | 表 | 作用 |
 |------|------|
-| `erl_dimension_config` | 一个**组织**的维度集合当前值：`dimension_code` / `dimension_name` / `dimension_abbr` / `sort_order` / `weight` / `saved_at` / `saved_by` / `status`。`dimension_code` 是**稳定身份**、一经创建永不改变，历史数据靠它关联 |
-| ~~`erl_dimension_config_version`~~ | ❌ **2026-09-08 整表删除**（§5.1.2）—— 不再有配置版本头，`saved_at` / `saved_by` 下沉到行上 |
+| `erl_dimension_config` | 一个**组织**的维度集合当前值：`dimension_code` / `dimension_name` / `dimension_abbr` / `sort_order` / `weight` / `status`（**2026-09-09**：`saved_at` / `saved_by` 已删，「上次保存于何时」改取审计列 `max(updated_at)`）。`dimension_code` 是**稳定身份**、一经创建永不改变，历史数据靠它关联 |
+| ~~`erl_dimension_config_version`~~ | ❌ **2026-09-08 整表删除**（§5.1.2）—— 不再有配置版本头，「上次保存于何时 / 谁保存的」由行上的**审计列 `updated_at` / `updated_by`** 承接（**2026-09-09**：一度下沉的 `saved_at` / `saved_by` 两列已删） |
 | ~~`erl_company_period_config`~~ | ❌ **2026-09-08 整表删除**（§5.1.4）—— 期次不再绑定配置版本，**R2「历史永不漂移」随之失效** |
 
 **② 保存：整组就地替换，不产生版本**
@@ -2223,49 +2252,57 @@ V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 �
                  │
                  ├── 服务端校验：带 dimensionCode 的行必须命中已有行；
                  │                          不带的为新增，由服务端随机生成 code（2026-09-08）
-                 │                + **`status = 'Activate'` 的行**权重合计**恰为 100.00**
+                 │                + **`status = 'Active'` 的行**权重合计**恰为 100.00**
                  │
-                 └── 同一事务内：按 (organization_id, dimension_code) upsert erl_dimension_config
-                                 （覆盖 name / abbr / sort_order / weight / status，写 saved_at / saved_by）
-                                 + 提交里**缺席**的维度置 status = 'Deactivate'（软删，**不删行**）
+                 ├── 同一事务内**第一阶段**：把本组织**全部已有行**落成 status = 'Inactive' 并 flush
+                 │                （腾空部分唯一索引 uk_erl_dimension_config_abbr —— 「停用 FRL + 新增
+                 │                  一个也叫 FRL 的维度」这类终态合法的操作否则会炸在中间态）
+                 │                ⚠️ 这一步顺带撑住了 savedAt 的口径：它会 bump 全组行的 updated_at，
+                 │                  故「整组上次保存于何时」= 全部行 max(updated_at)，不需要独立的
+                 │                  saved_at 列（2026-09-09，§5.1.3）
+                 │
+                 └── 同一事务内**第二阶段**：按 (organization_id, dimension_code) upsert erl_dimension_config
+                                 （覆盖 name / abbr / sort_order / weight / status；保存时间 / 保存人
+                                   由审计列 updated_at / updated_by 承接，2026-09-09）
+                                 + 提交里**缺席**的维度置 status = 'Inactive'（软删，**不删行**）
                      → 保存即**全局生效**，无版本、无生效延迟
 ```
 
 - **整组替换语义**：接口 24 提交的是**完整的维度列表**，服务端不做逐条 diff、不做部分更新 —— 否则中间态必然破坏「合计 100%」。⚠️ **去版本化后“整组替换”写的是本组织的这批行本身**，**改动前的旧值不再留存**。
-- **Save 按钮双条件**（§0.10-D13）：① 脏态（维度增 / 删 / 排序 / 权重 / **启停用**任一变化）② **`Activate` 行**权重合计 = 100%；越界提示 `Exceeds 100% by {n}%` / `Needs {n}% more`。
-- **与题库 Publish 的关系**：配置改动**不激活 Publish 按钮**，走自己的 Save；题库 Publish 也**不改维度配置** —— 但它**会读**当时 `Activate` 的维度写入 §5.1.5 快照（不再是 v4.4 说的「完全无关」）。
+- **Save 按钮双条件**（§0.10-D13）：① 脏态（维度增 / 删 / 排序 / 权重 / **启停用**任一变化）② **`Active` 行**权重合计 = 100%；越界提示 `Exceeds 100% by {n}%` / `Needs {n}% more`。
+- **与题库 Publish 的关系**：配置改动**不激活 Publish 按钮**，走自己的 Save；题库 Publish 也**不改维度配置** —— 但它**会读**当时 `Active` 的维度写入 §5.1.5 快照（不再是 v4.4 说的「完全无关」）。
 - **Save 确认框文案（2026-09-08 反转回 v4.0 口径）**：~~「新配置从下一个尚未开始填报的期次起生效；已有提交的期次沿用其绑定的配置版本，历史分数不变」~~ → **「新配置立即全局生效，已有期次的综合分、Stage 与雷达图形状会随之变化」**。
 
 **③ 生效：只有一份当前值，无期次绑定**
 
 | 场景 | 取哪些维度 |
 |------|------|
-| 任何按期次渲染 / 计分的地方（卡片、雷达图、A3 / A4、F2、Gap 状态点、Share 门槛） | **一律读 `erl_dimension_config` 中该组织 `status = 'Activate'` 的行**，按 `sort_order` 排序 |
-| 历史提交里出现过、今天已 `Deactivate` 的维度 | 该维的名称 / 缩写由 `erl_assessment.dimension_name` / `dimension_abbr` **行上快照**还原（§5.2），或回本表读那一行（行仍在） |
+| 任何按期次渲染 / 计分的地方（卡片、雷达图、A3 / A4、F2、Gap 状态点、Share 门槛） | **一律读 `erl_dimension_config` 中该组织 `status = 'Active'` 的行**，按 `sort_order` 排序 |
+| 历史提交里出现过、今天已 `Inactive` 的维度 | 该维的名称 / 缩写由 `erl_assessment.dimension_name` / `dimension_abbr` **行上快照**还原（§5.2），或回本表读那一行（行仍在） |
 | C7 题库版本快照页 | **不读本表当前值** —— 读 `erl_question_config_dimension_version` 的发布当时快照（§5.1.5，接口 26 出参 `dimensions[]`） |
 | 期次都定不下来（closed month 取不到，§7.1.2） | 不渲染任何维度，走空态 |
 
 ⚠️ **R2「历史期次永不漂移」已于 2026-09-08 正式失效**（需求方已裁决「接受漂移」）：
 - 改权重会**回溯改变**已提交历史期次的综合分与 Stage —— `erl_assessment` 上有每维的 `level_score` 快照，但**权重不在快照里**，综合分是实时加权算出来的（§7.1）。
-- 新增维度会让历史期次凭空多出一个「未填」的维度；`Deactivate` 维度会从历史雷达图上消失。
+- 新增维度会让历史期次凭空多出一个「未填」的维度；`Inactive` 维度会从历史雷达图上消失。
 - **§13-Q21 重新打开**，取值「改权重影响历史」。
 
 **④ 删除即软删**（**2026-09-08 推翻 v4.8 的「物理删除」**）
 
-- 配置页上的「删除维度」落库是**置 `status = 'Deactivate'`**：垃圾桶 + 二次确认后本地标为停用，`Save` 时该维度**不出现在提交的 `dimensions[]` 里**，服务端据此置 `Deactivate`。**行与 `weight` 原样保留**，可再置回 `Activate` 恢复。
+- 配置页上的「删除维度」落库是**置 `status = 'Inactive'`**：垃圾桶 + 二次确认后本地标为停用，`Save` 时该维度**不出现在提交的 `dimensions[]` 里**，服务端据此置 `Inactive`。**行与 `weight` 原样保留**，可再置回 `Active` 恢复。
 - 二次确认后剩余维度的权重合计会不足 100%，**需在同一次 Save 里补齐**。
-- **已 `Deactivate` 的维度**：① 不进填报页、不进当前的综合分与雷达图；② 历史提交记录照常可查（名称/缩写取评估行快照）。
-- `ErlDimensionConfigStatusEnum` **改回落库枚举**：取值 `Activate` / `Deactivate`，就是 `erl_dimension_config.status` 列；`Retired` 灰标由列值**直接判定**，~~v4.8 的「纯派生展示态」~~ 作废（§0.14 随之失效）。⚠️ 与 v4.0 从接口 1 / 2 删掉的 `status`（`MET` / `PARTIAL` / `GAP`，§0.9-10）**不是同一个字段**。
+- **已 `Inactive` 的维度**：① 不进填报页、不进当前的综合分与雷达图；② 历史提交记录照常可查（名称/缩写取评估行快照）。
+- `ErlDimensionConfigStatusEnum` **改回落库枚举**：取值 `Active` / `Inactive`，就是 `erl_dimension_config.status` 列；`Retired` 灰标由列值**直接判定**，~~v4.8 的「纯派生展示态」~~ 作废（§0.14 随之失效）。⚠️ 与 v4.0 从接口 1 / 2 删掉的 `status`（`MET` / `PARTIAL` / `GAP`，§0.9-10）**不是同一个字段**。
 - **无条件允许删除**：不做「有历史数据禁止删除」的前置拦截 —— 软删下行根本不消失，拦截没有保护对象（§13-Q24 结论仍成立，但**依据由「旧版本保留」换成「软删保留」**）。
-- ⚠️ **软删对 C7 的连带影响（§0.17-K1，待裁决）**：v4.11 定的「C7 只显示今天仍在维度配置里的维度」原本靠「维度被物理删掉」判定；改软删后**没有维度会消失**，该规则要么改判 `status = 'Deactivate'`、要么整条取消。
+- ⚠️ **软删对 C7 的连带影响（§0.17-K1，待裁决）**：v4.11 定的「C7 只显示今天仍在维度配置里的维度」原本靠「维度被物理删掉」判定；改软删后**没有维度会消失**，该规则要么改判 `status = 'Inactive'`、要么整条取消。
 
 **⑤ 相关接口**
 
 | 接口 | 语义（**2026-09-08**） |
 |------|------|
-| **接口 23** `GET /erl/dimension/config` | 返回该组织的维度配置（`dimensionCode` / `dimensionName` / `dimensionAbbr` / `sortOrder` / `weight` / **`status`** / `savedAt` / `savedBy`）。**默认只返 `Activate`**；配置页需回看停用维度时带参返全量。~~v4.8：无 `status`~~ 作废；~~出参 `versionNo`~~ 删除 |
-| **接口 24** `PUT /erl/dimension/config` | **整组保存**维度集合 + 排序 + 权重，校验通过即**就地替换**（缺席维度置 `Deactivate`）。~~生成新配置版本~~ 作废，出参无 `versionNo` |
-| 接口 1 / 20 / 22 等按期次读的接口 | 维度列表与权重一律取**当前 `Activate` 集合**（本节 ③），出参中的维度**是变长数组，不是固定五项** |
+| **接口 23** `GET /erl/dimension/config` | 返回该组织的维度配置（`dimensionCode` / `dimensionName` / `dimensionAbbr` / `sortOrder` / `weight` / **`status`** / `savedAt` / `savedBy`）。**默认只返 `Active`**；配置页需回看停用维度时带参返全量。~~v4.8：无 `status`~~ 作废；~~出参 `versionNo`~~ 删除 |
+| **接口 24** `PUT /erl/dimension/config` | **整组保存**维度集合 + 排序 + 权重，校验通过即**就地替换**（缺席维度置 `Inactive`）。~~生成新配置版本~~ 作废，出参无 `versionNo` |
+| 接口 1 / 20 / 22 等按期次读的接口 | 维度列表与权重一律取**当前 `Active` 集合**（本节 ③），出参中的维度**是变长数组，不是固定五项** |
 
 ---
 
@@ -2416,8 +2453,8 @@ F2 的 `GET /erl/portfolio`、ERL Card 的 `GET /erl/card` 均归入 `exitReadin
 |---|---|---|
 | `shareGapAnalysis({ companyId, period })` | **接口 27（新）** `POST /erl/gapAnalysis/share` | A1 Gap 区块的 `Share to founder`，**仅管理端**；成功后本地把 `shared` 置 true 并把按钮切为已分享态（§0.10-D3） |
 | `discardDraft({ companyId, period, portal, dimension })` | **接口 28（新）** `DELETE /erl/assessment/draft` | B 填报页 `Reset`：清空本次草稿的全部答案与附件、`unlockedLevel` 回 1；调用前必须二次确认（§0.10-D8） |
-| `getDimensionConfig()` | **接口 23（语义变更）** `GET /erl/dimension/config` | ~~读五维权重~~ → **当前 `status = 'Activate'` 的维度集合**（维度列表 + `sortOrder` + `weight`；**v4.8：无 `status`**）；`useDimensionConfig` 与 C6 共用（§0.10-D13 / §0.14） |
-| `saveDimensionConfig(items)` | **接口 24（语义变更）** `PUT /erl/dimension/config` | ~~保存五维权重~~ → **整组保存**维度集合 + 排序 + 权重，服务端校验 **`Activate` 行**合计 = 100.00；~~并生成新配置版本~~ → **2026-09-08：就地整组替换，缺席维度置 `Deactivate`，不产生版本**（§0.10-D13） |
+| `getDimensionConfig()` | **接口 23（语义变更）** `GET /erl/dimension/config` | ~~读五维权重~~ → **当前 `status = 'Active'` 的维度集合**（维度列表 + `sortOrder` + `weight`；**v4.8：无 `status`**）；`useDimensionConfig` 与 C6 共用（§0.10-D13 / §0.14） |
+| `saveDimensionConfig(items)` | **接口 24（语义变更）** `PUT /erl/dimension/config` | ~~保存五维权重~~ → **整组保存**维度集合 + 排序 + 权重，服务端校验 **`Active` 行**合计 = 100.00；~~并生成新配置版本~~ → **2026-09-08：就地整组替换，缺席维度置 `Inactive`，不产生版本**（§0.10-D13） |
 | `getAssessmentHistoryDetail(assessmentId, { dimension })` | 接口 8（补入参） | B3 从带维度的历史列表进入时只渲染该维度（§0.10-D12） |
 
 ### 8.4 关键交互
@@ -2425,26 +2462,26 @@ F2 的 `GET /erl/portfolio`、ERL Card 的 `GET /erl/card` 均归入 `exitReadin
 | 交互 | 设计 | PRD 依据 |
 |------|------|------|
 | **A1 ERL Card 内容**（v4.0 改，**v4.4 重写**） | **卡头右上 `Full View ›`** → A4（`/exitReadiness/scoreDetails?companyId={id}&period={period}`），**两端都渲染**（§0.10-D5，2026-09-06 原型）。卡体自上而下：**`Overall Score`**（**v4.4 文案定档，全站不再出现 `Composite Score`**，§0.10-D14；**加权** `X/9`，tooltip 列出所用权重）+ 当前 Stage 徽章 + **Gap 区块**（见下一行；~~E 待定期间隐藏~~ → **v4.4 作废**：Goldie 已回归 V1，常驻渲染，§0.10-D2）+ **维度列表**（~~5 维列表~~ → **v4.4**：按接口 1 返回的维度配置**动态渲染**，条数不固定，§0.10-D1；每行：维度分 `n/9` **整数** + `Level n` 标注 + `View Details →`）+ BPMM 参考数字（1–5）+ **雷达图（仅管理端）** + **雷达图正下方链接 `Benchmarkit & Top GSV Quartile ›`**（→ `/exitReadiness/benchmark?companyId=`；**仅管理端**，与雷达图同渲染条件，§0.10-D7）。**管理端额外**：每维 GSV 分与 Perception Gap。❌ 删除状态徽章（§0.9-10） | §3.1 / §3.5 + 2026-09-06 原型 |
-| **A1 Gap 区块**（**v4.4 全行新增，按 2026-09-06 原型截图定档**，§0.10-D4） | 区块头：标题 **`Gap Analysis & Suggested Actions`** + **`AI GENERATED`** 标签；右侧两个按钮 —— **`View details`**（弹 `GapAnalysisDetailModal`，**按维度分区**列出该维的 gap 与 `actions[{title, why}]`）、**`Share to founder`**（**仅管理端**，调接口 27；**门槛未达成时置灰** + tooltip 说明还差哪些维度）。<br>区块体：**期次 chip**（如 `Q2 2026`，取接口 17 的 `period`）+ 计数文案 **`{n} of {total} dimensions have gap analysis for {period}`**（`total` = 当前 `status = 'Activate'` 的维度集合的维度数，**不写死 5**）；其下**每维一张小卡**，卡内一个圆点 + 一行文字，**三态**：<br>· 绿点 + `Gap analysis ready` —— `bothSubmitted = true` 且 `hasGap = true`<br>· 绿点 + `No Gap` —— `bothSubmitted = true` 且 `hasGap = false`<br>· 灰点 + `Not submitted` —— `bothSubmitted = false`<br>⚠️ **圆点颜色 = 双方是否都已提交；文字 = 有无 gap。两条独立信息，前端不要合并成一个枚举字段**。<br>区块底部提示：**`Share unlocks once gap analysis is available for all {total} dimensions in {period}.`**<br>数据全部取**接口 17** 的 `shared` + `dimensions[].{code, abbr, bothSubmitted, hasGap}`。<br>❌ **删除 Strengths 相关展示**：`strengths[]` 出参与「优势」小节一并摘除（§0.10-D4），本区块只呈现 gap 与建议动作 | 2026-09-06 ERL Card 原型 + PRD §3.6 |
+| **A1 Gap 区块**（**v4.4 全行新增，按 2026-09-06 原型截图定档**，§0.10-D4） | 区块头：标题 **`Gap Analysis & Suggested Actions`** + **`AI GENERATED`** 标签；右侧两个按钮 —— **`View details`**（弹 `GapAnalysisDetailModal`，**按维度分区**列出该维的 gap 与 `actions[{title, why}]`）、**`Share to founder`**（**仅管理端**，调接口 27；**门槛未达成时置灰** + tooltip 说明还差哪些维度）。<br>区块体：**期次 chip**（如 `Q2 2026`，取接口 17 的 `period`）+ 计数文案 **`{n} of {total} dimensions have gap analysis for {period}`**（`total` = 当前 `status = 'Active'` 的维度集合的维度数，**不写死 5**）；其下**每维一张小卡**，卡内一个圆点 + 一行文字，**三态**：<br>· 绿点 + `Gap analysis ready` —— `bothSubmitted = true` 且 `hasGap = true`<br>· 绿点 + `No Gap` —— `bothSubmitted = true` 且 `hasGap = false`<br>· 灰点 + `Not submitted` —— `bothSubmitted = false`<br>⚠️ **圆点颜色 = 双方是否都已提交；文字 = 有无 gap。两条独立信息，前端不要合并成一个枚举字段**。<br>区块底部提示：**`Share unlocks once gap analysis is available for all {total} dimensions in {period}.`**<br>数据全部取**接口 17** 的 `shared` + `dimensions[].{code, abbr, bothSubmitted, hasGap}`。<br>❌ **删除 Strengths 相关展示**：`strengths[]` 出参与「优势」小节一并摘除（§0.10-D4），本区块只呈现 gap 与建议动作 | 2026-09-06 ERL Card 原型 + PRD §3.6 |
 | **A1 Share 后的状态与复位**（**v4.4 新增**） | 已分享时按钮切为 `Shared`（禁用）+ 次级文字 `Shared {time} by {name}`；**任一端重新提交触发重生成后 `shared` 复位为 `false`**，按钮回到可点态，并在区块顶部提示 **`Content updated — reshare to founder.`**（§0.10-D3 新边界）。**公司端**：`shared = false` 时接口 17 直接返回空态，卡片内该区块显示 `No gap analysis shared yet.`，**不渲染** `View details` / `Share to founder` | 本设计（§0.10-D3） |
 | **A1 卡片位置**（v4.0 改，**v4.3 订正**） | 占据**原 DI 卡片的位置与栅格宽度**，即两列布局的**右列**（DI 下移到左列 FI 之后，§8.6）；与左列 Financial Intelligence 卡等宽、顶部对齐 | §3.1 |
 | **A1 公司端裁剪**（**v4.0 新增，v4.4 补两条**） | 公司端卡片**不渲染**：GSV 维度分列、Perception Gap 列、雷达图、**雷达图下方的 `Benchmarkit & Top GSV Quartile ›` 链接**（v4.4，与雷达图同条件）、**Gap 区块的 `Share to founder` 按钮**（v4.4）。列宽随之收缩为「维度名 + Founder 分 + View Details」三列，**不留空列**。⚠️ **`Full View ›` 两端都渲染**，不在裁剪之列（§0.10-D5） | §3.5「创始人只能查看自己的分数」「该图仅在 Portfolio 端显示」 + §0.10-D5 / D7 |
-| **A2 雷达图规范** | **仅线条无填充**、每条序列不同色、**有图例**、**中心轴隐藏**；~~5 个顶点标注五维~~ → **v4.4**：**顶点数与顺序按当前 `status = 'Activate'` 的维度集合动态生成**（`sortOrder` 决定顶点顺序，§0.10-D1）；域 `0–9`（**v4.0：含 0**）；**悬停数据点显示该维度 + 该 perspective 的精确分数**。**v4.0：仅在管理端渲染** | §3.5 |
+| **A2 雷达图规范** | **仅线条无填充**、每条序列不同色、**有图例**、**中心轴隐藏**；~~5 个顶点标注五维~~ → **v4.4**：**顶点数与顺序按当前 `status = 'Active'` 的维度集合动态生成**（`sortOrder` 决定顶点顺序，§0.10-D1）；域 `0–9`（**v4.0：含 0**）；**悬停数据点显示该维度 + 该 perspective 的精确分数**。**v4.0：仅在管理端渲染** | §3.5 |
 | **A2 序列可扩展** | `series[]` 由后端下发，前端按数组渲染，**不硬编码 4 条** —— 后续新增 perspective 无需改前端 | §3.5「预留后续新增 perspective 的能力」 |
-| **A3 模板参数化**（**v4.4 改为接口驱动**） | ~~维度名称、缩写、简介、主题色收在 `components/constants.ts` 的 `DIMENSIONS` 映射~~ → **v4.4 作废**（§0.10-D1）：维度已是租户级可版本化配置，编译期常量必然与配置漂移。改为 **`useDimensionConfig` 从接口取维度元数据**（`code` / `name` / `abbr` / `sortOrder`），页面按 `:dimension` 在返回列表里查；`:dimensionCode` 不在配置表内（压根没这个 code）时走 404 空态；**2026-09-08：`status = 'Deactivate'` 的维度不走 404**（⚠️ 实现注意：`useDimensionConfig` 走的接口 23 **默认只返 `Activate`**，照旧实现停用维度恰好查不到、恰好走 404，与本条相反 —— A3 需**单独带 `includeDeactivated=true` 取配置**，或改由接口 2 的 `header` 直接下发该维元数据（更省一次请求）） —— 行仍在表里，历史提交照常渲染并标 `Retired`，仅**不允许新建填报**。**禁止**按维度硬编码分支文案 | §3.2「同一套模板，通过 dimension 参数驱动」 |
+| **A3 模板参数化**（**v4.4 改为接口驱动**） | ~~维度名称、缩写、简介、主题色收在 `components/constants.ts` 的 `DIMENSIONS` 映射~~ → **v4.4 作废**（§0.10-D1）：维度已是租户级可版本化配置，编译期常量必然与配置漂移。改为 **`useDimensionConfig` 从接口取维度元数据**（`code` / `name` / `abbr` / `sortOrder`），页面按 `:dimension` 在返回列表里查；`:dimensionCode` 不在配置表内（压根没这个 code）时走 404 空态；**2026-09-08：`status = 'Inactive'` 的维度不走 404**（⚠️ 实现注意：`useDimensionConfig` 走的接口 23 **默认只返 `Active`**，照旧实现停用维度恰好查不到、恰好走 404，与本条相反 —— A3 需**单独带 `includeDeactivated=true` 取配置**，或改由接口 2 的 `header` 直接下发该维元数据（更省一次请求）） —— 行仍在表里，历史提交照常渲染并标 `Retired`，仅**不允许新建填报**。**禁止**按维度硬编码分支文案 | §3.2「同一套模板，通过 dimension 参数驱动」 |
 | **A3 Founder / GSV Tab** | 双 Tab 切换逐题明细；**公司端不渲染 GSV Tab**（且后端拒绝该请求） | §3.2 |
 | **A3 元数据栏** | Period / Submitted By / Role / Submitted At | §3.2 |
 | **A3 页头分数**（**v4.0 新增**） | `{n} questions · {m} answered` + 维度分 `{level}/9`（整数）+ `Level {n} · {Era 名}` 徽章（`0` 分显示灰色 `Not yet Stage 1`）+ `stopped at Level {t}`（九级全通显示 `All levels cleared`）。**管理端另并列 GSV 分与 Perception Gap；公司端两者均不渲染** | §3.1 / §3.2 / §3.5 |
 | **A3 `View history`**（**v4.4 改口径**） | 跳 `/exitReadiness/history?dimension={dim}`，**限定当前维度**。~~记录条数不变（评估整卷提交），`Completion` 与分数切为该维度口径~~ → **v4.4 作废**：提交单元已是**单个维度**（§0.10-R1），列表天然只有该维的记录；`Completion` 列已删除（§0.10-D12），分数列即该维 Overall Score。列表页头仍标注当前维度 + 清除入口（口径见 §6.3 接口 7） | §3.2 |
 | **A3 `+ New`**（v3.6 补锚点，**v4.4 改**） | 公司端跳 B1、管理端跳 B2，带当前 `period` 预选 + **`?dimension={code}`**。~~**问卷恒为整卷**（PRD §3.3 题库按五维组织、§3.9 的 `45/45` 均是整卷口径），入口在维度页、进去仍填整卷（§0.8-11）~~ → **v4.4 作废**（§0.10-R1，需求方 2026-09-06 裁决）：**填报单元＝单个维度**，从维度页进去**只填该维度**，PRD §3.2「发起该维度新一轮评估」现按字面落地。原 `?anchor={dimension}` 的「滚动并展开该维度分组」不再需要 | §3.2 / §3.3 + §0.10-R1 |
 | **A3 面包屑**（**v4.4 改依据**） | `Exit Readiness ›〔Dimension Name〕`，返回落回 Company Overview。**功能不变**，依据由 ~~§3.1 / §4~~ 改标 **§4**（§0.10-D17：PRD §3.1 的面包屑 UX 要点已于 2026-09-03 删除，§四「导航一致性」仍保留；PRD 自身矛盾列入回写 M6） | **§4**（§3.1 的 UX 要点已于 2026-09-03 删除） |
-| **A3 维度间跳转**（**v4.4 动态化**） | 页头提供维度 chip 切换器，不必回卡片；~~5 个 chip~~ → **chip 数量与顺序按当前 `status = 'Activate'` 的维度集合渲染**（§0.10-D1） | 本设计（模板页自然延伸） |
+| **A3 维度间跳转**（**v4.4 动态化**） | 页头提供维度 chip 切换器，不必回卡片；~~5 个 chip~~ → **chip 数量与顺序按当前 `status = 'Active'` 的维度集合渲染**（§0.10-D1） | 本设计（模板页自然延伸） |
 | **A4 可达性**（**v4.4 新增**） | ~~公司端有权限但 V1 不提供入口（§13-Q17）~~ → **v4.4 作废**（§0.10-D5，PRD `57225d2`）：**公司端与组合端都可达**。入口：两端 ERL Card 右上 `Full View ›`；组合端另有 F2 ERL Tab 的 `View →`。页面按端类型裁剪（见下「A4 双端呈现」「A4 公司端」） | PRD §3.5 / §3.7 + 2026-09-06 原型 |
-| **A4 页面结构**（v3.5，v3.6 补页头分数，v4.0 综合分改加权，**v4.4 改按钮位置**） | 自上而下：面包屑 → H1 `Score Details` + **加权 `Overall Score` `X/9` + Stage 徽章**（取接口 22 的 `header`，tooltip 列出所用权重；**v4.4 文案定档 `Overall Score`**，§0.10-D14）→ ~~右上 `+ New`~~ / ~~`View history`（右）~~ → **v4.4 作废**：页级 `+ New` 与 `View history` **取消**（PRD 未提，且与维度级提交矛盾，§0.10-D5 / R1），两个能力**下沉到每张维度卡的卡头** → 双端呈现区（见下行）→ 四列元数据栏 → **维度折叠卡（张数按当前 `status = 'Activate'` 的维度集合，不再恒五张**，§0.10-D1）→ **页尾基准折叠卡**；容器宽度与 A3 一致 | 原型 `/readiness/overall`（§0.7）+ §0.8-12 + §0.9-2 + §0.10-D5 |
+| **A4 页面结构**（v3.5，v3.6 补页头分数，v4.0 综合分改加权，**v4.4 改按钮位置**） | 自上而下：面包屑 → H1 `Score Details` + **加权 `Overall Score` `X/9` + Stage 徽章**（取接口 22 的 `header`，tooltip 列出所用权重；**v4.4 文案定档 `Overall Score`**，§0.10-D14）→ ~~右上 `+ New`~~ / ~~`View history`（右）~~ → **v4.4 作废**：页级 `+ New` 与 `View history` **取消**（PRD 未提，且与维度级提交矛盾，§0.10-D5 / R1），两个能力**下沉到每张维度卡的卡头** → 双端呈现区（见下行）→ 四列元数据栏 → **维度折叠卡（张数按当前 `status = 'Active'` 的维度集合，不再恒五张**，§0.10-D1）→ **页尾基准折叠卡**；容器宽度与 A3 一致 | 原型 `/readiness/overall`（§0.7）+ §0.8-12 + §0.9-2 + §0.10-D5 |
 | **A4 面包屑** | `Portfolio Companies › {公司名} › Exit Readiness › Score Details`；`{公司名}` 回该公司 Company Overview，`Exit Readiness` 回来源的 F2 Tab，末级不可点 | 原型 + §3.1 |
 | **A4 双端呈现**（~~A4 双端 Tab~~ → **v4.4 重写**） | ~~`Founder` / `GSV` 两个 Tab，默认 `Founder`；切 Tab 按 `portal` 重新调接口 22~~ → **v4.4 作废**（§0.10-D5，PRD §3.7 明文「同时呈现 GSV 与 Founder 的记录」）：<br>· **组合端**：**同屏并列**两端 —— 页头两组元数据、每张维度卡的卡头并列 `Founder {level}/9` 与 `GSV {level}/9`、逐题行右侧并列两个 Yes/No 徽章（缺一端时该侧显示 `—` 并标 `Not submitted`）。取数一次拉两份（接口 22 按 `portal` 各取一次，前端合并按 `questionKey` 对齐）<br>· **公司端**：只有 Founder 侧，**不渲染任何端切换器、不渲染 GSV 列**（后端同样拒绝 `portal=GSV`，§4.2 / §4.3） | PRD §3.7 + §3.2 同口径 |
 | **A4 元数据栏**（**v4.4 改**） | 四列 `Period` / `Submitted by` / `Role` / `Submitted at`；~~随 Tab 切换~~ → **v4.4**：组合端**两行并列**（Founder 一行、GSV 一行），公司端只一行；右侧以次级文字追加 `Question set v{n}`（**两端版本号可能不同，各自标各自的**，§7.9-⑤）。⚠️ 维度级提交后**同一期次不同维度也可能绑不同题库版本**（§0.10-R1），故该标注在**维度卡卡头**上也各标一份 | 原型 + 本表「B 题集版本标注」 |
-| **A4 维度折叠卡**（v4.0 改，**v4.4 卡头加两个入口**） | 每维一张（**张数与顺序按当前 `status = 'Activate'` 的维度集合**，§0.10-D1）：卡头 = 缩写徽章（`abbr` 前两字母）+ `{全称} ({缩写})` + `{m} answered / {n} questions` + 维度分 `{level}/9`（**整数**，按分数着色）+ `Level {n}` 与止步标注 + **`Add New`** + **`View History`**（**v4.4 新增**，§0.10-D5 / PRD §3.5 / §3.7）+ 折叠箭头；**默认只展开第一张（`sortOrder` 首位，不再写死 FRL）**，其余收起；展开后为该维逐题列表（**按 level 分组，组头带 Check / 止步标记**）。<br>· **`Add New`** → 填报页带 **`?dimension={code}`**（公司端 B1 / 管理端 B2，带当前 `period` 预选）—— 与维度级提交对齐（§0.10-R1）<br>· **`View History`** → **`/exitReadiness/history?dimension={code}`**<br>· 两个能力 A3 已实现，**此处只是位置下沉**；原页级 `+ New` / `View history` 一并取消 | 原型 + §3.3 + PRD §3.5 / §3.7 |
+| **A4 维度折叠卡**（v4.0 改，**v4.4 卡头加两个入口**） | 每维一张（**张数与顺序按当前 `status = 'Active'` 的维度集合**，§0.10-D1）：卡头 = 缩写徽章（`abbr` 前两字母）+ `{全称} ({缩写})` + `{m} answered / {n} questions` + 维度分 `{level}/9`（**整数**，按分数着色）+ `Level {n}` 与止步标注 + **`Add New`** + **`View History`**（**v4.4 新增**，§0.10-D5 / PRD §3.5 / §3.7）+ 折叠箭头；**默认只展开第一张（`sortOrder` 首位，不再写死 FRL）**，其余收起；展开后为该维逐题列表（**按 level 分组，组头带 Check / 止步标记**）。<br>· **`Add New`** → 填报页带 **`?dimension={code}`**（公司端 B1 / 管理端 B2，带当前 `period` 预选）—— 与维度级提交对齐（§0.10-R1）<br>· **`View History`** → **`/exitReadiness/history?dimension={code}`**<br>· 两个能力 A3 已实现，**此处只是位置下沉**；原页级 `+ New` / `View history` 一并取消 | 原型 + §3.3 + PRD §3.5 / §3.7 |
 | **A4 逐题行**（v4.0 改，**v4.9 去掉 A5 入口**） | 与 A3 复用**同一个 `QuestionRow` 组件**：题干（~~+ `How It's Scored?`（A5）~~ → **v4.9 删除该入口**，§0.15）+ 次级行 `{Era-level 标签} · Source: {来源}` + 右侧 **`Yes` / `No` 徽章**（**v4.0：不再有 `x.x/9`，全部题都是 Yes/No**）；有备注时下方 `Evidence / notes` 块；附件以只读 chip 列出 | 原型 + §3.2 / §3.3 |
 | **A4 页尾基准卡** | 折叠卡 `Benchmarkit & Top GSV Quartile`（徽章 `BQ`），**默认收起**；展开为**按维度的明细表**（**v4.4：行数随配置维度，不再写死五维**，§0.10-D1），复用 D1 的 `BenchmarkDimensionTable`；**公司端整卡不渲染**（后端亦不下发，§4.3）。⚠️ 这是**只读卡**，不是基准页的入口 —— 基准页入口在 ERL Card 雷达图下方（§8.1.1，§0.10-D7） | 原型 + §5.6.1 |
 | ~~**A4 页级 `+ New` / `View history`**~~ | ~~`+ New` 公司端跳 B1、管理端跳 B2（带当前 `period` 预选，同 A3）；`View history` 跳 `/exitReadiness/history`，**不带 `dimension` 参数**（本页是全维视角，与 A3 的按维过滤不同）~~ → **v4.4 作废**（§0.10-D5 / R1）：**页级两个按钮取消**，改为**每张维度卡卡头的 `Add New` / `View History`**，两者**都带 `dimension={code}`** —— 提交单元已是单个维度，「全维视角发起一次评估」这个动作不再存在 | — |
@@ -2468,8 +2505,8 @@ F2 的 `GET /erl/portfolio`、ERL Card 的 `GET /erl/card` 均归入 `exitReadin
 | ~~B1 / B2 每维手动整体分 + 软确认弹窗~~ | ❌ **v4.0 删除**：PRD 2026-09-02 在 §3.3 / §3.4 同时删除该要求（§0.9-3）。**开发时勿沿用 v3.6 的实现** | — |
 | **Yes/No 呈现**（v4.0 改） | 填报页每题渲染 Yes / No 两个按钮（**唯一的作答控件**）；A3 / A4 逐题列表右侧显示 `Yes` / `No` 徽章。**v3.x 的 1–9 选择器与 `Not scored` 标注一并删除** —— 现在所有题都是 Yes/No，没有「不计分的题」这个概念 | §3.3 / §3.4 |
 | **题数与已答数说明**（v4.0 改） | A3 / A4 页头显示 `{totalCount} questions · {answeredCount} answered`；维度分旁 tooltip：`Score is the last level answered all Yes. Levels after Level {t} were not shown.` | §7.1.1 |
-| **C6 `Dimension Configuration`**（v4.0 新增，v4.1 改形态，v4.4 全行重写，**v4.8 布局改版 + 删 `status`**；**2026-09-08：`status` 重新加回并落库（`Activate` / `Deactivate`）、删除改软删、不再生成配置版本**，§0.10-D13 / §0.14 / §5.1.3） | 配置页**第二个顶层 Tab `Dimension Configuration`**（与 `Question Library` 并列）。<br>**① 面板头**：**左侧**标题 + 说明 `Configure the Exit Readiness dimensions and their weights in the overall score. The total must equal 100%.`、**右侧** `Total: {n}%` + **`Save`** 按钮（形态不变）。<br>**② 面板头下一行 = 新增栏**（**v4.8 新增，取代原表底的 `+ Add Dimension`**）：`Dimension name` 输入 + `Abbreviation` 输入（**2026-09-08 补校验**：**1–8 字符**且不得与本组织已有 `Activate` 维度重复 —— 解耦后 `abbr → code` 那条隐式长度约束消失了，不补会直撞 `varchar(8)`） + **`+ Add`** 按钮。~~新增维度的 `code` = 填写的 `Abbreviation` 大写化~~ → **2026-09-08 作废**：`code` 由**服务端随机生成**（与 `Abbreviation` 无关），**页面不展示、用户不可指定**；`code` 此后**永不改变**，**改 `Abbreviation` 也不会带动它**（它是 `erl_assessment.dimension` 等历史数据的关联键，§5.1.3）。<br>**③ 面板体 = 卡片行列表**（取**接口 23**，按 `sortOrder`；**v4.8 由表格改为卡片行**），每行：**拖拽手柄**（改排序）+ **`Name (ABBR)`** 文本 + **权重输入（带 `%`）** + **铅笔**（进入行内编辑）+ **垃圾桶**（删除，**带二次确认**）。~~`Code` 列~~ → **v4.8 从页面撤下，不再显示**；~~状态列与行尾 `Retire`~~ → v4.8 删除（当时理由是「已无存储状态位」）—— **2026-09-08：该理由已不成立**（`status` 已回归落库），但主列表仍**只渲染 `Activate` 行**，停用行改由 `Show deactivated` 开关展开（见下）。<br>· **行内编辑态**：`name` 输入 + `abbr` 输入 + 权重输入 + 行内 **`Save` / `Cancel`**。⚠️ **行内 `Save` 只是把这一行的编辑提交到本地状态，不调任何接口**；**只有右上角的 `Save` 调接口 24**，~~整组保存并生成新的配置版本~~ → **2026-09-08：整组就地替换，不产生版本**。行内可改的只有 `name` / `abbr` / `weight` —— `code` 不可改、也不显示<br>· **删除 = 软删**（**2026-09-08 推翻 v4.8**：置 `status = 'Deactivate'`，行与 `weight` 保留、可恢复）（**v4.8**，原「Retire 软删」作废）：确认后本地标为停用，右上角 `Save` 落库时它**不出现在提交的 `dimensions[]` 里**，服务端据此置 `status = 'Deactivate'`（**2026-09-08**：~~新版本的 item 没有这一行 / 绑旧版本的历史期次 / 派生态~~ 三个提法均作废）；**行与 `weight` 保留**，历史提交记录**照常显示并标灰色 `Retired`**（由 `status` 列**直接判定**）。**⚠️ C6 本地行模型与提交语义（**2026-09-08 新增，不写死就会出僵尸维度**）**：本地数组同时存在四类行（接口 23 来的 `Activate` 行 / 来的 `Deactivate` 行 / `+ Add` 产生的**无 code** 行 / 被垃圾桶标记停用的行），故：① **`rowKey = dimensionCode ?? localId`**（`localId` 前端生成、仅本地存活，**提交时作为 `clientRef` 上行**）—— 拖拽排序、行内编辑、二次确认弹框都靠它定位；② **`isNew = !dimensionCode`**，提交时转为 `isNew: true` + `clientRef`；③ **`isDeactivated` 是独立本地标志位**，决定该行进 `dimensions[]` 还是进 `deactivatedCodes[]`；④ **`Show deactivated` 只是视图开关，不改变提交集合** —— 展开但未点 `Restore` 的停用行，提交时仍进 `deactivatedCodes[]`，**不得混进 `dimensions[]`**（否则全部被误恢复，且它们原样保留的 `weight` 会把合计冲爆）；⑤ **保存成功后必须用出参整体替换本地数组**（丢弃全部本地临时行，按 `created[{clientRef → dimensionCode}]` 接管服务端下发的 code），**不得增量合并** —— 否则用户不刷页再点一次 Save，那些行**仍然没有 code** ⇒ 再建一批新行、上一批因缺席被软删，**每多点一次 Save 多一批僵尸维度**；⑥ **整组 Save 失败（含 409 / 500）时不得清空本地编辑态** —— 行内 `Save` 不调接口，用户可能已改了十几行。<br>**⚠️ 恢复入口（**2026-09-08 补**）**：面板头加一个 `Show deactivated` 开关（走接口 23 的 `includeDeactivated=true`），停用行灰化展示 + 行尾 `Restore`；点 `Restore` 把它从 `deactivatedCodes[]` 移到 `dimensions[]`，**必须原样携带接口 23 下发的 `dimensionCode`**（恢复的唯一判据就是该 code 命中一行 `Deactivate`）—— ⚠️ **千万不能把停用行的 name/abbr/weight 拷进一个新行对象**，那会变成新增一个新 code 的维度、旧行仍停用，而 UI 上看起来「恢复成功了」。右上角 `Save` 后该行回到 `Activate`；它原样保留的 `weight` 会破坏 100% 合计，**需在同一次 Save 里补齐**。停用行上必须展示**可区分信息**：`dimension_code`（只读 + 一键复制）、最后一次被提交的期次、关联提交条数 —— 否则两行同名时 `Restore` 是抛硬币。没有这个入口，§5.1.3「可再置回 `Activate` 恢复」在前端不可达。**无条件允许删除**，不做「有历史数据禁止删除」的前置拦截（§13-Q24 已关闭）<br>· **`Save` 双条件**：① **脏态**（维度增 / 删 / 改名 / 排序 / 权重任一变化）② **全部 `Activate` 维度**权重合计 = 100%（**2026-09-08**：`Deactivate` 行不计入）；不满足即禁用，`Total` 红色标注并提示 `Exceeds 100% by {n}%` / `Needs {n}% more`（二选一）<br>· **Save 走接口 24 整组保存**（维度集合 + 排序 + 权重），服务端校验合法性与合计 100.00，~~**保存即生成一个新的配置版本**~~ → **2026-09-08：就地整组替换，不产生版本、旧值不留存**<br>· **Save 确认框文案**：~~「权重立即生效，并会改变所有历史期次的综合分与 Stage」~~ → ~~v4.4：「新配置从下一个尚未开始填报的期次起生效；已有提交的期次沿用其绑定的配置版本，历史分数不变」~~ → **2026-09-08 反转回 v4.0 口径**（§13-Q21 重新打开）：**「新配置立即全局生效，已有期次的综合分、Stage 与雷达图形状会随之变化。」**<br>· 保存成功 toast `Dimension configuration saved.`，并**刷新 overview 页 / 雷达图 / 题库 Tab 的维度回显**（§0.10-D1）<br>· **其余口径不变**：不进题库版本、**不激活 `Publish`**、走自己的 Save（§7.9） | PRD §3.8（`0333162`：维度可新增 / 删除 / 排序 / 改权重，总权重 100%）+ **需求方 2026-09-07 的 C6 布局改版**（§0.14）；⚠️ 原型 2026-09-03 改版（§2.3.1-⑤-5）为五维表格形态，**布局部分已过期** |
-| **C7 题库版本历史**（v4.1 新增，**v4.2 全行重写**） | 入口：`Question Library` Tab 操作区的 `View history` → `/exitReadiness/configuration/history`。**页面是「选一个版本 → 看那一版的整份题库」**，不是版本清单表。<br>**页头**：H1 `Question Library History` + 说明 ~~`All questions across the five Exit Readiness dimensions for the selected version.`~~ → **v4.4** `All questions across the Exit Readiness dimensions for the selected version.`（去掉「five」，§0.10-D1）；**右侧**同排 `Version` 标签 + 版本下拉 + `Back`（回配置页）。<br>**版本下拉**（取**接口 25**，按版本号倒序、草稿最前）选项文案三种：草稿 `v{n} — Draft (edited {时间})`（无编辑时间则 `— Draft (not published yet)`）/ 最新已发布 `v{n} — Current (published {日期})` / 其余已发布 `v{n} (published {日期})`。**默认选中最新已发布版本**（填报页正在用的那一版）；一版都没有时下拉置空、页体走空态 `No question set versions yet.`。**草稿也可选** —— 它同样是一份完整题库，只是还没生效。<br>**页体**（取**接口 26**）：~~按五维固定顺序~~ → **v4.4：按该版本对应的维度配置顺序**（`sortOrder`，张数不固定，§0.10-D1）；**v4.10 定源**（§0.16-H2 / -H3）：该维度集合由**接口 26 出参 `dimensions[]`** 下发（**2026-09-08**：数据源改为 `erl_question_config_dimension_version` 的**发布当时逐维快照**，§5.1.5），**不再取接口 23 的当前生效配置** —— ~~发布后被删除的维度仍按**发布当时**的 `{维度全称} ({缩写})` 显示并打 `Retired` 灰标~~ → **v4.11 改**（§0.17-K1 ~ K4）：⚠️ **（2026-09-08 待裁决，§0.17-K1）** ~~今天已不在维度配置里的维度整卡不显示~~ —— v4.11 这条规则靠「维度被物理删掉」判定，**改软删后没有维度会消失**，该规则永不触发、空态永不可达，而灰标又被它取消了。**两个候选取值**：① 改判 `status = 'Deactivate'` 即隐藏；② 整条取消、恢复 `Retired` 灰标（与 §9 历史期次口径一致）。**未裁决前不得实现本条**，连带其题目也不出现（本页 `Retired` 灰标随之取消、脏数据兜底卡取消）；全部维度都被滤掉时页体走空态 `None of this version's dimensions are in the current configuration.`。发布后新增的维度**不会**在旧版本上多出空卡 —— 各渲染一张卡，卡头左 `{维度全称} ({缩写})`、右 `{n} question(s)`；卡内表格列 `QUESTION` / `ERA BAND`（Era 徽章，三个 Era 三套配色：Founder `#E1990F` / Harvest `#DED87A` / Exit `#1E8E4A`）/ `SOURCE`（空值 `—`）。**维度内题目平铺、不打 Era band 组头行**（与 C1 有意不同：C1 的分组行是为拖拽服务的，C7 只读、分组只会把页面切碎）；某维在该版 0 题时卡片保留、内文 `No questions in this dimension for this version.`。<br>只读、无操作列（不提供回滚、不做版本间 diff——V1 不做，§12） | 原型 2026-09-04 截图（§2.3.1-⑥）+ §6.4 接口 25 / 26 |
+| **C6 `Dimension Configuration`**（v4.0 新增，v4.1 改形态，v4.4 全行重写，**v4.8 布局改版 + 删 `status`**；**2026-09-08：`status` 重新加回并落库（`Active` / `Inactive`）、删除改软删、不再生成配置版本**，§0.10-D13 / §0.14 / §5.1.3） | 配置页**第二个顶层 Tab `Dimension Configuration`**（与 `Question Library` 并列）。<br>**① 面板头**：**左侧**标题 + 说明 `Configure the Exit Readiness dimensions and their weights in the overall score. The total must equal 100%.`、**右侧** `Total: {n}%` + **`Save`** 按钮（形态不变）。<br>**② 面板头下一行 = 新增栏**（**v4.8 新增，取代原表底的 `+ Add Dimension`**）：`Dimension name` 输入 + `Abbreviation` 输入（**2026-09-08 补校验**：**1–8 字符**且不得与本组织已有 `Active` 维度重复 —— 解耦后 `abbr → code` 那条隐式长度约束消失了，不补会直撞 `varchar(8)`） + **`+ Add`** 按钮。~~新增维度的 `code` = 填写的 `Abbreviation` 大写化~~ → **2026-09-08 作废**：`code` 由**服务端随机生成**（与 `Abbreviation` 无关），**页面不展示、用户不可指定**；`code` 此后**永不改变**，**改 `Abbreviation` 也不会带动它**（它是 `erl_assessment.dimension` 等历史数据的关联键，§5.1.3）。<br>**③ 面板体 = 卡片行列表**（取**接口 23**，按 `sortOrder`；**v4.8 由表格改为卡片行**），每行：**拖拽手柄**（改排序）+ **`Name (ABBR)`** 文本 + **权重输入（带 `%`）** + **铅笔**（进入行内编辑）+ **垃圾桶**（删除，**带二次确认**）。~~`Code` 列~~ → **v4.8 从页面撤下，不再显示**；~~状态列与行尾 `Retire`~~ → v4.8 删除（当时理由是「已无存储状态位」）—— **2026-09-08：该理由已不成立**（`status` 已回归落库），但主列表仍**只渲染 `Active` 行**，停用行改由 `Show deactivated` 开关展开（见下）。<br>· **行内编辑态**：`name` 输入 + `abbr` 输入 + 权重输入 + 行内 **`Save` / `Cancel`**。⚠️ **行内 `Save` 只是把这一行的编辑提交到本地状态，不调任何接口**；**只有右上角的 `Save` 调接口 24**，~~整组保存并生成新的配置版本~~ → **2026-09-08：整组就地替换，不产生版本**。行内可改的只有 `name` / `abbr` / `weight` —— `code` 不可改、也不显示<br>· **删除 = 软删**（**2026-09-08 推翻 v4.8**：置 `status = 'Inactive'`，行与 `weight` 保留、可恢复）（**v4.8**，原「Retire 软删」作废）：确认后本地标为停用，右上角 `Save` 落库时它**不出现在提交的 `dimensions[]` 里**，服务端据此置 `status = 'Inactive'`（**2026-09-08**：~~新版本的 item 没有这一行 / 绑旧版本的历史期次 / 派生态~~ 三个提法均作废）；**行与 `weight` 保留**，历史提交记录**照常显示并标灰色 `Retired`**（由 `status` 列**直接判定**）。**⚠️ C6 本地行模型与提交语义（**2026-09-08 新增，不写死就会出僵尸维度**）**：本地数组同时存在四类行（接口 23 来的 `Active` 行 / 来的 `Inactive` 行 / `+ Add` 产生的**无 code** 行 / 被垃圾桶标记停用的行），故：① **`rowKey = dimensionCode ?? localId`**（`localId` 前端生成、仅本地存活，**提交时作为 `clientRef` 上行**）—— 拖拽排序、行内编辑、二次确认弹框都靠它定位；② **`isNew = !dimensionCode`**，提交时转为 `isNew: true` + `clientRef`；③ **`isDeactivated` 是独立本地标志位**，决定该行进 `dimensions[]` 还是进 `deactivatedCodes[]`；④ **`Show deactivated` 只是视图开关，不改变提交集合** —— 展开但未点 `Restore` 的停用行，提交时仍进 `deactivatedCodes[]`，**不得混进 `dimensions[]`**（否则全部被误恢复，且它们原样保留的 `weight` 会把合计冲爆）；⑤ **保存成功后必须用出参整体替换本地数组**（丢弃全部本地临时行，按 `created[{clientRef → dimensionCode}]` 接管服务端下发的 code），**不得增量合并** —— 否则用户不刷页再点一次 Save，那些行**仍然没有 code** ⇒ 再建一批新行、上一批因缺席被软删，**每多点一次 Save 多一批僵尸维度**；⑥ **整组 Save 失败（含 409 / 500）时不得清空本地编辑态** —— 行内 `Save` 不调接口，用户可能已改了十几行。<br>**⚠️ 恢复入口（**2026-09-08 补**）**：面板头加一个 `Show deactivated` 开关（走接口 23 的 `includeDeactivated=true`），停用行灰化展示 + 行尾 `Restore`；点 `Restore` 把它从 `deactivatedCodes[]` 移到 `dimensions[]`，**必须原样携带接口 23 下发的 `dimensionCode`**（恢复的唯一判据就是该 code 命中一行 `Inactive`）—— ⚠️ **千万不能把停用行的 name/abbr/weight 拷进一个新行对象**，那会变成新增一个新 code 的维度、旧行仍停用，而 UI 上看起来「恢复成功了」。右上角 `Save` 后该行回到 `Active`；它原样保留的 `weight` 会破坏 100% 合计，**需在同一次 Save 里补齐**。停用行上必须展示**可区分信息**：`dimension_code`（只读 + 一键复制）、最后一次被提交的期次、关联提交条数 —— 否则两行同名时 `Restore` 是抛硬币。没有这个入口，§5.1.3「可再置回 `Active` 恢复」在前端不可达。**无条件允许删除**，不做「有历史数据禁止删除」的前置拦截（§13-Q24 已关闭）<br>· **`Save` 双条件**：① **脏态**（维度增 / 删 / 改名 / 排序 / 权重任一变化）② **全部 `Active` 维度**权重合计 = 100%（**2026-09-08**：`Inactive` 行不计入）；不满足即禁用，`Total` 红色标注并提示 `Exceeds 100% by {n}%` / `Needs {n}% more`（二选一）<br>· **Save 走接口 24 整组保存**（维度集合 + 排序 + 权重），服务端校验合法性与合计 100.00，~~**保存即生成一个新的配置版本**~~ → **2026-09-08：就地整组替换，不产生版本、旧值不留存**<br>· **Save 确认框文案**：~~「权重立即生效，并会改变所有历史期次的综合分与 Stage」~~ → ~~v4.4：「新配置从下一个尚未开始填报的期次起生效；已有提交的期次沿用其绑定的配置版本，历史分数不变」~~ → **2026-09-08 反转回 v4.0 口径**（§13-Q21 重新打开）：**「新配置立即全局生效，已有期次的综合分、Stage 与雷达图形状会随之变化。」**<br>· 保存成功 toast `Dimension configuration saved.`，并**刷新 overview 页 / 雷达图 / 题库 Tab 的维度回显**（§0.10-D1）<br>· **其余口径不变**：不进题库版本、**不激活 `Publish`**、走自己的 Save（§7.9） | PRD §3.8（`0333162`：维度可新增 / 删除 / 排序 / 改权重，总权重 100%）+ **需求方 2026-09-07 的 C6 布局改版**（§0.14）；⚠️ 原型 2026-09-03 改版（§2.3.1-⑤-5）为五维表格形态，**布局部分已过期** |
+| **C7 题库版本历史**（v4.1 新增，**v4.2 全行重写**） | 入口：`Question Library` Tab 操作区的 `View history` → `/exitReadiness/configuration/history`。**页面是「选一个版本 → 看那一版的整份题库」**，不是版本清单表。<br>**页头**：H1 `Question Library History` + 说明 ~~`All questions across the five Exit Readiness dimensions for the selected version.`~~ → **v4.4** `All questions across the Exit Readiness dimensions for the selected version.`（去掉「five」，§0.10-D1）；**右侧**同排 `Version` 标签 + 版本下拉 + `Back`（回配置页）。<br>**版本下拉**（取**接口 25**，按版本号倒序、草稿最前）选项文案三种：草稿 `v{n} — Draft (edited {时间})`（无编辑时间则 `— Draft (not published yet)`）/ 最新已发布 `v{n} — Current (published {日期})` / 其余已发布 `v{n} (published {日期})`。**默认选中最新已发布版本**（填报页正在用的那一版）；一版都没有时下拉置空、页体走空态 `No question set versions yet.`。**草稿也可选** —— 它同样是一份完整题库，只是还没生效。<br>**页体**（取**接口 26**）：~~按五维固定顺序~~ → **v4.4：按该版本对应的维度配置顺序**（`sortOrder`，张数不固定，§0.10-D1）；**v4.10 定源**（§0.16-H2 / -H3）：该维度集合由**接口 26 出参 `dimensions[]`** 下发（**2026-09-08**：数据源改为 `erl_question_config_dimension_version` 的**发布当时逐维快照**，§5.1.5），**不再取接口 23 的当前生效配置** —— ~~发布后被删除的维度仍按**发布当时**的 `{维度全称} ({缩写})` 显示并打 `Retired` 灰标~~ → **v4.11 改**（§0.17-K1 ~ K4）：⚠️ **（2026-09-08 待裁决，§0.17-K1）** ~~今天已不在维度配置里的维度整卡不显示~~ —— v4.11 这条规则靠「维度被物理删掉」判定，**改软删后没有维度会消失**，该规则永不触发、空态永不可达，而灰标又被它取消了。**两个候选取值**：① 改判 `status = 'Inactive'` 即隐藏；② 整条取消、恢复 `Retired` 灰标（与 §9 历史期次口径一致）。**未裁决前不得实现本条**，连带其题目也不出现（本页 `Retired` 灰标随之取消、脏数据兜底卡取消）；全部维度都被滤掉时页体走空态 `None of this version's dimensions are in the current configuration.`。发布后新增的维度**不会**在旧版本上多出空卡 —— 各渲染一张卡，卡头左 `{维度全称} ({缩写})`、右 `{n} question(s)`；卡内表格列 `QUESTION` / `ERA BAND`（Era 徽章，三个 Era 三套配色：Founder `#E1990F` / Harvest `#DED87A` / Exit `#1E8E4A`）/ `SOURCE`（空值 `—`）。**维度内题目平铺、不打 Era band 组头行**（与 C1 有意不同：C1 的分组行是为拖拽服务的，C7 只读、分组只会把页面切碎）；某维在该版 0 题时卡片保留、内文 `No questions in this dimension for this version.`。<br>只读、无操作列（不提供回滚、不做版本间 diff——V1 不做，§12） | 原型 2026-09-04 截图（§2.3.1-⑥）+ §6.4 接口 25 / 26 |
 | **只读态** | 公司端打开 B2、或打开已 `SUBMITTED` 的记录时，问卷渲染为只读（无输入、无提交条） | §3.3 |
 | **E1 展示**（~~⚠️ PRD 待定~~ → **v4.4：已进 V1**，§0.10-D2） | ERL Card 内为 **Gap 区块**（见上「A1 Gap 区块」，v4.4 按原型定档）；维度详情页内为完整 summary + 该维 `actions[]`（每条：动作标题 + `why`「为何相关」说明）。~~**待定期间整块不渲染**（§0.9-12）~~ → **v4.4 作废**：PRD `8324a3f` 已删「待定功能」标题，**Goldie 进 V1，常驻渲染，不再有任何「待定期间隐藏 / 恒空」的条件语**（§13-Q22 已关闭） | §3.6 |
 | ~~**E1 口吻**~~ | ~~文案由后端按 audience 生成，前端不做措辞转换~~ → **v4.4 作废**（§0.10-D3）：PRD `8324a3f` 已删「Founder / GSV 两套口吻」整段，**双 audience 方案取消** —— 只生成**一份**内容，GSV 团队可见，点 `Share to founder` 后 Founder 端才可见。前端本就不做措辞转换，此行连同「两端口吻不同」的验收项一并摘除 | — |
@@ -2483,7 +2520,7 @@ F2 的 `GET /erl/portfolio`、ERL Card 的 `GET /erl/card` 均归入 `exitReadin
 | **C4 拖拽重排 + 改 Era band**（v3.3 改，v4.0 依据变更，**v4.1 补跨 band**） | **同 band 内**：表格最左拖拽列拖动排序，松手即调接口 14 **写入草稿版本**（不影响填报页，直到 Publish）；行上出现 `Moved` 徽章；**首次拖拽弹一次性提示**：「Reordering changes the required answering sequence within this level. It takes effect when you publish. Submitted assessments keep the order in effect at the time.」<br>**跨 band 移动（v4.1）**：直接改题目行内 `ERA BAND` 列的**下拉**，选中即调**接口 12 全量更新**该题，行随即移动到目标分组末尾。**v4.0 的「跨 band 移动请走编辑表单」作废**；接口 14 仍**只做同 band 重排**（§6.4） | §3.8「拖拽重排…该顺序即评估中的必答顺序」+ 原型 2026-09-03 改版（§2.3.1-⑤-4）+ 本设计（原 PRD UX 的「给管理员必要的警告」已于 2026-09-02 删除，提示保留） |
 | **C3 删除** | `Modal.confirm` 二次确认，文案含所属维度、提示**删除在发布后才生效**、说明已提交的历史评估仍按当时版本展示该题 | §3.8 |
 | **C5 版本条**（v3.3） | 配置页页头常驻一行：无草稿时 `Published v{n} · {date}`；有草稿时 `Draft v{n} — unpublished changes · last edited by {name} at {time}`，整页加浅色「编辑中」边框，提示当前所见**不是**填报页正在用的题面 | §7.9-④ |
-| **C5 Publish 按钮**（v3.3 改，v4.0 与 PRD 对齐） | 页面右上角主按钮 `Publish`；**存在草稿版本即激活**（任意维度的任意变更，与当前所处 Tab 无关；**`Dimension Configuration` Tab 的改动不激活它**（**v4.4 改名**，§0.10-D13）—— 维度集合 / 排序 / 权重走自己的 Save（接口 24）；~~并生成配置版本、两条互不相干的版本线~~ → **2026-09-08：配置已去版本化，只剩题库一条版本线；Publish 会把当时 `Activate` 的维度逐维快照进 §5.1.5**）；无草稿时禁用 + tooltip `No unpublished changes.`；按钮旁显示 `{a} added · {m} modified · {r} removed · {o} reordered`；点击弹确认框列出**全量变更摘要（含其他管理员的改动）**并提示「发布后所有变更立即对填报页与 Score Details 生效；正在填写的评估会保留已答内容」，确认后调接口 21，成功 toast `Published v{n}.` 并刷新列表 | §3.8（PRD 现文「点击保存为新版本」已与此一致） |
+| **C5 Publish 按钮**（v3.3 改，v4.0 与 PRD 对齐） | 页面右上角主按钮 `Publish`；**存在草稿版本即激活**（任意维度的任意变更，与当前所处 Tab 无关；**`Dimension Configuration` Tab 的改动不激活它**（**v4.4 改名**，§0.10-D13）—— 维度集合 / 排序 / 权重走自己的 Save（接口 24）；~~并生成配置版本、两条互不相干的版本线~~ → **2026-09-08：配置已去版本化，只剩题库一条版本线；Publish 会把当时 `Active` 的维度逐维快照进 §5.1.5**）；无草稿时禁用 + tooltip `No unpublished changes.`；按钮旁显示 `{a} added · {m} modified · {r} removed · {o} reordered`；点击弹确认框列出**全量变更摘要（含其他管理员的改动）**并提示「发布后所有变更立即对填报页与 Score Details 生效；正在填写的评估会保留已答内容」，确认后调接口 21，成功 toast `Published v{n}.` 并刷新列表 | §3.8（PRD 现文「点击保存为新版本」已与此一致） |
 | **C5 变更徽章**（v3.3） | 草稿版本中，题目行按 `changeType` 打徽章：`New` / `Edited` / `Moved`；被删除的题**不再显示**（草稿内已物理删行），删除动作的痕迹只体现在按钮旁的摘要计数里 | §7.9-③ |
 | **C5 离开页面**（v3.3） | 草稿是服务端持久对象、非表单脏数据，离开不拦截、不弹确认；但**维度 Tab 头**（**v4.4：数量动态**）对**含未发布变更**的维度加小圆点，避免管理员漏发某一维。⚠️ **v4.4 例外**：`Dimension Configuration` Tab 是**普通表单脏态**（不是服务端草稿），未 Save 就离开**要弹确认** | 本设计（§7.9） |
 | **D1 页头** | 面包屑 `Portfolio Companies › {公司名} › Top GSV Quartile & Benchmarkit`；标题下一句说明「Reference scores used to compare this company's Exit Readiness against the GSV top quartile and the Benchmarkit peer set. Each entry is kept as a dated record.」；右上 `+ Add New` | §4 + 原型（§0.3） |
@@ -2567,38 +2604,38 @@ Company Overview 页（Revenue / Financials 两张通栏卡在上，不变）
 
 | 场景 | 服务端 | 前端表现 |
 |------|--------|----------|
-| **展示期次缺省 = closed month 所在季度，该季度两端均无提交**（**v4.4 全行新增**，§0.10-R3） | 接口 1 / 17 / 20 / 22 等所有「`period` 可选」的读接口，缺省期次一律取 **该公司 closed month 所在季度**（closed month 沿用 Financial Intelligence 域既有口径，按公司 Manual / Automatic 两种推导，ERL 域**复用 FI 既有服务、不自己算**）。该季度**两端均无提交** → 返回**空态**（分数 `null`、`dimensions[]` 按**当前 `status = 'Activate'` 的维度集合**返回但分数全 `null`），**明确不回退到更早期次** | ERL Card / A3 / A4 / Gap 区块显示该季度的**空态**（`No assessment for {period} yet.` + 去填报入口），期次 chip 照常显示该季度；⚠️ **不得**悄悄显示上一季的数据 —— 用户看到的期次标签必须和数据是同一个期次 |
+| **展示期次缺省 = closed month 所在季度，该季度两端均无提交**（**v4.4 全行新增**，§0.10-R3） | 接口 1 / 17 / 20 / 22 等所有「`period` 可选」的读接口，缺省期次一律取 **该公司 closed month 所在季度**（closed month 沿用 Financial Intelligence 域既有口径，按公司 Manual / Automatic 两种推导，ERL 域**复用 FI 既有服务、不自己算**）。该季度**两端均无提交** → 返回**空态**（分数 `null`、`dimensions[]` 按**当前 `status = 'Active'` 的维度集合**返回但分数全 `null`），**明确不回退到更早期次** | ERL Card / A3 / A4 / Gap 区块显示该季度的**空态**（`No assessment for {period} yet.` + 去填报入口），期次 chip 照常显示该季度；⚠️ **不得**悄悄显示上一季的数据 —— 用户看到的期次标签必须和数据是同一个期次 |
 | **closed month 取不到（公司无任何 actuals）**（**v4.4 全行新增**，§0.10-R3） | 无法推导 closed month → **同样返回空态** + 打 **WARN 日志**（含 `companyId`），**不回退**到「最新已提交期次」，也不猜当前自然季度 | 同上空态；期次 chip 显示 `—`，并附次级说明 `Reporting period unavailable.`；填报入口仍可用（进填报页时由用户显式选期次） |
 | ~~**展示期次缺省 = 最新已提交期次**~~ | ~~取该公司最新一条 `is_latest` 提交所在期次，无提交时回退更早期次~~（**2026-09-08**：`is_latest` 列已删除，本行只作历史留存） → **v4.4 作废**（§0.10-R3，需求方 2026-09-06 裁决）：这套降级会**悄悄显示上一季的数据**，与卡片上的期次标签不一致，是本版必须改掉的行为 | — |
 | 该公司无任何已提交评估 | 接口 1/2 返回空结构（分数 `null`、`hasAnyAssessment=false`） | ERL Card 显示空态「No assessment submitted yet.」+ 去填报入口；不显示雷达图 |
 | 只有 Founder 提交、GSV 未提交 | `gsvScore = null`、`perceptionGap = null`（**v4.0：`status` 出参已删除**） | **管理端**：维度行显示 Founder 分并标注 `Awaiting GSV validation`，Perception Gap 隐去；雷达图 GSV 序列不绘制。**公司端**：本就不展示 GSV 与 gap，页面无任何变化 |
 | 只有 GSV 提交、Founder 未提交 | `founderScore = null`、`perceptionGap = null` | 管理端对称处理，标注 `Awaiting founder self-assessment`；**公司端显示与「无任何提交」相同的空态**（它看不到 GSV 那份，§4.2） |
 | **维度分为 `0`（level 1 内即有 No）**（**v4.0 新增**） | `levelScore = 0`（**不是 `null`**）、`terminatedLevel = 1`；**照常计入加权综合分** | 维度行显示 `0/9` + 灰色 `Not yet Stage 1` 徽章（§7.3）；**不得显示为 `—`** —— `—` 是「无数据」，`0` 是「有数据且很低」，混淆会让用户以为没填（§7.1 末段） |
-| **某维在该题集版本内 0 题**（**v4.0 改**） | `levelScore = null`；**该维不进综合分**，其余维度权重**按比例归一化**（§0.9-20）；~~提交时该维视为已终止、不拦提交~~ → **2026-09-07 订正：该维不可提交**（§6.3 校验 3） | 维度行显示 `—`；综合分旁 tooltip `Weighted over {n} of {total} dimensions ({缺失维度列表} has no published questions).`（~~v4.4：分母由写死的 `5` 改为该期次绑定配置版本的维度数~~ → **2026-09-08：改为当前 `Activate` 维度数**，§0.10-D1）；填报页该维度走空态 |
+| **某维在该题集版本内 0 题**（**v4.0 改**） | `levelScore = null`；**该维不进综合分**，其余维度权重**按比例归一化**（§0.9-20）；~~提交时该维视为已终止、不拦提交~~ → **2026-09-07 订正：该维不可提交**（§6.3 校验 3） | 维度行显示 `—`；综合分旁 tooltip `Weighted over {n} of {total} dimensions ({缺失维度列表} has no published questions).`（~~v4.4：分母由写死的 `5` 改为该期次绑定配置版本的维度数~~ → **2026-09-08：改为当前 `Active` 维度数**，§0.10-D1）；填报页该维度走空态 |
 | 无基准记录 | `benchmarkPosition = null`、`latest = null`、`records = []`、雷达图两条基准序列缺省 | A3 隐去基准位置项；D1 两张卡合并为一处空态 `No benchmark records yet.` + `Add New`；雷达图图例不显示缺失序列 |
 | **展示期次早于最早一条基准记录** | 无 `period ≤ 当前期次` 的记录（§7.8） → 同「无基准记录」处理，**不取更晚的记录反填** | 同上 |
 | **D2 保存时该期次已存在** | 唯一约束冲突 → `BadRequestException` | `Period` 字段下报错 `A benchmark record for this period already exists.`；已填的十个分数与备注保留 |
 | **公司端请求**（**v4.0 大幅收紧**） | 服务端裁剪掉：整个 `radar` 字段、`gsvScore`、`perceptionGap` / `gapDirection`、`benchmarkPosition` 与全部基准值（§4.3） | **不渲染雷达图区块**（不是「渲染 2 条线的图」—— v3.x 方案作废，§0.9-5）；维度列表只有「维度名 + 本端分 + View Details」三列，**不留空列、不显示 `—` 占位** |
-| **权重未配置 / 合计 ≠ 100%**（**v4.0 新增，v4.4 微调**） | 理论上不会发生（接口 24 强校验 + 种子数据等权），但若库中数据异常：**按等权（各 `100 / {Activate 维度数}`%，v4.4 由写死的「各 20%」改；**2026-09-08**：触发条件补「`Activate` 行合计 ≠ 100」）**，§0.10-D1）降级计算并打 WARN 日志，**不抛异常** —— 综合分不该因配置数据坏掉而整页报错 | 综合分正常显示，旁加 tooltip `Weights unavailable — using equal weighting.`；配置页 **`Dimension Configuration`** Tab（**v4.4 改名**）顶部红条提示需重新保存 |
-| ~~**该期次找不到绑定的配置版本**（v4.4）~~ → **2026-09-08 整行作废** | `erl_company_period_config` 已整表删除（§5.1.4），不再存在「期次绑定配置版本」这个概念，本降级场景自然消失 —— **任何期次一律读当前 `Activate` 集合** | — |
-| **维度已被停用（`Deactivate`）、但历史期次用过它**（v4.4 新增，v4.8 换依据，**2026-09-08 换机制**） | 软删后行仍在，历史提交记录照常返回；该维名称 / 缩写取 `erl_assessment.dimension_name` / `dimension_abbr` 行上快照（§5.2），`status` 直接下发 `Deactivate` | 历史期次的维度行 / 雷达图顶点 / A4 维度卡**照常渲染**，并加灰色 `Retired` 标注（**由 `status` 列直接判定，不再派生**）；该维**不出现**在新期次的填报、题库 Tab 与配置页的默认维度列表中。⚠️ ~~历史分数、Stage 与雷达图形状不漂移~~ → **2026-09-08 作废：会漂移**（权重不快照、停用维度退出当前集合，§7.11）。⚠️ **v4.11 例外待重新裁决**：C7 「不显示已删维度」原靠物理删除判定，软删后需改判 `Deactivate` 或整条取消（§0.17） |
+| **权重未配置 / 合计 ≠ 100%**（**v4.0 新增，v4.4 微调**） | 理论上不会发生（接口 24 强校验 + 种子数据等权），但若库中数据异常：**按等权（各 `100 / {Active 维度数}`%，v4.4 由写死的「各 20%」改；**2026-09-08**：触发条件补「`Active` 行合计 ≠ 100」）**，§0.10-D1）降级计算并打 WARN 日志，**不抛异常** —— 综合分不该因配置数据坏掉而整页报错 | 综合分正常显示，旁加 tooltip `Weights unavailable — using equal weighting.`；配置页 **`Dimension Configuration`** Tab（**v4.4 改名**）顶部红条提示需重新保存 |
+| ~~**该期次找不到绑定的配置版本**（v4.4）~~ → **2026-09-08 整行作废** | `erl_company_period_config` 已整表删除（§5.1.4），不再存在「期次绑定配置版本」这个概念，本降级场景自然消失 —— **任何期次一律读当前 `Active` 集合** | — |
+| **维度已被停用（`Inactive`）、但历史期次用过它**（v4.4 新增，v4.8 换依据，**2026-09-08 换机制**） | 软删后行仍在，历史提交记录照常返回；该维名称 / 缩写取 `erl_assessment.dimension_name` / `dimension_abbr` 行上快照（§5.2），`status` 直接下发 `Inactive` | 历史期次的维度行 / 雷达图顶点 / A4 维度卡**照常渲染**，并加灰色 `Retired` 标注（**由 `status` 列直接判定，不再派生**）；该维**不出现**在新期次的填报、题库 Tab 与配置页的默认维度列表中。⚠️ ~~历史分数、Stage 与雷达图形状不漂移~~ → **2026-09-08 作废：会漂移**（权重不快照、停用维度退出当前集合，§7.11）。⚠️ **v4.11 例外待重新裁决**：C7 「不显示已删维度」原靠物理删除判定，软删后需改判 `Inactive` 或整条取消（§0.17） |
 | **改答收回 level 后再打开页面**（**v4.0 新增**） | 已删除的后续 level 答案与附件不再返回；`unlockedLevel` 为回退后的值 | 填报页只渲染到回退后的 level；**不显示「你曾答过但被清除」的历史**（PRD 无此要求，且会让页面语义混乱） |
 | **无差距分析记录**（**v4.4 细化为三态**，§0.10-D4） | 接口 17 返回 `summary = null`，但 **`dimensions[]` 照常返回该期次每个维度**（含 `bothSubmitted` / `hasGap`），**不是空数组** | 区块整体仍渲染（标题 + `AI GENERATED` + 期次 chip + 计数 `0 of {total} dimensions have gap analysis for {period}`）；`summary` 位置沿用原型空态文案 **`No gap analysis yet`** + **`Goldie needs scored questions with evidence notes for this dimension before it can suggest gaps and recommended actions.`**；管理端多一个 Generate 按钮。**每维小卡按下面三行分别取态** |
 | **某维：双方已提交且有 gap**（**v4.4 新增**） | `bothSubmitted = true`、`hasGap = true`，`items[]` 非空 | 小卡 **绿点 + `Gap analysis ready`**；`View details` 弹框内该维分区列出 gap 与 `actions[{title, why}]` |
 | **某维：双方已提交但无 gap**（**v4.4 新增**） | `bothSubmitted = true`、`hasGap = false`，该维 `items[]` 为空（**没有 gap 就不产出条目** —— `STRENGTH` 枚举已删，不再用「优势」占位，§0.10-D4） | 小卡 **绿点 + `No Gap`**；`View details` 弹框内该维分区显示 `No gap identified for this dimension.`，**不列任何建议** |
 | **某维：未双方提交**（**v4.4 新增**） | `bothSubmitted = false`（缺 Founder 或缺 GSV 或两者都缺），该维不参与生成 | 小卡 **灰点 + `Not submitted`**；⚠️ **圆点颜色只表示「双方是否都已提交」，文字只表示「有无 gap」** —— 前端**不要**把两者压成一个枚举渲染 |
-| **Share 门槛未达成**（**v4.4 新增**，§0.10-D3） | 该 `(company, period)` 下**存在任一 `Activate` 维度**未满足「FOUNDER 与 GSV 两端都有 `SUBMITTED` 记录」（**2026-09-08**：`is_latest` 已删，改按 `submitted_at DESC, id DESC` 取组内首条判存在） | `Share to founder` **置灰**，tooltip 列出还差哪些维度；区块底部常驻提示 **`Share unlocks once gap analysis is available for all {total} dimensions in {period}.`** |
+| **Share 门槛未达成**（**v4.4 新增**，§0.10-D3） | 该 `(company, period)` 下**存在任一 `Active` 维度**未满足「FOUNDER 与 GSV 两端都有 `SUBMITTED` 记录」（**2026-09-08**：`is_latest` 已删，改按 `submitted_at DESC, id DESC` 取组内首条判存在） | `Share to founder` **置灰**，tooltip 列出还差哪些维度；区块底部常驻提示 **`Share unlocks once gap analysis is available for all {total} dimensions in {period}.`** |
 | **公司端且 `shared = false`**（**v4.4 新增**，§0.10-D3） | 接口 17 对公司端**直接返回空态**（不下发 `summary` / `items` / `dimensions` 的分析内容），§4.3 后端强制校验 | ERL Card 该区块显示 `No gap analysis shared yet.`；**不渲染** `View details`、`Share to founder`、每维小卡；维度详情页 E2 区块同样走该空态 |
 | **Share 后又有新提交触发重生成**（**v4.4 新增**，§0.10-D3） | 重生成时 **`shared` 复位为 `false`**（`shared_at` / `shared_by` 保留作历史） | 公司端**回到未分享空态**（已看过的内容消失属预期）；管理端按钮回到可点态并提示 **`Content updated — reshare to founder.`** |
 | **分析已过期（`stale = true`）或正在生成** | 返回旧内容 + `stale/generating = true` | 卡片顶部条 `Refreshing analysis…`，**继续展示旧内容不清空** |
 | **LLM 生成失败 / 超时** | 异步任务重试 2 次后放弃，**不写库、不覆盖已有分析**，保留 `stale = true`；手动接口 18 抛 `ServiceException` | 手动触发时提示 `Gap analysis failed. Please try again.`；自动失败静默保留旧内容 + `Refreshing` 条消失 |
-| **LLM 返回结构不合法** | Java 侧校验**`dimension_code` 是否属于当前 `Activate` 的维度集合**（**2026-09-08**：原「该期次绑定的配置版本」作废）（**v4.4：由「校验维度枚举」改** —— `ErlDimensionEnum` 已删，§0.10-D1）与 `severity` 值域；非法 `severity` 降级 `MEDIUM`；~~缺失维度该维 items 为空~~ → **2026-09-08 作废**：维度标识改用 `index`（§6.6），**越界 / 重复 / 缺失一律打 ERROR + 保留旧内容**，**不得静默降级成「该维无 gap」**（否则是假阴性：页面显示绿点 `No Gap`，GSV 以为该维没问题）；~~缺失某个 audience 则该 audience 不覆盖旧数据~~ → **v4.4 作废**（§0.10-D3）：**双 audience 方案已取消**，只有一份内容，整份生成失败即不覆盖旧数据 | 缺失维度的小卡按 `hasGap = false` 渲染（绿点 + `No Gap`）或保持 `Not submitted`，其余正常渲染 |
+| **LLM 返回结构不合法** | Java 侧校验**`dimension_code` 是否属于当前 `Active` 的维度集合**（**2026-09-08**：原「该期次绑定的配置版本」作废）（**v4.4：由「校验维度枚举」改** —— `ErlDimensionEnum` 已删，§0.10-D1）与 `severity` 值域；非法 `severity` 降级 `MEDIUM`；~~缺失维度该维 items 为空~~ → **2026-09-08 作废**：维度标识改用 `index`（§6.6），**越界 / 重复 / 缺失一律打 ERROR + 保留旧内容**，**不得静默降级成「该维无 gap」**（否则是假阴性：页面显示绿点 `No Gap`，GSV 以为该维没问题）；~~缺失某个 audience 则该 audience 不覆盖旧数据~~ → **v4.4 作废**（§0.10-D3）：**双 audience 方案已取消**，只有一份内容，整份生成失败即不覆盖旧数据 | 缺失维度的小卡按 `hasGap = false` 渲染（绿点 + `No Gap`）或保持 `Not submitted`，其余正常渲染 |
 | **无备注可依据** | 该条 item 带 `evidenceMissing = true` | 条目下方灰字 `No notes provided`（PRD §5「如无笔记，标注为未提供备注」） |
 | **附件入知识库失败** | `ingest_status = FAILED`，**不阻断评估提交** | 附件 chip 显示告警图标 + `Retry` |
 | **附件上传中提交** | 服务端只认已落 `erl_answer_attachment` 的附件（**v4.6 表名**） | 提交前 flush 上传队列；仍在传的文件弹提示「N files still uploading」 |
-| **附件超过 10MB**（**v4.0 新增**） | 服务端复核 `fileSize` 后 `BadRequestException`（前端可被绕过，服务端是底线，§6.7） | 选择文件时即在本地拦下，提示 `File exceeds the 10 MB limit.`，**不发起上传**、不占用上传队列 |
+| **附件超过 10MB**（**v4.0 新增**） | 服务端按 `files.length` 复核后 `BadRequestException`（**2026-09-09**：原先复核入参 `fileSize`，该入参已删；前端可被绕过，服务端是底线，§6.7） | 选择文件时即在本地拦下，提示 `File exceeds the 10 MB limit.`，**不发起上传**、不占用上传队列 |
 | **对未解锁 level 的题提交答案**（**v4.0 新增**） | `BadRequestException("Answer levels in order.")`（§6.3） | 正常交互下不会触发（未解锁题面不下发）；触发时提示重新加载问卷 |
-| **A4 该端在该期次无提交（v3.5，v4.4 改）** | 接口 22 返回 `submission = null`；~~`dimensions[]` **仍固定五项**~~ → **v4.4**：`dimensions[]` **按当前 `status = 'Activate'` 的维度集合返回**（条数动态；**2026-09-08**：原「该期次绑定的配置版本」随 §5.1.4 删表作废，§0.10-D1），`score = null`、`questions[] = []` | 元数据栏显示 `—`，**全部维度卡照常渲染**（卡头 `—/9` + `0 questions`，**`Add New` / `View History` 仍可点**），卡内空态 `No {portal} submission for this period.`；组合端同屏并列时缺失的那一端标 `Not submitted`；页面不整体空白 |
+| **A4 该端在该期次无提交（v3.5，v4.4 改）** | 接口 22 返回 `submission = null`；~~`dimensions[]` **仍固定五项**~~ → **v4.4**：`dimensions[]` **按当前 `status = 'Active'` 的维度集合返回**（条数动态；**2026-09-08**：原「该期次绑定的配置版本」随 §5.1.4 删表作废，§0.10-D1），`score = null`、`questions[] = []` | 元数据栏显示 `—`，**全部维度卡照常渲染**（卡头 `—/9` + `0 questions`，**`Add New` / `View History` 仍可点**），卡内空态 `No {portal} submission for this period.`；组合端同屏并列时缺失的那一端标 `Not submitted`；页面不整体空白 |
 | **A4 公司端（v3.5，v4.4 改）** | 服务端不下发 `benchmark`，且拒绝 `portal=GSV` | ~~**不渲染** GSV Tab~~ → **v4.4**：公司端本就**不渲染任何端切换器与 GSV 侧内容**（组合端才同屏并列两端，§0.10-D5）；**不渲染**页尾基准卡（不是渲染成空卡）。⚠️ **公司端可正常进入 A4**（`Full View ›`），不再是「有权限但无入口」（§13-Q17 已被 PRD `57225d2` 推翻） |
 | **A4 该公司无任何评估（由 F2 `View` 或 `Full View ›` 进入，v3.5，v4.4 改）** | `submission = null` 且无可用期次（含 §0.10-R3 的 closed month 空态） | 页头与全部空维度卡照常渲染，顶部一句 `No assessment for {period} yet.`（无可用期次时 `No assessment submitted yet.`）；发起入口为**每张卡卡头的 `Add New`**（~~页级 `+ New`~~ 已取消，§0.10-D5）；**不报错、不 404** |
 | F2 某公司无评估 | 该行 `overallScore = null`，`detailUrl` 仍下发 | 各分数列显示 `—`，Stage 留空，`View` 仍可点（**v3.5 改**：进该公司 **A4 全维页**看空态；v3.2 的「进维度详情页」作废） |
@@ -2660,7 +2697,7 @@ gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/erl/
 │                                ErlDimensionConfigResponse + ErlDimensionConfigItemResponse 二合一
 │                                —— 维度配置去版本化后没有「版本头 + item」两层，接口 23/24 的出参
 │                                就是一组维度行：`dimensionCode` / `dimensionName` / `dimensionAbbr` /
-│                                `sortOrder` / `weight` / `status`（`Activate` / `Deactivate`）/
+│                                `sortOrder` / `weight` / `status`（`Active` / `Inactive`）/
 │                                `savedAt` / `savedBy`）
 │                              ErlQuestionConfigVersionHistoryResponse +
 │                              ErlQuestionConfigVersionHistoryRecordResponse（v4.1，接口 25）
@@ -2695,7 +2732,7 @@ gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/erl/
 │                                                                 publish 事务 / 版本 diff（changeSummary）
 │                                                                 **2026-09-08**：① 写时复制**只克隆被改动的那个维度**
 │                                                                 （该维 `version_no = max(该维) + 1`），不再整库克隆；
-│                                                                 ② publish 事务内为每个 `Activate` 维度写一行
+│                                                                 ② publish 事务内为每个 `Active` 维度写一行
 │                                                                 `erl_question_config_dimension_version`；
 │                                                                 ③ changeSummary **不落库**，需要时实时算
 │                                                                 v4.0：全部方法按 organizationId 收敛
@@ -2707,10 +2744,10 @@ gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/erl/
 │                              ❌ **v4.4 删除**：ErlWeightService(+Impl)（v4.0：C6 五维权重读写）
 │                              ErlDimensionConfigService(+Impl) ← **v4.4**（D1 / D13）；**2026-09-08 去版本化**：
 │                                                                 list(organizationId) 读该组织维度行
-│                                                                 （默认只返 `status = Activate`）；
+│                                                                 （默认只返 `status = Active`）；
 │                                                                 saveConfig() **整组 upsert**（校验维度集合合法 +
-│                                                                 `Activate` 行权重合计 = 100.00；提交里缺席的维度
-│                                                                 置 `Deactivate` 软删），**不再生成版本行**；
+│                                                                 `Active` 行权重合计 = 100.00；提交里缺席的维度
+│                                                                 置 `Inactive` 软删），**不再生成版本行**；
 │                                                                 ❌ **2026-09-08 删除**：currentVersion() 与
 │                                                                 versionOf(companyId, period)（期次绑定表已删）——
 │                                                                 卡片 / A3 / A4 / 雷达图 / 题库 / F2 / Goldie
@@ -2763,7 +2800,7 @@ gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/erl/
 │                              ❌ **2026-09-08 删除**：ErlCompanyPeriodConfig（表已删，§5.1.4）
 │                              ErlDimensionConfig（**2026-09-08 改名**，原 ErlDimensionConfigItem，§5.1.3：
 │                                organization_id / dimension_code / dimension_name / dimension_abbr /
-│                                sort_order / weight / saved_at / saved_by / status）
+│                                sort_order / weight / status；2026-09-09 删 saved_at / saved_by）
 │                              **ErlQuestionConfigDimensionVersion**（**2026-09-08 新增**，§5.1.5：
 │                                题库版本 ↔ 维度快照）
 │                              ErlAssessment                                ← **v4.4**：加维度列，
@@ -2771,6 +2808,8 @@ gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/erl/
 │                                **2026-09-08**：`dimension` → `dimension_code` + 加 `dimension_name` /
 │                                `dimension_abbr` 快照；`question_version_id` →
 │                                `erl_question_config_version_id`；删 `submission_seq` / `is_latest`
+│                                **2026-09-09**：加 `erl_question_config_dimension_version_id`（可空，
+│                                  → §5.1.5 快照行，取题一跳直达）
 │                              ErlAssessmentAnswer / ErlAnswerAttachment（v4.6 改回；
 │                                **v4.4** 删 `dimension` 列，维度已在 ErlAssessment 上）
 │                              ErlReferenceScore / ErlReferenceScoreItem（**2026-09-08 改名**，原
@@ -2788,7 +2827,7 @@ gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/erl/
 │                              ErlGapItemTypeEnum（**v4.4**：删 `STRENGTH`，收敛为 `GAP` / `ACTION`，
 │                                §0.10-D4） / ErlSeverityEnum
 │                              ErlDimensionConfigStatusEnum（~~`ACTIVE` / `RETIRED`、v4.8 起不落库改派生~~
-│                                → **2026-09-08 改回落库**：取值 `Activate` / `Deactivate`，就是
+│                                → **2026-09-08 改回落库**：取值 `Active` / `Inactive`，就是
 │                                `erl_dimension_config.status` 列（§5.1.3）；`Retired` 灰标由列值
 │                                **直接判定**，不再推导—— §0.14 与 §7.11-④ 的派生态论述作废）
 │                              ❌ **v4.4 删除**：ErlAudienceEnum（D3：双 audience 方案取消）
@@ -2811,20 +2850,23 @@ gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/erl/
 │                                （**2026-09-08 改名**，原 ErlBenchmarkRecordRepository /
 │                                 ErlBenchmarkDimensionRepository）
 │                              ErlGapAnalysisRepository / ErlGapAnalysisItemRepository
-└── infrastructure/client/     ErlPythonClient   ← 经网关调 Python 生成接口与附件入库接口
+├── infrastructure/client/     ErlPythonClient   ← 经网关调 Python 生成接口与附件入库接口
+└── infrastructure/converter/  ErlDimensionConfigStatusConverter（**2026-09-09 补记**，此前漏列）
+                                 ← JPA `@Converter(autoApply = true)`：枚举 ACTIVE / INACTIVE ↔ 落库
+                                   字面值 `Active` / `Inactive`；取值改名靠它落地（§5.1.3）
 ```
 
 另需 `deploy/upgrade_doc/sprint{N}/erl_init.sql`（**2026-09-08 重写**）：~~11 张~~ → ~~v4.4：12 张~~ → **2026-09-08：11 张表**（删 `erl_dimension_config_version` 与 `erl_company_period_config`，增 `erl_question_config_dimension_version`，净 -1）的建表、索引与种子数据：
 
-- **索引与唯一约束**：~~三个~~ → ~~v4.5：五个部分唯一索引~~ → **2026-09-08：四个** —— `uk_erl_question_config_version_draft`、`uk_erl_question_config_version_latest`（§5.1.1）、`uk_erl_assessment_draft`（§5.2）、**`uk_erl_dimension_config_abbr`**（§5.1.3，同日新增）。**删掉的两个**：`uk_erl_dimension_config_version_latest`（表已删）与 `uk_erl_assessment_latest`（`is_latest` 列已删）；普通唯一约束另删 `uk_erl_assessment_seq`。⚠️ **曾一度写作「三个」** —— 那是 `uk_erl_dimension_config_abbr` 新增之前的数，已订正。
+- **索引与唯一约束**：~~三个~~ → ~~v4.5：五个部分唯一索引~~ → ~~2026-09-08：四个~~ → **2026-09-09：三个** —— `uk_erl_question_config_version_draft`（§5.1.1）、`uk_erl_assessment_draft`（§5.2）、**`uk_erl_dimension_config_abbr`**（§5.1.3）。**累计删掉三个**：`uk_erl_dimension_config_version_latest`（表已删）、`uk_erl_assessment_latest`（`is_latest` 列 2026-09-08 删）、`uk_erl_question_config_version_latest`（`is_latest` 列 **2026-09-09** 删，§5.1.1）；普通唯一约束另删 `uk_erl_assessment_seq`。
 - **键位改名**：`uk_erl_question_config_key (organization_id, dimension_code, version_no, question_key)`、`idx_erl_question_config_version_dim (organization_id, dimension_code, version_no, era_band, sort_order)`（**2026-09-08：键位补 `organization_id`**）、`uk_erl_dimension_config (organization_id, dimension_code)`、`uk_erl_answer (erl_assessment_id, erl_question_config_id)`、`idx_erl_attachment_answer (erl_assessment_answer_id)`、`uk_erl_reference_score (company_id, period)`、`uk_erl_reference_score_item (erl_reference_score_id, dimension_code)`；`uk_erl_assessment_draft` 与 `idx_erl_assessment_company_period` 的 `dimension` → `dimension_code`。
-- **新增索引**：`uk_erl_question_config_dimension_version (erl_question_config_version_id, dimension_code)`、`idx_erl_question_config_dimension_version (erl_question_config_version_id, sort_order)`（接口 26 主查询路径）、**部分唯一索引 `uk_erl_dimension_config_abbr (organization_id, dimension_abbr) WHERE status = 'Activate'`**（**2026-09-08**）—— **部分唯一索引因此是四个而非三个**。
+- **新增索引**：`uk_erl_question_config_dimension_version (erl_question_config_version_id, dimension_code)`、`idx_erl_question_config_dimension_version (erl_question_config_version_id, sort_order)`（接口 26 主查询路径）、**部分唯一索引 `uk_erl_dimension_config_abbr (organization_id, dimension_abbr) WHERE status = 'Active'`**（**2026-09-08**）—— 部分唯一索引一度因此是四个，**2026-09-09 随 `uk_erl_question_config_version_latest` 删除回到三个**。
 - ⚠️ **`idx_erl_assessment_company_period` 升为「取最新提交」的主路径**（原先靠 `uk_erl_assessment_latest` 命中），键位需补成 `(company_id, period, portal, dimension_code, submitted_at DESC, id DESC)`。
-- **题库种子数据**（见 §13-Q4）：先建 `version_no = 1`、`status = 'PUBLISHED'`、`is_latest = true` 的 `erl_question_config_version` 发布行；题目行按维度各落 `erl_question_config.version_no = 1`（**2026-09-08：不再挂 `version_id`**）；**再为每个维度写一行 `erl_question_config_dimension_version`**（`question_version_no = 1`），否则接口 26 解析不出任何维度、C7 全空。
-- **维度配置种子数据**（**2026-09-08 简化**）：~~先建 `erl_dimension_config_version` 再挂 item~~ 作废，改为**直接为每个组织插五行 `erl_dimension_config`**（`FRL / PRL / BERL / RRL / TRL`，`sort_order` 1 ~ 5，`weight` 各 `20.00`，`status = 'Activate'`，合计 `100.00`）。
+- **题库种子数据**（见 §13-Q4）：先建 `version_no = 1`、`status = 'PUBLISHED'` 的 `erl_question_config_version` 发布行（**2026-09-09**：不再落 `is_latest`）；题目行按维度各落 `erl_question_config.version_no = 1`（**2026-09-08：不再挂 `version_id`**）；**再为每个维度写一行 `erl_question_config_dimension_version`**（`question_version_no = 1`），否则接口 26 解析不出任何维度、C7 全空。
+- **维度配置种子数据**（**2026-09-08 简化**）：~~先建 `erl_dimension_config_version` 再挂 item~~ 作废，改为**直接为每个组织插五行 `erl_dimension_config`**（`FRL / PRL / BERL / RRL / TRL`，`sort_order` 1 ~ 5，`weight` 各 `20.00`，`status = 'Active'`，合计 `100.00`）。
 - ~~`erl_company_period_config` 不放种子~~ → 该表已删。
 
-> **2026-09-07 补**（**v4.14 更新**）：该脚本实际已按顺序拆成~~三份~~ → **2026-09-08：四份**（新增 `V5`），都在 `CIOaas-api/deploy/upgrade_doc/sprint118/` 下、**需人工按序执行**；⚠️ **执行顺序按环环境分岭**：全新环境 `V1 → V4`，存量环境 `V5 → V4`（V5 开头有守卫：跑在空库上会主动报错并点名 V1，而不是报一个裸的 `42P01`）（本仓库无 Flyway/Liquibase，README 就是唯一的 runbook）：`V1__erl_init.sql`（~~12 张表 + 五个部分唯一索引~~ → **2026-09-08：11 张表 + 三个部分唯一索引** + 题库与维度配置种子）、~~`V3__erl_question_version_add_dimension_config_version.sql`（+ `dimension_config_version_id`，可空）~~ → **2026-09-08 整份作废**（该列已删，它回填所依赖的 `erl_dimension_config_version` 也不存在了；~~该位置改为建 `erl_question_config_dimension_version` 的新脚本~~ → **2026-09-08 实际做法**：新表由**重写后的 `V1`** 建（全新环境），存量环境另出 **`V5__erl_model_refactor_20260908.sql`**（DROP / RENAME / ALTER / 建新表 + 回填，12 步、幂等）；V3 **原文件保留、SQL 整体注释掉**（README 的执行顺序依赖它的存在））、`V4__erl_optimistic_lock.sql`（两张表各 + `version`，**NOT NULL**）、**`V5__erl_model_refactor_20260908.sql`**（**2026-09-08 新增**，存量环境专用：DROP 两表 / RENAME 三表七列 / `erl_assessment` 删两列两约束 / 建新表 + 回填，12 步、幂等、**无自动回滚，跑前先 pg_dump**）。⚠️ **两处回填不可解时一律 `RAISE EXCEPTION` 而不猜**：① `erl_question_config` 行的 `version_id` 为 NULL 或悬空（行上无公司、无用户，`dimension_code` 又可跨租户重复 —— 猜一个就会把 A 租户的题放进 B 租户的问卷）；② `erl_dimension_config` 行的版本头已丢（静默删掉可能抹掉某租户唯一的维度配置、静默破掉 100% 合计）。⚠ **V4 必须先于应用发版执行**：实体已标 `@Version` 而 `ddl-auto: update` 加不上 NOT NULL 列，漏跑不是启动失败而是运行期 `42703 column "version" does not exist`，`erl_assessment` / `erl_question_config_version` 的所有读写全挂。**配置页的菜单入口不在这三份脚本里**（**v4.14**）—— 原先那份菜单迁移脚本已删除，入口改由**管理后台的菜单配置界面**添加（根节点 `pid = '0'` + 授权超管角色 + 清两处缓存，前置条件见 §8.1.1）。
+> **2026-09-07 补**（**v4.14 更新**）：该脚本实际已按顺序拆成~~三份~~ → **2026-09-08：四份**（新增 `V5`）→ **2026-09-09：九份**（新增 `V6` ~ `V10`），都在 `CIOaas-api/deploy/upgrade_doc/sprint118/` 下、**需人工按序执行**；⚠️ **执行顺序按环境分岭**（**2026-09-09 更新**）：**三类环境分岭**（以 `sprint118/README.md` 为准；**2026-09-09 审核后按发版时点再拆两段**）：① **全新环境** `V1 → V4`（`V6` ~ `V10` 在这种库上都是 no-op，跑不跑都行；⚠️ **不要**再跑 `V3` / `V5` —— 那两份是给存量库的，在空库上跑会造成「服务起得来但页面全空」）；② **存量环境**（**2026-09-09 由单一顺序拆成两段**）：**发版前**跑 `V5 → V4 → V8`，**发代码后立刻**跑 `V6 → V7 → V9 → V10`。⚠️ 「发版前」里只有 `V4`（加 `NOT NULL DEFAULT 0` 列）与 `V8`（加**可空**列）是旧代码**完全无感**、可以提前任意时间跑；**`V5` 是例外中的例外** —— 它改表名 / 改列名，**旧代码从它执行完那一刻起就 `42P01` / `42703`**，所以它必须**紧贴发版、排在这一段最前面**（`V8` 的回填还依赖 `V5` 建出来的快照表与 `dimension_code` 列）；③ **代码先上线环境**（`ddl-auto: update` 已按**改名前**的实体建过表）`V1 → V4 → V6 → V7 → V8 → V9 → V10` —— 那版实体上还有 `savedAt` / `savedBy` / `fileName` / `fileSize`，`ddl-auto` 会把这四列建出来而 `V1` 的建表段被 `IF NOT EXISTS` 跳过，**没有任何脚本删它们**，故 `V6` / `V7` 必须跑（列不存在时它们本就是 no-op）。<br>⚠️ **「发代码后立刻」这段窗口内的代价**：`V6` / `V7` 删的四列是 `NOT NULL` 且无默认值，代码已不写它们 ⇒ 窗口内「新增维度 / 新增附件」会撞 `23502`。这是相对 `V9` / `V10` 那种**静默空数据**的必然取舍 —— 报错可见、可重试，静默不可见。<br>⚠️ **执行方式是强制的**：`psql -v ON_ERROR_STOP=1 --single-transaction -f <script>` —— `V5` / `V9` / `V10` 的中止语义（守卫 `RAISE EXCEPTION` 后不许继续执行 DDL）**依赖这两个参数**，psql 默认 `ON_ERROR_STOP=off` 会让守卫报完错、删列照样跑。（V5 开头有守卫：跑在空库上会主动报错并点名 V1，而不是报一个裸的 `42P01`）（本仓库无 Flyway/Liquibase，README 就是唯一的 runbook）：`V1__erl_init.sql`（~~12 张表 + 五个部分唯一索引~~ → **2026-09-08：11 张表 + 三个部分唯一索引** + 题库与维度配置种子）、~~`V3__erl_question_version_add_dimension_config_version.sql`（+ `dimension_config_version_id`，可空）~~ → **2026-09-08 整份作废**（该列已删，它回填所依赖的 `erl_dimension_config_version` 也不存在了；~~该位置改为建 `erl_question_config_dimension_version` 的新脚本~~ → **2026-09-08 实际做法**：新表由**重写后的 `V1`** 建（全新环境），存量环境另出 **`V5__erl_model_refactor_20260908.sql`**（DROP / RENAME / ALTER / 建新表 + 回填，12 步、幂等）；V3 **原文件保留、SQL 整体注释掉**（README 的执行顺序依赖它的存在））、`V4__erl_optimistic_lock.sql`（两张表各 + `version`，**NOT NULL**）、**`V5__erl_model_refactor_20260908.sql`**（**2026-09-08 新增**，存量环境专用：DROP 两表 / RENAME 三表七列 / `erl_assessment` 删两列两约束 / 建新表 + 回填，12 步、幂等、**无自动回滚，跑前先 pg_dump**）、**`V6__erl_dimension_config_drop_saved_stamp.sql`**（**2026-09-09 新增**：`erl_dimension_config` 删 `saved_at` / `saved_by` 两列，`DROP COLUMN IF EXISTS` 幂等；只对**跑过旧版 `V5`、库里确实有这两列**的环境有动作，`V1` 已改为不建这两列。⚠️ **必须与 erl 代码同批发版** —— 先跑脚本后发代码，旧代码往不存在的列写 `42703`；先发代码后跑脚本，两列 NOT NULL 且无默认值，**新增维度插不进去** `23502`）、**`V7__erl_answer_attachment_drop_file_meta.sql`**（**2026-09-09 新增**：`erl_answer_attachment` 删 `file_name` / `file_size` 两列，同样 `DROP COLUMN IF EXISTS` 幂等、同样**必须与代码同批发版**（`42703` / `23502` 两个方向对称）。脚本核验段另给一条「附件行的 `file_id` 在 `files` 里命不中」的排查查询 —— 这些行删列后名字与大小回显为 `null`，见 §5.5 的代价说明）、**`V8__erl_assessment_add_dimension_version.sql`**（**2026-09-09 新增**：`erl_assessment` 加**可空**列 `erl_question_config_dimension_version_id` + 按 `(erl_question_config_version_id, dimension_code)` **精确回填**（快照表在这两列上有唯一索引，命中至多一行，故不是 `V3` 那种近似回填，且**可重放**）。⚠️ **与 `V6` / `V7` 不同，这一份不要求与代码同批**：列可空、旧代码不认识也不写它、新代码读到 `null` 会回退复合键查询，故**建议先跑脚本再发代码**；命不中的行留 `null` 是**正确结果**（该维在那一版下确实没有快照行），脚本不报错也不猜行）、**`V9__erl_question_config_version_drop_is_latest.sql`**（**2026-09-09 新增**：删 `is_latest` 列 + 部分唯一索引 `uk_erl_question_config_version_latest`。**删列前有一道必须通过的守卫**（照 `V5` 删 `erl_assessment.is_latest` 的家法）：比对「当前 `is_latest = true` 的行」与「新判据会选出的行」是否同一行，不一致即 `RAISE EXCEPTION` 中止 —— 否则删完会**静默切换到另一版题库**（新评估绑上另一个版本 id、填报页题面直接变，而迁移正常结束、日志一行不报）；「有 `PUBLISHED` 却无任何标记」的组织只 `RAISE NOTICE`，删列反而是自愈。⚠️ **执行顺序与 `V6` / `V7` 相反：先发代码、再跑脚本** —— 该列是 `NOT NULL DEFAULT false`，新代码不写它也插得进去（只是那列永远 false、无人读），而反过来旧代码撞上不存在的列会 `42703`）、**`V10__erl_dimension_config_status_rename_values.sql`**（**2026-09-09 新增**：`status` 取值 `Activate` / `Deactivate` → `Active` / `Inactive`。**三步同一事务、顺序不可乱**：① `UPDATE` 改值 → ② `ALTER COLUMN ... SET DEFAULT 'Active'` → ③ **DROP 并按新谓词重建** `uk_erl_dimension_config_abbr`（`WHERE status = 'Active'`）。⚠️ 第 ③ 步是本脚本最危险的一步：只改值不重建索引**不报任何错**，但旧谓词此后一行都命不中 ⇒ 「同组织启用维度的缩写唯一」**静默失效**。重建不会撞唯一冲突 —— 改值前后行集合完全相同，旧谓词下已唯一，新谓词下自然也唯一。三道守卫：列不存在则 `RAISE NOTICE` 跳过、两套值混用则报出行数与组织、改完仍有非法值则 `RAISE EXCEPTION` 中止（否则 Java 侧 `fromDbValue` 会在运行期抛异常、配置页 500）。**纯字面值替换、完全可逆**，与前几份删列脚本不同。⚠️ **必须与代码同批、且脚本紧跟代码之后（窗口以分钟计）**：两个方向都坏、且都**静默** —— ERL 的热读路径是**在 SQL 里按 `status` 过滤**的（`... AndStatus...(org, ACTIVE)`，绑定字面值 `'Active'`），所以**先跑脚本**旧代码按 `'Activate'` 过滤一行命不中（另有实体读到 `'Active'` 抛 `IllegalArgumentException` 的那一半），**先发代码**新代码按 `'Active'` 过滤同样一行命不中：维度列表空、卡片 / 雷达 / Score Details / 组合层 / Goldie 全空、接口 24 必 400，而且不报错。~~原先写作「先发代码后跑脚本，读侧靠 `fromDbValue` 的临时兼容撑得住」~~ **2026-09-09 审核作废** —— 那条兼容只保住「实体读到旧值不抛异常」，**保不住按 `status` 过滤的查询**）。⚠️ **两处回填不可解时一律 `RAISE EXCEPTION` 而不猜**：① `erl_question_config` 行的 `version_id` 为 NULL 或悬空（行上无公司、无用户，`dimension_code` 又可跨租户重复 —— 猜一个就会把 A 租户的题放进 B 租户的问卷）；② `erl_dimension_config` 行的版本头已丢（静默删掉可能抹掉某租户唯一的维度配置、静默破掉 100% 合计）。⚠ **V4 必须先于应用发版执行**：实体已标 `@Version` 而 `ddl-auto: update` 加不上 NOT NULL 列，漏跑不是启动失败而是运行期 `42703 column "version" does not exist`，`erl_assessment` / `erl_question_config_version` 的所有读写全挂。**配置页的菜单入口不在这三份脚本里**（**v4.14**）—— 原先那份菜单迁移脚本已删除，入口改由**管理后台的菜单配置界面**添加（根节点 `pid = '0'` + 授权超管角色 + 清两处缓存，前置条件见 §8.1.1）。
 
 **v4.0 从建库脚本中删除**：
 - ❌ 系统配置项 `erl.enabled` 初始值 —— PRD 已不要求隐藏 DI（§8.6）。
@@ -2935,12 +2977,12 @@ v4.0 从清单中删除：
 
 **入口与卡片（PRD §3.1）**
 1. **（v4.0 改，v4.3 订正）** Company Overview 页三张卡为**两列**：左列 `FI → DI`、右列 `ERL`（两列等宽、顶部对齐，窄屏回落单列）；DI 卡片**仍然显示**（不是消失），其概览数据与下钻入口可正常使用；关闭公司的 `diStatus` 后 DI 卡隐藏、ERL 与 FI 不受影响（开关语义未变，§8.6）。
-2. **（v4.0 改，v4.4 再改）** ERL Card 完整包含：**加权** `Overall Score` `X/9`（tooltip 列出所用权重）、当前 Stage、**`Gap Analysis & Suggested Actions` 区块**（~~E 待定期间隐藏~~ → **v4.4 作废**：Goldie 已回归 V1，恒渲染，§0.10-D2）、**维度列表**（~~5 维~~ → **v4.4 参数化**：按当前 `status = 'Activate'` 的维度集合渲染，§0.10-D1；**level 整数分** + `Level n`）、BPMM 参考数字、右上角 **`Full View ›`**（→ A4，**两端都有**，§0.10-D5）；**管理端**另有 GSV 分、Perception Gap、雷达图，以及雷达图**正下方**的 `Benchmarkit & Top GSV Quartile ›` 链接（§0.10-D7）。❌ 不含状态徽章、不含 Data Sources。
+2. **（v4.0 改，v4.4 再改）** ERL Card 完整包含：**加权** `Overall Score` `X/9`（tooltip 列出所用权重）、当前 Stage、**`Gap Analysis & Suggested Actions` 区块**（~~E 待定期间隐藏~~ → **v4.4 作废**：Goldie 已回归 V1，恒渲染，§0.10-D2）、**维度列表**（~~5 维~~ → **v4.4 参数化**：按当前 `status = 'Active'` 的维度集合渲染，§0.10-D1；**level 整数分** + `Level n`）、BPMM 参考数字、右上角 **`Full View ›`**（→ A4，**两端都有**，§0.10-D5）；**管理端**另有 GSV 分、Perception Gap、雷达图，以及雷达图**正下方**的 `Benchmarkit & Top GSV Quartile ›` 链接（§0.10-D7）。❌ 不含状态徽章、不含 Data Sources。
 3. **全站不存在独立的 Exit Readiness 落地页路由**；`/exitReadiness` 直接访问返回 404 或重定向到 Company Overview。
 4. 卡片上每个维度的 `View Details` 正确跳到对应维度页；维度页面包屑为 `Exit Readiness ›〔Dimension Name〕`，返回落回 Company Overview。
 
 **维度页与模板（PRD §3.2）**
-5. **（v4.4 参数化，D1）** ~~五个~~ **配置版本中每一个维度**的维度页 `/exitReadiness/dimension/{code}`（种子形态为 `FRL|PRL|BERL|RRL|TRL`，但**不得硬编码**）均由**同一组件**渲染，文案随参数变化，无硬编码分支；`code` 不在当前 `status = 'Activate'` 的维度集合中 → 404，不崩溃。
+5. **（v4.4 参数化，D1）** ~~五个~~ **配置版本中每一个维度**的维度页 `/exitReadiness/dimension/{code}`（种子形态为 `FRL|PRL|BERL|RRL|TRL`，但**不得硬编码**）均由**同一组件**渲染，文案随参数变化，无硬编码分支；`code` 不在当前 `status = 'Active'` 的维度集合中 → 404，不崩溃。
 6. **公司端进入维度页看不到 GSV Tab**；直接构造 `?portal=gsv` 请求后端返回 400。
 7. **（v4.0 扩）公司端看不到 GSV 分 / Perception Gap / 雷达图 / Benchmarkit / Top GSV Quartile**；抓包确认服务端**未下发**这些字段（`gsvScore` / `perceptionGap` / 整个 `radar` / `benchmarkPosition` 在响应体中不存在，非前端隐藏）。
 8. **（v4.4 重写：R1 + D5 + D12）** 维度页 `View history` → `/exitReadiness/history?dimension={code}`，列表**只列该维度的提交**（~~记录条数与不带 `dimension` 时一致，评估整卷提交不该被过滤掉~~ → **v4.4 作废**：维度级提交后每条记录本就归属某一个维度，`dimension` 是真过滤而非视图切换，§0.10-R1）；~~`Completion` 显示该维口径（如 `7/9`）~~ → **v4.4 作废**：`Completion` 列已删（§0.10-D12），分数列改为显示**该维 Overall Score**（`{level}/9` + Era 徽章），其下次级文字为 `v{n}` 与 `stopped at L{t}`；页头标出当前维度并提供清除入口；`Add New` 进入对应端问卷**且只填该维度**（`?dimension={code}`，§0.10-D5）。
@@ -2951,7 +2993,7 @@ v4.0 从清单中删除：
     - **10a**：level 1 内出现 No → 维度分 **`0`**（不是 `null`、不显示 `—`），Stage `0`、Era 徽章 `Not yet Stage 1`，且**照常计入加权综合分**。
     - **10b**：某维九个 level 全 Yes → 维度分 **`9`**，`terminatedLevel = null`，页头显示 `All levels cleared`（PRD `a6b0906`）。
     - **10c**：某 level 内混有 Yes 与 No → 该组逐题各显示自己的徽章，**不整组显示为 No**；这些 Yes 答案照常传给 Goldie（§6.6）。
-11. **加权 `Overall Score`**：权重 **50/20/10/10/10**、维度分 2/5/7/4/1 → 综合分 **`3.5`**（= 1.0+1.0+0.7+0.4+0.1）**2026-09-08 换算例**：原用的 30/20/20/15/15 + 2/5/7/4/1 恰好算出 3.75→3.8，与改成各 20% 后的 3.8 **完全相同**，是个退化例、观测不到变化，tooltip 列出所用权重（权重条数随当前 `Activate` 维度数，不固定五条）。~~v4.4：改权重生成新配置版本，已绑定旧版本的期次综合分必须一字不变~~ → **2026-09-08 整条反转（回到 v4.0 口径）**：改权重为各 20% 后点 Save → **同一份历史数据的综合分从 `3.5` 变为 `3.8`**（(2+5+7+4+1)/5 = 3.8），且 **A1 卡片 / A2 雷达图 / F2 总表三处同步变化、值完全一致**；Stage 如跨档也跟着变。这是**已接受的漂移**（权重不做快照，§7.11 / §13-Q21），**不是 bug**；同时需确认综合分**不是被硬编码成平均值**（改成非均等权重时结果跟着变）。
+11. **加权 `Overall Score`**：权重 **50/20/10/10/10**、维度分 2/5/7/4/1 → 综合分 **`3.5`**（= 1.0+1.0+0.7+0.4+0.1）**2026-09-08 换算例**：原用的 30/20/20/15/15 + 2/5/7/4/1 恰好算出 3.75→3.8，与改成各 20% 后的 3.8 **完全相同**，是个退化例、观测不到变化，tooltip 列出所用权重（权重条数随当前 `Active` 维度数，不固定五条）。~~v4.4：改权重生成新配置版本，已绑定旧版本的期次综合分必须一字不变~~ → **2026-09-08 整条反转（回到 v4.0 口径）**：改权重为各 20% 后点 Save → **同一份历史数据的综合分从 `3.5` 变为 `3.8`**（(2+5+7+4+1)/5 = 3.8），且 **A1 卡片 / A2 雷达图 / F2 总表三处同步变化、值完全一致**；Stage 如跨档也跟着变。这是**已接受的漂移**（权重不做快照，§7.11 / §13-Q21），**不是 bug**；同时需确认综合分**不是被硬编码成平均值**（改成非均等权重时结果跟着变）。
     - **11a 配置校验（v4.4 改，D13）**：配置页 ~~`Dimension Weights`~~ → **`Dimension Configuration`** Tab 输入合计 99% 或 101% → **Save 按钮禁用**、总计红字并提示 `Exceeds 100% by {n}%` / `Needs {n}% more`；直接调 ~~`PUT /erl/weight`~~ → **`PUT /erl/dimension/config`** 传合计 ≠ 100 → 400 且提示 `Dimension weights must add up to 100%.`
     - **11b 某维 0 题**：该维 `levelScore = null`、显示 `—`、**不进综合分**，~~其余四维~~ → **v4.4：其余维度**权重归一化后算综合分并有 tooltip 说明；该维~~不拦提交~~ → **2026-09-07 订正：不可提交**（§6.3 校验 3）。
 12. **Era 边界（综合分）**：3.9 → `Founder Era`、4.0 → `Harvest & Growth`、6.9 → `Harvest & Growth`、7.0 → `Exit Era`；**6.4 必须显示 `Harvest & Growth`**（原型的 Exit Era 是 bug，不得复现）；**`0.0` 必须显示 `—` / `Not yet Stage 1`，不得落进 Founder Era**（§7.3）。
@@ -2963,7 +3005,7 @@ v4.0 从清单中删除：
 **填报（PRD §3.3 / §3.4 —— v4.0 大改；编号保持 17 ~ 22）**
 17. 自评页答 3 题（含 1 条备注 + 1 个附件）后关闭浏览器，重进同期次同端，答案、备注、附件**与解锁进度**完整回填（`unlocked_level` 已持久化，§5.3）。
 18. 附件上传后可在**公司 Knowledge Base / Memory File 面板中检索到**（验证走的是 ingest + 向量化链路，而非只登记）。
-    - **18a（v4.0）10MB 上限**：选 11MB 文件 → 前端直接拦下、提示 `File exceeds the 10 MB limit.`、**不发起上传**；绕过前端直接调 draft 接口传超限 `fileSize` → 后端 400。
+    - **18a（v4.0）10MB 上限**：选 11MB 文件 → 前端直接拦下、提示 `File exceeds the 10 MB limit.`、**不发起上传**；绕过前端**直传一个 11MB 文件拿到 `fileId`**、再调 draft 接口挂上去 → 后端按 `files.length` 复核 **400**（**2026-09-09**：入参已无 `fileSize` 可篡改，篡改也不再被采信）；`fileId` 在 `files` 里不存在同样 400。
     - ~~**18b（v4.0）GSV 维度级附件**~~ → ❌ **v4.6 作废**（§0.12）：维度级附件取消，改由**第 89 项**验证「双端逐题附件」。
 19. **提交后只读**：已提交记录的问卷页无输入控件；直接调 draft/submit 接口返回 400。
 20. **同季多次提交**：同一 `period` + 同一端 + **同一 `dimension`**（**v4.4** 补维度键位，R1）连续提交两次 → B3 出现**两条独立记录**，第二条带 `Current` 徽章，第一条不带；展示页与 F2 取第二条。**另验**：同一 `period` 同一端的**不同维度**各提交一次 → 是两条互不影响的记录，不会互相顶掉。**2026-09-08 改判定**：`Current` 徽章不再靠 `is_latest` 列（已删），而是 `records[]` 按 `submitted_at DESC, id DESC` 排序后的**首条**；另验：同一秒内连续两次提交时两条都合法存在（**无唯一索引兜底**），但所有页面选出的那一条必须**完全一致**（读侧走同一个 Repository 方法）。
@@ -2992,17 +3034,17 @@ v4.0 从清单中删除：
 31. LLM 返回非法 `severity`（如 `critical`）时降级为 `MEDIUM` 且不报错。
 
 **组合层（PRD §3.7）**
-32. F2 ERL Tab 位于 Company List 第 6 个 Tab，只列当前用户有权访问的公司；无评估的公司各分数列显示 `—`。**v4.0**：~~五维列~~ → **v4.4：维度列按 `dimensionScores[]` 动态生成**（列数、列序、列名随当前 `status = 'Activate'` 的维度集合，§0.10-D1）显示 **level 整数**（`0`~`9`），`ERL Score` 列为**加权**一位小数；`0` 与 `—` 底色可区分（§11-13）。
+32. F2 ERL Tab 位于 Company List 第 6 个 Tab，只列当前用户有权访问的公司；无评估的公司各分数列显示 `—`。**v4.0**：~~五维列~~ → **v4.4：维度列按 `dimensionScores[]` 动态生成**（列数、列序、列名随当前 `status = 'Active'` 的维度集合，§0.10-D1）显示 **level 整数**（`0`~`9`），`ERL Score` 列为**加权**一位小数；`0` 与 `—` 底色可区分（§11-13）。
     - **`View` 跳该公司的 A4 全维 Score Details 页**（v3.5 改）：URL 为 `/exitReadiness/scoreDetails?companyId=&period=`、**不带 dimension**；**不再跳 Company Overview，也不再落在 `FRL` 维度页**；无评估的公司点 `View` 进入后为空态而非报错。
-33. **按 ERL Score、Stage、任一维度分排序与筛选均生效**，且为服务端排序（翻页后顺序稳定）。**v4.4**：`sortBy` 白名单随当前 `status = 'Activate'` 的维度集合**动态生成**（D1）；本项依据由「PRD §3.7」改标 **本设计（PRD 2026-09-03 已删除该条依据）**（§0.10-D15）。
+33. **按 ERL Score、Stage、任一维度分排序与筛选均生效**，且为服务端排序（翻页后顺序稳定）。**v4.4**：`sortBy` 白名单随当前 `status = 'Active'` 的维度集合**动态生成**（D1）；本项依据由「PRD §3.7」改标 **本设计（PRD 2026-09-03 已删除该条依据）**（§0.10-D15）。
 34. F2 在 20 家以上公司时只发 1 次请求、后端无 N+1 查询（开 SQL 日志核对）。
 
 **基准（PRD §4 / §0.3）**
-35. D1 两张卡齐全：`Latest by Dimension · {period}` ~~五行~~ → **v4.4：按当前 `status = 'Activate'` 的维度集合逐维**列出两个基准分（`x.x/9`，D1），`Record History` 按期次倒序、最新一条带 `LATEST` 徽章（列数随维度数）。
+35. D1 两张卡齐全：`Latest by Dimension · {period}` ~~五行~~ → **v4.4：按当前 `status = 'Active'` 的维度集合逐维**列出两个基准分（`x.x/9`，D1），`Record History` 按期次倒序、最新一条带 `LATEST` 徽章（列数随维度数）。
 36. D2 是**独立页面**（地址栏变为 `/exitReadiness/benchmark/add`、浏览器可后退），不是 Modal；`< Back` 与 `Cancel` 均回 D1 且不留脏数据。
 37. D2 ~~十个~~ → **v4.4：`2 × 维度数` 个**分数框（两条基准线 × 每维一个）任一为空或超出 1–9 → 保存被拒并定位首个非法输入；录入已存在的期次 → `Period` 下报错且已填分数不丢失。
 38. 保存成功后 D1 立即出现该期次记录，`Latest by Dimension` 切到新期次；点 `Details` 展开~~五维~~ **各维**明细**不产生新的网络请求**。
-39. 管理端雷达图的 `BENCHMARKIT` / `TOP_GSV_QUARTILE` 两条线**逐维取值不同**（非各顶点同值），且与该期适用记录（§7.8）的~~五维分~~ **各维分**逐一吻合；**v4.4**：雷达图**顶点数 = 当前 `status = 'Activate'` 的维度集合的维度数**，不写死 5（D1 / R2）。
+39. 管理端雷达图的 `BENCHMARKIT` / `TOP_GSV_QUARTILE` 两条线**逐维取值不同**（非各顶点同值），且与该期适用记录（§7.8）的~~五维分~~ **各维分**逐一吻合；**v4.4**：雷达图**顶点数 = 当前 `status = 'Active'` 的维度集合的维度数**，不写死 5（D1 / R2）。
 
 **通用**
 40. 公司端调卡片接口并伪造他人 `companyId` → 服务端仍返回本公司数据。
@@ -3014,9 +3056,9 @@ v4.0 从清单中删除：
 
 **题库版本化与发布（PRD §3.8 + 2026-08-28 裁决，v3.3 重写）**
 46. **四类变更均不立即生效**：分别做一次新增、改题干、删除、拖拽重排后**不点 Publish** —— 填报页与维度详情页的题目、题序、题数、完成度分母**全部保持原样**；配置页则显示 `Draft v{n} — unpublished changes` 与对应徽章（`New` / `Edited` / `Moved`）。
-47. **第一次写触发写时复制**：库中出现一条 `status='DRAFT'` 的新版本行，~~`based_on_version_id` 指向原已发布版本~~ → **2026-09-08：该列已删**，改验「`version_no = 上一版 + 1` 且 `is_latest = false`」；**另验：只有被改动的那个维度产生了新的 `erl_question_config.version_no`，其余维度的行数一行未增**（不再整库克隆）；且**已发布版本的题目行一字未改**（对比发布前后的 `erl_question_config` 快照）。
+47. **第一次写触发写时复制**：库中出现一条 `status='DRAFT'` 的新版本行，~~`based_on_version_id` 指向原已发布版本~~ → **2026-09-08：该列已删**，改验「`version_no = 上一版 + 1` 且 `status = 'DRAFT'`」（**2026-09-09 再订正**：~~`is_latest = false`~~ —— 该列已随 `V9` 删除，按它去库里查会直接 `42703`；与第 88 项的新判据对齐）；**另验：只有被改动的那个维度产生了新的 `erl_question_config.version_no`，其余维度的行数一行未增**（不再整库克隆）；且**已发布版本的题目行一字未改**（对比发布前后的 `erl_question_config` 快照）。
 48. **草稿全局单份**：连续做 5 次变更只产生**一条** DRAFT 版本行（不是 5 条）；两个管理员分别改不同维度后，任一人点 Publish，**两人的改动一起生效**，确认框中列出的是全量摘要。
-49. 点 `Publish` 后：填报页与维度页立即按新版本渲染；配置页版本条变为 `Published v{n+1}`，按钮禁用 + tooltip `No unpublished changes.`；库中无 `DRAFT` 版本。**2026-09-08 换验证点**：~~`change_summary` 快照与确认框计数一致~~（列已删）→ 改验 **`erl_question_config_dimension_version` 里出现了本次发布的 N 行维度快照**（N = 发布当时 `Activate` 维度数），各行的 `dimension_name` / `dimension_abbr` / `sort_order` / `question_version_no` 与发布当时一致。⚠️ `v{n+1}` 是 **组织级发布批次号**，与各维自己的 `question_version_no` 不是同一个数。
+49. 点 `Publish` 后：填报页与维度页立即按新版本渲染；配置页版本条变为 `Published v{n+1}`，按钮禁用 + tooltip `No unpublished changes.`；库中无 `DRAFT` 版本。**2026-09-08 换验证点**：~~`change_summary` 快照与确认框计数一致~~（列已删）→ 改验 **`erl_question_config_dimension_version` 里出现了本次发布的 N 行维度快照**（N = 发布当时 `Active` 维度数），各行的 `dimension_name` / `dimension_abbr` / `sort_order` / `question_version_no` 与发布当时一致。⚠️ `v{n+1}` 是 **组织级发布批次号**，与各维自己的 `question_version_no` 不是同一个数。
 50. **按钮激活条件是「有草稿版本」而非「有新题」**：只在 PRL **改一道题干**（不新增），切到 FRL Tab 时 `Publish` 仍激活。
 51. **版本锁定（v3.4 核心）**：Founder 答了 20 题后管理员发布一版（新增 2 题 / 改 1 题题干 / 删 1 道**已答**题）→ 重新打开问卷：**题目数、题序、题干、已答内容、level 结构与解锁进度逐项不变**，被删的题还在、被改的题仍是旧题干、新增的 2 题不出现；页头仍显示 `Question set v{n}`（旧版本号）。**v4.0 补充**：即使新版在某个已通关 level 里加了题，**该评估的 `unlocked_level` 与维度分也不变**（否则已通关的 level 会凭空多出未答题）。
 52. **旧版本草稿可正常提交**：承接上一项，该草稿在题库已发布 v{n+1} 的情况下**提交成功**（无 400、无版本校验），历史列表该行标 `v{n}`。
@@ -3027,11 +3069,11 @@ v4.0 从清单中删除：
 
 **全维 Score Details（A4，2026-08-28 裁决，v3.5 新增；**v4.4** 按 §0.10-D5 双端开放）**
 57. F2 `View` 进入的是 `/exitReadiness/scoreDetails?companyId=&period=`（**不带 dimension**），页面 H1 为 `Score Details`，**H1 旁显示加权 `Overall Score` `X/9` 与 Stage 徽章**（v3.6，v4.0 改为加权，**v4.4** 命名统一为 `Overall Score`，§0.10-D14），且其数值与该公司 ERL Card、F2 该行的 `ERL Score` / `Stage` **三处一致**（三处必须走同一个 `ErlLevelScorer.computeOverall`，§7.2-②）；面包屑末级不可点、上一级回来源的 F2 Tab。**v4.4 补（D5）**：A4 现在还有第二个入口 —— ERL Card 右上角 `Full View ›`，**公司端与管理端都有**（见 §11-79）。
-58. **一次取全维**：进页只发 **1 次**接口 22；~~五张卡~~ → **v4.4：卡片张数 = 当前 `status = 'Activate'` 的维度集合的维度数**（D1 / R2），题目合计 = 该题集版本这些维度的题数之和；**默认只有 `sort_order` 最小的那张展开**（种子形态下即 FRL），其余收起；开 SQL 日志确认后端**无按维度循环**的 N+1 查询。
+58. **一次取全维**：进页只发 **1 次**接口 22；~~五张卡~~ → **v4.4：卡片张数 = 当前 `status = 'Active'` 的维度集合的维度数**（D1 / R2），题目合计 = 该题集版本这些维度的题数之和；**默认只有 `sort_order` 最小的那张展开**（种子形态下即 FRL），其余收起；开 SQL 日志确认后端**无按维度循环**的 N+1 查询。
 59. **切 Tab 重新取数**：`Founder` / `GSV` 切换后元数据栏四列与逐题分数整体切换；某端该期次无提交时卡内为空态文案而非报错、页面不空白。
 60. **公司端**：不渲染 GSV Tab、不渲染页尾基准卡；抓包确认服务端未下发 `benchmark`；直接构造 `?portal=gsv` 请求后端返回 400。**v4.4 补（D5）**：组合端 A4 需**同时**呈现 GSV 与 Founder 两侧记录；公司端只有 Founder 侧。
 61. **版本一致性**：A4 的题目、题序、题干与该次提交的 A3、历史详情页**逐项一致**（同按 `erl_question_config_version_id` 渲染），元数据栏显示同一个 `Question set v{n}`；题库发布新版后 A4 展示已提交记录**一字不变**。
-62. **组件复用**：A4 的逐题行、备注与附件展示与 A3 由**同一组件**渲染（全仓检索确认不存在第二套 `QuestionRow` 实现；**v4.9**：`How It's Scored?` 弹窗已删除，不在复用清单内，§0.15）；基准~~五维~~ **逐维**表复用 D1 的 `BenchmarkDimensionTable`（**v4.4**：行数随当前 `status = 'Activate'` 的维度集合，D1）。
+62. **组件复用**：A4 的逐题行、备注与附件展示与 A3 由**同一组件**渲染（全仓检索确认不存在第二套 `QuestionRow` 实现；**v4.9**：`How It's Scored?` 弹窗已删除，不在复用清单内，§0.15）；基准~~五维~~ **逐维**表复用 D1 的 `BenchmarkDimensionTable`（**v4.4**：行数随当前 `status = 'Active'` 的维度集合，D1）。
 
 **v3.6 遗留校验（部分已被 v4.0 作废）**
 
@@ -3048,7 +3090,7 @@ v4.0 从清单中删除：
     - **v4.9 补入两项**（§0.15）：**单列 `criteria`**（实体列 / DTO 字段 / 请求 VO / 版本 diff 比对项 / 建表脚本与列注释 / prompt 正文 —— 全链路零命中）、**`ScoringCriteriaModal`**（组件文件、三处题目行的引用与弹窗 state、`.criteriaLink` 样式）。连同上面 13 项共 **15 项**应当不存在。
 70. **公司端权限收紧（v4.0 核心）**：以公司端账号完整走一遍 ERL Card → A3 → 历史 → A4（若开放入口），抓包确认响应体中**始终没有** `gsvScore` / `perceptionGap` / `gapDirection` / `radar` / `benchmarkPosition` / `benchmarkitScore` / `topQuartileScore`；页面上无雷达图区块、无 GSV 分列、无 Perception Gap 列，且**不留空列或 `—` 占位**（§4.3 / §8.4「A1 公司端裁剪」）。
 71. **三卡布局**：见 §11-1（DI 不消失、由右列移到左列 FI 之下）。**v4.3 补**：确认 `.btmContent` 仍是**两列**、两列等宽且 `min-width: 0` 生效（左列 FI 的宽表格不把右列挤没）。另确认**全仓无 `erl.enabled` 配置项**、`ModulesTab.tsx` **未被本次改动**（§8.6）。
-72. **（v4.4 重写，R2 + D1；**2026-09-08 去版本化**）维度配置种子与降级**：~~全新环境启动后每组织一条配置版本行 + 五条 item~~ → **2026-09-08 改为：全新环境启动后每组织恰有**五条 `erl_dimension_config`**（`FRL / PRL / BERL / RRL / TRL`，`sort_order` 1 ~ 5，`weight` 各 `20.00`，**`status = 'Activate'`**），**无任何配置版本行**；综合分与「简单平均」一致。手工把某条改成 `10.00`（`Activate` 行合计 90）→ 综合分**按等权降级计算**、打 WARN 日志、页面 tooltip 提示 `Weights unavailable — using equal weighting.`、**不报 500**（§9）。
+72. **（v4.4 重写，R2 + D1；**2026-09-08 去版本化**）维度配置种子与降级**：~~全新环境启动后每组织一条配置版本行 + 五条 item~~ → **2026-09-08 改为：全新环境启动后每组织恰有**五条 `erl_dimension_config`**（`FRL / PRL / BERL / RRL / TRL`，`sort_order` 1 ~ 5，`weight` 各 `20.00`，**`status = 'Active'`**），**无任何配置版本行**；综合分与「简单平均」一致。手工把某条改成 `10.00`（`Active` 行合计 90）→ 综合分**按等权降级计算**、打 WARN 日志、页面 tooltip 提示 `Weights unavailable — using equal weighting.`、**不报 500**（§9）。
 73. **（v4.4 改，D12 / D16）分母口径与次级标注**：~~历史列表 `Completion` 显示 `9/17`~~ → **列已删**；改为：**填报页 / A4 页头**显示 `17 questions · 9 answered`（不是 `9/9` 或 `17/17`），**历史列表分数列下方**有 `stopped at L3` 与 `v{n}` 两个次级标注（§7.1.1 的分母口径论证保留为实现说明，§7.10-N2）。
 74. **A4 与 A3 逐题一致（v4.0 版，**v4.9** 去掉判定标准一项）**：同一次提交在 A3、A4、历史详情三处的逐题 **Yes/No 徽章、`Era-level` 标签、来源标签、备注、附件** 完全一致，且三处都**只列已解锁的题**（§6.2 / §6.2.1）。
 75. **`ErlLevelScorer` 是唯一计分入口**：卡片 / A3 / A4 / 历史 / F2 / Goldie 输入六条路径的维度分与综合分**逐一比对一致**；代码审查确认六处都调 `ErlLevelScorer`，无第二套实现（§7.2-②）。
@@ -3056,7 +3098,7 @@ v4.0 从清单中删除：
 **v4.4 新增校验（维度级提交 / 动态维度 / 配置版本快照 / closed month 期次 / Share / Gap 区块 / 草稿按钮组）**
 
 76. **（R1，**2026-09-08 重写**）维度级提交落库**：把 FRL 答到终止并提交 → 库中 `erl_assessment` 新增一行（`dimension_code = 'FRL'`，并写入 `dimension_name` / `dimension_abbr` 快照，`level_score` / `terminated_level` / `unlocked_level` 落在该行上）；~~`is_latest = true`、`submission_seq`~~ **两列均已删除，不得断言**（§5.2）。再把 PRL 答到终止并提交 → **两行并存、互不影响**，各自按 `(company_id, period, portal, dimension_code)` 分组；每组的「最新一条」按 `submitted_at DESC, id DESC` 取首条。
-77. **（~~R2：维度删除后历史不漂移~~ → **2026-09-08 整条重写：软删 + 接受漂移**）**：先在 Q1 期次完成五维提交并记下每维分、综合分、Stage 与雷达图形状；再到 `Dimension Configuration` **用垃圾桶删掉 TRL 那一行**（二次确认）并把权重改成其余四维合计 100，点右上角 `Save` → ① **库里 TRL 行仍在，`status` 变为 `Deactivate`、`weight` 原值保留**（**不是物理删除**）；② 新起一个期次 → 问卷、卡片、雷达图、题库页、F2 列**均只剩四维**；③ **Q1 期次的历史提交记录照常可查**（B3 列表仍有 TRL 那条，名称/缩写取评估行快照，并标 `Retired` —— 由 `status` 直接判定）；④ ⚠️ **但 Q1 的综合分、Stage 与雷达图形状会变**（TRL 退出当前集合、剩余权重重新归一化，雷达图从五顶点变四顶点）—— **这是预期行为，不是 bug**（§7.11 / §13-Q21）；⑤ 把 TRL 重新置回 `Activate` → 历史与当前均恢复五维；⑥ **不存在任何「有历史数据禁止删除」的前置拦截**。
+77. **（~~R2：维度删除后历史不漂移~~ → **2026-09-08 整条重写：软删 + 接受漂移**）**：先在 Q1 期次完成五维提交并记下每维分、综合分、Stage 与雷达图形状；再到 `Dimension Configuration` **用垃圾桶删掉 TRL 那一行**（二次确认）并把权重改成其余四维合计 100，点右上角 `Save` → ① **库里 TRL 行仍在，`status` 变为 `Inactive`、`weight` 原值保留**（**不是物理删除**）；② 新起一个期次 → 问卷、卡片、雷达图、题库页、F2 列**均只剩四维**；③ **Q1 期次的历史提交记录照常可查**（B3 列表仍有 TRL 那条，名称/缩写取评估行快照，并标 `Retired` —— 由 `status` 直接判定）；④ ⚠️ **但 Q1 的综合分、Stage 与雷达图形状会变**（TRL 退出当前集合、剩余权重重新归一化，雷达图从五顶点变四顶点）—— **这是预期行为，不是 bug**（§7.11 / §13-Q21）；⑤ 把 TRL 重新置回 `Active` → 历史与当前均恢复五维；⑥ **不存在任何「有历史数据禁止删除」的前置拦截**。
 78. **（R3）closed month 缺省期次与空态**：① 不传 `period` 调接口 1 / 17 / 20 / 22 → 返回的期次 = **该公司 closed month 所在季度**（与 Financial Intelligence 域显示的 closed month 同源，Manual / Automatic 两种公司各验一次）；② **该季度两端均无提交 → 空态**，抓包确认**没有**回退到更早期次的数据（这是本条的核心，v4.3 的降级逻辑会悄悄显示上一季，必须已被改掉）；③ 公司无任何 Financial Entry actuals（closed month 取不到）→ 同样空态 + 服务端 WARN 日志，**不回退、不报 500**；④ 显式传 `period` 时以传入值为准，缺省逻辑不介入。
 79. **（D5）A4 入口与维度卡按钮**：① ERL Card 右上角有 **`Full View ›`**，**公司端与管理端都有**（原 §12「不做 A4 的公司端入口」已撤销）；② A4 **每张维度卡的卡头**各有 **`Add New`** 与 **`View History`** —— 前者跳填报页且带 `?dimension={code}`（进入后只填该维），后者跳 `/exitReadiness/history?dimension={code}`；③ **页级** `+ New` / `View history` 已移除（全页检索确认不存在）；④ 雷达图正下方有 `Benchmarkit & Top GSV Quartile ›` 链接（**仅管理端**渲染，与雷达图同条件），点击可达 `/exitReadiness/benchmark?companyId=` —— 该链接是基准页在站内的**唯一可达入口**（§0.10-D7）。
 80. **（D3）Share 门槛与 `shared` 复位**：① 该 `(company, period)` 下**任一维度**缺 FOUNDER 或 GSV 的 `SUBMITTED` 记录时（**2026-09-08**：按 `(company, period, portal, dimension_code)` 内 `submitted_at DESC, id DESC` 首条判存在），`Share to founder` **置灰**，底部提示 `Share unlocks once gap analysis is available for all {total} dimensions in {period}.`；② 全部维度两端齐全后按钮激活，点击 → 接口 27 落 `shared = true` / `shared_at` / `shared_by`；③ **`shared = false` 时公司端接口 17 返回空态**（抓包确认服务端未下发条目，非前端隐藏）；`shared = true` 后公司端可见；④ **Share 之后任一端再提交触发重生成 → `shared` 复位为 `false`**，公司端重新看不到，管理端提示「内容已更新，需重新分享」；⑤ 公司端直接调接口 27 → 400。
@@ -3065,13 +3107,13 @@ v4.0 从清单中删除：
 83. **（D10）题库更新提示**：填报中若管理端发布了新版本 → 填报页顶部出现**非阻断、可关闭、无操作按钮**的 banner `The question library has been updated (v{n}). This assessment continues on v{m}.`；**题目、题序、题数、解锁进度一字不变**（版本锁定本体不受影响）；接口 3 出参含 `latestPublishedVersionNo` 与 `hasNewerQuestionSet`；关闭 banner 后不再弹（**不强制退出、不强制更新**）。
 84. **（D11）重复提交确认文案**：该期次该端该维度 `submissionCount = 0` 时用首次文案（§11-22）；`submissionCount > 0` 时弹窗改为 **「已提交该季度评价，是否再次提交？」** 并补一句「本次提交将成为该季度的 source of truth，历史提交保留」。
 85. **（D12）历史列表字段**：① 有 **`Submitted`（提交时间）列**；② **没有 `Completion` 列**（全页检索确认）；③ 分数列为**该维 Overall Score**（`{level}/9` 整数 + 该维 Era 徽章）—— **不是加权综合分**，与卡片上的综合分数值可以不同；④ 分数列下方有 `v{n}` / `stopped at L{t}` 次级文字；⑤ **`Portal` 列仅管理端渲染**，公司端该列不存在（不是置空）；⑥ 从带维度的历史列表进详情 → 接口 8 带 `dimension` 入参，页面**只渲染该维度**。
-86. **（D1 / D13，v4.8 布局改版）维度配置 Tab**：① 第二个顶层 Tab 名为 **`Dimension Configuration`**（不是 `Dimension Weights`）；② 面板头下一行是**新增栏**（`Dimension name` + `Abbreviation` + `+ Add`），**表底不再有 `+ Add Dimension`**；③ 列表是**卡片行**（拖拽手柄 + `Name (ABBR)` + 权重输入 + 铅笔 + 垃圾桶），**主列表看不到 `code` 列与状态列**（**2026-09-08 改口径**：原意是防用户以为能改 code，不是防运维看到 —— **行内编辑态与 `Show deactivated` 行上 `code` 必须以只读 + 一键复制可见**）；④ 铅笔进入行内编辑（name / abbr / 权重 + 行内 `Save` / `Cancel`），**行内 `Save` 不发任何请求**（开 Network 面板确认），只有右上角 `Save` 调接口 24；⑤ 垃圾桶删除**必须二次确认**，确认后仅本地移除该行，右上角 `Save` 之后（**2026-09-08 改验证点**）**该行仍在 `erl_dimension_config` 里、但 `status` 变为 `Deactivate`**（不是查无此行），且它不再出现在默认维度列表与新期次的问卷里；⑥ **Save 按钮双条件** —— 脏态（维度增 / 删 / 改名 / 排序 / 权重任一变化）**且** `Activate` 维度权重合计 = 100%（**2026-09-08**：`Deactivate` 行不计入），越界提示 `Exceeds 100% by {n}%` / `Needs {n}% more`；⑦ **（2026-09-08 整条反转）** Save 确认框文案为 **「新配置立即全局生效，已有期次的综合分、Stage 与雷达图形状会随之变化」**（**不得**再出现 v4.4 的「从下一个未开始填报的期次起生效 / 历史分数不变」）；⑧ **（2026-09-08 改判定）** 新增一个维度（`Abbreviation` 填 `OPS`）并 Save 后：库里该行的 `dimension_code` 是**一个 8 位随机码（不是 `OPS`）**、`dimension_abbr = 'OPS'`；，**overview 页、雷达图、题库 Tab、A4、F2 列**在**新期次**上全部回显该维度（PRD §3.8 明文）；随后把它的 `abbr` 改成 `OPSX` 再 Save，**`dimension_code` 一字未变**、历史关联不断；⑨ **（2026-09-08 反转）连续新增两个 `Abbreviation` 都填 `OPS` 的维度** → **第二个被拒**（`uk_erl_dimension_config_abbr`），提示改缩写；⑩ **（2026-09-08 反转）** 停用 `OPS` 后再新增一个 `Abbreviation` = `OPS` 的 → **服务端返回需显式确认的业务错误**「已有同名的已停用维度，是否改为恢复它？」；带 `confirmCreateAnyway` 重放后才新建（新 code），且库里能看到旧行仍是 `Deactivate`、历史仍挂旧 code；⑪ **漏传 code**：抓包篑改请求体删掉某已有维度的 `dimensionCode` 再 PUT → **400 并列出缺口**（集合完整性校验），**库里无任何写入**；⑫ **Restore 全链路**：停用 `FRL` → 开 `Show deactivated` → `Restore` → 补权重 → Save → 断言 `dimension_code` **仍是 `FRL`**（不是新码）、`status='Activate'`、库中该 code 仅一行、该维历史提交重新计入综合分；⑬ **连续两次 Save 不重复建行**：新增维度 Save 成功后**不刷页**、改个权重再 Save → 库里仍只有一行该维度、code 未变、**无 `Deactivate` 僵尸行**；⑭ **展开 ≠ 恢复**：开 `Show deactivated`、不点任何 `Restore` 直接 Save → 停用行仍为 `Deactivate`、权重合计未被停用行污染；⑮ **并发丢维度**：A、B 同时打开配置页，A 加维度 X 保存，B 随后保存（其 `savedAt` 已陈旧）→ **B 得到「配置已被他人修改，请重新加载」**，**X 不得被静默 `Deactivate`**；⑯ **code 形态**：新增维度的 `dimension_code` 匹配 `^[A-Z0-9]{1,3}[0-9A-HJKMNP-TV-Z]{4}$`（前缀 + 4 位 Crockford Base32）、总长 ≤ 7、不含 `I/L/O/U`（§5.1.3）。
+86. **（D1 / D13，v4.8 布局改版）维度配置 Tab**：① 第二个顶层 Tab 名为 **`Dimension Configuration`**（不是 `Dimension Weights`）；② 面板头下一行是**新增栏**（`Dimension name` + `Abbreviation` + `+ Add`），**表底不再有 `+ Add Dimension`**；③ 列表是**卡片行**（拖拽手柄 + `Name (ABBR)` + 权重输入 + 铅笔 + 垃圾桶），**主列表看不到 `code` 列与状态列**（**2026-09-08 改口径**：原意是防用户以为能改 code，不是防运维看到 —— **行内编辑态与 `Show deactivated` 行上 `code` 必须以只读 + 一键复制可见**）；④ 铅笔进入行内编辑（name / abbr / 权重 + 行内 `Save` / `Cancel`），**行内 `Save` 不发任何请求**（开 Network 面板确认），只有右上角 `Save` 调接口 24；⑤ 垃圾桶删除**必须二次确认**，确认后仅本地移除该行，右上角 `Save` 之后（**2026-09-08 改验证点**）**该行仍在 `erl_dimension_config` 里、但 `status` 变为 `Inactive`**（不是查无此行），且它不再出现在默认维度列表与新期次的问卷里；⑥ **Save 按钮双条件** —— 脏态（维度增 / 删 / 改名 / 排序 / 权重任一变化）**且** `Active` 维度权重合计 = 100%（**2026-09-08**：`Inactive` 行不计入），越界提示 `Exceeds 100% by {n}%` / `Needs {n}% more`；⑦ **（2026-09-08 整条反转）** Save 确认框文案为 **「新配置立即全局生效，已有期次的综合分、Stage 与雷达图形状会随之变化」**（**不得**再出现 v4.4 的「从下一个未开始填报的期次起生效 / 历史分数不变」）；⑧ **（2026-09-08 改判定）** 新增一个维度（`Abbreviation` 填 `OPS`）并 Save 后：库里该行的 `dimension_code` 是**一个 8 位随机码（不是 `OPS`）**、`dimension_abbr = 'OPS'`；，**overview 页、雷达图、题库 Tab、A4、F2 列**在**新期次**上全部回显该维度（PRD §3.8 明文）；随后把它的 `abbr` 改成 `OPSX` 再 Save，**`dimension_code` 一字未变**、历史关联不断；⑨ **（2026-09-08 反转）连续新增两个 `Abbreviation` 都填 `OPS` 的维度** → **第二个被拒**（`uk_erl_dimension_config_abbr`），提示改缩写；⑩ **（2026-09-08 反转）** 停用 `OPS` 后再新增一个 `Abbreviation` = `OPS` 的 → **服务端返回需显式确认的业务错误**「已有同名的已停用维度，是否改为恢复它？」；带 `confirmCreateAnyway` 重放后才新建（新 code），且库里能看到旧行仍是 `Inactive`、历史仍挂旧 code；⑪ **漏传 code**：抓包篑改请求体删掉某已有维度的 `dimensionCode` 再 PUT → **400 并列出缺口**（集合完整性校验），**库里无任何写入**；⑫ **Restore 全链路**：停用 `FRL` → 开 `Show deactivated` → `Restore` → 补权重 → Save → 断言 `dimension_code` **仍是 `FRL`**（不是新码）、`status='Active'`、库中该 code 仅一行、该维历史提交重新计入综合分；⑬ **连续两次 Save 不重复建行**：新增维度 Save 成功后**不刷页**、改个权重再 Save → 库里仍只有一行该维度、code 未变、**无 `Inactive` 僵尸行**；⑭ **展开 ≠ 恢复**：开 `Show deactivated`、不点任何 `Restore` 直接 Save → 停用行仍为 `Inactive`、权重合计未被停用行污染；⑮ **并发丢维度**：A、B 同时打开配置页，A 加维度 X 保存，B 随后保存（其 `savedAt` 已陈旧）→ **B 得到「配置已被他人修改，请重新加载」**，**X 不得被静默置 `Inactive`**；⑯ **code 形态**：新增维度的 `dimension_code` 匹配 `^[A-Z0-9]{1,3}[0-9A-HJKMNP-TV-Z]{4}$`（前缀 + 4 位 Crockford Base32）、总长 ≤ 7、不含 `I/L/O/U`（§5.1.3）。
 87. **（v4.4 删除清单）换粒度后无残留**：全仓一次性检索确认以下**全部不存在** —— `ErlDimensionEnum`、`erl_dimension_weight` 表与 `ErlDimensionWeight*` 系列、`erl_assessment_dimension` 表与 `ErlAssessmentDimension*` 系列、`erl_gap_analysis.audience` 列与 `ErlAudienceEnum`、`STRENGTH` / `strengths[]`、web 端 `constants.ts` 的静态 `DIMENSIONS` 映射、`erl_gap_analysis_founder.md` / `erl_gap_analysis_gsv.md` 两份 prompt、附件表的 `dimension` 列（**v4.6：该表现名 `erl_answer_attachment`**）。**这 8 项是 v4.4 的删除清单，漏删一项即意味着两套口径并存。**
     - **2026-09-08 补充删除清单（另 9 项）**：`erl_dimension_config_version` 表与 `ErlDimensionConfigVersion*` 系列、`erl_company_period_config` 表与 `ErlCompanyPeriodConfig*` 系列、`erl_assessment.submission_seq` / `is_latest` 两列及 `uk_erl_assessment_seq` / `uk_erl_assessment_latest` 两个约束、`erl_question_config_version.based_on_version_id` / `change_summary` / `dimension_config_version_id` 三列、`ErlChangeSummary*Response` / `ErlChangeSummary*DTO`、`ErlDimensionConfigService.versionOf` / `bindPeriod` / `currentVersion`、旧表名 `erl_benchmark_record` / `erl_benchmark_dimension`、旧列名 `erl_assessment.dimension` / `erl_assessment_answer.assessment_id` / `question_id` / `erl_answer_attachment.answer_id`、`V3__erl_question_version_add_dimension_config_version.sql`。⚠️ 检索 `assessment_id` 时注意**会误命中新列 `erl_assessment_id`**，需用词边界。
-88. **（v4.5，L1 ~ L6；**2026-09-08 收敛为只覆盖题库版本**）`is_latest` 标记只有一条且随发布转移**：① 全新环境起来后，每组织 `erl_question_config_version` 恰有一条 `is_latest = true`（即 `version_no = 1` 的 `PUBLISHED` 行）；② 配置页改题产生 `DRAFT` 后，该草稿行 `is_latest = false`，在用版本**不变**；③ 点 Publish 后，**上一条已发布版本翻 `false`、本版翻 `true`**，全组织仍恰有一条 `true`；④ 手工再插一条 `is_latest = true` 的同组织版本行 → **被部分唯一索引 `uk_erl_question_config_version_latest` 拒绝**；⑤ `is_latest` **不出现在任何接口出参与前端代码**中。~~⑥ 维度配置版本同理~~ → **2026-09-08 删除**：`erl_dimension_config_version` 整表已删，本项不再涉及维度配置；**部分唯一索引总数由五个降为三个**（§5.1.1 两个 + §5.2 的 `uk_erl_assessment_draft`）。
+88. **（**2026-09-09 全条重写**，原 v4.5-L1 ~ L6 的 `is_latest` 用例作废）「在用的题库版本」按 `PUBLISHED` + `max(version_no)` 判定**：① 全新环境起来后，每组织的在用版本是 `version_no = 1` 的 `PUBLISHED` 行，填报页能取到题（种子不再落 `is_latest`，该列已不存在）；② 配置页改题产生 `DRAFT`（`version_no = 2`）后，**在用版本仍是 v1** —— 草稿号更大却不得被选中，这是新判据**唯一的陷阱**，必须实测：填报页题面在 Publish 之前一字不变；③ 点 Publish 后在用版本变为 v2，且**上一版 v1 的 `updated_at` / `updated_by` 一字未动**（发布不再碰上一版，这同时是「发布改写上一版最后编辑人」那条债的回归验证）；④ 全仓检索确认 `is_latest` 列、`uk_erl_question_config_version_latest` 索引、`findByOrganizationIdAndIsLatestTrue` 方法**均不存在**；⑤ 并发两次 Publish 同一草稿 → 一方成功、另一方因草稿行 `@Version` / 行锁失败，**不会出现两个在用版本**（`version_no` 组织内唯一，天然不可能）。
 89. **（v4.6，A1 ~ A4）附件双端统一题级**：① Founder 与 GSV 填报页**逐题都有**上传入口，两端渲染一致；② 上传后落 `erl_answer_attachment`，`answer_id` **有值**（库中 `answer_id IS NULL` 的行应为零，列本身也是 not null）；③ 两端填报页**都没有** `Dimension evidence` 区块，接口 4 / 5 请求体**没有** `dimensionAttachments`，接口 3 出参**没有**顶层 `attachments`（抓包确认）；④ 接口 19 删附件仍只在草稿态放行，鉴权经「附件 → 作答 → 评估」回溯，删他人公司/已提交记录的附件一律 400；⑤ 接口 28 `Reset` 后该草稿的作答行与附件行全部消失，知识库条目仍在（§7.10-W3）；⑥ 全仓检索确认 `erl_assessment_attachment`、`ErlAssessmentAttachment`、`assessment_id`（附件表上的那一列）、`dimensionAttachments`、`DimensionAttachmentPanel` **均不存在**。
-90. **（v4.10 + v4.11；**2026-09-08 换存储机制 + 留一处待裁决**）C7 维度按发布当时的集合显示**：① 配置页只留 `test1 / test2 / test3` 三个维度 → Publish 得 `v{n}` → 再新增 `test4`、删除（软删）`test2`、把 `test3` 改名 `test3x` 并 Save → 回 C7 选 `v{n}`：**页体卡头仍是发布当时的名字**（`test3` 而非 `test3x`）、**`test4` 不出现**（不在发布当时的快照里）、卡片先后按发布当时的 `sortOrder`；② 抓包确认接口 26 出参含 `dimensions[]`（按 `sortOrder` 升序），接口 9 该字段**恒为 `null`**；③ **库里验证点换为**：`erl_question_config_dimension_version` 中该版本有 N 行，各行 `dimension_name` / `dimension_abbr` / `sort_order` / `question_version_no` 为**发布当时快照**（~~`dimension_config_version_id` 列~~ 已删）；④ 选中草稿版本时（无快照行）页体按**当前 `Activate` 集合**渲染；⑤ 把某题目的 `dimension_code` 改成谁都没有的 code → 该题在本页**不显示**。⚠️ **待裁决**：v4.11「今天已不在配置里的维度整卡不显示」原靠物理删除判定，**软删后没有维度会消失**，该规则要么改判 `status = 'Deactivate'`、要么整条取消（§0.17-K1）—— **本项的 `test2` 是否应该显示取决于该裁决**。
-91. **（v4.12，L1 ~ L8）并发不变量与两处相反表述**：① 两个用户同时编辑同一份草稿、其中一个先提交 → 另一个的存草稿 / Reset **不得**把已提交记录写回草稿态，其作答与附件**不得**被删（`erl_assessment` 加 `@Version` + 写路径 `FOR UPDATE`，V4 脚本已执行）；② 管理员 A 加题、B 同时点发布 → 新题**不得**落进已发布版本，A 侧收到「刚被别人发布过、请重载」而不是 500；③ 差距分析生成期间又有人提交 → 内容照写但 `stale` **仍为 true**，且持锁者跑完会补跑（上限 2 轮），**不得**出现「`stale = false` 但内容漏了一次提交」；④ 提交 `dimensionCode = 'ZZZ'`（合法字符集但配置里没有；**2026-09-08**：`status = 'Deactivate'` 的维度**也算「没有」**）→ 接口 4 / 5 / 28 **全部 400**，库里不得出现该维度的行；⑤ 0 题维度点提交 → 400（文案含 `no questions`），且填报页整页空态、`Submit` 禁用；⑥ 生成门槛未达成的那 9/10 次提交 → **Sentry 里一条 ERROR 都没有**（只记 INFO）；⑦ 乐观锁冲突 → HTTP 200 + `success: false` + `changed by someone else` 文案，不是 500。
+90. **（v4.10 + v4.11；**2026-09-08 换存储机制 + 留一处待裁决**）C7 维度按发布当时的集合显示**：① 配置页只留 `test1 / test2 / test3` 三个维度 → Publish 得 `v{n}` → 再新增 `test4`、删除（软删）`test2`、把 `test3` 改名 `test3x` 并 Save → 回 C7 选 `v{n}`：**页体卡头仍是发布当时的名字**（`test3` 而非 `test3x`）、**`test4` 不出现**（不在发布当时的快照里）、卡片先后按发布当时的 `sortOrder`；② 抓包确认接口 26 出参含 `dimensions[]`（按 `sortOrder` 升序），接口 9 该字段**恒为 `null`**；③ **库里验证点换为**：`erl_question_config_dimension_version` 中该版本有 N 行，各行 `dimension_name` / `dimension_abbr` / `sort_order` / `question_version_no` 为**发布当时快照**（~~`dimension_config_version_id` 列~~ 已删）；④ 选中草稿版本时（无快照行）页体按**当前 `Active` 集合**渲染；⑤ 把某题目的 `dimension_code` 改成谁都没有的 code → 该题在本页**不显示**。⚠️ **待裁决**：v4.11「今天已不在配置里的维度整卡不显示」原靠物理删除判定，**软删后没有维度会消失**，该规则要么改判 `status = 'Inactive'`、要么整条取消（§0.17-K1）—— **本项的 `test2` 是否应该显示取决于该裁决**。
+91. **（v4.12，L1 ~ L8）并发不变量与两处相反表述**：① 两个用户同时编辑同一份草稿、其中一个先提交 → 另一个的存草稿 / Reset **不得**把已提交记录写回草稿态，其作答与附件**不得**被删（`erl_assessment` 加 `@Version` + 写路径 `FOR UPDATE`，V4 脚本已执行）；② 管理员 A 加题、B 同时点发布 → 新题**不得**落进已发布版本，A 侧收到「刚被别人发布过、请重载」而不是 500；③ 差距分析生成期间又有人提交 → 内容照写但 `stale` **仍为 true**，且持锁者跑完会补跑（上限 2 轮），**不得**出现「`stale = false` 但内容漏了一次提交」；④ 提交 `dimensionCode = 'ZZZ'`（合法字符集但配置里没有；**2026-09-08**：`status = 'Inactive'` 的维度**也算「没有」**）→ 接口 4 / 5 / 28 **全部 400**，库里不得出现该维度的行；⑤ 0 题维度点提交 → 400（文案含 `no questions`），且填报页整页空态、`Submit` 禁用；⑥ 生成门槛未达成的那 9/10 次提交 → **Sentry 里一条 ERROR 都没有**（只记 INFO）；⑦ 乐观锁冲突 → HTTP 200 + `success: false` + `changed by someone else` 文案，不是 500。
 
 ---
 
@@ -3089,7 +3131,7 @@ v4.0 从清单中删除：
 - **不做计分模式的可切换抽象**（v4.0 改）—— PRD 已把打分格式定档为 Yes/No 逐级解锁，只实现这一种；原 `ErlScoringStrategy` 策略工厂与 `SCORE_1_9` 模式**一并删除**（§7.2-②）。
 - **不做 1–9 分打分控件、题均分、手动维度分、软确认弹窗、每维状态摘要、Data Sources & Cadence**（v4.0 新增）—— PRD 2026-09-02 修订已把这六项的依据全部移除（§0.9-1 / -3 / -10 / -13）。
 - **不做「权重快照」**（v4.0 提出 → ~~v4.4 作废~~ → **2026-09-08 恢复生效**）—— 权重独立保存、**实时生效**，既不随题库版本快照、也不在 `erl_assessment` 上存每维权重快照；代价是**改权重会回溯改变历史期次的综合分与 Stage**（§7.10-W1 / §13-Q21）。~~v4.4：需求方裁决维度与权重整体版本化、期次绑定、历史永不漂移~~ → **2026-09-08 作废**：需求方选择**接受漂移**，`erl_dimension_config_version` 与 `erl_company_period_config` 两张表一并删除（§5.1.2 / §5.1.4）。
-- **不做维度的物理删除**（v4.4 提出 → ~~v4.8 作废改物理删~~ → **2026-09-08 恢复生效**）：配置页的「删除维度」是**软删**—— 置 `erl_dimension_config.status = 'Deactivate'`，**行与 `weight` 原样保留、可恢复**（§5.1.3 / §7.11-④）。~~v4.8：`status` 整列删除、历史安全靠期次-版本绑定~~ → **2026-09-08 作废**（期次绑定表已删，`status` 已加回并落库）。
+- **不做维度的物理删除**（v4.4 提出 → ~~v4.8 作废改物理删~~ → **2026-09-08 恢复生效**）：配置页的「删除维度」是**软删**—— 置 `erl_dimension_config.status = 'Inactive'`，**行与 `weight` 原样保留、可恢复**（§5.1.3 / §7.11-④）。~~v4.8：`status` 整列删除、历史安全靠期次-版本绑定~~ → **2026-09-08 作废**（期次绑定表已删，`status` 已加回并落库）。
 - **不做「有历史数据禁止删除维度」的前置拦截**（v4.4 新增，v4.8 / **2026-09-08** 仍成立）—— ~~历史数据靠期次绑定的旧配置版本自洽~~ → **2026-09-08 换依据**：**软删下行根本不消失**，历史提交仍能按 `dimension_code` 取到名称与缩写（另有 `erl_assessment` 行上的快照兜底），拦截没有保护对象；无需在删除前查引用、也无需二次确认之外的任何阻断。
 - **不做全局统一题库**（v4.0 改）—— 题库与权重**按组织（租户）**隔离（PRD §4）；组织内不再按公司细分，公司级覆盖仍不做。**题库版本化已按 2026-08-28 裁决纳入 V1**（§7.9）。
 - **不做撤回（已发布 → 草稿）、单维度发布、变更逐条勾选发布、定时发布、版本回滚与版本对比 UI** —— 依 2026-08-28 裁决，V1 只实现「改草稿 → 全量发布」一条路径（§7.9）。**v4.1 澄清**：只读的**版本历史页**（C7）已纳入 V1。**v4.2 再澄清**：C7 现在能按版本回看**那一版的整份题面**（接口 26），但仍**不含回滚、不含版本间 diff 视图**（两版并排比对、逐题标红绿都不做）——「能看某一版长什么样」与「能比较两版差在哪」是两件事，本条其余不变。
@@ -3101,7 +3143,7 @@ v4.0 从清单中删除：
 - 不做题库批量导入导出。
 - 不做 `SUBMITTED` 回退为 `DRAFT` 的重开流程 —— PRD 的口径是新建提交，不是重开。
 - ~~**不做「丢弃在填草稿」的接口**（`DELETE /erl/assessment/draft`）—— 代价见 §7.9-⑤：想换到最新题集必须**先提交旧草稿再新建**，历史会多一条记录。~~ → ❌ **v4.4 作废**（§0.10-D8）：PRD `08b7a32` 把填报页按钮组定档为 `Save as draft` / `Cancel` / `Reset` / `Submit`，**`Reset` 就需要这个接口** —— 已作为**接口 28** 纳入 V1，同时关闭 §13-Q23。
-- 不冗余存储展示用聚合分数（**综合分 / Stage / Era 全部实时算**；`level_score` / `terminated_level` / `unlocked_level` 落库是因为解锁进度是草稿期交互状态、必须持久化 —— **v4.4**：这三列已由 `erl_assessment_dimension` **上提到 `erl_assessment`**，理由见 §5.3 末段 / §0.10-R1）。~~**v4.4 澄清**：R2 快照的是期次与配置版本的绑定关系……~~ → **2026-09-08 删除**：无配置版本、无期次绑定，**维度与权重一律取当前 `Activate` 值**，综合分依旧实时算（因而会随配置变化而漂移）。
+- 不冗余存储展示用聚合分数（**综合分 / Stage / Era 全部实时算**；`level_score` / `terminated_level` / `unlocked_level` 落库是因为解锁进度是草稿期交互状态、必须持久化 —— **v4.4**：这三列已由 `erl_assessment_dimension` **上提到 `erl_assessment`**，理由见 §5.3 末段 / §0.10-R1）。~~**v4.4 澄清**：R2 快照的是期次与配置版本的绑定关系……~~ → **2026-09-08 删除**：无配置版本、无期次绑定，**维度与权重一律取当前 `Active` 值**，综合分依旧实时算（因而会随配置变化而漂移）。
 - 不新增 dva model（`src/models/` 已冻结）。
 - 不引入 SQS：Java 与 Python 走同步 HTTP 经网关。
 - 不接 Fireflies / SharePoint 作为 Goldie 数据源（~~PRD §3.6 明确为后续~~ → **v4.4 改标依据**：PRD `273671a` 已删「已知 TBD 与 MVP 备选方案」整段，现理由为 **PRD 未要求**，§0.10-D21）。
@@ -3151,7 +3193,7 @@ v4.0 从清单中删除：
 
 | # | 对应 PRD | 问题 | 影响 | 本设计取值 / 建议 |
 |---|---|------|------|------|
-| **Q24** | §3.8（动态维度，`0333162`） | ✅ **已关闭（需求方 2026-09-07 裁决，v4.8）**：~~配置页是否要在 UI 上显式区分 `Delete` 与 `Retire`？是否允许物理删除「从未被任何期次绑定过」的维度？~~ | ~~结论落到数据模型：`status` 整列删除、物理删除~~ → **2026-09-08 反转**：`erl_dimension_config.status` **重新加回并落库**（`Activate` / `Deactivate`），**删除 = 软删**；配置页 UI 仍只留一个删除动作（不区分 Delete / Retire），只是落库语义从删行改为置 `Deactivate`；历史**记录**仍可查，但历史**分数会漂移**（§13-Q21） | ~~取值：不区分，只有 `Delete`，且无条件允许**物理删除**~~ → **2026-09-08 反转为：UI 仍只有 `Delete` 一个动作（不区分 Delete / Retire），但落库是软删（`status = 'Deactivate'`，行与 `weight` 保留、可恢复）；`ErlDimensionConfigStatusEnum` 改回**落库枚举**。仍不做「有历史数据禁止删除」的前置拦截 —— 但依据换成「软删下行不消失」**（不限于「从未被绑定过」的维度）。配置页垃圾桶 + 二次确认删掉一行、右上角 `Save` 后该维度即不在新配置版本里；历史安全**完全由 `~~erl_company_period_config~~（**2026-09-08 已删表**）` 的期次-版本绑定保证**（旧版本 item 行原样保留），**不需要软删这层**。`ErlDimensionConfigStatusEnum` 保留但降级为纯派生的展示态（§0.14 / §5.1.3 / §7.11-④）；仍**不做**「有历史数据禁止删除」这类前置拦截（§12） |
+| **Q24** | §3.8（动态维度，`0333162`） | ✅ **已关闭（需求方 2026-09-07 裁决，v4.8）**：~~配置页是否要在 UI 上显式区分 `Delete` 与 `Retire`？是否允许物理删除「从未被任何期次绑定过」的维度？~~ | ~~结论落到数据模型：`status` 整列删除、物理删除~~ → **2026-09-08 反转**：`erl_dimension_config.status` **重新加回并落库**（`Active` / `Inactive`），**删除 = 软删**；配置页 UI 仍只留一个删除动作（不区分 Delete / Retire），只是落库语义从删行改为置 `Inactive`；历史**记录**仍可查，但历史**分数会漂移**（§13-Q21） | ~~取值：不区分，只有 `Delete`，且无条件允许**物理删除**~~ → **2026-09-08 反转为：UI 仍只有 `Delete` 一个动作（不区分 Delete / Retire），但落库是软删（`status = 'Inactive'`，行与 `weight` 保留、可恢复）；`ErlDimensionConfigStatusEnum` 改回**落库枚举**。仍不做「有历史数据禁止删除」的前置拦截 —— 但依据换成「软删下行不消失」**（不限于「从未被绑定过」的维度）。配置页垃圾桶 + 二次确认删掉一行、右上角 `Save` 后该维度即不在新配置版本里；历史安全**完全由 `~~erl_company_period_config~~（**2026-09-08 已删表**）` 的期次-版本绑定保证**（旧版本 item 行原样保留），**不需要软删这层**。`ErlDimensionConfigStatusEnum` 保留但降级为纯派生的展示态（§0.14 / §5.1.3 / §7.11-④）；仍**不做**「有历史数据禁止删除」这类前置拦截（§12） |
 | **Q25** | §3.8（题目字段）→ ~~回写 **M11**~~（已关闭） | ✅ **已关闭（需求方 2026-09-06 裁决，v4.9 补登）**：~~🟡 `criteria`（每题的单段判定标准）在 PRD 中已无任何依据，是保留为设计自创字段，还是从 Goldie 输入中移除？~~ **原问题存档**：PRD `273671a` 删掉「ERL Workbook 各 Stage/维度准入准则」后，`criteria` 失去最后一个 PRD 锚点；而 PRD §3.8 的题目字段只采集「题干 / Era Band / Source」，配置页**根本没有产生它的地方** | 三处影响均已落地：① Goldie 的判断依据收敛为**题干 + 逐题 Yes/No + 双端备注 + level 口径**，prompt 升 v1.1 并加「不得编造判定标准原文」的反向约束（§6.6）；② C2/C3 表单**取消**该输入框（§11-24c 已反转）；③ A5「How It's Scored?」弹窗**整块删除**（§8.4） | **取值：判定标准不进需求设计 —— 从 Goldie 输入中移除**（~~V1 保留该字段~~ **作废**）。`erl_question_config.criteria` 整列删除、接口 10 / 12 入参与接口 2 / 8 / 9 / 22 / 26 出参删除、A5 弹窗与 `ScoringCriteriaModal` 删除；**回写 M11 随之关闭 —— PRD §3.8 无需补该字段**。逐条见 **§0.15** |
 
 ---
