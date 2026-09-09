@@ -125,7 +125,7 @@ Excel 原生缩进 `alignment.indent` 折算进同一个属性，口径见 §6.3
 **③ `verify.py` 读的是单表扁平契约。** 它现在从 answer 顶层取 `label_range` /
 `header_row` / `date_columns`，而 D7 把这些移进了 `tables[]`（§5.1）。9 组自由校验本身
 逻辑不变，但要**改成逐表跑一遍**，并补上 §7.2 的三条多表验伪。提示词随之
-升版号为 `excel_extract_locate.v2.md`（出参契约变了才升版，见
+升版号为 `excel_extract_locate.v3.md`（出参契约变了才升版，见
 [开发设计 §9.2](../开发设计/dev-design-doc.md)）。
 
 ---
