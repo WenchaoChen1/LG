@@ -66,7 +66,7 @@ organization                 表 organization，PK = id，pid 自引用（递归
 
 ---
 
-## 2. 核心问题一："我在哪个组织"有 6 个互不相同的实现
+## 2. 核心问题一："我在哪个组织"有 6 处各自独立的实现
 
 这是本次调研最重要的发现。同一个语义问题，系统里有六个答案：
 
@@ -240,8 +240,8 @@ organization                 表 organization，PK = id，pid 自引用（递归
 | `ai_trace_span` | 链路节点上下文 | 经 trace 反查 |
 | `ai_rag_search_log` | 用户原始提问 | 仅有 user_id + 空间 ID 数组 |
 | `ai_rag_operation_log` | RAG 写操作审计 | 仅有空间 ID |
-| `ai_rag_space` | 知识库空间 | **归属表已被 V005 整表删除，现为"全局资产"** |
-| `ai_rag_fin_report_chunk` / `ai_rag_playbook_chunk` | 财报与方法论向量分段 | 无业务列 |
+| `ai_rag_space` | 知识库空间 | 经 `ai_r_business_association_space` → `ai_rag_business_association` 反查（后者带 `organization_id` / `company_id` / `user_id`，service 校验至少一个非空）。旧 binding 表被 V005 删除是历史，新机制已补上 |
+| `ai_rag_fin_report_chunk` / `ai_rag_playbook_chunk` | 财报与方法论向量分段 | 无业务列，但 `space_id` 非空且建了索引（`RagChunkBase`）→ 空间 → 业务关联，两跳可反查 |
 | `ai_financial_extraction_mapping_data` | 逐单元格解析结果与编辑痕迹 | 经文件反查 |
 | `ai_financial_extraction_task_state_log` | 任务状态机事件 | 经任务反查 |
 | `r_financial_normalization`（63 万行） | 归一化财务明细关联 | 两跳 JOIN |
@@ -312,7 +312,7 @@ organization                 表 organization，PK = id，pid 自引用（递归
 | 阶段 | 目标 | 关键交付 | 相对量级 |
 |---|---|---|---|
 | **优先项（阻断）** | 身份不可伪造 | 轮换签名密钥与全部凭据、清理 git 历史、下线或收敛口令回吐接口、移除可逆口令副本 | 小 |
-| **第 1 步：租户模型** | 让"租户"可查询 | `organization` 租户标记列 + 标定；6 个实现收敛为 1 个可信来源并入认证链；补租户一致性约束 | 小 |
+| **第 1 步：让租户归属可信** | 租户键已在表上，让它变成唯一可信来源 | **6 处各自独立的实现**收敛为 1 个并入认证链；补子树一致性约束（**无需加列、无需标定**） | 小 |
 | **第 2 步：服务端强制（→ 第 2 档）** | 客户端不能再决定看谁的数据 | 40 个接口改服务端解析；2 处倒挂修复；授权链改子树展开；Python 作用域收敛；前端统一租户上下文；替换「company_id 为空 ⟺ 超管」不变式 | **最大** |
 | **第 3 步：框架级强制（→ 第 3 档）** | 漏写即拒绝 | 统一过滤机制；13 张无租户键表归属方案 | 中 |
 | **第 4 步：租户运营** | 可开通、可注销、可管理 | 开通向导（版本化种子）、注销级联、组织级权限管理 UI（多为改造非新建，见 §10.4） | 中 |
@@ -478,7 +478,7 @@ organization                 表 organization，PK = id，pid 自引用（递归
 | `docs/智能解析/调研/python-design.md:1153` | "复用现有 `fi_*` 的 RLS 策略（按 company_id 隔离）" | **RLS 零实现**，且引用的 `fi_*` 表在全仓 SQL 中**一张都不存在** |
 | `docs/智能解析/调研/database-schema.md:740-762` | GDPR 擦除审计表 | **零实现** |
 | `docs/智能解析/调研/system-architecture.md:122` | Python 承载"全部审计日志表"（5 张） | **只有任务状态流水表落地** |
-| 向量库 V001 列注释 | "tenant isolation via space binding" | binding 表已被业务库 V005 `DROP` |
+| 向量库 V001 列注释 | "tenant isolation via space binding" | binding 机制已由 `ai_r_business_association_space` 重建，但召回路径没用它 |
 
 **清理这些描述本身就是 SOC 2 准备工作的一部分。**
 
@@ -498,7 +498,7 @@ organization                 表 organization，PK = id，pid 自引用（递归
 | ~~1-2~~ | ~~标定租户节点~~ | — | **不需要** | 同上：每个组织节点都是租户 |
 | 1-3 | 租户 id 进认证链 | Java | 4 个类：`JwtTokenProvider` / `UserContext` / `UserInfoCache` / `OAuthTokenController` | 签发时写入 + 会话结构扩展 |
 | 1-4 | Python 读取契约同步 | Python | `auth_store.AuthUser` 加字段，1 处 | |
-| 1-5 | **收敛 6 个"我在哪个组织"实现** | 三端 | Java 3 处（`findOrganizationIdByUserId` / `UserDetailsServiceImpl` / `getCurrentOrganization`，后者有 2 份复制）+ Python 1 处（`company_service` 取 `organizations[0]`）+ 前端 2 处（`firstLeafOrgId`、13 处 `data[0].id`） | 本步的主体工作 |
+| 1-5 | **收敛 6 处"我在哪个组织"实现** | 三端 | Java 3 处（`findOrganizationIdByUserId` / `UserDetailsServiceImpl` / `getCurrentOrganization`，后者有 2 份复制）+ Python 1 处（`company_service` 取 `organizations[0]`）+ 前端 2 处（`firstLeafOrgId`、13 处 `data[0].id`） | 本步的主体工作 |
 | 1-6 | **子树一致性约束**（DDL + 写入校验） | Java + SQL | 2 个写入点（`CompanyServiceImpl` 的 `update` / `inviteCompany`） | 见 §1.2：约束是"多归属不得越出同一棵子树"，**不可加"一公司一组织"式唯一约束** |
 | 1-7 | `findAllByCompanyId` 补 `ORDER BY created_at` | Java | **1 行** | 与页面树口径对齐，见 §1.2 |
 

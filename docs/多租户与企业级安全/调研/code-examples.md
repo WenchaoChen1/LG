@@ -366,14 +366,14 @@ Python 侧在 `source/`、`sql/`、`scripts/` 检索 `SET ROLE` / `row level sec
 | `ai_chatbot_message` | 业务 | **全部对话正文 + 附件绑定** | `thread_id`（thread 的 company_id 可能为 NULL） |
 | `ai_llm_conversation` | 业务 | **完整 system/user/assistant 全文 + `msg_full_json`** | `call_log_id`（有 CASCADE） |
 | `ai_trace_span` | 业务 | 链路节点上下文 | `trace_id` |
-| `ai_rag_space` | 业务 | 知识库空间 | **归属表已被 V005 `DROP`** |
+| `ai_rag_space` | 业务 | 知识库空间 | `ai_r_business_association_space.space_id` → `ai_rag_business_association`（带 org / company / user id）。旧 binding 表被 V005 `DROP` 已由此机制取代 |
 | `ai_rag_storage_connection` | 业务 | 存储连接（含加密凭据） | 全局，注释 `global, no company ownership` |
 | `ai_rag_search_log` | 业务 | **检索日志（含用户原始提问）** | 注释：`tenant scope carried by user_id + space_ids (no company_id)` |
 | `ai_rag_operation_log` | 业务 | RAG 写操作审计 | 注释：`tenant scope via space_id (no company_id)` |
 | `ai_r_business_association_space` | 业务 | 关联↔空间明细 | `association_id` |
 | `ai_rag_playbook` / `_version` | 业务 | 全局方法论库 | 设计即全局 |
-| `ai_rag_fin_report_chunk` | 向量 | **财报向量分段（含正文）** | 仅 `company_ref`，注释明确是 business metadata 非过滤键 |
-| `ai_rag_playbook_chunk` | 向量 | Playbook 向量分段 | 注释：「零业务列」 |
+| `ai_rag_fin_report_chunk` | 向量 | **财报向量分段（含正文）** | `company_ref` 注释明确非过滤键；归属走 `space_id`（非空 + `idx_fin_report_chunk_space`）→ 空间 → 业务关联 |
+| `ai_rag_playbook_chunk` | 向量 | Playbook 向量分段 | 注释「零业务列」；归属同上走 `space_id`（+ `idx_playbook_chunk_space`） |
 
 ---
 

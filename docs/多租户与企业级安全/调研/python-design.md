@@ -67,7 +67,7 @@ memory 是唯一在代码里写明"这是不可信输入"的模块（`memory/app
 
 ## 3. RAG：租户隔离最薄弱的一块
 
-### 3.1 空间是"全局资产"
+### 3.1 归属链存在，但检索路径把空间当"全局资产"
 
 `rag/interfaces/routes.py:104-110` 的 `_require_admin` 共 **19 个挂载点**，覆盖全部写操作 + 4 个 playbook 相关的 GET（`/playbook/ingest/status`、`/playbook/versions`、版本节点、版本 diff）。**空间与条目的读操作则只有 `Depends(get_current_user)`**：
 
@@ -76,6 +76,8 @@ memory 是唯一在代码里写明"这是不可信输入"的模块（`memory/app
 - service 侧显式传 `company_id=None`（`rag/application/service/stats_service.py:100-108`），模块头 `:5-7` 写明"文档读不按公司过滤"
 
 可见性解析 `rag/application/service/search_service.py:418-450` 注释原文："旧空间租户归属表删除后空间为全局资产：space 存在且未软删即 granted" —— **没有任何 company / org / user 条件**。
+
+> ⚠ **但数据模型上归属是可查的**：`ai_r_business_association_space` → `ai_rag_business_association`（带 `organization_id` / `company_id` / `user_id`，service 校验至少一个非空），分段表的 `space_id` 非空且建索引。该关联服务在 `routes.py:1011-1082` 只用于关联的增删改查，**没进召回路径**。所以这里的缺口是**授权没走已有的链**，不是“缺归属字段”。
 
 ### 3.2 `POST /recall` 是最直接的越权面
 
@@ -164,9 +166,11 @@ Java 侧实现 `CompanyGroupRepository.java:51-56` 是 **`cg.organization_id = :
 
 **以 organization 为租户时，这些表必须靠 company → org 反查才能归属——而那条反查链正是 §5 里那条不递归的链。**
 
-### 6.3 两个都没有（归属完全不明）
+### 6.3 两个都没有（无自己的归属列）
 
 `ai_rag_space`、`ai_rag_fin_report_chunk`、`ai_rag_playbook_chunk`、`ai_rag_search_log`（含用户原始提问）、`ai_rag_operation_log`、`ai_chatbot_message`（全部对话正文）、`ai_trace_span`、`ai_rag_playbook` / `_version`、`ai_llm_conversation`（**完整提示词与回复全文**）。
+
+> ⚠ **无归属列 ≠ 查不出归属。** 其中知识库那几张（`ai_rag_space` 与两张分段表、两张日志表）可经 `space_id` → `ai_r_business_association_space` → `ai_rag_business_association`（带 `organization_id` / `company_id` / `user_id`）反查，**每跳都有索引**，不需新增字段；真正无可靠反查键的是 `files`。这里的缺口在 §3.1：**召回路径不走这条已有的链**。
 
 > ⚠️ 迁移注释与现实不符：向量库 V001 对分段表的列注释写着"tenant isolation via space binding, no company_id here"，而那张 binding 表已在业务库 V005 被 `DROP TABLE`。
 
@@ -210,7 +214,7 @@ Java 侧实现 `CompanyGroupRepository.java:51-56` 是 **`cg.organization_id = :
 |---|---|---|
 | `python/CIOaas-python/CLAUDE.md`、`rag/CLAUDE.md` | chatbot 检索圈定由 `ai_file_registry.list_kb_space_ids` 驱动，标为"安全关键" | 已改走 `business_association_service.find_chat_space_id` + 分段行级过滤；`search_service.py:355-376` 的该分支**零调用方，是未测死代码** |
 | `rag/CLAUDE.md` | 分段表"不存 company_id" | `EnterpriseKbChunk` 自向量库 V003 起已有 `company_id` / `created_by` / `thread_id` 并**参与召回过滤** |
-| 向量库 V001 列注释 | "tenant isolation via space binding" | binding 表已被业务库 V005 删除 |
+| 向量库 V001 列注释 | "tenant isolation via space binding" | binding 机制已由 `ai_r_business_association_space` 重建，但**召回路径没用它**（见 §3.1） |
 | **`rag/domain/repository/chunk_repository.py:109-110` docstring** | "**无 company_id 过滤**：租户隔离由调用方按 company 圈定 space 范围保证（chunk 表已不存 company_id 列）" | **同一文件 `:79-80` 正在执行 `company_id.in_(...)`**。这条漂移在**代码本体**里，比 CLAUDE.md 的漂移更危险——照 docstring 改动召回逻辑会直接拆掉现有的行级过滤 |
 
 ---
