@@ -2,14 +2,15 @@
 
 ## 一、背景与目标
 
-Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司「退出准备度」的一整套功能。它替代原有的 Development Intelligence（DI）板块，通过创始人（Founder）与 GSV 团队各自独立完成的季度评估，从 5 个维度对公司当前阶段进行打分，识别双方感知差距（Perception Gap），并在 Goldie（AI）的辅助下生成差距分析与行动建议，最终帮助 GS 团队与被投公司共同推进退出准备。
+Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司「退出准备度」的一整套功能。它替代原有的 Development Intelligence（DI）板块，通过创始人（Founder）与 GSV 团队各自独立完成的季度评估，从 5多个维度对公司当前阶段进行打分，识别双方感知差距（Perception Gap），并在 Goldie（AI）的辅助下生成差距分析与行动建议，最终帮助 GS 团队与被投公司共同推进退出准备。
 
-**5 个 ERL 维度**：
+**5 个 ERL 维度（当前）**：
 - FRL：财务准备度（Financial Readiness）
 - PRL：产品准备度（Product Readiness）
 - BERL：品牌资产准备度（Brand Equity Readiness）
 - RRL：风险准备度（Risk Readiness）
 - TRL：人才准备度（Talent Readiness）
+- Note: 维度可配置
 
 **9 级阶段（分三个纪元/Era）**：
 - Founder Era：Stage 1–3
@@ -20,7 +21,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 
 ## 二、业务闭环流程
 
-1. 管理员在 **ERL Configuration** 中维护 5 个维度的题库、纪元归属、来源标签、问题类型、打分标准及必答顺序。
+1. 管理员在 **ERL Configuration** 中维护维度信息（当前是5个）、维度权重、各个维度的题库、纪元归属、来源标签、问题类型、打分标准及必答顺序。
 2. 创始人在 **Founder Flow** 中独立完成季度自评；GSV 团队在 **GSV Flow** 中独立完成同题库的评估。
 3. 每次提交生成一条带时间戳的只读记录（同一季度允许多次提交，最新一次为 source of truth）。
 4. 双方分数计算生成 **ERL Scorecard 与 Radar Chart**：包含各维度分数、综合分数、当前 Stage、Perception Gap。
@@ -34,22 +35,27 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 
 ### 1. ERL Card 与公司概览导航（Company Overview）
 
-**决策**：采用原型中Example 2单卡片方案。
+**决策**：采用原型中Example 2单卡片方案。https://lovable.dev/projects/c0fe1ad4-229b-4020-b2ed-1a3991662787
 
 **功能描述**：
 
 - Company Overview 页原有的 DI 卡片放在FI卡片下；DI 数据、打分保留概览信息和入口。
 - 原 DI 卡片位置由新的 ERL 卡片替代，卡片直接展示完整聚合评分内容：
-  - 综合分数（Overall Score）: 按照ERL configuration页面配置的维度的权重算分
-  - 当前 Stage
+  - 综合分数（Overall Score）: 按照ERL configuration页面配置的各维度的权重计算，总分为9分，各维度得分*权重后再相加得到ERL总分
+  - 当前所在 Stage：按照分数，匹配上述九级阶段得到
   - Gap Analysis & Suggested Actions 摘要
-  - ERL 维度列表（含各维度分数：回答问题时该维度最后一个全部Yes的level的level为此维度得分；Perception Gap：Founder和GSV每个维度的分数差）
-    - 数据来源：closed month所在季度的评价
+  - ERL 各维度列表:
+    - 各维度closed month所在季度的ERL分数
+    - 各维度所在阶段
+    - 各维度Perception Gap：Founder和GSV每个维度的分数差  
   - BPMM（TBD）
-  - 各维度雷达图
-- **不设独立 Exit Readiness 落地页**；ERL 卡片是唯一入口。
-- 卡片内提供每个维度的「View Details」入口，直接跳转到该维度的 Score Details 页。
-- ERL 卡片及后续页面对当前可访问 Company Overview 的角色开放（具体权限子集待确认）。
+  - 雷达图
+    - 各维度为点
+    - Founder填写的closed month所在季度的各维度的分数
+    - GSV填写的closed month所在季度的各维度的分数
+    - 手动输入的Top GSV Quartile的closed month所在季度的各维度的分数
+    - 手动输入的External Benchmarks的closed month所在季度的各维度的分数
+
 
 ---
 
