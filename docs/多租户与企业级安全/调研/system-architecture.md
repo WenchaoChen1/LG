@@ -525,7 +525,7 @@ organization                 表 organization，PK = id，pid 自引用（递归
 | # | 改动项 | 端 | 规模 |
 |---|---|---|---|
 | 2-1 | **授权链改子树展开（子租户硬要求，不可延后）** | Java | `findVisibleCompanies` 1 条 SQL + 全部调用方；递归 CTE `findByTreeInId` 已存在可直接用 | 不改则父租户看不到子租户数据（功能缺失），且传任意 `organizationId` 可读任意租户（越权） |
-| 2-2 | **替换「`company_id` 为空 ⟺ 超管」不变式** | Java + Python | **4 个模块**：Java 登录链、chatbot 端类型判定、rag `_require_admin`、financial_extract ACL。**本步风险最高的一项** |
+| 2-2 | **替换「`company_id` 为空 ⟺ 超管」不变式** | Java + Python | **4 个模块，均在 Python 侧**：financial_extract ACL（`task_manage_service.py:47-53`）、rag `_require_admin`（`routes.py:104-109`）、chatbot 端类型与身份模拟（`sse_provider.py:113,286`）、file_registry 端类型（`file_registry_service.py:343,463,553`）。Java 判端用 `roleType`，只是 `company_id` 的写入方。**本步风险最高的一项** |
 | 2-3 | Python 组织作用域收敛 | Python | 7 个模块：memory / file_registry / chatbot manage / financial_extract / tracing / llm / rag |
 | 2-4 | Python `list_org_companies` 链改子树 | Python | 1 条链 |
 | 2-5 | rag 读路径补归属 | Python | 4 个端点（`/spaces`、`/spaces/{id}/chunks`、`/entries/{id}/chunks`、`/recall`） |
