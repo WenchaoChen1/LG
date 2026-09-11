@@ -139,7 +139,7 @@
 
 | 编号 | 测试用例名称 | 前置条件 | 测试步骤 | 预期结果 |
 |---|---|---|---|---|
-| TC-001 | 新增维度 | 以 Portfolio Manager 登录进入 ERL Configuration，当前为 FRL/PRL/BERL/RRL/TRL 五个默认维度 | 点击新增维度入口 | 弹出新增维度表单，含维度名称、缩写等字段 |
+| TC-001 | 新增维度 | 以 Portfolio Group Manager 登录进入 ERL Configuration，当前为 FRL/PRL/BERL/RRL/TRL 五个默认维度 | 查看新增维度入口 | 新增维度表单，含维度名称、缩写等字段 |
 | | | | 输入维度名称 Governance Readiness、缩写 GRL 并确认 | 新增第 6 个维度 Tab GRL，题库为空，维度数量不再固定为 5 个 |
 | | | | 查看权重设置区 | 权重输入项由 5 项变为 6 项，新增 GRL 权重项，合计校验重新计算 |
 | | | | 查看 Save 按钮状态 | Save 按钮激活 |
@@ -147,15 +147,15 @@
 | | | | 输入与已有维度重复的缩写 FRL 并确认 | 提示缩写已存在，不允许重复，无法保存 |
 | | | | 输入超长维度名称（如 200 字符）并确认 | 按上限截断或提示超出长度限制，Tab 展示不破版 |
 | | | | 输入含特殊字符与中英混排的维度名称并确认 | 按纯文本原样保存与展示，无乱码、无脚本执行 |
-| TC-003 | 未 Publish 的维度可直接删除 | 已新增维度 GRL 且尚未 Publish | 查看 GRL 维度的操作入口 | 显示删除（Delete）入口，不显示 Deactivate 入口 |
+| TC-003 | 未 Publish 的维度可直接删除 | 已新增维度 GRL 且尚未 Publish | 查看 GRL 维度的操作按钮| 显示Edit，Delete按钮 |
 | | | | 点击删除并确认 | GRL 维度被移除，Tab 数量回到 5，权重输入项回到 5 项 |
 | | | | 进入 Founder Flow 与 GSV Flow 查看维度分组 | 均不出现 GRL 维度，未发布的删除不留痕 |
-| TC-004 | 已 Publish 的维度不可删除（反向） | GRL 维度已 Publish | 查看 GRL 维度的操作入口 | 无删除入口，仅提供 Deactivate 入口 |
+| TC-004 | 已 Publish 的维度不可删除（反向） | GRL 维度已 Publish | 查看 GRL 维度的操作按钮 | 显示 Edit，Deactivate 按钮 |
 | | | | 尝试通过接口或 URL 直接删除已 Publish 的 GRL 维度 | 请求被拒绝并提示已发布维度只能停用，维度与其历史数据不被删除 |
-| | | | 依次查看 FRL 等其余已 Publish 维度的操作入口 | 同样仅有 Deactivate，无删除入口 |
+| | | | 依次查看 FRL 等其余已 Publish 维度的操作入口 | 同样仅有Edit， Deactivate，无Delete按钮 |
 | TC-005 | Deactivate 已 Publish 的维度 | 6 个维度均已 Publish，权重为 FRL25%/PRL20%/BERL15%/RRL15%/TRL15%/GRL10% | 点击 GRL 的 Deactivate 并确认 | GRL 标记为 Deactivated，提示需重新分配权重 |
 | | | | 查看权重设置区 | GRL 权重项移除，剩余 5 个维度合计为 90%，保存按钮置灰 |
-| | | | 将剩余 5 维度权重调整为合计 100% 后 Publish | 保存成功，发布为新版本 |
+| | | | 将剩余 5 维度权重调整为合计 100% 后 保存 | 保存成功 |
 | | | | 发起新一轮 Founder Flow 与 GSV Flow | 评估表中不再出现 GRL 维度及其题目 |
 | | | | 查看 ERL 卡片维度列表、雷达图与 Portfolio ERL Tab | 维度列表与雷达图顶点不含 GRL，Portfolio 表格不含 GRL 列，综合分仅按启用维度权重计算 |
 | TC-006 | Deactivate 后历史数据完整保留 | GRL 已 Deactivate，此前存在含 GRL 的历史提交与历史分数 | 进入 Assessment History 查看历史记录 | 含 GRL 的历史提交完整保留，未被删除或隐藏 |
@@ -163,11 +163,10 @@
 | | | | 核对该历史记录的综合分 | 保持提交时的计算结果，不因维度停用而被重算或清零 |
 | TC-007 | 重新 Activate 已停用的维度（双向验证） | GRL 处于 Deactivated 状态 | 点击 GRL 的 Activate 并确认 | GRL 状态恢复为启用 |
 | | | | 查看权重设置区 | GRL 权重项恢复显示，合计校验重新包含 GRL，未达 100% 时保存按钮置灰 |
-| | | | 调整权重至合计 100% 后 Publish，再发起新一轮评估 | GRL 题目重新出现，题库沿用停用前的已发布版本 |
+| | | | 调整权重至合计 100% 后 保存，再发起新一轮评估 | GRL 题目重新出现，题库沿用停用前的已发布版本 |
 | | | | 查看 ERL 卡片、雷达图与 Portfolio ERL Tab | GRL 维度、雷达图顶点与表格列恢复显示 |
-| TC-008 | Deactivated 维度在配置页的展示与可操作范围 | GRL 处于 Deactivated 状态 | 查看 GRL 的 Tab 视觉状态 | Tab 标记为 Deactivated（置灰或状态标签），与启用维度可区分 |
-| | | | 查看 GRL 的操作入口 | 仅提供 Activate，仍不提供删除入口 
-| TC-009 | 维度数量变化联动全链路并按新权重计分（公式验证） | 新增维度 GRL 并 Publish；权重为 FRL=25%、PRL=20%、BERL=15%、RRL=15%、TRL=15%、GRL=10%（合计 100%）；某公司维度分数为 FRL=8、PRL=6、BERL=4、RRL=5、TRL=3、GRL=7 | 发起并提交该公司的 Founder Flow | 评估表出现 6 个维度分组，GRL 题目可正常作答与提交 |
+| TC-008 | Deactivated 维度在配置页的展示与可操作范围 | GRL 处于 Deactivated 状态 | 查看 GRL 的 Tab 视觉状态 | GRL 的 Tab不显示 |
+|  TC-009 | 维度数量变化联动全链路并按新权重计分（公式验证） | 新增维度 GRL 并 Publish；权重为 FRL=25%、PRL=20%、BERL=15%、RRL=15%、TRL=15%、GRL=10%（合计 100%）；某公司维度分数为 FRL=8、PRL=6、BERL=4、RRL=5、TRL=3、GRL=7 | 发起并提交该公司的 Founder Flow | 评估表出现 6 个维度分组，GRL 题目可正常作答与提交 |
 | | | | 查看 ERL 卡片的维度列表与雷达图 | 维度列表显示 6 行，雷达图显示 6 个顶点且明确标注 GRL |
 | | | | 查看 ERL 卡片的 Composite Score | 显示 5.7/9（计算：8×0.25+6×0.20+4×0.15+5×0.15+3×0.15+7×0.10 = 2.0+1.2+0.6+0.75+0.45+0.7 = 5.7） |
 | | | | 查看 Portfolio ERL Tab 表格 | 表格新增 GRL 列，该列可参与排序与筛选 |
