@@ -69,7 +69,18 @@
 
 > **`company_id` 为空 ⟺ 超级管理员**
 
-它被 Java 登录链、Python chatbot 端类型判定、RAG 写操作闸门、财务提取 ACL **四个模块当作硬前提**依赖，并且在多处代码注释中被显式写为"平台不变式，不变式破产属平台级问题"。
+它被 **4 个模块当作硬前提**依赖，且 **四处全在 Python 侧**：
+
+| # | 模块 | 位置 | 怎么依赖 |
+|---|---|---|---|
+| 1 | 财务提取任务管理 | `financial_extract/application/service/task_manage_service.py:47-53` | `company_id` 非空→强制圈定本公司；为空→**原样放行不过滤** |
+| 2 | 知识库写操作闸门 | `rag/interfaces/routes.py:104-109` | `_require_admin`：`if ctx.company_id: raise forbidden` |
+| 3 | chatbot 端类型 + 身份模拟 | `chatbot/application/sse_provider.py:113,286` | `is_company = bool(ctx.company_id)`；身份模拟仅在为空时放行 |
+| 4 | 文件登记端类型判定 | `file_registry/application/service/file_registry_service.py:343,463,553` | `end_type = "APP" if ctx_company_id else "ADMIN"` |
+
+第 1 处的注释把它显式写作"平台不变式，不变式破产属平台级问题、不在本域特判"，并点名了另两处同口径的模块——即四处都不自己兜底。
+
+> ⚠ **Java 侧不在这四处里。** Java 判端用的是 `roleType <= 1`（`ErlAccessServiceImpl:33,48`），它是**向 Redis 会话写入 `company_id` 的一方**，而不是消费这条不变式的一方。两端对"谁是管理端"的判定口径本来就不一致（`roleType` vs `company_id` 是否为空），这本身也是一个隐患。
 
 它与"每个组织都是租户"直接冲突，而且**不需要等新客户**——只要给现有 5 个组织中的任何一个配一个不绑定具体公司的管理员，他立刻就是平台超管：
 
