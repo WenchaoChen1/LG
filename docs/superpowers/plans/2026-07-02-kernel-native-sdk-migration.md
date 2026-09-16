@@ -3,6 +3,8 @@
 > 日期：2026-07-02　范围：`CIOaas-python/source/llm/infrastructure/kernel/`（分支 sprint113）
 > 性质：根治「langchain 传输税」——三类问题（流式 cost 丢失 / usage 补帧 / token 双发）一次性从结构上消灭。
 > 依据：5 维度并行代码调查（openai_compat 依赖清单 / anthropic_native 依赖清单 / 边界契约面 / 原生 SDK 可行性实测 / 回归面），关键前提均有 file:line 或 .venv 实测证据。
+>
+> **执行状态（2026-09-16 补记）**：Phase 3 中「删 `_AnswerEchoFilter` 消费端补丁」一项已执行完毕（两轨调用点 + 专项单测 + 相关文档同批清理）。本文下文对该补丁的描述属**迁移前现状 / 目标状态**，非当前状态。
 
 ---
 

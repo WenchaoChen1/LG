@@ -4,6 +4,8 @@
 
 > 关联文档: [方案设计 spec](../specs/2026-07-05-chatbot-knowledge-base-qa-design.md)
 
+> ⚠️ **本计划已执行完毕，文中骨架代码仅存历史记录，勿照抄**——代码以 `CIOaas-python/source/ai/agent/chatbot_kb_graph/` 现状为准。已知过时点：① `_AnswerEchoFilter` 已于 2026-09-16 下线（token 双发根因已根治）；② 前端三档模式选择器与斜杠命令已拆除，选图只看 payload `agent_mode`。
+
 **Goal:** chatbot 能基于知识库文档回答（进程内直调 RAG recall），并提供三个独立智能体：默认 standard（业务+KB 兜底）/ 纯知识库 kb / 组合 combo（dispatch 分诊，可双场景作答）。
 
 **Architecture:** 三张图三个 build 函数并列在 `chatbot_graph/build.py`，共用 guardrail/init/ChatState/横切件；KB 检索是一个 `@tool`（`search_knowledge_base`），进程内调 `rag.search_service.recall`（加 `caller_type`/`empty_scope_ok` 参数 + service 层 to_thread 阻塞治理）；`sse_provider` 按 payload `agent_mode` 选图；前端聊天页加 3 档模式选择器。
