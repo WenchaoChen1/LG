@@ -147,7 +147,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 
 **功能描述（评分与计算）**：
 - 每个维度分数：由该维度内各题分数计算得出（**具体计算方法**：初步为各题平均）。
-- **综合 ERL 分数** = 5 个维度分数的简单平均，以 X/9 形式显示。
+- **综合 ERL 分数** = 按照各维度权重计算
 - **当前 Stage（1–9）**：由综合分数与 Workbook 中的 Era 边界推导。
 - **Perception Gap（仅Porfolio portal）**：（每维度）= Founder 分 − GSV 分；正值 = 创始人自评更高，负值 = GSV 更高。
 - **Full View (仅Company portal)**：点击进入Score details 页面，该页面包含五个维度的最新版的问题记录，每个维度包括一个Add New按钮和一个View History链接，可以查看每个维度的问卷历史记录，也可以从该页面点击AddNew新增问卷
