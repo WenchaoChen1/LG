@@ -140,7 +140,7 @@ Python → SQS 队列 → Java（结果回调）
 Web 聊天页（`/devSupport/chat`）→ Java 网关 → Python `source/chatbot/`（业务模块，interfaces/application/domain 分层，`/api/ai/chat/*` 接口）；对话图与数据查询工具在 `source/ai/agent/chatbot_graph/`（standard 主图）、`source/ai/agent/chatbot_kb_graph/`（kb 纯知识库智能体独立子包）、`source/ai/agent/chatbot_combo_graph/`（combo 组合智能体独立子包）、`source/ai/tools/`（提示词中文、给用户的回答默认英文）：
 
 - SSE 流式经统一网关 `POST /api/ai/sse/stream`，channel 命名规范 `{模块}.{流类型}`（`chatbot.chat` / `demo.echo`）
-- **三智能体 + 知识库问答（2026-07）**：`chatbot.chat` payload 可选 `agent_mode`（`standard` 缺省 / `kb` 纯知识库 / `combo` 组合分诊），standard 轨新增知识库工具 `search_knowledge_base`（进程内直调 rag 检索，非经 Java 网关；检索范围自 2026-07-18 由 `ai_file_registry` 文件登记表按公司圈定——聊天上传注册即登记+向量化，无登记=检索不到）；模式选择**只看 payload `agent_mode`**（`kb`/`combo` 有效，其余含缺省归一 `standard`），保留供 API 调用方；**斜杠命令 `/knowledge`、`/combined` 已于 2026-08-26 拆除**——前端入口提示早在 2026-07-22（web `858deb1f`）就删了，命令只有知道的人手打得到，等于隐藏开关。前端无模式选择器、也不发 `agent_mode`，故 kb/combo 在产品界面上当前不可达（仅 API 直调可及）。设计见 `docs/superpowers/specs/2026-07-05-chatbot-knowledge-base-qa-design.md`
+- **三智能体 + 知识库问答（2026-07）**：`chatbot.chat` payload 可选 `agent_mode`（`standard` 缺省 / `kb` 纯知识库 / `combo` 组合分诊），standard 轨新增知识库工具 `search_knowledge_base`（进程内直调 rag 检索，非经 Java 网关；检索范围由**业务关联组合键**圈定——`find_chat_space_id` / `find_app_space_ids` 按 `(端, APP_COMPANY/ADMIN_COMPANY, 公司/组织)` 定位 space 后显式传给 `recall`；ERL 答题附件换一个组合键 business_type=ERL_ATTACHMENT 即落在另一个 space，故不在此范围内。按 `ai_file_registry` 登记行圈定的那条 `mode` 分支**无生产调用方**）；模式选择**只看 payload `agent_mode`**（`kb`/`combo` 有效，其余含缺省归一 `standard`），保留供 API 调用方；**斜杠命令 `/knowledge`、`/combined` 已于 2026-08-26 拆除**——前端入口提示早在 2026-07-22（web `858deb1f`）就删了，命令只有知道的人手打得到，等于隐藏开关。前端无模式选择器、也不发 `agent_mode`，故 kb/combo 在产品界面上当前不可达（仅 API 直调可及）。设计见 `docs/superpowers/specs/2026-07-05-chatbot-knowledge-base-qa-design.md`
 - Python 查询 LG 业务数据（LGPI 公司/财务接口）时同样**经 Java 网关回调**（路由带 `/web` 前缀），不直连 Java 服务
 - 会话/消息持久化在共享 PG 表 `ai_chatbot_thread` / `ai_chatbot_message`（建表 DDL 在 `sql/migrations/business/V001__sprint111_baseline.sql` chatbot 段，走版本化迁移、启动期不自动建表）；消息带 `parent_message_id` 分支树，支持从任意消息 fork 新会话（前端问题编辑/回答重新生成都走 fork 分支）
 - 鉴权：Redis 会话 + 公司归属 ACL（Python 侧校验）；`/api/ai/chat/manage/*` 管理查询后端仅登录即可访问、不做端类型限制（管理端限制靠前端 devSupport 菜单，前端管理页 `/devSupport/chatManage`）
@@ -156,11 +156,17 @@ Java (`CIOaas-api` 的 `erl/` 域) 是前端唯一出口；Python (`CIOaas-pytho
 前端 → /api/web/erl/**  → 网关 → Java erl/ 域 → PostgreSQL（erl_* 共 12 张表）
                                       |
                                       +→ POST {cio.erl.ai-base-url}/api/ai/erl/gap-analysis      Goldie 差距分析
-                                      +→ POST {cio.erl.ai-base-url}/api/ai/erl/attachments/ingest 附件入知识库
+                                      +→ POST {cio.erl.ai-base-url}/api/ai/erl/attachments/summarize 附件解析+摘要
 ```
 
 - **不经网关，走内网直连**：本仓库网关只有 `/api/web/**` 与 `/web/**` 两条路由，**没有 `/api/ai/**` 路由**；与存量 `AI_MODEL_URL`（财务预测）一致，用 Nacos 配置项 `cio.erl.ai-base-url` + Hutool `HttpRequest` 直连 `python:8090`。设计文档写的「经网关」与仓库现状不符，以现状为准。
 - **不用 SQS**：单次秒级调用、用户可等待，为它付全套异步成本不划算（对比智能解析的长任务）。
+- **答题附件只解析 + 出摘要，不进公司知识库**（2026-09-18，推翻 design-doc §13-Q10）：走独立 space
+  （业务关联组合键 `business_type=ERL_ATTACHMENT`，APP 按公司 / ADMIN 按组织）+ 新处理类型
+  `SUMMARY_ONLY`（`rag/domain/process_type.py`），**不分片不向量化、`ai_rag_ent_kb_chunk` 零行**，
+  正文落 `ai_rag_entry.content_text`、摘要落 `.summary`（Goldie 唯一消费的就是摘要）。因此 ERL 附件
+  不出现在 chatbot 检索、Memory 面板与知识库面板里。存量数据靠一次性脚本
+  `CIOaas-python/scripts/migrate_erl_attachments_to_erl_space.py` 改挂 + 删旧 chunk。
 - **差距分析是异步非阻塞的**：评估提交事务内只置 `stale = true`，提交后经 `AfterCommitExecutor` + `@Async("ioExecutor")` 触发重生成，LLM 失败不回滚提交、不覆盖旧内容。同 `(company, period)` 用 Redis 短锁去重。
 - **鉴权靠转发调用者的 Bearer token**：Python 侧 `AuthMiddleware` 对每个非豁免路径都调 Java `check_access`，故 Java 调 Python 时必须带 token；异步线程取不到请求上下文，**token 在请求线程内捕获后作为参数传入**异步任务。
 - 一次 LLM 调用产出**一份**分析（设计 v4.4 起双 audience 方案取消，改为 GSV 生成 → `Share to founder` 单向分享）；prompt 外置在 `source/ai/prompts/erl/`，单份 `erl_gap_analysis.md`。
