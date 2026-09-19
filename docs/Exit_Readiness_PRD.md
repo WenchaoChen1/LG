@@ -195,7 +195,6 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - View details按钮：点击弹出建议详情弹框，分为五个维度，没有gap的展示No Gap，没有提交的显示未提交
 - 权限：GSV 团队均可见，可以点击Share按钮分享给Founder端。
 - 题库更新后，可能会存在GSV/Founder对当前展示季度的问卷重新提交的情况，此时题目是不一样的，Gap也就无法分析，需要展示提示，提醒user, 另一方未提交本季度新版本问卷
-  - **已落地（2026-09-19）**：按**维度**判，两端同维题集版本号不等时该维小卡显示黄点 `Question set mismatch`、`View details` 内给出说明（管理端指明是哪一方落后、公司端用中性文案），该维不送 Goldie 分析；提交本身不阻断，落后一方补交后提示自动消失。Share 门槛不受影响。详见 `docs/Exit Readiness/设计/design-doc.md` §0.32 / §12
 - 全端响应式。
 
 ---
