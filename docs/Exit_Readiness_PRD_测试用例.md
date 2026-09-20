@@ -442,28 +442,24 @@
 | TC-109 | 跨视图视觉一致性 | 同一公司的 ERL 卡片、Scorecard、Portfolio ERL Tab 均有数据 | 对比三处同一维度（如 FRL）的标签与配色 | 维度名称、缩写、配色在三处保持一致 |
 | | | | 对比 Founder 与 GSV 两个视图中同一维度的颜色与样式 | 两个视图间维度配色、Gap 正负值样式保持一致 |
 
-### 七、Gap Analysis 与 Suggested Actions（Goldie，需求 TBD）
+### 七、Gap Analysis 与 Suggested Actions（Goldie）
 
 | 编号 | 测试用例名称 | 前置条件 | 测试步骤 | 预期结果 |
 |---|---|---|---|---|
-| TC-110 | 存在 Perception Gap 时生成差距分析与建议 | 某公司 PRL：Founder=7、GSV=3（Gap=+4），双方均已填写证据/备注 | 打开 Scorecard 的 Gap Analysis & Suggested Actions 区域 | 针对 PRL 生成差距分析，指出双方感知差距并给出可执行的行动建议（需求 TBD，待细化生成逻辑） |
-| | | | 核对建议内容与 Gap 维度的对应关系 | 建议聚焦在存在差距的 PRL 维度，未对无差距维度强行生成差距叙述 |
-| TC-111 | 双方分数均低于目标时生成建议 | 某公司 RRL：Founder=2、GSV=2（Gap=0），均低于目标 Stage | 查看 RRL 的 Gap Analysis 内容 | 尽管无 Perception Gap，仍针对分数偏低生成建议，识别 Workbook 中尚未满足的准则（需求 TBD） |
-| TC-112 | 双方均高分且无实质差距时承认为公司优势 | 某公司 FRL：Founder=8、GSV=8 | 查看 FRL 的 Gap Analysis 内容 | Goldie 将 FRL 表述为公司优势，不套用差距叙述、不虚构改进项 |
-| TC-113 | 建议引用 Workbook 准则与双方证据/备注 | GSV 在 BERL 某题备注「品牌资产未做第三方估值」，Workbook 中该 Stage 要求已定义 | 查看 BERL 的 Gap Analysis 内容 | 建议引用该证据/备注上下文，并指向 Workbook 中尚未满足的具体准入准则（需求 TBD） |
-| TC-114 | 建议为指导性且结合公司具体情境 | 某公司已有完整评估与备注数据 | 阅读生成的建议文案 | 文案说明「可以做什么」以及「为何相关」，内容结合该公司具体情境，非通用模板化建议（需求 TBD） |
-| TC-115 | MVP 不含跟踪、指派与 Deadline（反向） | Gap Analysis 已生成建议列表 | 在建议项上查找任务跟踪、指派负责人、设置 Deadline 等控件 | 均不存在，建议仅为指导性内容，不可被指派或跟踪 |
-| TC-116 | Founder 视角口吻 | 以 Company User 登录 | 查看 Gap Analysis 的建议文案 | 文案采用「你可以做什么…」的第二人称口吻，面向创始人（需求 TBD，prompt 待定义） |
-| TC-117 | GSV 视角口吻 | 以 Portfolio Manager 登录，查看同一公司同一维度 | 查看 Gap Analysis 的建议文案 | 文案采用「我们建议这家公司…」的口吻，面向 GSV 团队（需求 TBD，prompt 待定义） |
+| TC-110 | 存在 Perception Gap 时生成差距分析与建议 | 某公司 PRL：Founder=7、GSV=3（Gap=+4），双方均已填写证据/备注 | 打开 Scorecard 的 Gap Analysis & Suggested Actions 区域 | 针对 PRL 生成差距分析，指出双方感知差距并给出可执行的行动建议 |
+| TC-111 | Perception Gap=0时不生成建议 | 某公司 RRL：Founder=2、GSV=2（Gap=0）| 查看 RRL 的 Gap Analysis 内容 | 显示No Gap，不生成建议 |
+| TC-113 | Perception Gap不为0，且有证据/备注 | GSV 在 BERL 某题备注「品牌资产未做第三方估值」 | 查看 BERL 的 Gap Analysis 内容 | 建议引用该证据/备注上下文分析给出建议 |
+| TC-114 | 建议为指导性且结合公司具体情境 | 某公司已有完整评估与备注数据 | 阅读生成的建议文案 | 文案说明「可以做什么」以及「为何相关」，内容结合该公司具体情境，非通用模板化建议 |
+| TC-115 | View Detail按钮 | 点击按钮可查看建议的详情| 阅读生成的建议文案 | 分为五个维度，没有gap的展示No Gap，没有提交的显示未提交 |
+| TC-116 | Share按钮的激活显示| 只有所有维度两方都完成时 | 查看Share按钮的显示 | Share按钮激活，点击按钮分享给Founder端建议 |
+| TC-117 | 已分享过的建议，Founder端可查看 | 以 Company Manager 登录，查看同一公司同一维度 | 查看 Gap Analysis 的建议文案 |可查看已Share过的建议  |
 | TC-118 | 新评估提交后分析自动刷新 | 某公司 TRL：Founder=3、GSV=6，Gap Analysis 已生成对应内容 | 记录当前 TRL 的分析文案 | 文案已生成并可读 |
 | | | | 由 Founder 在同季度新提交一次 TRL 评估，得分改为 6 | 提交成功，TRL Gap 变为 0 |
 | | | | 回到 Scorecard 查看 TRL 的 Gap Analysis | 分析自动刷新，反映最新数据与新的 Gap 值，不残留旧结论 |
 | TC-119 | 展示位置在 Scorecard 视图内 | 双方均已提交的公司 | 在 Scorecard 视图内查找 Gap Analysis | Gap Analysis inline 展示于每个维度旁或作为独立面板出现在 Scorecard 视图内，不需跳转其他页面 |
 | TC-120 | Gap Analysis 响应式 | Gap Analysis 已生成内容 | 在 1920×1080 桌面分辨率查看 | 文案与维度对应关系清晰，布局完整 |
 | | | | 切换到 375×812 移动端视口 | 内容自适应换行、可完整阅读，不出现截断或溢出 |
-| TC-121 | MVP 备选：GSV vs. Founder 分数对比 Tab | 某维度 Founder 与 GSV 在多题答案不一致 | 在该维度 Score Details 页查看是否存在 GSV vs. Founder 分数对比 Tab | 若已实现该 MVP 方案，则显示该 Tab（需求 TBD，是否采用待确认） |
-| | | | 打开该 Tab | 突出显示 Founder 与 GSV 差距最大的题目，按差距大小排序（需求 TBD） |
-| TC-122 | 无任一方提交数据时 Gap Analysis 空状态（边界） | 一家 Founder 与 GSV 均未提交的公司 | 查看 Scorecard 的 Gap Analysis 区域 | 显示空状态文案（如需完成评估后生成分析），不生成虚构建议、不报错 |
+| TC-122 | 无任一方提交数据时 Gap Analysis 空状态 | 一家 Founder 与 GSV 均未提交的公司 | 查看 Scorecard 的 Gap Analysis 区域 | 显示空状态文案|
 
 ### 八、Portfolio ERL Tab（组合级评估看板）
 

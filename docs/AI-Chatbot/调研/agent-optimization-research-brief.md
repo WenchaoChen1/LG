@@ -4,7 +4,7 @@
 > 代码侧参考（CIOaas-python 仓库）: `docs/AI-Chatbot/实现与业务流转.md` · `source/ai/CLAUDE.md` · `source/chatbot/CLAUDE.md`
 
 > 创建日期: 2026-09-16 · 状态: 待执行 deep search
-> 本文件是**调研任务书**（deep search 的输入），不是调研结论。结论产出后另存为 `agent-optimization-findings.md`。
+> 本文件是**调研任务书**（deep search 的输入），不是调研结论。结论已产出并并入 [优化项清单](./chatbot-optimization-items.md)（2026-09-20 起原始调研稿不再单独保留）。
 
 ---
 
