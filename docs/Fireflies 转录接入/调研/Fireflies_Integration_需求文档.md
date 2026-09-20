@@ -125,7 +125,7 @@ Fireflies 租户工作区                   创始人/用户文档直传
 | 类型 | 触发规则 | 备注 |
 |---|---|---|
 | **GS → Founder**（默认） | ≥1 位 GS 邮箱 + ≥1 位公司邮箱 | 与 Board Call 无法从参会数据自动区分，默认归此 |
-| **GS → Board Call with Founder** | 触发规则同上 | 由 Portfolio Group Manager 手动改判；改判需低摩擦（单下拉切换） |
+| **GS → Board Call with Founder** | 手动 | 由 Portfolio Group Manager 手动改判；改判需低摩擦（单下拉切换） |
 | **GS Internal** | ≥2 位 GS 邮箱，无外部/公司方 | |
 | **GS → LP** | 参与人邮箱命中注册表 LP；未命中则用日历邀请中的姓名回退匹配注册表 | 依赖注册表已收录 |
 | **GS → Partner**（合并 Strategic + Exit） | 参与人命中注册表中 Strategic 或 Exit Partner | 两者不可靠区分，统一为一类；下游按更保守的 Exit Partner 处理 |
