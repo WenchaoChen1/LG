@@ -1,6 +1,6 @@
 # AI Chatbot 能力盘点与缺口分析
 
-> 关联文档: [优化项清单](./chatbot-optimization-items.md) · [外部设计引进调研](./external-design-adoption.md) · [现状优化调研结论](./agent-optimization-findings.md) · [设计文档](../设计/design-doc.md)
+> 关联文档: [优化项清单](./chatbot-optimization-items.md) · [调研任务书](./agent-optimization-research-brief.md) · [设计文档](../设计/design-doc.md)
 
 > 产出日期: 2026-09-18
 > 本文回答两个问题：
@@ -191,3 +191,52 @@
 3. **验收能力缺位** —— 关键指标没埋、没有评测集，导致大部分优化"做了也说不清有没有用"。
 
 第 3 项是前两项的前提。
+
+---
+
+## 参考来源
+
+> 只列本文两章直接依赖的材料。各优化项的完整来源（含量化数字与查阅提示）见[优化项清单](./chatbot-optimization-items.md)的「参考来源」。
+
+**能力清单的来源（第一章「外部有、我们没有」的依据）**
+
+| 来源 | 贡献的功能点 |
+|---|---|
+| [OpenAI Agents SDK — Guardrails](https://openai.github.io/openai-agents-python/guardrails/) | 合规检查与主链并行（*"This provides the best latency since both start at the same time"*） |
+| [langchain-ai/open_deep_research](https://github.com/langchain-ai/open_deep_research)（一手源码） | 主动澄清歧义（`clarify_with_user`）、节点该不该独占一格的判据 |
+| [OpenAI Cookbook — Deep Research API](https://developers.openai.com/cookbook/) | 分诊 → 澄清 → 指令构建三段管线 |
+| LangChain **1.2.18** 本地 `.venv` 核对 | 结构化输出契约、工具结果裁剪、工具失败重试、PII 脱敏、模型降级回退等中间件的**实际可用性** |
+| [Anthropic — Context editing](https://platform.claude.com/docs/en/build-with-claude/context-editing) | 工具结果裁剪；*"Tool result clearing invalidates cached prompt prefixes"* |
+| [Anthropic — Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) | 工具返回体上限、引导式截断、精简/完整双档返回 |
+| [Anthropic — Search results](https://platform.claude.com/docs/en/build-with-claude/search-results) | 原生检索结果引用块（引用可点交互的形态） |
+| [Anthropic — Introducing Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval) | 混合检索 + RRF、重排、<20 万 token 不必上 RAG |
+| [Manus — Context Engineering for AI Agents](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus) | 目标复述（recitation）、工具集保持静态 |
+| [OpenRouter — Prompt caching](https://openrouter.ai/docs/guides/best-practices/prompt-caching) | 会话粘性路由（`session_id` / `x-session-id`）、缓存用量埋点字段 |
+| CUI'25, arXiv:[2507.22352](https://arxiv.org/abs/2507.22352)（N=54） | 阶段级过程可视化——自然填充语显著改善感知延迟，**纯旋转图标不显著** |
+| arXiv:[2602.15569](https://arxiv.org/abs/2602.15569)（N=45） | 中间进度播报提升感知速度 / 信任 / UX |
+| UIST'26, arXiv:[2510.00361](https://arxiv.org/abs/2510.00361)（N=20）· PMC13513764 眼动（N=23） | 引用的可点交互、数字级溯源的界面形态 |
+| [FinGround](https://arxiv.org/html/2604.23588)（arXiv 2604.23588） | 数值接地校验——通用检测器**漏掉 43% 计算类错误** |
+| [Ably — Resume tokens and last-event-IDs](https://ably.com/blog/resume-tokens-last-event-id-llm-streaming-reconnection) | 断流恢复（结论：我们已比多数产品完整） |
+
+**「明确不做」的否决依据（第二章）**
+
+| 结论 | 依据 |
+|---|---|
+| 检索必要性判定不做 | 2025 自适应检索共识（Self-RAG / Adaptive-RAG）——它优化的变量在我们这里 ≈0 |
+| LLM 滚动摘要不做 | LangChain `summarization` middleware（能力存在）+ arXiv:[2605.17830](https://arxiv.org/abs/2605.17830)（8 种记忆架构纵向安全评测） |
+| 自动抽取事实的长期记忆不做 | [Mem0](https://arxiv.org/abs/2504.19413)（arXiv 2504.19413 / ECAI 2025）、LangMem、[OpenAI — Memory and new controls](https://openai.com/index/memory-and-new-controls-for-chatgpt/)；收益数字出自 LoCoMo 闲聊型基准 |
+| 时序知识图谱记忆不做 | Zep / Graphiti，arXiv:[2501.13956](https://arxiv.org/abs/2501.13956)——只借「双时间 + 出处」思想 |
+| 工具延迟加载 / LLM 工具筛选器不做 | [Anthropic — Tool search tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)；LangChain `LLMToolSelectorMiddleware` |
+| 沙箱内写代码调工具不做 | Anthropic MCP code execution（2025-11） |
+| 多智能体 / 拆取数与成文两个 agent 不做 | [Anthropic — How we built our multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)——**不适用场景由提出方自己写明** |
+| 显式计划 / todo 清单不做 | deepagents `write_todos`；LangChain `todo` middleware |
+| 生成后自我批判不做 | Huang et al., *LLMs Cannot Self-Correct Reasoning Yet*, **ICLR 2024**, arXiv:[2310.01798](https://arxiv.org/abs/2310.01798)——改对 7.6% / 改错 8.8% |
+| 动态工具预算不做 | Anthropic 多智能体文中的 effort scaling 规则 |
+| 图状态持久化不做 | [LangGraph — Persistence](https://docs.langchain.com/oss/python/langgraph/persistence)（本地无 checkpoint-postgres） |
+| 推测性预调工具不做 | [Speculative Actions](https://arxiv.org/abs/2510.04371)（arXiv 2510.04371） |
+| 原始思维链流式可视不做 | CUI'25 arXiv:2507.22352 只支持"有语义的反馈优于无反馈"，不支持暴露原始推理 |
+| 先流出再撤回的输出审核不做 | [NVIDIA NeMo Guardrails](https://docs.nvidia.com) v0.23 的 `stream_first` 取舍 |
+| 可编辑画布式答案不做 | 业界对话产品形态（Canvas / Artifacts），无适用于核对型问答的证据 |
+| 关键词检索换 BM25 不做 | Anthropic Contextual Retrieval——剩余增量无外部数据可估，等评测集 |
+| 静态供应商优先级路由不做 | [OpenRouter — Provider routing](https://openrouter.ai/docs/features/provider-routing) |
+| 观测遮蔽暂不评估 | arXiv:[2508.21433](https://arxiv.org/abs/2508.21433)（成本减半）与 arXiv:[2606.00408](https://arxiv.org/abs/2606.00408)（强模型饱和区 sharp collapse）结论相反 |
