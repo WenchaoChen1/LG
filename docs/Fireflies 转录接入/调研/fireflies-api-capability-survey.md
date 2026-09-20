@@ -54,7 +54,7 @@
 
 ⚠️ `transcripts` 查询的 `limit` **上限为 50**，超过需用 `skip` 分页。会议量大的租户必须分页。
 
-⚠️ 注意**拉列表与拉详情是两次独立调用**：列表拿到 N 个新会议 id 后，需再发 N 次 `transcript(id)` 取正文，单轮消耗为 `1 + N`。会议密集的时段按此估算配额。
+✅ **GraphQL 不需要「列表 + 逐场详情」两段式**：`transcripts` 与 `transcript` 同为 `Transcript` 类型，`sentences`、`summary` 可直接写进列表查询——实测一次 `transcripts(limit:50)` 即返回 43 场会议、19,261 条句子及全部摘要。故按日期增量拉取时，**每 50 场仅消耗 1 次配额**。（MCP 通道则必须逐场取正文，见 3.0。）
 
 ✅ **口径冲突已实测澄清（2026-09-18）**：官方 API 文档为 Free 列了 50 次/天配额，而 fireflies.ai/pricing 把「API access」写在 Business 档下，二者看似矛盾。实测结论是**前者为准，但有前提**：
 
@@ -84,13 +84,24 @@ Fireflies 对外有**两条互不相通的通道**，认证方式和数据形态
 | scope 粒度 | 无 | 仅 `profile` / `email`，**无只读选项** |
 | 跨通道可用 | — | ❌ 实测该 token 调 GraphQL 返回 `auth_failed` |
 | 返回格式 | 结构化 JSON，字段任选 | 详情接口为**面向 LLM 的纯文本**（见下） |
-| 正文 + 摘要 | **一次查询同时拿到** | 常规路径拆两次（`get_transcript` 不含摘要、`get_summary` 不含正文）；`fireflies_fetch` 可一次取全但标注 **Experimental** |
+| 拉取 50 场（含正文+摘要） | **1 次调用**——`transcripts` 与 `transcript` 同为 `Transcript` 类型，`sentences` 可直接写进列表查询（实测一次返回 43 场 / 19,261 句 / 含 summary） | **51 次起**：列表不含 `sentences`，正文须逐场取（1 + N）；若还要 `overview`／`notes` 等完整摘要，再加 N 次 `get_summary`（1 + 2N） |
 | 限流 | 见 §2 | 官方说明**与 GraphQL 共用同一套配额** |
 
 **MCP 的两条硬约束**（决定选型，实测 + 官方文档双向确认）：
 
-1. **详情接口不支持 JSON**。`format` 参数（`toon` 默认 / `json` / `text`）只有 `fireflies_search`、`fireflies_get_transcripts`、`fireflies_get_soundbites`、`fireflies_get_user_contacts` 四个工具支持；**`fireflies_get_transcript` / `fireflies_get_summary` / `fireflies_fetch` 只接受 id，没有 format**，返回给 LLM 阅读的格式化文本。实测 `fireflies_get_user` 返回即为 “User Id: …” / “Email: …” 这种逐行排布的纯文本。用于数据管道需要文本解析，比 GraphQL 脆弱。
-2. **常规路径每场会议要调两次**，同样配额下吞吐减半。文档另有 `fireflies_fetch` 可一次返回「transcript + summary + analytics + metadata」，但官方明确标注为实验特性：“may not be available to all users. They are being progressively rolled out and may require feature flag enablement.”——**不能作为方案基础**，随时可能不可用。
+1. **详情接口不支持 JSON**。<br/> `format` 参数（`toon` 默认 / `json` / `text`）只有 `fireflies_search`、`fireflies_get_transcripts`、`fireflies_get_soundbites`、`fireflies_get_user_contacts` 四个工具支持；<br/>**`fireflies_get_transcript` / `fireflies_get_summary` / `fireflies_fetch` 只接受 id，没有 format**，返回给 LLM 阅读的格式化文本。<br/>**实测** `fireflies_get_user` 返回即为 “User Id: …” / “Email: …” 这种逐行排布的纯文本。用于数据管道需要文本解析，比 GraphQL 脆弱。
+
+2. **调用次数相差一个数量级**。GraphQL 的列表与详情是同一类型的两种取法，可在一次查询里把 50 场会议的正文与全部摘要一起取回；MCP 的 `get_transcripts` **不含 `sentences`**（官方描述 “excludes detailed transcript content”，实测确认），正文只能逐场调 `get_transcript`。
+
+   | 拉 50 场会议（含正文+摘要） | 调用次数 |
+   |---|---|
+   | GraphQL | **1** |
+   | MCP —— 列表自带的 `short_summary`／`keywords`／`action_items` 够用 | 1 + 50 = **51** |
+   | MCP —— 还需要 `overview`／`notes`／`gist` 等完整摘要 | 1 + 100 = **101** |
+
+   两条通道**共用同一套配额**（§2），因此 **Free 套餐（50 次/天）下走 MCP 一天拉不完 50 场会，而 GraphQL 一次调用即可**。
+
+   `fireflies_fetch` 能一次返回「transcript + summary + analytics + metadata」，可把 MCP 降到 1 + N，但官方标注为实验特性：“may not be available to all users. They are being progressively rolled out and may require feature flag enablement.”——**不能作为方案基础**。
 
 **字段是否同源——2026-09-18 实测结论：数据同源，差在序列化与粒度**
 
@@ -513,7 +524,7 @@ MCP 在 `format:"json"` 下返回固定 10 个字段：
 
 | | GraphQL | MCP |
 |---|---|---|
-| 调用 | `transcript(id)` —— 一次取全 | `fireflies_get_transcript(transcriptId)` 取正文<br>`fireflies_get_summary(transcriptId)` 取摘要（**两次调用**） |
+| 调用 | `transcript(id)` —— 一次取全 | `fireflies_get_transcript(transcriptId)` 取正文<br/>`fireflies_get_summary(transcriptId)` 取摘要（**两次调用**；若列表自带的 `short_summary`／`keywords`／`action_items` 已够用，可省去后者，见 3.0 调用次数对比） |
 | 输出格式 | JSON | **纯文本，无 `format` 参数** |
 | 实测体积 | —— | 正文 53 KB、摘要 16 KB |
 
