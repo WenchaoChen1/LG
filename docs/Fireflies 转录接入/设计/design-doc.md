@@ -3,7 +3,7 @@
 > 关联文档：[需求文档](../调研/Fireflies_Integration_需求文档.md) · [API 能力与数据质量调研](../调研/fireflies-api-capability-survey.md)
 >
 > **状态**：五类会议的提取规则**已全部覆盖**。「GS → 董事会/创始人」为手动改判类型，对 AI 分类而言等同第一类，不单独成节，故正文为 4 节。
-> 仍有 9 项待确认，见第八节；其中 **8.1 为阻塞项**（需求文档版本落后于口头确认）。
+> 仍有 10 项待确认，见第八节；其中 **8.1 为阻塞项**（三份需求来源互不一致）。
 >
 > **日期**：2026-09-21
 
@@ -17,25 +17,75 @@
 
 沿用现有 RAG 的空间机制：`ai_rag_business_association` 以组合键 `(end_type, business_type, company_id | organization_id)` 唯一确定一个知识库空间，chatbot 检索时按身份解出可见的 `space_ids`。**隔离靠「谁能解出哪个空间」，不靠检索时的行级过滤。**
 
-| 用途 | 组合键 | 处理类型 | 谁能召回 |
-|---|---|---|---|
-| 1a 创始人记忆 / Founder KB | `(APP, APP_COMPANY, company_id)` | STANDARD | 该公司创始人 + 管理端 |
-| 1b 管理端记忆 | `(ADMIN, ADMIN_COMPANY, organization_id)` | STANDARD | 仅管理端 |
-| 专家证词 · 匿名版 | `(APP, EXPERT_TESTIMONY, organization_id)` | STANDARD | 创始人 + 管理端 |
-| 专家证词 · 署名版 | `(ADMIN, EXPERT_TESTIMONY, organization_id)` | STANDARD | 仅管理端 |
-| Cross-Company 跨公司主题 | `(APP, CROSS_COMPANY, organization_id)` | STANDARD | 创始人 + 管理端（**同一份**） |
+#### 空间清单
+
+| 代号 | 组合键 | 粒度 | 隔离方式 | 谁能召回 | FF 写入 |
+|---|---|---|---|---|---|
+| **KB-APP** | `(APP, APP_COMPANY, company_id)` | 每公司一个 | 空间层 | 该公司创始人 + 管理端 | ✅ |
+| **KB-ADMIN** | `(ADMIN, ADMIN_COMPANY, organization_id)` | **每组织一个（公司 id 隔离）** | **行级 `company_id`** | 仅管理端 | ✅ |
+| **证词-匿名 / 证词-署名** | `(APP / ADMIN, EXPERT_TESTIMONY, organization_id)` | 每租户各一个 | 空间层 | 匿名版两端 / 署名版仅管理端 | ✅ |
+| **跨公司** | `(APP, CROSS_COMPANY, organization_id)` | 每租户一个 | 空间层 | 创始人 + 管理端 | ✅ |
+
+处理类型均为 `STANDARD`。**租户 = organization**（需求口径：一把 API key 归属一个租户）。
+
+#### 按会议类型的产物归属
+
+**类型一 · GS → 创始人**
+
+| 产物 | 空间 | 份数 |
+|---|---|---|
+| 摘要 + 纪要（1a / 1b / Founder KB **共用一份**） | KB-APP | 每关联公司一条 |
+| Cross-Company 洞察 | 跨公司 | 0~N 条 |
+
+> 三个目的地共用一份，是因为矩阵给它们的都是「摘要」，内容相同；且管理端能召回 KB-APP，无需另写。
+
+**类型二 · Board Call（手动改判后）**
+
+| 产物 | 空间 | 份数 |
+|---|---|---|
+| 摘要（1a + Founder KB） | KB-APP | 每关联公司一条 |
+| **退出准备 / 战略摘要（1b）** | **KB-ADMIN** | 每关联公司一条 |
+| Cross-Company（带 care flag？） | 跨公司 | 0~N 条 |
+
+> ⚠️ **本类型不能共用一份**：矩阵给 1a 的是「摘要」、给 1b 的是「退出准备/战略方面的摘要」，**内容不同**，必须分别产出、分落两个空间。
+
+**类型三 · GS → LP**
+
+| 产物 | 空间 | 份数 |
+|---|---|---|
+| 1b（按正文提及的公司拆分） | KB-ADMIN | 每命中公司一条 |
+| 证词 · 匿名版 | 证词-匿名 | 0~N 条 |
+| 证词 · 署名版 | 证词-署名 | 与匿名版一一对应 |
+| Cross-Company 市场趋势 | 跨公司 | 0~N 条 |
+
+**类型四 · GS 内部**
+
+| 产物 | 空间 | 份数 |
+|---|---|---|
+| 1b（按正文提及的公司拆分，只抽结论） | KB-ADMIN | 每命中公司一条 |
+| Cross-Company（战略-决议闭环、全公司视角） | 跨公司 | 0~N 条 |
+
+**类型五 · GS → Partner**
+
+| 产物 | 空间 | 份数 |
+|---|---|---|
+| 1b（按正文提及的公司拆分，退出相关） | KB-ADMIN | 每命中公司一条 |
+| 证词 · 两版 | 证词-匿名 / 证词-署名 | 0~N 条 |
+| Cross-Company 市场与商业趋势 | 跨公司 | 0~N 条 |
 
 **关键事实**：管理端的检索范围已包含各可访问公司的 APP 空间（`knowledge_base_tool.py:127-135` 并入 `find_app_space_ids`），**反向不成立**——公司端只解出自己公司那一个 APP 空间。因此：
 
-- 写进 APP 空间的内容，**1a 与 1b 共用一份即可**，无需重复写入
-- 只允许管理端看到的内容，写进 ADMIN 空间即结构性对创始人不可见，**不需要额外加过滤**
+- 内容进 KB-APP 后管理端自动可见，**仅当 1a 与 1b 内容相同时才可共用一份**（只有类型一满足）
+- 只允许管理端看到的内容写进 KB-ADMIN，即结构性对创始人不可见，**不需要额外加过滤**
+- **KB-ADMIN 的公司隔离是行级的**（同一组织共用一个物理空间，靠条目上的 `company_id` 区分），故 `company_id` 必须填对——这是本方案唯一一处不靠空间层隔离的地方
+- **绑不到公司的内容写进去也召不回**——管理端召回叠 `company_id IN 可访问公司集 OR thread_id` 的析取过滤，两个条件都不满足，效果等同丢弃
 
-**新增两个业务类型**——`EXPERT_TESTIMONY` 与 `CROSS_COMPANY`，均需加入 `ASSOCIATION_BUSINESS_TYPE_SEEDS` 白名单（该白名单在 `business_association_space_id` 中强校验），并参照 `ensure_erl_space` 各写一个空间定位方法。两者均按 `organization_id` 键控，**不能复用 `ensure_kb_space`**——后者是 APP 按公司、ADMIN 按组织。
+**需新增两个业务类型**：`EXPERT_TESTIMONY` 与 `CROSS_COMPANY`，均按租户（organization）键控。具体创建与定位细节留到开发设计阶段。
 
 两者的份数不同：
 
-- **`EXPERT_TESTIMONY` 两份**——权限分层要求管理端在 Goldie 内看到署名、创始人永不看到，而署名直接存正文、不做召回后处理，故按 `end_type` 派生两个空间各存一版
-- **`CROSS_COMPANY` 一份**——§7.5 规定管理端回溯原始转录与署名走**管理端系统入口、非跨公司 KB 前台**，Goldie 链路上两端看到的都是匿名版，内容完全相同。公司端与管理端**显式解同一个 `space_id`**（空间本身无端属性，`end_type` 只是组合键的一部分，由谁解析由检索侧逻辑决定）
+- **`EXPERT_TESTIMONY` 两份**——权限分层要求管理端在 Goldie 内看到署名、创始人永不看到，而署名直接存正文、不做召回后处理，故按 `end_type` 分匿名版与署名版各存一版
+- **`CROSS_COMPANY` 一份**——§7.5 规定管理端回溯原始转录与署名走**管理端系统入口、非跨公司 KB 前台**，Goldie 链路上两端看到的都是匿名版，内容完全相同，故两端共用一份
 
 > 另有 `ADMIN_PORTFOLIO` 的设想（为 LP / GS 内部中绑不到具体公司的基金层内容提供归属），**尚未决定是否引入**，见 3.2 的批注。
 
@@ -197,7 +247,7 @@ n-gram 阈值需在实施期用真实数据调优。
 
 ### 2.5 手动改判为 Board Call 后的路由差异
 
-「GS → 董事会 / 创始人（三方）」**没有自动判定信号**，只能由 PGM 从本类型手动改判。改判后路由自动重算，与本类型有两格不同：
+「GS → 董事会 / 创始人（三方）」**没有自动判定信号**，只能由 PGM 从本类型手动改判。改判后路由自动重算，与本类型有两格不同——其中 1b 的差异导致**本类型不能像类型一那样共用一份**，须分别产出、分落 KB-APP 与 KB-ADMIN 两个空间（见 1.1 类型二）：
 
 | 目的地 | GS → 创始人 | 改判为 Board Call 后 |
 |---|---|---|
@@ -217,6 +267,8 @@ n-gram 阈值需在实施期用真实数据调优。
 一句话概括：提炼符合**资本运作、IPO / 并购合规标准**的中长期战略规划。
 
 > **待确认**：Cross-Company 那格的「care flag」在需求中**始终带问号且无定义**——不知道它是一个标记字段、一道额外过滤、还是仅提示管理员复核。改判功能落地前需澄清。
+
+> 本类型的抽取提示词见 §6.3。
 
 ---
 
@@ -267,7 +319,7 @@ GS 邮箱 ≥ 1，**且**无参会人能映射到在营公司（否则归第一�
 
 **§9.2 相关信息不得遗漏**：9.2 要求把基金层与其他 LP 信息从面向创始人的产物中剥离，这些信息的归宿就是 1b。对 1b 而言 9.2 是**保全规则**而非过滤规则。
 
-**落库**：`(ADMIN, ADMIN_COMPANY, organization_id)` 空间，`company_id` 必填（管理端召回时叠 `company_id IN 可访问公司集` 的析取过滤，不填则永远召回不到）。
+**落库**：落 **KB-ADMIN** 空间（该组织的管理端知识库），每命中公司一条 entry，**`company_id` 必填**——它是公司隔离与召回过滤的唯一依据，不填则召不回。
 
 ### 3.4 专家证词提取规则
 
@@ -340,6 +392,8 @@ GS 邮箱 ≥ 1，**且**无参会人能映射到在营公司（否则归第一�
 - 证词与 Cross-Company 是**两条独立管道**，§9.2 的基金层 / 其他 LP 身份剥离**必须各执行一遍**，不得假设对方已做（此即需求 §10.1 指出的「过滤责任未闭环」的处理方式）
 - §9.1 / §9.2 命中的内容对**所有受众**排除（含 Portfolio Manager），**在写入阶段就不产出**，不是存入后按角色隐藏
 
+> 本类型的抽取提示词见 §6.4。
+
 ---
 
 ## 四、GS 内部
@@ -364,7 +418,7 @@ GS 邮箱 ≥ 1，**且**无参会人能映射到在营公司（否则归第一�
 
 ### 4.3 1b 提取规则
 
-**归属方式与 LP 完全一致**：按正文提及识别公司 → 仅高置信度才入 → 一场会 N 家公司产出 N 条 entry → `company_id` 必填 → 绑不到公司的内容直接丢弃。落 `(ADMIN, ADMIN_COMPANY, organization_id)` 空间。
+**归属方式与 LP 完全一致**：按正文提及识别公司 → 仅高置信度才入 → 一场会 N 家公司产出 N 条 entry → `company_id` 必填 → 绑不到公司的内容直接丢弃。落 **KB-ADMIN** 空间（该组织的管理端知识库），每命中公司一条 entry，**`company_id` 必填**——它是公司隔离与召回过滤的唯一依据，不填则召不回。
 
 **抽取范围：只抽结论性内容**，不抽过程。
 
@@ -403,6 +457,8 @@ GS 邮箱 ≥ 1，**且**无参会人能映射到在营公司（否则归第一�
 匿名化要求同第一类的 Cross-Company 规则（可移植性判据 + 硬性剥离 + 保留项），并叠加 §9.1（本方案已扩展至 GS 内部，见 1.7）。
 
 **结构化标签**：两类条目均打上行业/垂直、公司阶段（ARR 区间或轮次）、问题类型标签。单场提取时顺手产出，成本近乎为零，便于后续按维度检索与归并。
+
+> 本类型的抽取提示词见 §6.5。
 
 ---
 
@@ -470,7 +526,7 @@ GS staff、LP、Strategic Partner、Exit Partner
 
 ### 5.4 1b 提取规则
 
-**归属方式与 LP / GS 内部完全一致**：按正文提及识别公司 → 仅高置信度才入 → 一场会 N 家公司产出 N 条 → `company_id` 必填 → 绑不到公司的内容丢弃。落 `(ADMIN, ADMIN_COMPANY, organization_id)` 空间。
+**归属方式与 LP / GS 内部完全一致**：按正文提及识别公司 → 仅高置信度才入 → 一场会 N 家公司产出 N 条 → `company_id` 必填 → 绑不到公司的内容丢弃。落 **KB-ADMIN** 空间（该组织的管理端知识库），每命中公司一条 entry，**`company_id` 必填**——它是公司隔离与召回过滤的唯一依据，不填则召不回。
 
 **抽取内容**：
 
@@ -532,9 +588,340 @@ GS staff、LP、Strategic Partner、Exit Partner
 - §9.1 全量适用（见 5.5），§9.2 的过滤在证词与 Cross-Company 两条管道**各执行一遍**
 - §9.1 / §9.2 命中的内容对**所有受众**排除（含 Portfolio Manager），**在写入阶段就不产出**
 
+> 本类型的抽取提示词见 §6.6。
+
 ---
 
-## 六、需新建的基础能力
+## 六、抽取提示词
+
+> 本节为核心抽取提示词。落地时按项目惯例迁到 `source/ai/prompts/extract/`（`.md` 为权威源，`.py` 经 `_md_loader` 加载，`{{var:name}}` 占位）。
+
+### 6.1 分工与约定
+
+**分工**：LLM 只做「判断与转述」，机械处理交程序。
+
+| 环节 | 谁做 |
+|---|---|
+| 非逐字转述、内容分类、可移植性判断、公司提及识别、质量判断 | **LLM** |
+| 实体/人名剥离、n-gram 近逐字剔除、署名附加、专长标签回溯、落库路由 | **程序** |
+
+**语言**：提示词中文，**产物英文**（与现有 `ai_rag_entry.summary` 及 Goldie 默认作答语言一致）。
+
+**输出**：一律 JSON，`json_mode=True`。截断（`finish_reason=length`）时**整体判失败重试，不抢救半成品**——半份合法外观的结果比没有更危险（沿用 `excel_extract_agent` 的口径）。
+
+**单次处理**：一次调用产出该会议类型的全部派生物，下游不再读原文（§6.1）。
+
+---
+
+### 6.2 共用前置（所有类型复用）
+
+```
+你是会议内容抽取器。输入是一场已完成参会人识别与类型分类的会议，你的任务是按指定结构抽取内容。
+
+## 输入
+
+- 会议元信息：{{var:meeting_meta}}          # 标题、日期、时长
+- 参会人：{{var:participants}}               # 姓名、角色、组织（已由注册表解析）
+- 候选公司清单：{{var:candidate_companies}}  # id、名称、别名；用于识别正文提及
+- 转录全文：{{var:transcript}}               # 逐句，带说话人与时间戳
+
+## 硬规则
+
+1. **不得复用原文措辞**。所有产出必须转述，不得摘抄原句，不得保留说话人的特征性表达。
+2. **不得编造**。转录中没有的内容一律不写；某一项无内容时输出空数组或 null。
+3. **不确定就不输出**。归属、角色、因果关系存疑时，宁可不写，或标低置信度。
+4. **只输出 JSON**，不要解释、不要 markdown 代码围栏。
+5. 正文语言为英文。
+
+## 质量门槛
+
+先判断这场会是否值得抽取。以下情形输出 `{"quality":{"usable":false,"reason":"..."}}` 后**立即结束**：
+
+- 转录内容过少或严重残缺
+- 通篇为寒暄、设备调试、日程协调，无实质讨论
+```
+
+---
+
+### 6.3 GS → 创始人（含手动改判前的 Board Call）
+
+**产出**：摘要 + 纪要 + Cross-Company 洞察点。公司归属由程序按参会人邮箱反推，**LLM 不判定**。
+
+```
+## 抽取项
+
+### 1. summary（摘要）
+≤1000 字符。覆盖：本场主旨、关键结论、待办方向。供检索命中后作为概览使用。
+
+### 2. minutes（纪要）
+完整会议纪要，按主题分节。每节包含：
+- 讨论要点
+- 决策及其理由（为什么这么定、考虑过哪些备选）
+- 行动项：动作 / 负责人 / 截止（负责人未明确时写 null，不要猜）
+- 悬而未决的问题
+- 分歧与顾虑：谁反对、理由是什么
+
+**撤销扫描**：若某项决策在会议后段被推翻或修改，只写最终状态，并在该条注明曾被调整。
+
+### 3. cross_company（跨公司洞察点）
+抽取可移植的洞察，0~N 条。**产出 0 条是正常结果**，不要为凑数降低标准。
+
+判据（同时满足才保留）：
+- 脱离这家公司仍然成立
+- 对处于相似阶段的其他公司有参考价值
+
+改写要求：
+- 公司名、产品名、人名、客户名一律改为泛指
+- 具体金额与百分比改为量级（"约百万级 ARR"、"两位数下滑"）
+- 具体日期改为阶段（"A 轮后"、"上一财年"）
+
+## 输出
+
+{
+  "quality": {"usable": true, "reason": ""},
+  "summary": "...",
+  "minutes": "...",
+  "cross_company": [
+    {
+      "statement": "...",
+      "portable_reason": "为什么它脱离本公司仍成立",
+      "tags": {"industry": "", "stage": "", "problem_type": ""}
+    }
+  ]
+}
+```
+
+---
+
+### 6.4 GS → 有限合伙人（LP）
+
+**产出**：1b（按提及的公司拆分）+ 专家证词 + Cross-Company。
+
+```
+## 抽取项
+
+### 1. company_mentions（公司提及识别）
+从候选公司清单中匹配正文提到的公司。
+
+- `confidence`：`high` 仅在上下文明确指向该公司时给出；名称相近、缩写歧义、仅一次顺带提及一律 `low`
+- `evidence`：支撑判断的上下文（转述，不要摘抄原句）
+- **宁可漏不可错**——错误归属会让 A 公司的交易事实进入 B 公司的记忆
+
+### 2. memory_1b（管理端记忆，按公司一条）
+仅对 `confidence=high` 的公司产出。纯基金层内容（募资进度、基金整体回报、LP 结构）**不产出**。
+
+每条包含该公司相关的：
+- 具体交易事实：被兜售 / 估值 / 买方 / 价格 / 时间表
+- LP 对该公司的评价、关切、要求
+- GS 的退出计划与估值判断
+- 该公司在基金层面的定位（提及其他被投公司时改为泛指）
+
+**此处不做匿名化**，交易细节要完整保留（买方、金额、时间）；仅需转述，不得摘抄原句。
+
+### 3. testimony（专家证词）
+抽取三类：
+- fundraising：引入外部投资、融资轮次、估值预期、资金使用计划
+- market：宏观市场环境、行业规模、竞争格局、外部需求变化
+- multiples：估值指标（P/E、P/S、EV/EBITDA 等）与定价基准
+
+要求：
+- **匿名内容**——不写公司名、人名、产品名
+- `speaker_ref` 填参会人标识，署名与专长标签由程序附加，**你不要写署名**
+- **保密过滤**：剔除机密、未公开客户名单、NDA 限制条款、核心财务数据
+- **基金层过滤**：剔除基金层信息与其他 LP 的身份
+
+### 4. cross_company（市场趋势）
+**与证词互斥**，判定顺序：
+1. 能归属到具体发言人 → 归入 testimony，此处不再输出
+2. 无法归属，或属于会上多方共同认可的泛化观察 → 输出到此
+3. 同一段话不得同时出现在两处
+
+只抽 market trends（外部宏观变化：技术动向、需求偏好转变、竞争对手动向、政策法规），且必须是**可移植趋势**——排除局限于单一客户、单一项目或一次性交易的临时现象。
+
+## 输出
+
+{
+  "quality": {"usable": true, "reason": ""},
+  "company_mentions": [
+    {"company_id": "", "confidence": "high|low", "evidence": ""}
+  ],
+  "memory_1b": [
+    {"company_id": "", "summary": "...", "minutes": "..."}
+  ],
+  "testimony": [
+    {"category": "fundraising|market|multiples", "content": "...",
+     "speaker_ref": "", "timestamp": "mm:ss"}
+  ],
+  "cross_company": [
+    {"statement": "...", "portable_reason": "",
+     "tags": {"industry": "", "stage": "", "problem_type": ""}}
+  ]
+}
+```
+
+---
+
+### 6.5 GS 内部
+
+**产出**：1b（按提及的公司拆分，只抽结论）+ Cross-Company（战略-决议闭环、全公司视角）。**不产出证词**。
+
+```
+## 抽取项
+
+### 1. company_mentions
+同 LP 类型的识别规则与置信度要求。
+
+### 2. memory_1b（按公司一条，只抽结论性内容）
+
+抽：
+- GS 对该公司的判断与评估
+- 决定采取的动作
+- 风险评估结论
+- 资源投入决定
+- 具体交易事实（若涉及在途交易，只能落这里）
+
+不抽：
+- 讨论过程、谁说了什么
+- 争论与分歧本身
+- 未形成结论的发散讨论
+
+**撤销扫描**：会议后段被推翻的结论不得作为有效结论输出。
+
+### 3. cross_company
+
+两类：
+
+**strategy_resolution_loop（战略-决议闭环）**
+会议中讨论出的战略方向、待解决的问题、最终决策，以及后续行动项与责任人。
+需体现：哪些战略议题被推进、达成什么共识、下一步谁跟进。
+`status` 取 `closed`（已闭环）/ `in_progress`（推进中）/ `failed`（尝试过但未奏效）。
+**失败的尝试同样要抽**——"试过 X 没用"对其他公司同样有价值。
+
+**firm_wide_view（全公司视角）**
+跨部门、跨业务线的全局性洞察：不同业务板块对某战略的反馈、组织层面的风险评估、对全公司有影响的高阶共识。
+**不是**某个单一团队的细枝末节。
+
+两类均须通过可移植性判据与改写要求（同 GS → 创始人的 cross_company），并剔除在途交易信息。
+
+## 输出
+
+{
+  "quality": {"usable": true, "reason": ""},
+  "company_mentions": [
+    {"company_id": "", "confidence": "high|low", "evidence": ""}
+  ],
+  "memory_1b": [
+    {"company_id": "", "summary": "...", "minutes": "..."}
+  ],
+  "cross_company": [
+    {
+      "type": "strategy_resolution_loop|firm_wide_view",
+      "statement": "...",
+      "issue": "", "decision": "",
+      "action_items": [{"action": "", "owner": null, "due": null}],
+      "status": "closed|in_progress|failed",
+      "portable_reason": "",
+      "tags": {"industry": "", "stage": "", "problem_type": ""}
+    }
+  ]
+}
+```
+
+> `issue` / `decision` / `action_items` / `status` 仅 `strategy_resolution_loop` 需要填，`firm_wide_view` 留空。
+
+---
+
+### 6.6 GS → 战略伙伴 / 退出伙伴（合并）
+
+**产出**：1b（退出相关，按公司拆分）+ 专家证词 + Cross-Company。
+
+**本类型默认每场都涉及在途交易**（§9.1 全量适用），抽取时按此从严。
+
+```
+## 抽取项
+
+### 1. company_mentions
+同 LP 类型。
+
+### 2. memory_1b（按公司一条，聚焦退出）
+
+抽：
+- 交易事实：买方、价格、时间表、竞争性投标情况
+- 退出计划与估值判断
+- 对方对该公司的意向与评价
+
+与退出无关的商业合作、采购类内容**不入此处**，若可移植则归 cross_company。
+
+**此处不做匿名化**，交易细节完整保留。
+
+### 3. testimony（专家证词）
+抽取五类：
+- commercial_buying_behavior：企业客户购买、评估、决策软件及服务的习惯与流程（决策链变长、更看重 ROI、安全合规要求提高、倾向集成化方案等）
+- software_usage：客户实际使用软件时的行为与反馈（功能活跃度、高频场景、痛点、流失原因、模块依赖度）
+- multiples：估值倍数
+- buyer_behavior：买方行为
+- exit_trend：退出趋势
+
+要求同 LP 类型（匿名内容、不写署名、保密过滤）。
+
+### 4. cross_company（市场与商业趋势）
+
+与证词的互斥判定同 LP 类型。
+
+两类：
+- market_trend：外部宏观变化
+- commercial_trend：业务与商业化层面的变化（新盈利模式、定价策略调整、渠道转化效率、客户采购行为变化）
+
+**在途交易隔离（从严）**：具体正在跟进、尚未落地的商业项目、谈判细节、竞争性投标数据，一律不得进入此处。任何能指向特定公司的内容一律不输出，即使已匿名。
+
+## 输出
+
+{
+  "quality": {"usable": true, "reason": ""},
+  "company_mentions": [
+    {"company_id": "", "confidence": "high|low", "evidence": ""}
+  ],
+  "memory_1b": [
+    {"company_id": "", "summary": "...", "minutes": "..."}
+  ],
+  "testimony": [
+    {"category": "commercial_buying_behavior|software_usage|multiples|buyer_behavior|exit_trend",
+     "content": "...", "speaker_ref": "", "timestamp": "mm:ss"}
+  ],
+  "cross_company": [
+    {"type": "market_trend|commercial_trend", "statement": "...",
+     "portable_reason": "", "tags": {"industry": "", "stage": "", "problem_type": ""}}
+  ]
+}
+```
+
+---
+
+### 6.7 后置程序步骤（非 LLM）
+
+抽取返回后，程序依次执行：
+
+1. **机械清洗**——按去向执行实体/人名剥离与 n-gram 近逐字剔除（适用矩阵见 design-doc §1.4、范围见 §1.5）
+2. **署名附加**——证词署名版在正文首行附 `来源：<组织> <角色> <姓名>`；匿名版不附
+3. **标签回溯**——按会议日期从注册表取当时生效的角色与专长标签
+4. **路由落库**——按 design-doc 各类型的空间映射写入，`company_id` 必填项校验
+5. **幂等**——按 `meeting_id` 软删旧条目后写新条
+
+---
+
+### 6.8 待确认
+
+| # | 事项 |
+|---|---|
+| 1 | 产物语言定为英文（与现有 summary 及 Goldie 默认作答一致）——需确认 |
+| 2 | 摘要 ≤1000 字符、纪要长度区间、质量门槛的具体阈值，需用真实会议调 |
+| 3 | `speaker_ref` 的取值形态（参会人邮箱？转录中的 speaker_id？）取决于程序侧如何传参会人清单 |
+| 4 | 是否需要让 LLM 输出置信度之外的「建议人工复核」标志，供 Pending 队列使用 |
+
+
+---
+
+## 七、需新建的基础能力
 
 | 能力 | 说明 | 阻塞哪些类型 |
 |---|---|---|
@@ -546,14 +933,14 @@ GS staff、LP、Strategic Partner、Exit Partner
 
 ---
 
-## 七、代码改造清单
+## 八、代码改造清单
 
 | # | 改动 | 位置 |
 |---|---|---|
 | 1 | `ingest_text` 支持自定义 metadata（透传 meeting_id、会议类型、会议日期、参会人到 `chunk.metadata`） | `rag/application/service/ingest_service.py` + loader |
 | 2 | 跳过系统二次 `summarize`，改用我方传入的摘要 | `rag/infrastructure/processor/base.py` 调用链 |
-| 3 | 新增 `EXPERT_TESTIMONY` 业务类型 + `ensure_testimony_space` | `rag/domain/enums.py`、`business_association_service.py` |
-| 4 | `knowledge_base_tool` 公司端分支多解证词空间、调高 top_k | `ai/tools/knowledge_base_tool.py` |
+| 3 | 新增 `EXPERT_TESTIMONY` 与 `CROSS_COMPANY` 两个业务类型及其空间 | `rag/domain/enums.py`、`business_association_service.py` |
+| 4 | `knowledge_base_tool` 公司端分支多解证词与跨公司两个空间、调高 top_k | `ai/tools/knowledge_base_tool.py` |
 | 5 | Java 登录补创始人的 `organization_id`（`r_organization_company` 反查兜底） | `oauth/service/UserDetailsServiceImpl.java` |
 | 6 | 新建 `ff_meeting` / `ff_meeting_sentence` 表与写入链路 | 新迁移脚本 + 新模块 |
 
@@ -561,7 +948,7 @@ GS staff、LP、Strategic Partner、Exit Partner
 
 ---
 
-## 八、未决事项
+## 九、未决事项
 
 ### 8.1 需求文档之间不一致
 
