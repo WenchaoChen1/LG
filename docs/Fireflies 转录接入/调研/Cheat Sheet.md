@@ -40,7 +40,8 @@
 
 **角色**
 
-- 角色固定选项：LP、Strategic Partner、Exit Partner、PE、IB、Buyer、Expert、Other
+- 角色固定选项：LP, Strategic Partner, Exit Partner, Founder, GS staff, Other
+- 并不是所有的GS人员和Founder人员都有LG的账户，所以Cheat sheet保留这两个角色标签
 
 **专长标签**
 
