@@ -15,7 +15,7 @@
 1. **专家/参与人cheat sheet** 匹配
 2. **HubSpot 联系人** 记录匹配
 3. 先用Email匹配，未命中则用姓名匹配
-4.**LLM 从转录内容推断** 
+4. **LLM 从转录内容推断** 
 5. 仍无法解析 → 进入 Pending Assignment 队列
 
 补充规则：
