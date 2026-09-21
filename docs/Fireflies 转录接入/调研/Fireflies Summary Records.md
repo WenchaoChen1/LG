@@ -21,7 +21,7 @@
 - Fireflies ID：拉取
 
 - Scrub Status 徽章：✓ Passed（绿）/ ◷ Pending（红）/ ⚠ Flagged（琥珀色）
-  - 映射规则: 人员 Unidentified/会议类型未判断成功→ Pending、GS → Founder → Flagged
+  - 映射规则: 人员 Unidentified/会议类型未判断成功→ Pending、GS-Founder会议类型 → Flagged
 - AI Meeting Type：标签 + 下拉（GS → Founder、GS → Board Call with Founder、GS → LP、GS Internal、GS → Strategic Partner、GS → Exit Partner、Unknown），切换时标签实时更新；Unknown 灰色，其他蓝色
 - Company：展示已识别公司，可点 × 移除；可多选，可搜索下拉添加公司
 - Participants：姓名标签，各角色不同颜色；未识别身份者（Unidentified）带红点，点击弹出 "Assign New External Party" 弹框（Name、Email、Organization、Role、Expertise Tags、Validity period）；其他参会者点击也打开弹框，已识别者 Name 只读
