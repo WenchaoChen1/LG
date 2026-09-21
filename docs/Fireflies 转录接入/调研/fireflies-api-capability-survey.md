@@ -2,7 +2,7 @@
 > **阶段**：① 调研　**日期**：2026-09-18　
 > 
 > **目的**：评估方案可行性，不涉及落地实现
-> **数据来源**：实测 Fireflies GraphQL API（`https://api.fireflies.ai/graphql`）；MCP 通道（`https://api.fireflies.ai/mcp`）与其 OAuth 授权流程于 2026-09-20 另行实测，见 3.0。
+> **数据来源**：实测 Fireflies GraphQL API（`https://api.fireflies.ai/graphql`）；MCP 通道（`https://api.fireflies.ai/mcp`）与其 OAuth 授权流程于 2026-09-20 另行实测，两条通道凭据是否互通于 2026-09-21 补测，均见 3.0。
 >
 > **账号** `tingting@whalesongproduct.com`（`is_admin: true`），样本 **43 场真实会议 / 19,261 条句子**
 > **多租户口径**：一把 API key 归属一个租户，该 key 下所有会议都属于这个租户。
@@ -13,7 +13,7 @@
 
 **方案可行**——Fireflies 能提供所需的全部原料：可按租户拉取全部会议、正文带说话人与时间戳、自带多档摘要（可省下自建 LLM 摘要的成本）、支持 Webhook 与按日期增量拉取。
 
-**实现范围**：需**同时实现 API key 与 MCP/OAuth 两条对接通道**（2026-09-20 澄清）。两条通道的数据不等价——MCP 缺 7 个会议字段、逐句丢 `ai_filters` 等 4 项、时间戳降到秒级，且 OAuth 凭据不能用于 GraphQL，**客户选哪种连接方式即决定其数据精度**。详见 3.0，设计阶段需据此规划凭据存储与下游降级。
+**实现范围**：需**同时实现 API key 与 MCP/OAuth 两条对接通道**（2026-09-20 澄清）。两条通道的数据不等价——MCP 缺 7 个会议字段、逐句丢 `ai_filters` 等 4 项、时间戳降到秒级。凭据**单向互通**：API key 两条通道都能用，OAuth 凭据只能用于 MCP（实测调 GraphQL 返回 `auth_failed`），故 **OAuth 客户的数据精度由连接方式锁死**。详见 3.0，设计阶段需据此规划凭据存储与下游降级。
 
 但有 **三条必须写进前提**：
 
@@ -70,7 +70,7 @@
 
 ### 3.0 两条接入通道：GraphQL + API key / MCP + OAuth
 
-Fireflies 对外有**两条互不相通的通道**，认证方式和数据形态都不同。下表为 2026-09-18 实测对比（实测 = 本次亲自调通并验证，非文档转述）：
+Fireflies 对外有**两条通道**，认证方式和数据形态都不同，凭据**单向互通**（见下表「跨通道可用」行）。下表为 2026-09-18 实测对比（实测 = 本次亲自调通并验证，非文档转述）：
 
 | 对比项 | GraphQL + API key | MCP + OAuth |
 |---|---|---|
@@ -82,7 +82,7 @@ Fireflies 对外有**两条互不相通的通道**，认证方式和数据形态
 | 可撤销 | 只能用户自己重置 key（影响所有用途） | ✅ 有 `revocation_endpoint` |
 | 授权范围 | 全权限，含 20 个 Mutation（**可删会议**） | 20 个工具，其中 6 个写（改标题/隐私/分享/移动/剪辑）；**无删除** |
 | scope 粒度 | 无 | 仅 `profile` / `email`，**无只读选项** |
-| 跨通道可用 | — | ❌ 实测该 token 调 GraphQL 返回 `auth_failed` |
+| 跨通道可用 | ✅ **该 key 调 MCP 完全可用**（2026-09-21 实测：`initialize` 200、`tools/list` 20 个工具、`get_user` 取到真实账号数据；伪造 token 作阴性对照返回 403，证明 MCP 确实校验鉴权） | ❌ 实测该 token 调 GraphQL 返回 `auth_failed`（2026-09-21 用当日新授权的 token 复测，结果一致，排除过期因素） |
 | 返回格式 | 结构化 JSON，字段任选 | 详情接口为**面向 LLM 的纯文本**（见下） |
 | 拉取 50 场（含正文+摘要） | **1 次调用**——`transcripts` 与 `transcript` 同为 `Transcript` 类型，`sentences` 可直接写进列表查询（实测一次返回 43 场 / 19,261 句 / 含 summary） | **51 次起**：列表不含 `sentences`，正文须逐场取（1 + N）；若还要 `overview`／`notes` 等完整摘要，再加 N 次 `get_summary`（1 + 2N） |
 | 限流 | 见 §2 | 官方说明**与 GraphQL 共用同一套配额** |
@@ -140,7 +140,9 @@ Fireflies 对外有**两条互不相通的通道**，认证方式和数据形态
 >
 > MCP 通道相对 GraphQL 缺失：`analytics`、`workspace_users`、`shared_with`、`meeting_attendance`、`meeting_info`、`apps_preview`、`channels` 共 7 个字段；逐句层面丢失 `speaker_id`、`raw_text`、浮点秒精度与 `ai_filters` 的 7 个子字段（含 `sentiment`）；时间戳精度降到秒（实测平均误差 0.51s、最大 0.99s）。
 >
-> 且 **OAuth 凭据无法用于 GraphQL**（实测 `auth_failed`），所以"用 OAuth 授权、用 GraphQL 取数"这个组合不存在——客户选了哪种连接方式，就决定了他的数据走哪条通道、拿到哪个精度。
+> 且 **OAuth 凭据无法用于 GraphQL**（实测 `auth_failed`），所以"用 OAuth 授权、用 GraphQL 取数"这个组合不存在——**OAuth 客户选了这种连接方式，就等于选定了较低的那档数据精度**，我方无从补救。
+>
+> 反向则是通的：**API key 客户两条通道都能走**（2026-09-21 实测）。但这只是"可以"，不是"值得"——GraphQL 字段更全、调用次数少一个数量级，所以 API key 客户一律走 GraphQL，MCP 通道对他们没有使用场景。结论因此不变，只是原因从"技术上不可能"降为"没必要"。
 
 设计上需要据此明确三件事：① 凭据表要能同时承载「静态 key」与「OAuth token + refresh_token + 过期时间」两类形态；② 入库后的条目应记录来源通道，便于排查"为什么这家公司的数据没有 sentiment"；③ 依赖 `ai_filters`、精确时间戳的下游功能，必须对 MCP 来源的数据做降级处理，不能假设字段一定存在。
 
@@ -473,6 +475,8 @@ API key 获取：Fireflies 后台 → Integrations → 搜 `Fireflies API` → G
 ## 附录 B：关键接口返回结构对比（API key / MCP）
 
 两条通道对同一场会议的实际返回，用于评估「客户选了哪种连接方式，我们拿到什么」。
+
+> 本附录只列**字段层面的差异**。想看四个接口**各自的完整返回样例**（列表／详情 × GraphQL／MCP），见 [接口返回样例](./api-response-samples.md)。
 
 > **样本**：`01KZYS4QBCSC54X8BTSB6G9Y35`（`LG Weekly Business Requirements Discussion`，48.97 分钟 / 504 句 / 8 名参会者）
 > **测法**：该会议归属 API key 账号，经 `shareMeeting` 分享给 OAuth 账号后，用两条通道分别取同一场会对比。日期 2026-09-20。

@@ -1,6 +1,6 @@
 # Fireflies MCP / OAuth 实测脚本
 
-2026-09-18 做通道调研时写的三个最小脚本（`register.py` 为 2026-09-21 补），`fireflies-api-capability-survey.md` §3.0 与附录 B 的 MCP 侧数据都由它们跑出来。
+2026-09-18 做通道调研时写的几个最小脚本（`register.py`、`cross_channel_check.py` 为 2026-09-21 补），`fireflies-api-capability-survey.md` §3.0 与附录 B 的 MCP 侧数据都由它们跑出来。
 **只是验证可行性的探针，不是生产实现**——产品化时授权回调要落到 Java 后端（参照 QuickBooks 那套），不是这里的 localhost 服务。
 
 > Fireflies 自己没有开发者级的 OAuth 文档，只在帮助中心说了句「按提示完成授权」。
@@ -17,6 +17,7 @@
 | `register.py` | 动态客户端注册（RFC 7591），产出 `client_id`；原先这步是手动 curl 的，2026-09-21 补成脚本 |
 | `oauth_flow.py` | OAuth 2.1 授权码 + PKCE(S256) 全流程：生成 challenge → 打印授权 URL → 本地 8765 端口收回调 → 用 code 换 token |
 | `mcp_client.py` | 带 token 调 `https://api.fireflies.ai/mcp` 的最小 JSON-RPC 客户端，兼容 SSE 与纯 JSON 响应 |
+| `cross_channel_check.py` | 验证两条通道凭据是否互通：API key→MCP、OAuth token→GraphQL，外加伪造 token 的阴性对照（2026-09-21 补） |
 
 ## 怎么跑
 
