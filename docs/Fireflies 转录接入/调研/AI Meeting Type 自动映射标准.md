@@ -19,7 +19,7 @@
 5. 仍无法解析 → 进入 Pending Assignment 队列
 
 补充规则：
-- Cheat Sheet中的GS staff也是GS人员，Fouder也是未使用LG平台的Founder人员。并不是所有的GS人员和Fouder人员都有LG的账户，所以cheat sheet保留这两个角色标签
+- Cheat Sheet中的GS staff是未使用LG平台的GS人员，Founder是未使用LG平台的Founder人员。判定人员时，这两个标签的人员应正确归类
 - 通过参与人 **邮箱域名** 匹配公司在 LG 中的 Team 记录，实现公司关联。
 - 一场会议可关联 **多个公司**（多家公司参与人同时出现时）。
 - 识别结果（公司、外部人员、角色）传递给下游分类步骤。
