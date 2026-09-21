@@ -1,6 +1,6 @@
 ## Cheat Sheet
 
-**说明：**该页面为外部人员登记表，供后续AI判断参会人时使用
+**说明**：该页面为外部人员登记表，供后续AI判断参会人时使用
 
 ### External Parties Registry列表
 
