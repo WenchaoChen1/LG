@@ -41,7 +41,7 @@
 **角色**
 
 - 角色固定选项：LP, Strategic Partner, Exit Partner, Founder, GS staff, Other
-- Cheat Sheet中的GS staff也是GS人员，Fouder也是未使用LG平台的Founder人员。并不是所有的GS人员和Fouder人员都有LG的账户，所以cheat sheet保留这两个角色标签
+- Cheat Sheet中的GS staff也是GS人员，Fouder也是未使用LG平台的Founder人员。并不是所有的GS人员和Founder人员都有LG的账户，所以cheat sheet保留这两个角色标签
 
 **专长标签**
 
