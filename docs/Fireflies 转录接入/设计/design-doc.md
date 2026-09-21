@@ -1,9 +1,11 @@
 # Fireflies 会议内容提取与路由设计
 
-> 关联文档：[需求文档](../调研/Fireflies_Integration_需求文档.md) · [API 能力与数据质量调研](../调研/fireflies-api-capability-survey.md)
+> 关联需求：[会议内容提取规则](../调研/会议内容提取规则-需求文档.md) · [Cheat Sheet](../调研/Cheat%20Sheet-需求文档.md) · [AI Meeting Type 自动映射标准](../调研/AI%20Meeting%20Type%20自动映射标准-需求文档.md) · [Fireflies Configuration](../调研/Fireflies%20Configuration-需求文档.md) · [Fireflies Raw Data](../调研/Fireflies%20Raw%20Data-需求文档.md) · [Fireflies Summary Records](../调研/Fireflies%20Summary%20Records-需求文档.md)
+>
+> 关联调研：[API 能力与数据质量](../调研/fireflies-api-capability-survey.md)　｜　已作废：[Fireflies_Integration过期](../调研/Fireflies_Integration过期.md)
 >
 > **状态**：五类会议的提取规则**已全部覆盖**。「GS → 董事会/创始人」为手动改判类型，对 AI 分类而言等同第一类，不单独成节，故正文为 4 节。
-> 仍有 10 项待确认，见第八节；其中 **8.1 为阻塞项**（三份需求来源互不一致）。
+> 抽取提示词见第六节。未决事项见第九节——旧需求文档已作废，阻塞解除；但**新增的四份需求文档尚未纳入比对**，其中《AI Meeting Type 自动映射标准》可能影响各类型的判定条件。
 >
 > **日期**：2026-09-21
 
@@ -952,15 +954,19 @@ GS staff、LP、Strategic Partner、Exit Partner
 
 ### 8.1 需求文档之间不一致
 
-现有三份需求来源，**内容互不一致**：
+**阻塞已解除（2026-09-21）**：旧版《Fireflies_Integration_需求文档》已被重命名为 `Fireflies_Integration过期.md`，正式作废；本文档所依据的两份现行需求已改名加 `-需求文档` 后缀。
 
-| 文档 | 状态 |
+| 文档 | 本文档的采用情况 |
 |---|---|
-| 《Cheat Sheet》 | **最新**，注册表字段以此为准 |
-| 《会议内容提取规则》 | **最新**，路由矩阵与术语定义以此为准 |
-| 《Fireflies_Integration_需求文档》 | **旧版**（273 行，2026-09-20），角色枚举、Expertise Tags 性质、路由矩阵问号项、证词来源含 Board Call 等均已被前两份覆盖 |
+| 《会议内容提取规则-需求文档》 | ✅ 路由矩阵与术语定义以此为准 |
+| 《Cheat Sheet-需求文档》 | ✅ 注册表字段以此为准 |
+| 《Fireflies_Integration过期》 | ❌ 已作废，不再引用 |
+| 《AI Meeting Type 自动映射标准-需求文档》 | ⚠️ **尚未纳入**——从标题看直接关系到各类型的判定条件（本文档 2.1 / 3.1 / 4.1 / 5.1），需逐条比对 |
+| 《Fireflies Configuration-需求文档》 | ⚠️ 尚未纳入 |
+| 《Fireflies Raw Data-需求文档》 | ⚠️ 尚未纳入，可能涉及 `ff_meeting` 原文留存的字段设计 |
+| 《Fireflies Summary Records-需求文档》 | ⚠️ 尚未纳入，可能涉及摘要产物形态 |
 
-本文档按前两份 + 口头确认编写。**旧版需求文档尚未同步**，评审时若以它为基准，会把本文档中有意的设计决策误判为理解错误。建议尽快更新或作废旧版。
+后四份是新增的需求文档，本文档成稿时尚不存在，**内容未经比对**。其中《AI Meeting Type 自动映射标准》优先级最高——若它给出的判定规则与本文档不同，各类型的 2.1 / 3.1 / 4.1 / 5.1 都要改。
 
 ### 8.2 待确认项
 
