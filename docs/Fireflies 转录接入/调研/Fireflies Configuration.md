@@ -1,6 +1,6 @@
 ## Fireflies Configuration
 
-**说明：** 该页面是FF的配置页面，支持两种连接方法，API Key或OAuth,两者任选一个即可
+**说明：** 该页面是FF的配置页面，支持一种连接方法，API Key
 
 **Connection**
 
@@ -13,7 +13,3 @@
 - 说明文案：Link your Fireflies API key to enable automatic meeting ingestion.
 - API Key 输入框，Link 按钮，API输入后Link按钮激活，点击连接Fireflies
 
-**OAuth**
-
-- 说明文案：Or connect your Fireflies account securely through OAuth — no key required.
-- 按钮 "Connect with OAuth"，点击跳转FF，进行授权
