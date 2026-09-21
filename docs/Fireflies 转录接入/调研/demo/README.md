@@ -1,9 +1,14 @@
 # Fireflies MCP / OAuth 实测脚本
 
-2026-09-18 做通道调研时写的两个最小脚本，`fireflies-api-capability-survey.md` §3.0 与附录 B 的 MCP 侧数据都由它们跑出来。
+2026-09-18 做通道调研时写的三个最小脚本（`register.py` 为 2026-09-21 补），`fireflies-api-capability-survey.md` §3.0 与附录 B 的 MCP 侧数据都由它们跑出来。
 **只是验证可行性的探针，不是生产实现**——产品化时授权回调要落到 Java 后端（参照 QuickBooks 那套），不是这里的 localhost 服务。
 
-> Fireflies 自己没有开发者级的 OAuth 文档；但那个 demo 的每一步都不是我自创的，全部对应 MCP 官方授权规范 + 一串 RFC 的强制条款。
+> Fireflies 自己没有开发者级的 OAuth 文档，只在帮助中心说了句「按提示完成授权」。
+> 但这里的每一步都不是自定义实现，全部对应 [MCP 官方授权规范](https://modelcontextprotocol.io/specification/latest/basic/authorization)
+> 及其引用的 RFC 的强制条款：动态注册 [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591)、
+> 端点发现 [RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414) / [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728)、
+> PKCE（OAuth 2.1 §7.5.2）、资源指示符 [RFC 8707](https://www.rfc-editor.org/rfc/rfc8707.html)。
+> Fireflies 的具体参数以 `https://api.fireflies.ai/.well-known/oauth-authorization-server` 为准。
 
 ## 文件
 
