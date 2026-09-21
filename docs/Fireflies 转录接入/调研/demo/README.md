@@ -3,6 +3,8 @@
 2026-09-18 做通道调研时写的两个最小脚本，`fireflies-api-capability-survey.md` §3.0 与附录 B 的 MCP 侧数据都由它们跑出来。
 **只是验证可行性的探针，不是生产实现**——产品化时授权回调要落到 Java 后端（参照 QuickBooks 那套），不是这里的 localhost 服务。
 
+> Fireflies 自己没有开发者级的 OAuth 文档；但那个 demo 的每一步都不是我自创的，全部对应 MCP 官方授权规范 + 一串 RFC 的强制条款。
+
 ## 文件
 
 | 文件 | 作用 |
