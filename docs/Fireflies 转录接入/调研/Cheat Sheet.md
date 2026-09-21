@@ -75,6 +75,6 @@
 - 可点击面包屑：Fireflies / Cheat Sheet / Role History（前两级可跳回对应页面）
 
 - 独立页面表格展示，不做行内展开
-- 每个版本保留**完整快照**：Effective period、Name、Email(s)（可多个）、Role、Organization、Expertise tags、Validity period、Updated by（含更新日期）
+- 每个版本保留**完整快照**：Name、Email(s)（可多个）、Role、Organization、Expertise tags、Validity period、Updated by（含更新日期）
 - 角色以蓝色标签展示，专长标签为灰色小标签
 - 按生效日期排序，可追溯每个人在每个时期的完整登记状态
