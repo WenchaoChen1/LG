@@ -40,7 +40,7 @@
 
 **角色**
 
-- 角色固定选项：LP、Strategic Partner、Exit Partner、PE、IB、Buyer、Expert、Other
+- 角色固定选项：LP, Strategic Partner, Exit Partner, Founder, GS staff, Other
 
 **专长标签**
 
