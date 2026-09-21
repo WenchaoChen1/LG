@@ -44,4 +44,4 @@
 
 - 勾选则授权，visible to中的角色即可看到该行内容
 
-**注：具体的操作步骤的实现形式参考文档“会议内容提取规则”**
+**注：具体的操作步骤的实现形式参考文档“会议内容提取规则”** https://github.com/WenchaoChen1/LG/blob/862783e45bef5d3d35b5bcd7809ed23263bafbd7/docs/Fireflies%20%E8%BD%AC%E5%BD%95%E6%8E%A5%E5%85%A5/%E8%B0%83%E7%A0%94/%E4%BC%9A%E8%AE%AE%E5%86%85%E5%AE%B9%E6%8F%90%E5%8F%96%E8%A7%84%E5%88%99.md
