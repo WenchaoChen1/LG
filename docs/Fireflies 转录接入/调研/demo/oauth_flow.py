@@ -17,6 +17,7 @@ open('authorize_url.txt','w').write(url)
 print("OPEN_THIS_URL:\n"+url,flush=True)
 
 result={}
+
 class H(BaseHTTPRequestHandler):
     def log_message(self,*a): pass
     def do_GET(self):
@@ -34,8 +35,10 @@ srv.serve_forever()
 
 if result.get('error'):
     print("AUTH_ERROR:",json.dumps(result)); raise SystemExit(1)
+    
 if result.get('state')!=state:
     print("STATE_MISMATCH"); raise SystemExit(1)
+    
 print("code received, exchanging...",flush=True)
 
 data=urllib.parse.urlencode({
@@ -43,13 +46,16 @@ data=urllib.parse.urlencode({
  "redirect_uri":REDIRECT,"client_id":CID,"code_verifier":ver,
  "resource":"https://api.fireflies.ai/mcp",
 }).encode()
+
 req=urllib.request.Request("https://api.fireflies.ai/token",data=data,
   headers={"Content-Type":"application/x-www-form-urlencoded"})
+  
 try:
     r=urllib.request.urlopen(req,timeout=30); body=r.read().decode(); st=r.status
 except urllib.error.HTTPError as e:
     body=e.read().decode(); st=e.code
 print("TOKEN_HTTP",st)
+
 try:
     tok=json.loads(body); json.dump(tok,open('ff_oauth_token.json','w'),indent=1)
     print(json.dumps({k:(('<len %d>'%len(str(v))) if 'token' in k else v) for k,v in tok.items()},indent=1))

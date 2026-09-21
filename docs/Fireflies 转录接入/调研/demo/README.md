@@ -7,30 +7,37 @@
 
 | 文件 | 作用 |
 |---|---|
+| `register.py` | 动态客户端注册（RFC 7591），产出 `client_id`；原先这步是手动 curl 的，2026-09-21 补成脚本 |
 | `oauth_flow.py` | OAuth 2.1 授权码 + PKCE(S256) 全流程：生成 challenge → 打印授权 URL → 本地 8765 端口收回调 → 用 code 换 token |
 | `mcp_client.py` | 带 token 调 `https://api.fireflies.ai/mcp` 的最小 JSON-RPC 客户端，兼容 SSE 与纯 JSON 响应 |
 
 ## 怎么跑
 
-两个脚本只用标准库，`python oauth_flow.py` 即可，无需装依赖。但它们读同目录下的两个凭据文件，**这两个文件不入库**，需要自己生成。
+三个脚本只用标准库，直接 `python xxx.py` 即可，无需装依赖。后两个读同目录下的凭据文件（`ff_oauth_client.json` / `ff_oauth_token.json`），**这两个文件已 gitignore、不入库**，按下面的顺序自己生成。
 
 ### 1. 动态注册，产出 `ff_oauth_client.json`
 
-脚本里没有这一步（当时是手动 curl 的）。Fireflies 支持免审批动态注册（RFC 7591），返回 201：
+Fireflies 支持免审批动态注册（RFC 7591），返回 201：
 
-```bash
-curl -s -X POST https://api.fireflies.ai/register \
-  -H 'Content-Type: application/json' \
-  -d '{"redirect_uris":["http://localhost:8765/callback"],
-       "token_endpoint_auth_method":"none",
-       "grant_types":["authorization_code","refresh_token"],
-       "response_types":["code"],
-       "client_name":"<你的应用名>",
-       "scope":"profile email",
-       "application_type":"native"}' > ff_oauth_client.json
+```
+python register.py "你的应用名"
 ```
 
 返回里有 `client_id`，**没有 client_secret**（公开客户端，故强制 PKCE）。
+
+> Windows 注意：PowerShell 5.1 的 `curl` 是 `Invoke-WebRequest` 的别名，不认 `-X` / `-H` / `-d`，续行也不是 `\`。
+> 所以这一步用上面的 `register.py`，不要照搬网上的 curl 写法。真要用命令行，PowerShell 里是：
+>
+> ```powershell
+> $body = @{ redirect_uris=@("http://localhost:8765/callback")
+>            token_endpoint_auth_method="none"
+>            grant_types=@("authorization_code","refresh_token")
+>            response_types=@("code"); client_name="你的应用名"
+>            scope="profile email"; application_type="native" } | ConvertTo-Json
+> Invoke-RestMethod -Method Post -Uri https://api.fireflies.ai/register `
+>   -ContentType 'application/json' -Body $body |
+>   ConvertTo-Json | Out-File -Encoding utf8 ff_oauth_client.json
+> ```
 
 ### 2. 走授权，产出 `ff_oauth_token.json`
 
@@ -52,6 +59,7 @@ rpc("initialize", {"protocolVersion":"2025-06-18","capabilities":{},
 rpc("notifications/initialized", {}, notify=True)   # 必须发，否则后续调用报错
 rpc("tools/list")
 rpc("tools/call", {"name":"fireflies_get_transcripts","arguments":{"limit":5,"format":"json"}})
+
 ```
 
 首次 `initialize` 的响应头带 `Mcp-Session-Id`，脚本会自动记住并在后续请求里带上。

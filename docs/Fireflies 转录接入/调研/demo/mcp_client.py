@@ -24,4 +24,5 @@ def rpc(method,params=None,notify=False):
         if line.startswith('data:'):
             return json.loads(line[5:].strip())
     return json.loads(raw)
+    
 rpc.n=1
