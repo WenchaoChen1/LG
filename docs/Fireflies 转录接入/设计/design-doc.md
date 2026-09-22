@@ -314,7 +314,7 @@ n-gram 阈值需在实施期用真实数据调优。
 | ① | **LG 公司端用户**，且其所属公司 `status ∈ {2,3,4,5}` | 已注册平台的创始人／公司成员 |
 | ② | Cheat Sheet 中 role = `Founder` | **未注册 LG 平台**的创始人（手动维护） |
 
-公司状态取 `CompanyStatusEnum` 的四项正常态：Needs Intervention(2) / Needs Guidance(3) / Thriving(4) / Achieving(5)；排除 Exited(1) / Shut down(6) / Off journey(7)。**不额外要求公司挂 portfolio**（比现成的 `isActiveCompany` 宽）。
+公司状态取 `CompanyStatusEnum` 的四项正常态：Needs Intervention(2) / Needs Guidance(3) / Thriving(4) / Active(5)；排除 Exited(1) / Shut down(6) / Off journey(7)。**不额外要求公司挂 portfolio**（比现成的 `isActiveCompany` 宽）。
 
 > ⚠️ **仅靠 ② 成立时，会议判得出类型但定不出公司归属**。
 >
@@ -345,18 +345,22 @@ n-gram 阈值需在实施期用真实数据调优。
 | 目的地 | 是否产出 | 形态 |
 |---|---|---|
 | 1a 创始人记忆 | ✅ | 摘要 + 纪要 |
-| 1b 管理端记忆 | ✅ | **与 1a 共用同一份** |
+| 1b 管理端记忆 | ✅ | **仅摘要**，不含纪要 |
 | Founder KB | ✅ | **与 1a 共用同一份**，区别仅在前台有无浏览入口 |
 | Cross-Company | ✅ | 匿名可移植洞察点 |
 | 专家证词 | ❌ | 不产出 |
 
 ### 2.3 提取规则
 
-**1a / 1b / Founder KB（同一份）**
+**1a / Founder KB（同一份）**
 
 - 摘要：≤1000 字符，我方生成
 - 纪要：去逐字化后的完整会议内容
 - **一场会关联多家公司时，每家一条 entry，内容不裁剪**。本类型下安全——关联公司由参会人邮箱反推，各家均实际到场听过全场，不存在新增暴露
+
+**1b（仅摘要）**
+
+取与 1a 相同的那份摘要，**不写纪要**——《创始人与管理端问答总结》给管理端在本类型下的口径是「会议摘要」。LLM 不额外生成，两处用同一份文本，不存在漂移。
 
 **Cross-Company**
 
@@ -373,8 +377,9 @@ n-gram 阈值需在实施期用真实数据调优。
 
 | 项 | 取值 |
 |---|---|
-| 空间 | `(APP, APP_COMPANY, company_id)`，STANDARD |
-| 条目 | `ai_rag_entry`，每家关联公司一条 |
+| 空间（1a / Founder KB） | `(APP, APP_COMPANY, company_id)`，STANDARD |
+| 空间（1b） | `(ADMIN, ADMIN_COMPANY, organization_id)`，STANDARD，**`company_id` 必填**（行级隔离） |
+| 条目 | `ai_rag_entry`，每家关联公司一条；1b 条目只有摘要、无纪要 |
 | 登记 | `ai_file_registry.business_type = FIREFLIES` |
 | 原文 | `ff_meeting` / `ff_meeting_sentence` |
 
