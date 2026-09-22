@@ -8,7 +8,7 @@
 
 **LG平台使用人员识别**：
 - Email地址匹配平台中管理端和公司端用户，若email匹配为管理端用户，则认为此人是GS人员；若匹配为客户端用户，则认为此人是Founder,再去看此人属于哪家公司
-- 客户端公司只查Active、Thriving、Needs Intervention、Needs Guidance
+- 客户端公司只查Active、Thriving、Needs Intervention、Needs Guidance状态的公司
 
 **LG平台外人员：**
 
