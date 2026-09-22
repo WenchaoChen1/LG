@@ -13,7 +13,7 @@
 
 **方案可行**——Fireflies 能提供所需的全部原料：可按租户拉取全部会议、正文带说话人与时间戳、自带多档摘要（可省下自建 LLM 摘要的成本）、支持 Webhook 与按日期增量拉取。
 
-**实现范围**：需**同时实现 API key 与 MCP/OAuth 两条对接通道**（2026-09-20 澄清）。两条通道的数据不等价——MCP 缺 7 个会议字段、逐句丢 `ai_filters` 等 4 项、时间戳降到秒级。凭据**单向互通**：API key 两条通道都能用，OAuth 凭据只能用于 MCP（实测调 GraphQL 返回 `auth_failed`），故 **OAuth 客户的数据精度由连接方式锁死**。详见 3.0，设计阶段需据此规划凭据存储与下游降级。
+**实现范围**：**只做 GraphQL + API key**——《Fireflies Configuration》需求明确「支持一种连接方法，API Key」，配置页即一个 API Key 输入框 + Link 按钮，无 OAuth 跳转授权。MCP/OAuth 的实测结论作为调研记录保留（见 3.0 与附录 B），当前不落地。
 
 但有 **三条必须写进前提**：
 
@@ -130,21 +130,15 @@ Fireflies 对外有**两条通道**，认证方式和数据形态都不同，凭
 
 **附带发现**：同为 Free 账号，GraphQL 请求 `audio_url` 返回 `paid_required`（403 错误），MCP 则返回 `No audio url` 字符串。**MCP 对付费字段是降级而非报错**，接入时不能靠"有没有报错"判断字段是否可用。
 
-**实现范围：两条通道都要做**（2026-09-20 需求澄清）
+**选型：只做 API key**（2026-09-22 按《Fireflies Configuration》需求确定）
 
-本方案**同时实现 API key 与 MCP/OAuth 两种对接方式**，由客户选择其一连接。两者并非备选关系，而是都要落地。
+需求原文：「该页面是 FF 的配置页面，**支持一种连接方法，API Key**」——配置界面即一个 API Key 输入框 + Link 按钮，**没有 OAuth 跳转授权**。
 
-由此产生一个**必须在设计阶段就正视的后果**：
+因此本方案**只实现 GraphQL + API key** 一条通道。MCP/OAuth 的实测结论（本节及附录 B）作为**调研记录保留**，供将来如需开放"客户自助连接"时参考，当前不落地。
 
-> **两条通道拿到的数据不等价，因此同一套知识库里会混进两种质量的数据。**
+> 若将来重启 MCP/OAuth，两条通道的数据不等价这一点仍然成立：MCP 相对 GraphQL 缺 `analytics`、`workspace_users`、`shared_with`、`meeting_attendance`、`meeting_info`、`apps_preview`、`channels` 共 7 个会议字段；逐句层面丢 `speaker_id`、`raw_text`、浮点秒精度与 `ai_filters` 的 7 个子字段（含 `sentiment`）；时间戳精度降到秒（实测平均误差 0.51s、最大 0.99s）。
 >
-> MCP 通道相对 GraphQL 缺失：`analytics`、`workspace_users`、`shared_with`、`meeting_attendance`、`meeting_info`、`apps_preview`、`channels` 共 7 个字段；逐句层面丢失 `speaker_id`、`raw_text`、浮点秒精度与 `ai_filters` 的 7 个子字段（含 `sentiment`）；时间戳精度降到秒（实测平均误差 0.51s、最大 0.99s）。
->
-> 且 **OAuth 凭据无法用于 GraphQL**（实测 `auth_failed`），所以"用 OAuth 授权、用 GraphQL 取数"这个组合不存在——**OAuth 客户选了这种连接方式，就等于选定了较低的那档数据精度**，我方无从补救。
->
-> 反向则是通的：**API key 客户两条通道都能走**（2026-09-21 实测）。但这只是"可以"，不是"值得"——GraphQL 字段更全、调用次数少一个数量级，所以 API key 客户一律走 GraphQL，MCP 通道对他们没有使用场景。结论因此不变，只是原因从"技术上不可能"降为"没必要"。
-
-设计上需要据此明确三件事：① 凭据表要能同时承载「静态 key」与「OAuth token + refresh_token + 过期时间」两类形态；② 入库后的条目应记录来源通道，便于排查"为什么这家公司的数据没有 sentiment"；③ 依赖 `ai_filters`、精确时间戳的下游功能，必须对 MCP 来源的数据做降级处理，不能假设字段一定存在。
+> 且 **OAuth 凭据无法用于 GraphQL**（实测 `auth_failed`），故"用 OAuth 授权、用 GraphQL 取数"的组合不存在；反向 **API key 两条通道都能走**（2026-09-21 实测）。
 
 #### 工程实现：与现有 QuickBooks 授权的异同
 
