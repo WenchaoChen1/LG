@@ -23,7 +23,7 @@
 **何为GS人员**：
 - Email地址属于管理端用户的
 - Cheat sheet中role标签为GS Staff的
-- 回退：若既不属于管理端用户，也未登记在册，则看域名是否是@goldensection.com、@whalesongproduct.com、@gst.com
+- 回退：若既不属于管理端用户，也未登记在册，则看域名是否是@goldensection.com、@whalesongproduct.com、@gstdev.com
 
 补充规则：
 - Cheat Sheet中的GS staff是未使用LG平台的GS人员，Founder是未使用LG平台的Founder人员。判定人员时，这两个标签的人员应正确归类
