@@ -13,3 +13,5 @@
 - 说明文案：Link your Fireflies API key to enable automatic meeting ingestion.
 - API Key 输入框，Link 按钮，API输入后Link按钮激活，点击连接Fireflies
 
+**拉取**
+- 每日拉取数据
