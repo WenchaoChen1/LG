@@ -90,7 +90,8 @@
 | v4.61 | **2026-09-20** | **需求方 2026-09-20 裁决：差距分析改为「维度级增量生成」** | **分析单元由「期次」降到「维度」——生成门槛、提交批次指纹、落库粒度、前端状态机四处同步改；Share 门槛刻意不动。**① **生成门槛 S1 由「全部 Active 维度两端都提交」改为「至少有一个可分析维度」**（可分析 = 该维两端都有 `SUBMITTED` 且非题集 mismatch）——某一维两端一凑齐就立刻分析这一维，不必等其余维度；5 维里先交完 1 维就能看到该维结论。② **提交批次指纹由期次级下沉到维度级**（`sha256(code\|founderAssessmentId\|gsvAssessmentId)`），新建**第 13 张表** `ai_erl_gap_analysis_dimension` 承载它 + `has_gap` + `generated_at`；`ai_erl_gap_analysis.submission_signature` 随之**废弃停写**（恒 NULL，下个 sprint DROP）。③ **落库由「全量替换条目」改为「按维度覆盖」** —— 只删重跑那几维的 item，其余维度的结论原样保留。④ **「维度行存在 = 该维已分析」**：接口 17 / 18 / 27 的 `dimensions[]` 新增 `analyzed` / `analyzedAt` / `dimensionStale` 三个字段，前端小卡状态机由四态扩到**六态**（新增 `Analyzing…` / `Updating…`）—— **`No Gap` 从此只在真的分析过之后出现**，堵掉「尚未生成也渲染成绿点 `No Gap`」的假阴性（这正是 §6.6 末尾那条早已预告、`CIOaas-api/docs/待优化项.md` 2026-09-20 登记的缺陷）。⑤ **Share 门槛 S2 维持「全维两端提交 + 无 mismatch」不变**（需求方裁决：半份报告不发给创始人）——`allDimensionsSubmitted` 保留，专供 S2，不再兼任生成门槛。⑥ **重生成复位 `shared` 维持无条件**（需求方裁决），频率随增量化上升是已知代价。⑦ prompt 升 **1.5**，新增只读入参 `analyzed_context_json`，让期次级 `summary` 覆盖「本轮分析 + 此前已分析」的全貌。⑧ **存量不回填**（需求方裁决）：老产物没有维度行 ⇒ 读成「未分析」⇒ 触发点 B 自动重跑一轮自愈。逐条见 §0.35 |
 | v4.62 | **2026-09-20** | **需求方 2026-09-20：Share 按钮分享后不改文案** | **一处纯前端文案态调整，接口契约 / 门槛 / 数据库一律未动。**A1 Gap 区块的 `Share to founder` 按钮**已分享后文案保持不变、只置灰**；~~切成禁用的 `Shared`~~ 作废（该口径自 v4.4-D3 起沿用，v4.60-Y1 撤次级文字时还特意声明「按钮态不变」，本版把按钮态本身也改了）。理由：同一颗按钮随状态换标签，会让「这颗按钮是干什么的」跟着漂移；禁用态本身已经表达「现在点不了」，再换一次措辞是多余的一层。实现上两个禁用成因合并成一个 `disabled`（`shared` 已分享过 / `!canShare` 服务端 `shareable` 未放行），不再按 `shared` 分叉渲染两颗 Button；`TEXT.shared` 随之无消费方、已删除。详见 §0.36 |
 | v4.63 | **2026-09-20** | **2026-09-20 实测缺陷：已分享的期次出现 mismatch 后创始人仍看得到** | **一处读侧派生，接口契约只增语义不增字段；数据库、Python、Share 门槛本身一律未动。****公司端的「已分享」改为读侧派生** —— 由「直接读 `shared` 列」改成「`shared` 列为真 **且** 该期次当前仍满足分享门槛（§7.5-S2 三条）」。成因：复位 `shared` 一直搭在**重生成**上（Python `overwrite_generated` 无条件复位），而 v4.61 把指纹下沉到维度级之后，「某维变 mismatch」**不改变任何可分析维度的指纹** ⇒ `toRefresh` 为空 ⇒ 压根不调 Python ⇒ 复位永不发生。改造前指纹是期次级的、任一次提交都会让它变化，所以「GSV 重新答题就结束分享」看着像规则，其实只是重生成的副作用 —— v4.61 把这层隐式耦合弄丢了。**已知代价（需求方 2026-09-20 知情后选择口径单一）**：判据复用 `isShareable`，故「新增一个两端都还没提交的 Active 维度」也会让创始人暂时失去访问。详见 §0.37 |
-| **v4.64（本版）** | **2026-09-20** | **需求方 2026-09-20：分析过程中去掉顶部提示** | **一处纯前端删除，接口契约 / 出参 / 服务端一律未动。**A1 Gap 区块顶部那条期次级横幅 `Refreshing analysis…` **整条撤下**。理由：v4.61 给每个维度小卡加了 `Analyzing…` / `Updating…` 之后，进行时已经**逐维**说清楚了，顶部再压一条笼统的横幅是同一件事说两遍；且横幅是**期次级**、小卡是**维度级**，粒度不同还容易打架（横幅亮着、几张卡却全是终态）。`stale` / `generating` 两个出参字段**保留不动**（前端仍用它们判「已分享过的内容又被重生成」⇒ 提示需重新分享）；`TEXT.refreshingAnalysis` 随之无消费方、已删除。详见 §0.38 |
+| **v4.64** | **2026-09-20** | **需求方 2026-09-20：分析过程中去掉顶部提示** | **一处纯前端删除，接口契约 / 出参 / 服务端一律未动。**A1 Gap 区块顶部那条期次级横幅 `Refreshing analysis…` **整条撤下**。理由：v4.61 给每个维度小卡加了 `Analyzing…` / `Updating…` 之后，进行时已经**逐维**说清楚了，顶部再压一条笼统的横幅是同一件事说两遍；且横幅是**期次级**、小卡是**维度级**，粒度不同还容易打架（横幅亮着、几张卡却全是终态）。`stale` / `generating` 两个出参字段**保留不动**（前端仍用它们判「已分享过的内容又被重生成」⇒ 提示需重新分享）；`TEXT.refreshingAnalysis` 随之无消费方、已删除。详见 §0.38 |
+| **v4.65（本版）** | **2026-09-24** | **需求方 2026-09-24 裁决：差距分析任务化（sprint119）** | **数据模型、Java↔Python 契约、生成门槛、分享冻结方式四处同改；前端六态代码不动。**① 产物归属再切分：Java 新增 `erl_gap_analysis_report`（报告分享记录）+ `erl_gap_analysis_dimension_task`（按维度任务，含两端 SOT id / status / has_gap / result_task_id / deleted），Python 改为 `ai_erl_gap_analysis_task`（生成日志 + 幂等标记）+ `ai_erl_gap_analysis_task_item`（条目，一次写入永不改）；② **生成门槛回到报告级**（全部 Active 维度两端 SUBMITTED 且无 mismatch），v4.61-G1 维度级门槛作废；③ **已分享记录不可变**：任一端改动 ⇒ 新建记录、未变维度复制任务，未分享记录就地软删重建 —— 取代 V027 `shared_snapshot` JSONB 冻结；④ Java → Python 仍同步 HTTP，refresh 响应逐任务回 `{taskId, status, hasGap}`，新增 `POST /items` 按任务批量取条目，删 GET / share 端点与 Python 期次级 Redis 锁；Python 每任务一次 LLM，prompt 升 1.7；⑤ 砍掉 summary / analyzedContext / model / generated_at / note / why / evidence_missing / stale / generating / analyzedAt / dimensionStale 全链；⑥ 指纹 `submission_signature` 全链删除，改比任务行的两个 source id。详细设计见 `docs/superpowers/specs/2026-09-24-erl-gap-analysis-task-model-design.md`，逐条见 §0.39 |
 
 ---
 
@@ -1129,6 +1130,31 @@
 - **`stale` / `generating` 两个出参字段保留不动**：前端仍用 `stale || generating` 判「已分享过的内容又被重生成」⇒ 渲染 `Content updated — reshare to founder.`（§7.5-S5）。**服务端零改动。**
 - `TEXT.refreshingAnalysis` 自此无消费方，**已删除**。
 - ⚠️ **本节是这条口径的唯一权威**：全文其余各处凡把 `Refreshing analysis…` / `Refreshing…` 描述成**屏上元素**的表述（§6.6 的出参说明、§7.5 触发点 B 与页面读取图、§9 失败降级表、§11 验收项 25），一律以本节为准 —— 那些句子里关于**服务端行为**（下发 `stale = true`、保留旧内容、触发点 B 自愈）的部分**依然有效**，失效的只是「屏上会看到一条 Refreshing 提示」这半句。历史修正清单（§0.33-X2、§0.35-G12 等）中的提及属留档，不再逐条订正。
+
+---
+
+### 0.39 v4.64 → v4.65 修正清单（**需求方 2026-09-24：差距分析任务化，sprint119**）
+
+> 本节只记结论与作废关系；数据模型、状态机、契约、读写路径、迁移顺序的**唯一权威**是
+> `docs/superpowers/specs/2026-09-24-erl-gap-analysis-task-model-design.md`（§5 / §6 / §7 等正文段落随实施回写，回写前以该文件为准）。
+
+| # | 原口径 | 新口径 | 依据 |
+|---|--------|--------|------|
+| **O1** | §0.33-X1 产物三表归 Python，Java 无实体 | Java 持有 `erl_gap_analysis_report` + `erl_gap_analysis_dimension_task`（编排状态：记录、任务、status、has_gap、分享）；Python 持有 `ai_erl_gap_analysis_task`（生成日志 + 幂等标记）+ `ai_erl_gap_analysis_task_item`（AI 内容） | 需求方 2026-09-24 |
+| **O2** | §0.35-G1 生成门槛 =「至少一个可分析维度」 | **报告级**：全部 Active 维度两端都 SUBMITTED 且无题集 mismatch 才建记录与任务；未就绪时两端已交的维度屏上沿用 `Analyzing…` | 需求方 2026-09-24（回到 PRD:193 口径） |
+| **O3** | 2026-09-21 V027 `shared_snapshot` JSONB 冻结分享内容 | **记录级不可变**：`shared = true` 的记录及任务永不改；改动 ⇒ 新建记录，未变维度复制任务（`result_task_id` 指向持有内容的原任务）；未分享记录就地软删 + 新建。公司端读「最新 shared=true 的记录」，管理端读最新记录 | 需求方 2026-09-24 |
+| **O4** | §0.35-G2 维度级指纹 `sha256(code\|founderId\|gsvId)` | 任务行明文 `source_founder_assessment_id / source_gsv_assessment_id`，指纹全链删除 | 同上 |
+| **O5** | §6.6 refresh 一次 LLM 覆盖本轮全部维度，index↔code 映射与整批校验；`analyzedContext` 供期次级 `summary` | **每任务一次 LLM**（并发 3），`taskId` 不进 prompt；prompt 升 **1.7**（单维度输入，输出 `narrative / gaps[{title,severity}] / actions[{title}]`）；`summary` / `analyzedContext` 删除 | 同上 |
+| **O6** | Python 端点 refresh / GET / share；Python 期次级 Redis 锁提供 `generating` | refresh（响应 `tasks[{taskId,status,hasGap}]`）+ **`POST /items`**（按任务批量取条目）；GET / share 端点与 Redis 锁删除；`generating` / `stale` / `dimensionStale`（恒 false）不再有来源 | 同上 |
+| **O7** | 失败「不写库 → 指纹不等 → 触发点 B 重投」 | 任务状态机 `PENDING → RUNNING → SUCCESS \| FAILED`；管理端读接口按 60s 冷却把 `FAILED` 与超 10 分钟的 `RUNNING` 同 id 重投，Python 命中 SUCCESS 日志直接回状态不重复烧 LLM；HTTP 超时不置 FAILED | 同上 |
+| **O8** | 用户初稿「Python 成功后回调 Java」 | **不做回调**（无可用凭证、回调丢失无对账）；同步响应回状态 | 评审 2026-09-24 |
+| **O9** | 表名 `erl_gap_analysis` / `ai_erl_gap_analysis_dimension` | 改名 `erl_gap_analysis_report` / `ai_erl_gap_analysis_task(_item)`：库内同名旧表仍在、V024 / V026 已锁定，且全新库下 Java `ddl-auto=update` 先建同名表会让 V024 搬迁块 42703 中止 | 评审 2026-09-24 |
+| **O10** | 出参含 summary / generatedAt / model / stale / generating / sharedAt / sharedBy / analyzedAt / note / why / evidenceMissing | 全部删除（前端 2026-09-21 / 09-23 起均无渲染方）；接口 1 的 `hasGap` 改读任务行，与接口 17 同源（了结 `CIOaas-api/docs/待优化项.md` 2026-09-20「口径不一致」条） | 同上 |
+| **O11** | 旧 Java 表「留一个 sprint 做回滚路径」（§0.33-X1） | 随 sprint119 Java 脚本 DROP；Python 旧三表功能验证后 V029 DROP；存量产物不回填（Gap 区块仅 test 主机可见） | 需求方 2026-09-24 |
+
+- **保持不变**：Share 门槛 S2 的三条（全维两端提交 / 无 mismatch / 无过期）在新模型下表达为「ready ∧ 全部活任务 SUCCESS ∧ 每维任务 source == 当前 SOT」，语义不变；接口 18 手动 Generate 仍同步（`CIOaas-api/docs/待优化项.md` 首条继续挂账）；前端六态代码、轮询、Share 请求体一律不动。
+- **随本版作废的条目（原文保留在原处）**：§0.33-X1 / X4 / X5（归属与跨服务写协议）、§0.35-G1 / G2 / G3 / G4 / G9 / G10、§0.37-J1 ~ J4（读侧派生的 `shared`，被记录级不可变取代）、§5.8 三张 `ai_erl_gap_analysis*` 表定义、§6.6 契约、§7.5-S4「重生成复位 shared」、§12「不做差距分析的版本历史」（记录级追加即版本历史，但仍不做逐次浏览 UI）。
+- **PRD 待回写**：PRD:193「若分享后又重新提交内容 … founder 端的内容就置空，直到下次分享」应改为「创始人继续看上一次分享的报告，直到管理端再次 Share」（2026-09-21 裁决，本版以记录级不可变落实）。
 
 ---
 
