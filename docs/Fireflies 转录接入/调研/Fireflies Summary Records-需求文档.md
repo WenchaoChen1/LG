@@ -37,8 +37,8 @@
 **Visible to** 
 
 - 谁能看到这一行内容
-
-- 不同角色看到的可能是同样的内容，合并展示
+- 不同角色看到的如果是同样的内容，则合并展示
+- Expert testimony 分别展示管理端和Founder端的措辞
 
 **Authorize** 
 

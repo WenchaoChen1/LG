@@ -13,6 +13,9 @@
 **原始逐字稿入口**
 
 - 每行末尾有 "Raw transcript" 链接，点击跳转到详情页面，展示带时间戳、说话人的完整逐字稿
+  - 顶部显示会议名字
+  - 会议元数据：Date Time Duration Participants
+  - Full Transcript
 
 **数据拉取**
 
