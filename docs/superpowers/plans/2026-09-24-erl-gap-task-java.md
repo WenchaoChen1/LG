@@ -2052,7 +2052,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Goldie 差距分析（E 模块，design-doc §6.6 / §7.5，任务化设计 2026-09-24 / v4.65 §0.39）。
+ * Goldie 差距分析（E 模块，design-doc §6.6 / §7.5，任务化设计 2026-09-24 / v4.68 §0.41）。
  *
  * <p><b>Java 持有编排状态，Python 持有 AI 内容</b>（D1）：报告记录 {@code erl_gap_analysis_report}
  * + 维度任务 {@code erl_gap_analysis_dimension_task} 在本域两张表里；narrative / gaps / actions
@@ -2258,7 +2258,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * {@link ErlGapAnalysisService} 实现（任务化设计 2026-09-24，design-doc v4.65 / §0.39）。
+ * {@link ErlGapAnalysisService} 实现（任务化设计 2026-09-24，design-doc v4.68 / §0.41）。
  *
  * <p><b>Java 持有编排状态</b>：报告记录（{@code erl_gap_analysis_report}）+ 维度任务
  * （{@code erl_gap_analysis_dimension_task}，状态机 {@code PENDING → RUNNING → SUCCESS | FAILED}，
@@ -5403,11 +5403,11 @@ grep -rn "getGapAnalysis\|shareGapAnalysis\|visibleArtifact\|regenerate(\|ErlGap
 - Verify only: 过时 Javadoc 4 处（已在 Task 6 / 7 / 9 改掉）
 - Modify（**需用户确认后再改**）: `docs/待优化项.md:5,211,213,215,216,218`、`docs/已完成优化.md`
 
-> design-doc 的三节按设计稿回写「要点」，不复制设计稿全文；每处开头挂 `v4.65 / §0.39` 锚点并指向设计稿路径。§0.39 已在 2026-09-24 写好，本任务不动它。文档提交在 LG 父仓库（记忆规则：文档直接提 master，不另开分支），与 Java 子仓库的提交分开。
+> design-doc 的三节按设计稿回写「要点」，不复制设计稿全文；每处开头挂 `v4.68 / §0.41` 锚点并指向设计稿路径。§0.41 已在 2026-09-24 写好，本任务不动它。文档提交在 LG 父仓库（记忆规则：文档直接提 master，不另开分支），与 Java 子仓库的提交分开。
 
 - [ ] **Step 1: design-doc §5.8 改写（:1935 起，原 `### 5.8 ai_erl_gap_analysis_item …` 一节）**
 
-标题改为 `### 5.8 差距分析的四张表（**2026-09-24 起任务化**，v4.65 / §0.39；PRD §3.6）`，正文替换为以下要点（原 §5.8 正文与 §5.9 `ai_erl_gap_analysis_dimension` 一节保留原文但在各自标题后加 `（**2026-09-24 作废**，随 Python V029 删表；见 §5.8）`）：
+标题改为 `### 5.8 差距分析的四张表（**2026-09-24 起任务化**，v4.68 / §0.41；PRD §3.6）`，正文替换为以下要点（原 §5.8 正文与 §5.9 `ai_erl_gap_analysis_dimension` 一节保留原文但在各自标题后加 `（**2026-09-24 作废**，随 Python V029 删表；见 §5.8）`）：
 
 - 归属：Java 持有编排状态两张表 `erl_gap_analysis_report`（报告分享记录）/ `erl_gap_analysis_dimension_task`（维度任务）；Python 持有 `ai_erl_gap_analysis_task`（生成日志 + 幂等标记）/ `ai_erl_gap_analysis_task_item`（AI 条目）。四张表全部无外键，按 id 列关联。列级定义以设计稿 §3.1–§3.4 为准，Java 建表脚本 `deploy/upgrade_doc/sprint119/V2__erl_gap_analysis_report.sql`。
 - `erl_gap_analysis_report`：`(company_id, period)` 下可多条，「最新记录」= `created_at DESC, id DESC`；`shared / shared_at / shared_by` 只由接口 27 写、永不复位；`created_by` 由服务显式落触发者。索引 `idx_erl_gap_analysis_report (company_id, period, created_at DESC)`。
@@ -5417,7 +5417,7 @@ grep -rn "getGapAnalysis\|shareGapAnalysis\|visibleArtifact\|regenerate(\|ErlGap
 
 - [ ] **Step 2: design-doc §6.6 改写（:2235 起 `### 6.6 Goldie 差距分析（E，PRD §3.6）`）**
 
-在标题后加 `（**2026-09-24 任务化重写**，v4.65 / §0.39）`，正文替换为以下要点：
+在标题后加 `（**2026-09-24 任务化重写**，v4.68 / §0.41）`，正文替换为以下要点：
 
 - 接口 17 `GET /erl/gapAnalysis` 出参：期次级只剩 `dimensions / analysisServiceUnavailable / shared / shareable(仅管理端)`；维度级 `dimensionCode / dimensionAbbr / bothSubmitted / analyzed / hasGap / dimensionStale(恒 false) / questionSetMismatch / mismatchSide / narrative / gaps[{title, severity}] / actions[{title}]`。**删除**：`summary / generatedAt / model / stale / generating / sharedAt / sharedBy / analyzedAt / gaps[].note / gaps[].evidenceMissing / actions[].why`（D7）。管理端遍历当前 Active 维度；公司端有已分享记录时只遍历该记录里的任务，没有时下发 Active 维度骨架。
 - 接口 18 `POST /erl/gapAnalysis/generate`：仍同步（D10）；内部 `reconcile(force=true)` 后返回接口 17 同形结果；有维度未两端交齐 400、有维度 mismatch 不报错原样返回、派发失败 500 文案 `Gap analysis failed. Please try again.`。
@@ -5427,7 +5427,7 @@ grep -rn "getGapAnalysis\|shareGapAnalysis\|visibleArtifact\|regenerate(\|ErlGap
 
 - [ ] **Step 3: design-doc §7.5 改写（:2615 起 `### 7.5 差距分析的生成、刷新与分享`）**
 
-在标题后加 `（**2026-09-24 任务化重写**，v4.65 / §0.39）`，正文替换为以下要点：
+在标题后加 `（**2026-09-24 任务化重写**，v4.68 / §0.41）`，正文替换为以下要点：
 
 - 术语与门槛：SOT / 可分析维度 / 报告就绪（ready，**报告级**，D3）/ 零感知差维度（照抄设计稿 §2）。未就绪时不建任何行，两端已交的维度屏上沿用 `Analyzing…`（D9）。
 - 触发点表（① 提交后 `reconcileAsync` force=false；② 管理端读接口 17，60s 冷却键 `erl:gapAnalysis:cooldown:{c}:{p}`；③ 接口 18 同步 force=true）；`cio.erl.ai-enabled=false` 时 ① ② 整体跳过。

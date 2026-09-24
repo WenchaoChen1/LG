@@ -1,7 +1,7 @@
 # ERL 差距分析任务化（sprint119）设计
 
 > 关联文档：
-> - ERL 设计文档（唯一权威，本设计以 v4.65 / §0.39 挂接）：[../../Exit Readiness/设计/design-doc.md](../../Exit%20Readiness/设计/design-doc.md)
+> - ERL 设计文档（唯一权威，本设计以 v4.68 / §0.41 挂接）：[../../Exit Readiness/设计/design-doc.md](../../Exit%20Readiness/设计/design-doc.md)
 > - 需求文档：[../../Exit_Readiness_PRD.md](../../Exit_Readiness_PRD.md)（§3.6 Goldie 建议；PRD:193 "所有维度两方都完成"）
 > - 后端规范：[../../../java/CIOaas-api/standards/coding.md](../../../java/CIOaas-api/standards/coding.md) · Python 规范：[../../../python/CIOaas-python/standards/coding.md](../../../python/CIOaas-python/standards/coding.md)
 > - 评审依据：2026-09-23/24 对用户表设计的 7 视角评审（本文件即其结论落地；原始 76 条发现不另存档）
@@ -261,7 +261,7 @@ V028（含 GRANT）→ Java sprint119 脚本 → `cio.erl.ai-enabled=false` → 
 
 - Java：Redis 期次级冷却键逻辑改挂到 `reconcile`；`ErlGapAnalysisResultDTO`、`ErlGapAnalysisRequestDTO` 重写；过时 Javadoc 4 处（`ErlGapAnalysisService.java:483-486`"Python 落库复位分享位"、`ErlDimensionConverter.java:24`、`ErlActionItemResponse.java:13`、`ErlDimensionConfig.java:57`）。
 - Python：`gap_analysis_lock.py` 删除；`erl_gap_analysis_service.py` 落库 / 读取 / share / 快照相关全部重写；旧三个 ORM 与仓储随 V029 删除。
-- 文档：design-doc v4.65 + §0.39（本次）；PRD:193 "分享后 founder 端置空"回写为冻结口径；根 `CLAUDE.md` ERL 段"Python 不落 ERL 业务表 / 一次 LLM 调用产出一份分析"改口；sprint118 README；`CIOaas-python/CLAUDE.md` ERL 段；台账 PY-TODO:123 / 126 / 127 / 132、JAVA-TODO:5（部分：接口 18 仍同步，保留）/ 211 / 213 / 215 / 216 了结或改口。
+- 文档：design-doc v4.68 + §0.41（本次）；PRD:193 "分享后 founder 端置空"回写为冻结口径；根 `CLAUDE.md` ERL 段"Python 不落 ERL 业务表 / 一次 LLM 调用产出一份分析"改口；sprint118 README；`CIOaas-python/CLAUDE.md` ERL 段；台账 PY-TODO:123 / 126 / 127 / 132、JAVA-TODO:5（部分：接口 18 仍同步，保留）/ 211 / 213 / 215 / 216 了结或改口。
 
 ## 10. 测试策略
 

@@ -40,7 +40,7 @@
 - Share 请求体不动（接口 27 仍只发 `companyId` / `period`，不带 analysisId）；接口 27 出参类型不动（见 §0-③）。
 - 六态优先级不动：`erlGapState.ts` / `erlGapState.test.ts` **零改动**，`dimensionStale` 归一保留。
 - 设计稿给接口 17 新增的期次级 `shareable` **不声明**：前端 Share 门槛继续取接口 1 的 `card.shareable`，无消费方不镜像（同 `ErlWeightAppliedResponse` 的 YAGNI 口径）。
-- 不改 design-doc（父仓库文档由 Java 计划回写 v4.65 / §0.39）。
+- 不改 design-doc（父仓库文档由 Java 计划回写 v4.68 / §0.41）。
 
 ## 2. 轻量校验命令（每个 Task 末尾）
 
