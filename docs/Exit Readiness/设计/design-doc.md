@@ -2352,6 +2352,7 @@ POST /api/ai/erl/gap-analysis/items
       —— 无条目的 taskId 不出现
 ```
 
+- **`questions` 只含两端都作答过的题**（需求方 2026-09-24）：作答行存在且选了 Yes / No 才算答了；一端没答到的题（止步在更低的 level）题干、作答、附件都不送，这些附件也不做现场摘要。得分较高一端在更高 level 的作答不进输入，模型只能从双端分数与止步 level 得知。
 - **每任务一次 LLM**（Python 侧并发 3、失败重试 2 次），`taskId` 只供落库定位、**不进 prompt**；prompt 升 **v1.7**（单维度输入：name / abbr / weight / 两端分 / 止步 level / questions 含附件摘要；无 index、无 analyzedContext、无 summary 要求）。
 - **删除**：`GET /api/ai/erl/gap-analysis`、`POST /api/ai/erl/gap-analysis/share` 两个端点；`analyzedContext` / `noGapDimensions` / `submissionSignature` / `index` / `code` 入参；Python 期次级 Redis 锁 `erl:gapAnalysis:{companyId}:{period}`（单派发由 Java CAS 保证，双跑由 Python 侧唯一键兜底，撞键按成功处理）。
 
