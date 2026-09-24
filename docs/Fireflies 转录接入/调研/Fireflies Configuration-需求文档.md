@@ -1,0 +1,17 @@
+## Fireflies Configuration
+
+**说明：** 该页面是FF的配置页面，支持一种连接方法，API Key
+
+**Connection**
+
+- 显示连接状态：连接成功：绿点 "Connected"；未连接：灰点"Unconnected"；连接失败：红点"Failed"；断连："Disconnected"
+- 显示最近同步时间："Last sync — Jul 15, 2026 · 10:52 AM"
+- "Sync now" 按钮：手动触发同步
+
+**API Key**
+
+- 说明文案：Link your Fireflies API key to enable automatic meeting ingestion.
+- API Key 输入框，Link 按钮，API输入后Link按钮激活，点击连接Fireflies
+
+**拉取**
+- 每日拉取数据
