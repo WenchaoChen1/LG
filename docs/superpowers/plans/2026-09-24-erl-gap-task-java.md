@@ -24,7 +24,7 @@
 
 | 文件 | 职责 |
 |---|---|
-| `deploy/upgrade_doc/sprint119/V1__erl_gap_analysis_report.sql` | DROP 旧两表；建 `erl_gap_analysis_report` / `erl_gap_analysis_dimension_task` + 3 个索引（含部分唯一索引）+ 英文 COMMENT |
+| `deploy/upgrade_doc/sprint119/V2__erl_gap_analysis_report.sql` | DROP 旧两表；建 `erl_gap_analysis_report` / `erl_gap_analysis_dimension_task` + 3 个索引（含部分唯一索引）+ 英文 COMMENT |
 | `deploy/upgrade_doc/sprint119/README.md` | 执行顺序（Python V028 先）、执行方式、回滚说明 |
 | `erl/enums/ErlGapAnalysisTaskStatusEnum.java` | `PENDING / RUNNING / SUCCESS / FAILED` + Python 响应 status 字符串解析 |
 | `erl/enums/ErlGapAnalysisReconcileOutcomeEnum.java` | `reconcile` 的收手成因：`NOT_SUBMITTED / MISMATCHED / LOCK_BUSY / DONE`（接口 18 据此挑 400 文案） |
@@ -98,16 +98,16 @@
 ### Task 1: 升级脚本（sprint119 新建 + sprint118 改口）
 
 **Files:**
-- Create: `deploy/upgrade_doc/sprint119/V1__erl_gap_analysis_report.sql`
+- Create: `deploy/upgrade_doc/sprint119/V2__erl_gap_analysis_report.sql`
 - Create: `deploy/upgrade_doc/sprint119/README.md`
 - Modify: `deploy/upgrade_doc/sprint118/V1__erl_init.sql:24,167,303,478-538,637-643`
 - Modify: `deploy/upgrade_doc/sprint118/README.md:15,49-51`
 
-- [ ] **Step 1: 新建 `deploy/upgrade_doc/sprint119/V1__erl_gap_analysis_report.sql`**
+- [ ] **Step 1: 新建 `deploy/upgrade_doc/sprint119/V2__erl_gap_analysis_report.sql`**
 
 ```sql
 -- =========================================================================
--- Exit Readiness Level（ERL）差距分析任务化（sprint119, V1）
+-- Exit Readiness Level（ERL）差距分析任务化（sprint119, V2）
 --
 --   依据：docs/superpowers/specs/2026-09-24-erl-gap-analysis-task-model-design.md §3.1 / §3.2 / §9.1
 --   范围：① DROP 旧两表 erl_gap_analysis_item / erl_gap_analysis（P3 欠账，设计稿 D11；
@@ -214,12 +214,12 @@ CREATE INDEX IF NOT EXISTS idx_erl_gap_analysis_dimension_task_report
 
 | 脚本 | 内容 | 说明 |
 |------|------|------|
-| `V1__erl_gap_analysis_report.sql` | `DROP` 旧表 `erl_gap_analysis_item` / `erl_gap_analysis`；建 `erl_gap_analysis_report`、`erl_gap_analysis_dimension_task` + 3 个索引（含部分唯一索引 `uk_erl_gap_analysis_dimension_task ... WHERE deleted = false`）+ 英文 COMMENT | 设计稿 `docs/superpowers/specs/2026-09-24-erl-gap-analysis-task-model-design.md` §3.1 / §3.2 / §9.1。**DROP 不可逆，存量产物不回填**（D11） |
+| `V2__erl_gap_analysis_report.sql` | `DROP` 旧表 `erl_gap_analysis_item` / `erl_gap_analysis`；建 `erl_gap_analysis_report`、`erl_gap_analysis_dimension_task` + 3 个索引（含部分唯一索引 `uk_erl_gap_analysis_dimension_task ... WHERE deleted = false`）+ 英文 COMMENT | 设计稿 `docs/superpowers/specs/2026-09-24-erl-gap-analysis-task-model-design.md` §3.1 / §3.2 / §9.1。**DROP 不可逆，存量产物不回填**（D11） |
 
 ## 执行顺序（缺一不可，回滚三侧一起 —— 设计稿 §9.2）
 
 1. **Python `V028__sprint119_erl_gap_analysis_task.sql`**（含给 Python DB role 的 GRANT）—— 由 CIOaas-python 的 `scripts/migrate.py` 或人工执行，**先于本脚本**
-2. 本目录 `V1__erl_gap_analysis_report.sql`
+2. 本目录 `V2__erl_gap_analysis_report.sql`
 3. Nacos 置 `cio.erl.ai-enabled=false` → Python 发版 → Java **一次性全量替换（不要滚动）** → Web → 开开关 → 验证
 4. Python `V029`（DROP 旧 `ai_erl_gap_analysis*` 三表）在功能验证通过后单独执行
 
@@ -228,7 +228,7 @@ CREATE INDEX IF NOT EXISTS idx_erl_gap_analysis_dimension_task_report
 ## 执行方式（强制）
 
 ```bash
-psql -v ON_ERROR_STOP=1 --single-transaction -h <host> -U <user> -d <db> -f V1__erl_gap_analysis_report.sql
+psql -v ON_ERROR_STOP=1 --single-transaction -h <host> -U <user> -d <db> -f V2__erl_gap_analysis_report.sql
 ```
 
 - `-v ON_ERROR_STOP=1`：psql 默认遇错继续，开启后第一处报错即停。
@@ -237,7 +237,7 @@ psql -v ON_ERROR_STOP=1 --single-transaction -h <host> -U <user> -d <db> -f V1__
 
 ## 与 sprint118 的关系
 
-`sprint118/V1__erl_init.sql` 自本 sprint 起**不再**建 `erl_gap_analysis` / `erl_gap_analysis_item`（全新库不建死表）；全新库按 `sprint118/V1 → sprint118/V4 → sprint119/V1` 的顺序执行即得到完整 11 张 `erl_*` 表。
+`sprint118/V1__erl_init.sql` 自本 sprint 起**不再**建 `erl_gap_analysis` / `erl_gap_analysis_item`（全新库不建死表）；全新库按 `sprint118/V1 → sprint118/V4 → sprint119/V2` 的顺序执行即得到完整 11 张 `erl_*` 表。
 ```
 
 - [ ] **Step 3: 修改 `deploy/upgrade_doc/sprint118/V1__erl_init.sql` —— 删两段建表与两个索引**
@@ -248,7 +248,7 @@ psql -v ON_ERROR_STOP=1 --single-transaction -h <host> -U <user> -d <db> -f V1__
 -- ---- 5.7 / 5.8 Goldie 差距分析（已移出本文件）-----------------------------
 --   2026-09-24（sprint119，差距分析任务化）：erl_gap_analysis / erl_gap_analysis_item 两张表
 --   **不再由本文件创建**（全新库不建死表）。取代它们的 erl_gap_analysis_report /
---   erl_gap_analysis_dimension_task 在 deploy/upgrade_doc/sprint119/V1__erl_gap_analysis_report.sql，
+--   erl_gap_analysis_dimension_task 在 deploy/upgrade_doc/sprint119/V2__erl_gap_analysis_report.sql，
 --   该脚本对存量库同时负责 DROP 旧两表。
 ```
 
@@ -273,7 +273,7 @@ CREATE INDEX IF NOT EXISTS idx_erl_gap_item
 ```
 --   范围：**9 张** erl_* 表 —— 建表 + 索引 + 唯一约束 + **两个**部分唯一索引
 --         （差距分析两张表 erl_gap_analysis_report / erl_gap_analysis_dimension_task
---          自 2026-09-24 起在 deploy/upgrade_doc/sprint119/V1__erl_gap_analysis_report.sql）
+--          自 2026-09-24 起在 deploy/upgrade_doc/sprint119/V2__erl_gap_analysis_report.sql）
 ```
 
 :167 历史沿革那行末尾追加一句（保持同段缩进）：
@@ -292,16 +292,16 @@ CREATE INDEX IF NOT EXISTS idx_erl_gap_item
 ```
 改为
 ```
-| `V1__erl_init.sql` | ERL 9 张 `erl_*` 表 + 索引 / 唯一约束（含部分唯一索引）+ 表/列注释（**不含**差距分析两张表，见下） | 已是最终模型。**不含任何初始化数据**：题库版本、维度配置、题目由业务侧录入。差距分析的 `erl_gap_analysis_report` / `erl_gap_analysis_dimension_task` 在 `../sprint119/V1__erl_gap_analysis_report.sql`（2026-09-24 起旧的 `erl_gap_analysis*` 两表不再由 V1 创建） |
+| `V1__erl_init.sql` | ERL 9 张 `erl_*` 表 + 索引 / 唯一约束（含部分唯一索引）+ 表/列注释（**不含**差距分析两张表，见下） | 已是最终模型。**不含任何初始化数据**：题库版本、维度配置、题目由业务侧录入。差距分析的 `erl_gap_analysis_report` / `erl_gap_analysis_dimension_task` 在 `../sprint119/V2__erl_gap_analysis_report.sql`（2026-09-24 起旧的 `erl_gap_analysis*` 两表不再由 V1 创建） |
 ```
 
-「执行顺序」第 1 条末尾追加：`；全新库随后再跑 ../sprint119/V1__erl_gap_analysis_report.sql 才有差距分析两张表`。
+「执行顺序」第 1 条末尾追加：`；全新库随后再跑 ../sprint119/V2__erl_gap_analysis_report.sql 才有差距分析两张表`。
 
 :49-51「不在本目录的表」一节改为：
 ```markdown
 ## 不在本目录的表
 
-- 差距分析的 Java 表 `erl_gap_analysis_report` / `erl_gap_analysis_dimension_task`：`../sprint119/V1__erl_gap_analysis_report.sql`。
+- 差距分析的 Java 表 `erl_gap_analysis_report` / `erl_gap_analysis_dimension_task`：`../sprint119/V2__erl_gap_analysis_report.sql`。
 - Python 侧 ERL 表（`ai_erl_gap_analysis_task`、`ai_erl_gap_analysis_task_item`；旧的 `ai_erl_gap_analysis*` 三表待 V029 删除）不在这里，由 CIOaas-python 的 `sql/migrations/business/` 经 `scripts/migrate.py` 执行。
 ```
 
@@ -312,7 +312,7 @@ grep -n "erl_gap_analysis" deploy/upgrade_doc/sprint118/V1__erl_init.sql
 ```
 期望：只剩 :24 附近、5.7/5.8 处说明、:167、:303 四处**注释**命中，无 `CREATE TABLE` / `CREATE ... INDEX` 命中。再确认 sprint119 脚本能被 psql 解析（不连库）：
 ```bash
-psql --version && grep -c "CREATE TABLE IF NOT EXISTS" deploy/upgrade_doc/sprint119/V1__erl_gap_analysis_report.sql
+psql --version && grep -c "CREATE TABLE IF NOT EXISTS" deploy/upgrade_doc/sprint119/V2__erl_gap_analysis_report.sql
 ```
 期望输出 `2`。
 
@@ -5409,7 +5409,7 @@ grep -rn "getGapAnalysis\|shareGapAnalysis\|visibleArtifact\|regenerate(\|ErlGap
 
 标题改为 `### 5.8 差距分析的四张表（**2026-09-24 起任务化**，v4.65 / §0.39；PRD §3.6）`，正文替换为以下要点（原 §5.8 正文与 §5.9 `ai_erl_gap_analysis_dimension` 一节保留原文但在各自标题后加 `（**2026-09-24 作废**，随 Python V029 删表；见 §5.8）`）：
 
-- 归属：Java 持有编排状态两张表 `erl_gap_analysis_report`（报告分享记录）/ `erl_gap_analysis_dimension_task`（维度任务）；Python 持有 `ai_erl_gap_analysis_task`（生成日志 + 幂等标记）/ `ai_erl_gap_analysis_task_item`（AI 条目）。四张表全部无外键，按 id 列关联。列级定义以设计稿 §3.1–§3.4 为准，Java 建表脚本 `deploy/upgrade_doc/sprint119/V1__erl_gap_analysis_report.sql`。
+- 归属：Java 持有编排状态两张表 `erl_gap_analysis_report`（报告分享记录）/ `erl_gap_analysis_dimension_task`（维度任务）；Python 持有 `ai_erl_gap_analysis_task`（生成日志 + 幂等标记）/ `ai_erl_gap_analysis_task_item`（AI 条目）。四张表全部无外键，按 id 列关联。列级定义以设计稿 §3.1–§3.4 为准，Java 建表脚本 `deploy/upgrade_doc/sprint119/V2__erl_gap_analysis_report.sql`。
 - `erl_gap_analysis_report`：`(company_id, period)` 下可多条，「最新记录」= `created_at DESC, id DESC`；`shared / shared_at / shared_by` 只由接口 27 写、永不复位；`created_by` 由服务显式落触发者。索引 `idx_erl_gap_analysis_report (company_id, period, created_at DESC)`。
 - `erl_gap_analysis_dimension_task`：`status` = `PENDING / RUNNING / SUCCESS / FAILED`（不加 CHECK、不加 `@Version`）、`has_gap`（SUCCESS 必填）、`source_founder_assessment_id / source_gsv_assessment_id`（取代 sha256 指纹）、`result_task_id`（复制任务指向持有内容的原任务）、`deleted`（仅未分享记录内软删）。部分唯一索引 `uk_erl_gap_analysis_dimension_task (erl_gap_analysis_report_id, dimension_code) WHERE deleted = false`。
 - 不变量 I1–I4（照抄设计稿 §2）。
@@ -5521,7 +5521,7 @@ BREAKING CHANGE: interface 17 drops summary / generatedAt / model /
 stale / generating / sharedAt / sharedBy / analyzedAt / note / why /
 evidenceMissing, interface 1 drops gapSummary; Python contract moves to
 POST /api/ai/erl/gap-analysis/refresh (tasks) + /items, GET and /share
-are removed. Requires Python V028 and deploy/upgrade_doc/sprint119/V1.
+are removed. Requires Python V028 and deploy/upgrade_doc/sprint119/V2.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -5551,7 +5551,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 | §7.2 接口 17 出参（期次级 / 维度级 / 删除字段 / 公司端遍历任务 / `dimensionStale` 恒 false / D9） | `ErlGapAnalysisDTO` / `ErlGapDimensionDTO` / `ErlGapItemDTO` + Response + Converter；`assemble` / `renderedCodes` / `toDimension` / `fetchItems` | Task 4 Step 7–9、Task 6、Task 8 Step 2、Task 10 读路径用例 |
 | §7.3 接口 1 不调 Python、接口 21 只取一个任务 | `ErlCardServiceImpl.getCard` / `hasGap`；`ErlDimensionServiceImpl.getDetail` → `loadItems` | Task 9 Step 3–9、Task 11、Task 8 `loadItems` |
 | §7.4 Share 五条 + `FOR UPDATE` + 窄竞态 400 | `isShareable`、`share`、`lockLatestReport`、`lockLatestByCompanyIdAndPeriod` | Task 3 Step 1、Task 8 Step 1–2、Task 10 用例 `shareGateRequiresAllFiveConditions` 与 7 个 `share*` 用例 |
-| §9.1 Java 脚本（DROP 旧两表 + 建新表 + 索引）、sprint118 V1 与 README 改口 | `sprint119/V1__erl_gap_analysis_report.sql` + README；sprint118 删 §5.7 / §5.8 / 两索引 + 头注 + README | Task 1 |
+| §9.1 Java 脚本（DROP 旧两表 + 建新表 + 索引）、sprint118 V1 与 README 改口 | `sprint119/V2__erl_gap_analysis_report.sql` + README；sprint118 删 §5.7 / §5.8 / 两索引 + 头注 + README | Task 1 |
 | §9.3 同批清理（冷却键挂到 reconcile、两个 DTO 重写、过时 Javadoc 4 处、文档与台账） | `acquireRegenerationCooldown` 留在 `find`；DTO 重写；Javadoc 在 Task 6 / 7 / 9；文档在 Task 12 | Task 4 / 6 / 7 / 8 / 9 / 12 |
 | §10 Java 测试策略 | 规划逻辑 / 客户端契约 / 接口 1 / 17 / 21 / 27 拼装全部有用例；仓储层（部分唯一索引、CAS rowcount）无 H2 不可测，记台账提议 B | Task 5 / 10 / 11 / 12 Step 6 |
 | 计划格式：无 commit 步骤混入开发任务、测试与提交单列且需用户确认 | Task 13 / 14 | — |

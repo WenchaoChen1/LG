@@ -41,6 +41,7 @@
 - 不变量 I2：Python 条目表一次写入永不 UPDATE / DELETE。
 - 不变量 I3：任务状态只能 `PENDING → RUNNING → SUCCESS | FAILED`，所有状态更新都是条件 UPDATE（CAS）。
 - 不变量 I4：同一报告记录下同一维度至多一个未软删任务（部分唯一索引兜底）。
+- 不变量 I5：同一 `(company_id, period)` 至多一条未分享记录（部分唯一索引兜底）。流程本就如此：只在最新记录不存在或已分享时新建记录，且只能分享最新记录，所以非最新记录必然已分享。
 
 ## 3. 数据模型
 
@@ -58,7 +59,7 @@
 | `shared_by` | varchar(36) | |
 | `created_at/by`, `updated_at/by` | 审计基类 | `created_by` 在异步线程内**显式赋值**为触发提交的用户（`@PrePersist` 不覆盖已有值） |
 
-索引：`idx_erl_gap_analysis_report (company_id, period, created_at DESC)`。
+索引：`idx_erl_gap_analysis_report (company_id, period, created_at DESC)`；`uk_erl_gap_analysis_report_unshared (company_id, period) WHERE shared = false`（I5，Redis 规划锁 fail-open 时并发首建 / 分叉的 DB 兜底，后到事务撞键回滚）。
 "最新记录"统一 `ORDER BY created_at DESC, id DESC`。
 
 ### 3.2 Java `erl_gap_analysis_dimension_task`（维度任务）
@@ -137,10 +138,12 @@ PENDING ──(派发前 CAS)──► RUNNING ──(Python 响应 SUCCESS，CA
 2  Active 维度、每维两端 SOT、mismatch 集合 → ready；!ready ⇒ 释放锁返回（不建、不改任何行）
 3  R = 最新记录；每维目标 source = (F_sot.id, G_sot.id)，zero = noPerceptionGap(F.levelScore, G.levelScore)
 4  R 不存在 ⇒ 建 R + 全维任务：zero ⇒ SUCCESS/has_gap=false；否则 PENDING
-5  R 已分享 ⇒ changed = source 与 R 中活任务不同的维度（force ⇒ 全部）；
-     changed 为空 ⇒ 不建新记录；
+5  R 已分享 ⇒ changed = source 与 R 中活任务不同、或 R 中该维活任务非 SUCCESS 的维度（force ⇒ 全部）
+     —— 后一条保住 I1：分享时已停用、之后又恢复的维度若在 R 里留有未完成任务，不得在 R 上认领重跑；
+     changed 为空 ⇒ 不建新记录（此时 R 中全部 Active 维度任务必为 SUCCESS，步骤 7 不会碰 R）；
      否则建 R'：changed 维建新任务（同 4）；未变维：原任务 SUCCESS ⇒ 复制
-       （status/has_gap/source 照抄，result_task_id = 原.result_task_id ?? 原.id）；
+       （status/has_gap/source 照抄；有内容的任务 result_task_id = 原.result_task_id ?? 原.id，
+        has_gap=false 的复制品 result_task_id 留 NULL，与 §3.2 一致）；
        原任务非 SUCCESS ⇒ 不复制，建新 PENDING（重跑，避免结果回写到旧任务而复制品永远 RUNNING）
 6  R 未分享 ⇒ changed 维（force ⇒ 全部）：旧活任务 deleted=true，同 R 下建新任务（同 4）
 7  待派发 = 最新记录下 status ∈ {PENDING, FAILED} ∪ {RUNNING 且超龄} 的活任务，逐个 CAS → RUNNING
@@ -203,7 +206,7 @@ Python 流程：
 期次级：`shared`（管理端 = 最新记录.shared；公司端 = 有已分享记录）、`shareable`（仅管理端，见 7.4）、`analysisServiceUnavailable`（= 向 Python 取条目失败；没有条目可取时恒 false）。
 删除：`summary / generatedAt / model / stale / generating / sharedAt / sharedBy`。
 
-维度级（管理端遍历当前 Active 维度；公司端只遍历分享记录里的任务，消掉"分享后新增维度"的假阴性）：
+维度级（管理端遍历当前 Active 维度；公司端只遍历分享记录里的 SUCCESS 任务——非 SUCCESS 的只可能属于分享前已停用的维度、不是这份报告的一部分——同时消掉"分享后新增维度"的假阴性）：
 
 | 字段 | 来源 |
 |---|---|
@@ -231,13 +234,13 @@ D9：报告未就绪时，两端已交的维度 `analyzed=false` ⇒ 前端 `Ana
 
 | 场景 | 处理 |
 |---|---|
-| 同期次两次 `reconcile` 并发 | Java 规划锁 60s；抢不到的直接返回，下次读再来 |
+| 同期次两次 `reconcile` 并发 | Java 规划锁 60s；抢不到的直接返回，下次读再来。锁 fail-open（Redis 不可用）时由 `uk_erl_gap_analysis_report_unshared`（首建 / 分叉）与 `uk_erl_gap_analysis_dimension_task`（同记录同维度）兜底，后到事务回滚 |
 | 双端交错提交各读到旧 SOT | 建出 `(F1,G0)` 任务；下次管理端读 ⇒ source ≠ SOT ⇒ 未分享则软删重建 / 已分享则新记录 |
 | Java 500s 超时、Python 仍在跑 | 任务留 RUNNING；10 分钟后重投 ⇒ Python 命中 SUCCESS 日志直接回，不重复烧 LLM |
 | Python 崩溃 | 日志行无 / FAILED ⇒ 10 分钟后重投 |
 | Java 发版重启、派发线程被杀 | 同上 |
 | 迟到响应撞已软删 / 已终态任务 | CAS rowcount 0，忽略 |
-| 同一 task 被双跑 | 条目唯一键撞键 ⇒ 按成功处理；日志行 upsert |
+| 同一 task 被双跑 | 日志行 / 条目撞唯一键 ⇒ rollback 重查日志行：先到者 SUCCESS ⇒ 按它的 has_gap 返回；先到者 FAILED ⇒ 重试写入一次，把 FAILED 覆盖为 SUCCESS；查不到行 ⇒ 真异常记 FAILED |
 | 已分享记录后又提交 | 新记录；创始人继续读旧已分享记录（I1） |
 
 ## 9. 迁移与部署
@@ -246,7 +249,7 @@ D9：报告未就绪时，两端已交的维度 `analyzed=false` ⇒ 前端 `Ana
 
 - Python `sql/migrations/business/V028__sprint119_erl_gap_analysis_task.sql`：建 `ai_erl_gap_analysis_task`、`ai_erl_gap_analysis_task_item` + 索引 + `updated_at` 触发器 + 英文 COMMENT；头注写明**部署项：GRANT SELECT/INSERT/UPDATE/DELETE 给 Python DB role**（历次必漏项）。
 - Python `V029`（功能验证通过后单独出）：DROP `ai_erl_gap_analysis_item`、`ai_erl_gap_analysis_dimension`、`ai_erl_gap_analysis`（含三个触发器）。
-- Java `deploy/upgrade_doc/sprint119/V1__erl_gap_analysis_report.sql`（人工执行）：`DROP TABLE IF EXISTS erl_gap_analysis_item, erl_gap_analysis`（P3 欠账）→ 建两张新表 + 索引（含部分唯一索引，ddl-auto 建不出）。
+- Java `deploy/upgrade_doc/sprint119/V2__erl_gap_analysis_report.sql`（人工执行）：`DROP TABLE IF EXISTS erl_gap_analysis_item, erl_gap_analysis`（P3 欠账）→ 建两张新表 + 索引（含部分唯一索引，ddl-auto 建不出）。
 - Java `deploy/upgrade_doc/sprint118/V1__erl_init.sql`：去掉旧两表 §5.7/5.8 与索引 `uk_erl_gap_analysis / idx_erl_gap_item`（全新库不再建死表）；README 表数与清单改口，注明新表在 sprint119。
 
 ### 9.2 顺序（缺一不可，回滚三侧一起）
