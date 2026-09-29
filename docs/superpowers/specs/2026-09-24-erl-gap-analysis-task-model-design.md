@@ -1,15 +1,15 @@
 # ERL 差距分析任务化（sprint119）设计
 
 > 关联文档：
-> - ERL 设计文档（唯一权威，本设计以 v4.68 / §0.41 挂接；D12 ~ D15 以 v4.71 / §0.44 挂接）：[../../Exit Readiness/设计/design-doc.md](../../Exit%20Readiness/设计/design-doc.md)
+> - ERL 设计文档（唯一权威，本设计以 v4.68 / §0.41 挂接；D12 ~ D15 以 v4.71 / §0.44 挂接；D16 以 v4.73 / §0.46 挂接）：[../../Exit Readiness/设计/design-doc.md](../../Exit%20Readiness/设计/design-doc.md)
 > - 需求文档：[../../Exit_Readiness_PRD.md](../../Exit_Readiness_PRD.md)（§3.6 Goldie 建议；PRD:193 "所有维度两方都完成"）
 > - 后端规范：[../../../java/CIOaas-api/standards/coding.md](../../../java/CIOaas-api/standards/coding.md) · Python 规范：[../../../python/CIOaas-python/standards/coding.md](../../../python/CIOaas-python/standards/coding.md)
 > - 评审依据：2026-09-23/24 对用户表设计的 7 视角评审（本文件即其结论落地；原始 76 条发现不另存档）
 
-**状态**：设计已与需求方（本仓库负责人）逐项确认（2026-09-24），待实施计划。2026-09-28 ~ 09-29 追加 D12 ~ D15（severity 删除、提示词重写为 1.0、空 gaps 判失败、`model` 列删除），三仓均已实现。
+**状态**：设计已与需求方（本仓库负责人）逐项确认（2026-09-24），待实施计划。2026-09-28 ~ 09-29 追加 D12 ~ D15（severity 删除、提示词重写为 1.0、空 gaps 判失败、`model` 列删除），三仓均已实现。2026-09-29 再追加 D16（公司端以最新一条记录为准，只改 Java `visibleReport`）。
 **分支**：`sprint119`（Java / Python / Web 三仓）。
 
-## 0. 决策记录（2026-09-24，全部已拍板；D12 ~ D15 为 2026-09-28 ~ 09-29 追加）
+## 0. 决策记录（2026-09-24，全部已拍板；D12 ~ D16 为 2026-09-28 ~ 09-29 追加）
 
 | # | 决定 | 取代的旧口径 |
 |---|------|-------------|
@@ -28,11 +28,12 @@
 | D13 | **提示词重写，版本号重启为 1.0**（2026-09-29，不再沿 1.x 递增）：模型输出 `{gaps: [str], actions: [str], narrative}`；gaps 1–3 条、第一条固定为分歧题（§2），写现状 + 原因；actions 1–3 条、动词开头、尽量带一条大局观；narrative 改为已满足 / 未满足总结；user prompt 改为概况 + 白名单答题列表、不再给止步 level；判断规则只剩「不得编造」。给 Java 的 `/items` 仍是 `gaps[{title}]` / `actions[{title}]` | D7 的「prompt 升 v1.7」；§6.4 v1.7 的输入 / 输出与三段式 narrative |
 | D14 | **空 gaps 判失败**（2026-09-29）：gaps 没有可用条目（空数组或全被过滤）与没有 gaps 数组一样判该任务 FAILED、`hasGap=null`，交 Java 重投，绝不当「无差距」；丢弃不可用条目打 WARN。Python 内部 `summary_available` 删除，没有摘要的附件整条不送进 prompt | §6.4「无差距时 `gaps` 为空且不输出 narrative」；§6.1 步骤 2「失败降级 `summaryAvailable=false`」 |
 | D15 | **`ai_erl_gap_analysis_task.model` 列删除**（2026-09-28，design-doc v4.71 补记）：它只写不读（Java 侧出参的 `model` 已由 D7 砍掉），存的又是代码常量、每行同值；「用了哪个模型」查 `ai_llm_call_log.llm_model`，按 `caller_agent='erl'` / `caller_node='erl_gap_analysis'` 过滤；由 V029 删列 | §3.3 `model` 列「排障」 |
+| D16 | **公司端以最新一条记录为准**（2026-09-29）：`visibleReport` 两端都取最新记录，公司端仅在它 `shared = true` 时可见，否则 `shared=false` 空态（`No gap analysis shared yet.`）；分享后任一端再提交、`reconcile` 新建出未分享记录 ⇒ 创始人回到空态，直到管理端再次 Share。期次级 `shared` 两端同义（= 最新记录已分享）；接口 1 / 2 同走 `visibleReport`。写路径（D4 / I1）不变；PRD:196「若分享后又重新提交内容 … founder 端的内容就置空，直到下次分享」原文即此口径，§9.3「PRD:193 回写为冻结口径」撤销 | §7.1「公司端 `latestSharedReport`」；§7.2「公司端 = 有已分享记录」；§8「创始人继续读旧已分享记录」 |
 
 ## 1. 目标
 
 - ERL Card 的 Gap 区块按维度展示 Goldie 建议，能区分"没分析 / 正在分析 / 已分析无差距 / 已分析有差距"，失败可自动重投。
-- 分享给创始人的报告是**完整且不可变**的一份；管理端后续改动只影响新记录。
+- 分享给创始人的报告是**完整且不可变**的一份；管理端后续改动只影响新记录。（D16，2026-09-29：公司端只看最新记录 —— 后续改动新建出未分享记录时，创始人回到空态，直到再次分享。）
 - 编排状态（谁在跑、跑完没有、依据哪批提交）在 Java 一张任务表里可查；AI 内容在 Python 表里一次写入永不改。
 
 ## 2. 术语与不变量
@@ -216,11 +217,11 @@ Python 流程：
 ### 7.1 选行（只此一处 `visibleReport`）
 
 - 管理端：`latestReport(company, period)`。
-- 公司端：`latestSharedReport(company, period)`；无 ⇒ `shared=false` 空态（前端渲染 `No gap analysis shared yet.`，不变）。
+- 公司端：~~`latestSharedReport(company, period)`；无 ⇒ `shared=false` 空态~~ → **D16（2026-09-29）**：同取 `latestReport(company, period)`，仅当它 `shared = true` 时可见；无记录或最新记录未分享 ⇒ `shared=false` 空态（前端渲染 `No gap analysis shared yet.`，不变）。
 
 ### 7.2 接口 17 出参
 
-期次级：`shared`（管理端 = 最新记录.shared；公司端 = 有已分享记录）、`shareable`（仅管理端，见 7.4）、`analysisServiceUnavailable`（= 向 Python 取条目失败；没有条目可取时恒 false）。
+期次级：`shared`（~~管理端 = 最新记录.shared；公司端 = 有已分享记录~~ → D16：两端同义 = 最新记录.shared）、`shareable`（仅管理端，见 7.4）、`analysisServiceUnavailable`（= 向 Python 取条目失败；没有条目可取时恒 false）。
 删除：`summary / generatedAt / model / stale / generating / sharedAt / sharedBy`。
 
 维度级（管理端遍历当前 Active 维度；公司端只遍历分享记录里的 SUCCESS 任务——非 SUCCESS 的只可能属于分享前已停用的维度、不是这份报告的一部分——同时消掉"分享后新增维度"的假阴性）：
@@ -260,7 +261,7 @@ D9：报告未就绪时，两端已交的维度 `analyzed=false` ⇒ 前端 `Ana
 | Java 发版重启、派发线程被杀 | 同上 |
 | 迟到响应撞已软删 / 已终态任务 | CAS rowcount 0，忽略 |
 | 同一 task 被双跑 | 日志行 / 条目撞唯一键 ⇒ rollback 重查日志行：先到者 SUCCESS ⇒ 按它的 has_gap 返回；先到者 FAILED ⇒ 重试写入一次，把 FAILED 覆盖为 SUCCESS；查不到行 ⇒ 真异常记 FAILED |
-| 已分享记录后又提交 | 新记录；创始人继续读旧已分享记录（I1） |
+| 已分享记录后又提交 | 新记录（未分享，I1）；~~创始人继续读旧已分享记录~~ → D16：公司端空态，直到再次 Share |
 
 ## 9. 迁移与部署
 
@@ -280,14 +281,14 @@ V028（含 GRANT）→ Java sprint119 脚本 → `cio.erl.ai-enabled=false` → 
 
 - Java：Redis 期次级冷却键逻辑改挂到 `reconcile`；`ErlGapAnalysisResultDTO`、`ErlGapAnalysisRequestDTO` 重写；过时 Javadoc 4 处（`ErlGapAnalysisService.java:483-486`"Python 落库复位分享位"、`ErlDimensionConverter.java:24`、`ErlActionItemResponse.java:13`、`ErlDimensionConfig.java:57`）。
 - Python：`gap_analysis_lock.py` 删除；`erl_gap_analysis_service.py` 落库 / 读取 / share / 快照相关全部重写；旧三个 ORM 与仓储随 V029 删除。2026-09-28 起 AI 生成（组 prompt / 调 LLM / 解析 / 附件摘要）搬到 `source/ai/agent/erl_gap_agent/pipeline.py`，`erl_gap_analysis_service.py` 只做编排、事务与落库（design-doc v4.71 补记）。
-- 文档：design-doc v4.68 + §0.41（本次）；PRD:193 "分享后 founder 端置空"回写为冻结口径；根 `CLAUDE.md` ERL 段"Python 不落 ERL 业务表 / 一次 LLM 调用产出一份分析"改口；sprint118 README；`CIOaas-python/CLAUDE.md` ERL 段；台账 PY-TODO:123 / 126 / 127 / 132、JAVA-TODO:5（部分：接口 18 仍同步，保留）/ 211 / 213 / 215 / 216 了结或改口。
+- 文档：design-doc v4.68 + §0.41（本次）；~~PRD:193 "分享后 founder 端置空"回写为冻结口径~~（D16 撤销：PRD 原文即现口径）；根 `CLAUDE.md` ERL 段"Python 不落 ERL 业务表 / 一次 LLM 调用产出一份分析"改口；sprint118 README；`CIOaas-python/CLAUDE.md` ERL 段；台账 PY-TODO:123 / 126 / 127 / 132、JAVA-TODO:5（部分：接口 18 仍同步，保留）/ 211 / 213 / 215 / 216 了结或改口。
 
 ## 10. 测试策略
 
 - Java：`reconcile` 规划逻辑单测（首建 / 已分享复制 / 未分享软删 / force / 超龄重投 / 双端交错 / ready=false 不建行 / 零感知差直建 SUCCESS）；仓储（最新行排序、部分唯一索引冲突、CAS 更新 rowcount）；`ErlPythonClient` 新契约；接口 1 / 2 / 17 / 27 拼装（原文误作 21，2026-09-29 订正）（管理端 vs 公司端选行、`analysisServiceUnavailable`、`isShareable` 五条）。
 - Python：单任务 LLM 流程与并发、SUCCESS 日志短路、FAILED 日志、条目唯一键撞键按成功、items 端点分组、prompt 1.0 结构回归（D13：概况 + 白名单答题列表，不含止步 level / `taskId` / `fileId` 等，只带有摘要的附件）、空 gaps 与条目非字符串判 FAILED、丢条目打 WARN（D14）、Request VO 422 边界、V028 幂等重跑。
 - Web：无必需改动；若同批清理死字段，`erlService` 单测同步（D12 起 `mapGapItem` 只取 `title`）。
-- E2E（按记忆规则先审核再跑，只挑 2–3 个代表场景）：首次交齐生成 → Share → 一端改一维重交 → 管理端见新记录、创始人仍见旧报告 → 再 Share。
+- E2E（按记忆规则先审核再跑，只挑 2–3 个代表场景）：首次交齐生成 → Share → 一端改一维重交 → 管理端见新记录、~~创始人仍见旧报告~~ 创始人回到空态（D16）→ 再 Share → 创始人见新报告。
 
 ## 11. 明确不做 / 已知代价
 
