@@ -10,7 +10,7 @@
 > - Python 规范：[../../../CIOaas-python/standards/architecture.md](../../../CIOaas-python/standards/architecture.md) · [../../../CIOaas-python/standards/coding.md](../../../CIOaas-python/standards/coding.md)
 > - 前端规范：[../../../CIOaas-web/standards/architecture.md](../../../CIOaas-web/standards/architecture.md) · [../../../CIOaas-web/standards/coding.md](../../../CIOaas-web/standards/coding.md)
 >
-> 阶段：④ 设计 | 版本：**v4.71** | 日期：2026-09-29 | 范围：ERL Card（含 Gap 区块）/ 维度详情 / 全维 Score Details（**双端可达**）/ 双端填报（**Yes/No 逐级解锁 + 维度级提交**）/ 题库配置（**`Question Library` / `Dimension Configuration` 两个顶层 Tab + 题库版本历史页**）/ 基准 / Goldie 差距分析（**已回归 V1，含 Share**）/ 组合层 ERL Tab
+> 阶段：④ 设计 | 版本：**v4.72** | 日期：2026-09-29 | 范围：ERL Card（含 Gap 区块）/ 维度详情 / 全维 Score Details（**双端可达**）/ 双端填报（**Yes/No 逐级解锁 + 维度级提交**）/ 题库配置（**`Question Library` / `Dimension Configuration` 两个顶层 Tab + 题库版本历史页**）/ 基准 / Goldie 差距分析（**已回归 V1，含 Share**）/ 组合层 ERL Tab
 
 # Exit Readiness（ERL）设计文档 V1
 
@@ -97,7 +97,8 @@
 | v4.68 | **2026-09-24** | **需求方 2026-09-24 裁决：差距分析任务化（sprint119）** | **数据模型、Java↔Python 契约、生成门槛、分享冻结方式四处同改；前端六态代码不动。**① 产物归属再切分：Java 新增 `erl_gap_analysis_report`（报告分享记录）+ `erl_gap_analysis_dimension_task`（按维度任务，含两端 SOT id / status / has_gap / result_task_id / deleted），Python 改为 `ai_erl_gap_analysis_task`（生成日志 + 幂等标记）+ `ai_erl_gap_analysis_task_item`（条目，一次写入永不改）；② **生成门槛回到报告级**（全部 Active 维度两端 SUBMITTED 且无 mismatch），v4.61-G1 维度级门槛作废；③ **已分享记录不可变**：任一端改动 ⇒ 新建记录、未变维度复制任务，未分享记录就地软删重建 —— 取代 V027 `shared_snapshot` JSONB 冻结；④ Java → Python 仍同步 HTTP，refresh 响应逐任务回 `{taskId, status, hasGap}`，新增 `POST /items` 按任务批量取条目，删 GET / share 端点与 Python 期次级 Redis 锁；Python 每任务一次 LLM，prompt 升 ~~1.7~~ → **v4.71 重写，版本号重启为 1.0**（§0.44）；⑤ 砍掉 summary / analyzedContext / model / generated_at / note / why / evidence_missing / stale / generating / analyzedAt / dimensionStale 全链；⑥ 指纹 `submission_signature` 全链删除，改比任务行的两个 source id。详细设计见 `docs/superpowers/specs/2026-09-24-erl-gap-analysis-task-model-design.md`，逐条见 §0.41 |
 | v4.69 | **2026-09-28** | **需求方 2026-09-28：填报页逐题解锁 + 答 No 后后面答题全部重置；ERL 卡片 / A4 标出在填草稿；没有改动时 `Save as draft` 置灰**（sprint119，前后端均已实现） | **填报交互两条新规则 + 两处草稿提示 + 一处按钮态；数据库表结构零变更。**① **逐题解锁**：只有「第一道未作答的题」及它之前的题可答，其后全部禁用（v4.28 只禁用首个 No 之后的，可以从下往上答，禁用形同虚设）；② **答 No 后后面答题全部重置**：答 No（含把已答的 Yes 改成 No）当场清空其后所有题的作答、备注、附件，改回 Yes 不恢复；服务端保存 / 提交时删除首个 No 之后的全部作答与附件（同级 + 后续 level）—— **推翻 v4.28 起「No 之后已答的那些照常保留并传给 Goldie」**；③ 接口 1 / 22 维度项新增 **`hasDraft`**，A1 维度行与 A4 卡头显示 **`There is a draft for quarter {季度}`**（如 `… Q3 2026`，同日改文案）；④ **没有改动时 `Save as draft` 置灰**；另附一处修复：换期次时旧期次没存的作答不再串进新期次。详见 §0.42 |
 | v4.70 | **2026-09-28** | **需求方 2026-09-28：A4 切维度 Tab / 切 `GSV` / `Founder` 药丸时重新取数**（sprint119，纯前端） | **一处纯前端取数时机调整；接口 22 契约零变更、Java 零改动、数据库零变更。**起因：GSV 开着 A4 时 Founder 新提交了问卷，GSV 切维度 Tab、切药丸都看不到，必须刷新页面 —— v4.20（§0.24-Z5）定的是「一次取双端、切换只换本地切片、不重发接口 22」，进页之后页面再不取数。本版：① **切维度 Tab（含末位基准 Tab）或切药丸时重新请求一次接口 22**，入参不变（管理端仍不传 `portal`、一次取回双端；公司端仍传 `FOUNDER`，切维度 Tab 同样重取），点当前已选中的不发；② 请求期间先显示旧内容加转圈、返回后替换，不闪白屏；③ **切换触发的重取失败保留旧数据、页顶报错**（换公司 / 期次后的取数失败仍清空，首次进页失败仍整块不渲染）；④ 只在点切换时刷新，停着不动仍看不到新提交 —— 不做轮询、不做窗口聚焦刷新（需求方认可）。**推翻** §0.24-Z5「不重发接口 22」与 §11-59「抓包确认不产生第二次接口 22 请求」。详见 §0.43 |
-| **v4.71（本版）** | **2026-09-29** | **需求方 2026-09-28 ~ 09-29：差距分析删 severity；提示词重写、版本号重启为 1.0**（sprint119，Python / Java / Web 三端均已实现） | **数据库只删一列（`ai_erl_gap_analysis_task_item.severity`）；Java ↔ Python 契约只少 `gaps[].severity`，refresh 入参一字不变；前端只删 gap 条目的档位后缀。**① **severity 整链删除**：大模型不再产出，Python 解析 / DTO / VO / ORM、Java `ErlSeverityEnum` 与 DTO / Response 里的字段、前端的「— xxx severity」展示一并删除，接口 2 / 17 / 18 的 `gaps[]` 每项只剩 `title`；Python `V029` 追加 `DROP COLUMN severity`（Python 发版后人工执行）；「非法 severity 降级 MEDIUM」一类约定与验收项作废。理由：送来的维度里，缺口都是止步那一级的 No，每道都是解锁下一级的硬门槛，分不出档；E2 色标面板 2026-09-24 已删，severity 在页面上只剩一句恒为 high 的后缀。② **提示词 `erl_gap_analysis.md` 整篇重写，版本号不再沿 1.x 递增、重启为 1.0**：模型输出改为 `{gaps: [str], actions: [str], narrative}`（条目是纯字符串；Python 给 Java 的 `/items` 仍是 `gaps[{title}]` / `actions[{title}]`，Java 契约不变）；gaps 1–3 条，第一条固定为两端答得不一样的那道题，每条写现状 + 原因；actions 1–3 条，动词开头，尽量带一条大局观；narrative 改为「已满足 / 未满足」总结（≤ 4 句、≤ 80 词、不写分数与 level 号），取代三段式；user prompt 改为概况（期次 / 维度名 / 权重 / 两端评分，**不再给止步 level**）+ 白名单答题列表，附件只送有摘要的 `{fileName, summary}`；判断规则只剩「不得编造」。③ **一维只有一道分歧题**：由 v4.69 的答 No 后后面作答全部重置（§0.42-P2）+ 列表只含两端都答过的题推出，题库版本不一致时 Java 返回 `MISMATCHED`、不派发。④ **解析口径**：gaps 没有可用条目（空数组或全被过滤）与没有 gaps 数组一样判该任务 FAILED、`hasGap = null`，交 Java 重投，绝不当「无差距」—— 原「空 gaps = SUCCESS + `has_gap = false` + 丢 narrative」作废，送 LLM 的任务一旦 SUCCESS，`has_gap` 恒为 true；丢弃不可用条目打 WARN；Python 内部 `summary_available` 删除，没有摘要的附件整条不送进 prompt。另同版补记一批此前漏回写的存量问题（E2 区块下线、`why` / `evidenceMissing` 已删、§10.2 改到现状、接口编号、`model` 列、AI 生成代码位置），并作废 §11-25a。详见 §0.44 |
+| v4.71 | **2026-09-29** | **需求方 2026-09-28 ~ 09-29：差距分析删 severity；提示词重写、版本号重启为 1.0**（sprint119，Python / Java / Web 三端均已实现） | **数据库只删一列（`ai_erl_gap_analysis_task_item.severity`）；Java ↔ Python 契约只少 `gaps[].severity`，refresh 入参一字不变；前端只删 gap 条目的档位后缀。**① **severity 整链删除**：大模型不再产出，Python 解析 / DTO / VO / ORM、Java `ErlSeverityEnum` 与 DTO / Response 里的字段、前端的「— xxx severity」展示一并删除，接口 2 / 17 / 18 的 `gaps[]` 每项只剩 `title`；Python `V029` 追加 `DROP COLUMN severity`（Python 发版后人工执行）；「非法 severity 降级 MEDIUM」一类约定与验收项作废。理由：送来的维度里，缺口都是止步那一级的 No，每道都是解锁下一级的硬门槛，分不出档；E2 色标面板 2026-09-24 已删，severity 在页面上只剩一句恒为 high 的后缀。② **提示词 `erl_gap_analysis.md` 整篇重写，版本号不再沿 1.x 递增、重启为 1.0**：模型输出改为 `{gaps: [str], actions: [str], narrative}`（条目是纯字符串；Python 给 Java 的 `/items` 仍是 `gaps[{title}]` / `actions[{title}]`，Java 契约不变）；gaps 1–3 条，第一条固定为两端答得不一样的那道题，每条写现状 + 原因；actions 1–3 条，动词开头，尽量带一条大局观；narrative 改为「已满足 / 未满足」总结（≤ 4 句、≤ 80 词、不写分数与 level 号），取代三段式；user prompt 改为概况（期次 / 维度名 / 权重 / 两端评分，**不再给止步 level**）+ 白名单答题列表，附件只送有摘要的 `{fileName, summary}`；判断规则只剩「不得编造」。③ **一维只有一道分歧题**：由 v4.69 的答 No 后后面作答全部重置（§0.42-P2）+ 列表只含两端都答过的题推出，题库版本不一致时 Java 返回 `MISMATCHED`、不派发。④ **解析口径**：gaps 没有可用条目（空数组或全被过滤）与没有 gaps 数组一样判该任务 FAILED、`hasGap = null`，交 Java 重投，绝不当「无差距」—— 原「空 gaps = SUCCESS + `has_gap = false` + 丢 narrative」作废，送 LLM 的任务一旦 SUCCESS，`has_gap` 恒为 true；丢弃不可用条目打 WARN；Python 内部 `summary_available` 删除，没有摘要的附件整条不送进 prompt。另同版补记一批此前漏回写的存量问题（E2 区块下线、`why` / `evidenceMissing` 已删、§10.2 改到现状、接口编号、`model` 列、AI 生成代码位置），并作废 §11-25a。详见 §0.44 |
+| **v4.72（本版）** | **2026-09-29** | **需求方 2026-09-29：附件摘要覆盖全文**（sprint119，只改 Python rag 的摘要模块） | **只改附件摘要的生成方式；Java ↔ Python 契约、§6.7 三个常量、提示词、数据库一律不变，Java / Web 零改动。**① **全文都进摘要**：原先摘要输入截到前 6 万字符、后半部分直接丢弃；现在全文 ≤ 6 万字符仍一次调用，超过就切成 ⌈全文 / 6 万⌉ 段、各段等长（切点落在段落 / 换行 / 句末边界），段摘要并发生成，再按原文顺序合成一段（段摘要超过 8 条先分组合、再合各组的结果）；② **一份文档同时最多 6 路**摘要调用，ERL 3 份附件并发时附件摘要最多 18 路，留在全进程共用的 100 连接池以内；③ 失败的段 / 组跳过、其余照常合并，全部失败 = 无摘要（该附件不送进 prompt，口径不变）；④ **单份 90s / 阶段 120s 不调**（与 Java refresh 的 500s 读超时绑定）：超长附件至少两轮 LLM，更容易到点降级成无摘要，需求方知情；⑤ 记账：超长附件每份写「段数 + 合并次数」行 `ai_llm_call_log`（`caller_step` = `segment i/n` / `combine`），全文都进 `ai_llm_conversation`，每轮 refresh 现场重算的成本随全文长度增长。详见 §0.45 |
 
 ---
 
@@ -1249,6 +1250,21 @@
 - **随本版作废的条目（原文保留在原处）**：§2.2「gap severity」；§0.41-O5「prompt 升 1.7 … `gaps[{title,severity}]`」与版本说明表 v4.68 行「prompt 升 1.7」；§6.6 接口 17 的 `gaps[{title, severity}]`、`/items` 出参、「模型只能从双端分数与止步 level 得知」与「prompt 升 v1.7」；§6.7 第 ⑤ 步的 `{fileName, summary, summaryAvailable}`、「降级口径一字未变」一条与「摘要生成失败不阻断评估提交」一条里的 `summaryAvailable = false`；§5.5 附件快照代价一条里的 `summaryAvailable = false`；§8.4 E2 行的 severity 色标徽章；§9「单份附件取不到摘要」「附件解析抽不出内容」两行的 `summaryAvailable = false`；§10.1 `ErlSeverityEnum`；§10.2 测试条的「severity 值域」；§11-31（severity 降级 `MEDIUM`）；§11-25a（「level 3 内两题答 No」已造不出来，需求方 2026-09-29 定为作废）。**就地补注**：§0.31-Z6 / Z7、§5.8、§6.2 `gaps[]`、§6.6 解析与失败、§8.4 A1 Gap 区块、§9「某维：双方已提交但无 gap」「LLM 返回结构不合法」两行、§10.2 / §10.3 改动清单；另加 §11-101。
 - **同版补记（需求方 2026-09-29 同意；此前各版漏回写的存量问题，逐条对照代码与 git 历史核实过）**：① **E2 区块下线**：2026-09-15 需求方要求 A3 撤下（web `5d454cb2`），`PriorityGapsPanel` 2026-09-24 删除（web `2048f583`）—— §8.2 目录、§8.4 E1 / E2 行；② **`why` / `evidenceMissing` 已于 2026-09-24 删除**（§0.41-O10 / 设计稿 D7；前端分别于 2026-09-23 / 09-21 起不再渲染）—— §0.10-D20、§0.31-Z8、§8.4 A1 行、§9「有 gap」「无证据可依据」两行、§11-27 / 28、附录 C 的 D20；③ **§10.2 改到现状**：端点只剩 refresh / items，Redis 锁删除，V024 改名，补 V028 / V029、`erl_gap_agent` 包与两份测试；④ **接口编号订正**：§6.6「接口 21（维度详情）」→ 接口 2；⑤ **`ai_erl_gap_analysis_task.model` 列由 V029 删除**（§5.8，设计稿 D15）；⑥ **AI 生成代码位置**：2026-09-28 起在 `source/ai/agent/erl_gap_agent/pipeline.py`，`erl_gap_analysis_service.py` 只做编排、事务与落库 —— §3.1 落点图（端点、Python 归属与所持表，连带 Java 表清单补上任务化两张、表数 9 → 11）、§6.7 链路图与「只有三个端点」、§9「LLM 返回结构不合法」行、§10.2 已改正，§6.7「锁 TTL 算术」一条随 Redis 锁作废。
 
+### 0.45 v4.71 → v4.72 修正清单（**需求方 2026-09-29：附件摘要覆盖全文**）
+
+> 实现在 rag 模块：`CIOaas-python/source/rag/infrastructure/processor/summarizer.py` 的 `summarize_document`（知识库条目与 ERL 附件共用），ERL 附件经 `IngestService.summarize_file_inline` → `factory.summarize_only_by_space` 调它。erl 域与 `erl_gap_agent` 的编排、§6.7 三个常量、提示词一概不动。
+
+| # | 原口径 | 新口径 | 依据 |
+|---|--------|--------|------|
+| **S1** | §3.1 / §5.5 / §6.7 / §10.2：附件「下载 → 解析 → **一次摘要 LLM**」；摘要输入**截到前 6 万字符**（`SUMMARY_MAX_INPUT_CHARS`），后半部分直接丢弃 —— 超长附件（财报 / 管理账 / 审计包）的后半部分对 Goldie 完全不可见 | **全文都进摘要**：全文 ≤ 6 万字符（`SUMMARY_SEGMENT_CHARS`）仍是一次调用；超过就切成 ⌈全文 / 6 万⌉ 段、**各段等长**（切点落在段落 / 换行 / 句末边界），**段摘要并发生成**，再按原文顺序**合成一段**约 1000 字符的英文摘要（段摘要超过 8 条先分组合、再合各组的结果）。段数不设上限，一份附件的 LLM 调用数 = 段数 + 合并次数 | 需求方 2026-09-29 |
+| **S2** | —（一次调用，无并发可言） | **一份文档同时最多 6 路**摘要调用（`_SUMMARY_CONCURRENCY = 6`，整篇 / 分段 / 合并三类共用一道闸；按文档限，不是全进程）：ERL 阶段并发 3 份附件 ⇒ 附件摘要最多同时 18 路；叠加聊天附件向量化闸 4 份，全进程最坏 42 路，仍在共用的 100 连接 LLM 池以内。超过 6 段的附件段摘要分批跑，墙钟多一轮 | 需求方 2026-09-29（审核指出不设上限会打满全进程共用的连接池后定为 6） |
+| **S3** | 摘要生成失败 ⇒ 该附件无摘要 | **失败的段 / 合并组跳过、其余照常合并**（只落 WARN）；**全部失败** ⇒ 无摘要，该附件整条不送进 prompt（§0.44-R10，口径不变）。外部超时取消照常穿透，不会被当成「某段失败」接着合并 | 同上 |
+| **S4** | §6.7 三个常量：单份 90s、阶段 120s、并发 3 | **三个常量一个不改**（需求方 2026-09-29 决定不调预算）：90s / 120s 与 Java refresh 的 500s 读超时是一起算的（§6.7：120s + 3 × 120s + 6s = 486s），不能单独加大。代价：超长附件至少两轮 LLM（并发段摘要 + 合并），比原先一次调用更容易到点，**到点即按「无摘要」继续**（原先至少还有前 6 万字符的摘要） | 需求方 2026-09-29 |
+
+- **记账**：每次 LLM 调用照旧写一行 `ai_llm_call_log`（`call_purpose = rag_summary`）—— 超长附件每份是「段数 + 合并次数」行，分段 / 合并两类调用的 `caller_step` 分别为 `segment i/n` / `combine`（整篇一次调用不带）；prompt 全文进 `ai_llm_conversation`，超长附件的**全文**都会落进这张表。ERL 每轮 `refresh` 现场重算（§5.5 / §6.7 代价 ①），超长附件的摘要成本随全文长度增长，不再封顶在 6 万字符。
+- **保持不变**：Java ↔ Python 两个端点与入参（refresh 每题照常只送 `attachments[{fileId, fileName}]`）；摘要现场生成、不落任何业务库；§6.7 三个常量与降级口径（下载失败 / 类型不受支持 / 解析为空 / 超时一律按无摘要继续）；有摘要的附件以 `{fileName, summary}` 送进 prompt；提示词 `erl_gap_analysis.md` v1.0 —— 一律不变。**Java / Web 零改动、数据库零变更**，无上线顺序约束。
+- **就地补注**：§3.1 落点图、§5.5「为什么没有状态可记」与「代价」两条、§6.7 链路图第 ③ 步与「代价」一条、§10.2 `erl_attachment_service.py` 条目 —— 「一次摘要 LLM」一律划掉并标 v4.72。版本说明表 v4.65 行（`summarize_file_inline`：下载 → 解析 → 一次摘要 LLM）是当时的记录，**原文保留**。
+
 ## 1. 范围与分期
 
 ### 1.1 V1 范围
@@ -1483,7 +1499,8 @@ Gateway :9000  -->  CIOaas-web(Java) :5213/web
                         |       |                   source/ai/agent/erl_gap_agent/pipeline.py（v4.71 补记）
                         |       |                 +- 复用 source/llm/ 基建
                         |       |                 +- 2026-09-21 起只调 rag 的 IngestService.summarize_file_inline
-                        |       |                 |   （下载 → 解析 → 一次摘要 LLM，不建 entry / space / 登记行）；
+                        |       |                 |   （下载 → 解析 → ~~一次摘要 LLM~~ 摘要，不建 entry / space / 登记行）；
+                        |       |                 |   v4.72：摘要覆盖全文，超过 6 万字符分段并发（每份 ≤ 6 路）+ 合并（§0.45）；
                         |       |                 |   ~~ensure_erl_space / ingest_kb_file / file_registry 登记~~ 已无调用方
                         |       |                 +- prompt 放 source/ai/prompts/erl/（v4.4：合并为一份，
                         |       |                     不再分 Founder / GSV 两套口吻，§0.10-D3）
@@ -1958,8 +1975,8 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 
 > **~~`registry_id`~~ / ~~`ingest_status`~~ —— 2026-09-21 两列删除**（**v4.65**，`sprint118/V23`；`V1` 同步**就地改为不建这两列**，照 `V7` 删 `file_name` / `file_size` 时的家法 ⇒ 全新环境只跑 `V1` 就是终态、`V23` 在那里是 no-op）：
 > - **本表从此只有七列**：`id` / `erl_assessment_answer_id` / `file_id` + 四个审计列（`created_at` / `created_by` / `updated_at` / `updated_by`）。它记录的**只剩「哪条作答挂了哪个文件」**这一件事，**不再承载任何处理状态**。
-> - **为什么没有状态可记**：摘要改为**差距分析 `refresh` 时现场生成、用完即弃**（下载 → 解析 → 一次摘要 LLM，**不建 entry / space / 登记行**，§6.7），所以既没有「登记行 id」可回写，也没有「这次生成成没成」需要留存 —— 每轮重生成都重跑一次，**上一轮的成败对下一轮没有任何意义**。
-> - ⚠️ **代价（需求方知情）**：① 每轮重生成都**重付一次**解析与摘要 LLM 成本（管理端手动 `Regenerate` 因刻意跳过指纹短路，会重算该期次**全部**附件）；② 「某份证据没被 Goldie 读进去」**全站再无任何痕迹** —— 旧机制至少把 `FAILED` 落在库里查得到，新机制不落库、同一份附件这次失败下次可能成功，屏上与库里都不留痕。原 `ingestStatus` 那条「要给用户提示」的产品诉求**已改写后留在 `CIOaas-web/docs/待优化项.md`**（三个候选落点待需求方定）。
+> - **为什么没有状态可记**：摘要改为**差距分析 `refresh` 时现场生成、用完即弃**（下载 → 解析 → ~~一次摘要 LLM~~ 摘要（**v4.72**：覆盖全文，超过 6 万字符分段并发 + 合并，§0.45），**不建 entry / space / 登记行**，§6.7），所以既没有「登记行 id」可回写，也没有「这次生成成没成」需要留存 —— 每轮重生成都重跑一次，**上一轮的成败对下一轮没有任何意义**。
+> - ⚠️ **代价（需求方知情）**：① 每轮重生成都**重付一次**解析与摘要 LLM 成本（管理端手动 `Regenerate` 因刻意跳过指纹短路，会重算该期次**全部**附件；**v4.72**：超长附件每份是「段数 + 合并次数」次调用，成本随全文长度增长，§0.45）；② 「某份证据没被 Goldie 读进去」**全站再无任何痕迹** —— 旧机制至少把 `FAILED` 落在库里查得到，新机制不落库、同一份附件这次失败下次可能成功，屏上与库里都不留痕。原 `ingestStatus` 那条「要给用户提示」的产品诉求**已改写后留在 `CIOaas-web/docs/待优化项.md`**（三个候选落点待需求方定）。
 > - ⚠️ **索引 `idx_erl_attachment_file` 刻意不删**：它原本服务于「按 `file_id` 批量回写 `ingest_status`」的 `findByFileIdIn`，该链路已删 ⇒ **本索引自此无消费者**。留着是因为 `docs/待优化项.md` 记着要给本表补 `(erl_assessment_answer_id, file_id)` 唯一索引，那条落地后它即为前缀冗余、届时一并处理；在那之前只有可忽略的写放大成本。
 
 > **~~`file_name` / `file_size`~~ —— 2026-09-09 两列删除**：文件名与字节数**不再在附件行上快照**，一律按 `file_id` 去 `files` 取（`original_name` / `length`）—— 那本就是这两个值的**真值来源**，附件行只是「这道题挂了哪个文件」的指针。
@@ -2487,7 +2504,10 @@ POST /api/ai/erl/gap-analysis/items
            ② 并发生成，闸门 _ATTACHMENT_SUMMARY_CONCURRENCY = 3
            ③ 每份 _ATTACHMENT_SUMMARY_TIMEOUT_SECONDS = 90s 预算
               → IngestService.summarize_file_inline(file_id, title)
-                   下载（经服务间内部端点取 S3 文件）→ 解析 → 一次摘要 LLM
+                   下载（经服务间内部端点取 S3 文件）→ 解析 → ~~一次摘要 LLM~~ 摘要
+                   → 2026-09-29 / v4.72（§0.45）：全文都进摘要 —— ≤ 6 万字符一次调用；超过切成
+                     ⌈全文 / 6 万⌉ 段、段摘要并发（每份 ≤ 6 路）+ 按原文顺序合并；
+                     失败的段跳过、全部失败 = 无摘要
                    【不建 entry / 不建 space / 不写登记行 / 不落任何库】
            ④ 整个阶段 _ATTACHMENT_SUMMARY_STAGE_TIMEOUT_SECONDS = 120s 总闸
               → 墙钟上界恒为 120s，【与附件数量无关】
@@ -2499,7 +2519,7 @@ POST /api/ai/erl/gap-analysis/items
 - **为什么要有这三个常量**：需求方明确**不限制附件数量**，所以必须由服务端自己兜住墙钟与资源 —— 单份 90s 预算挡住个别巨大文件拖垮整轮，阶段 120s 总闸让**最坏耗时与附件数解耦**（否则 N 份附件就是 N × 90s），并发闸 3 则是**必需**而非调优：rag 的解析走 `asyncio.to_thread`，用的是**全进程共享**的默认线程池（2 vCPU 仅 6 线程），放开并发会连累 chatbot SSE 与财务提取。
 - ~~**锁 TTL 算术随之更新**（§7.5）：单轮最坏 = 附件摘要阶段 120s + 3 次 LLM 尝试 × 120s + 退避 2s / 4s =~~ ~~366s~~ ~~→ **486s < TTL 600s**（Python 侧有算术断言的单测钉住）。~~ → **2026-09-24 起没有锁 TTL**（Python 期次级 Redis 锁已删，v4.68 / §0.41-O6）：这笔算术现在只用来对齐 **Java refresh 的读超时 500s** —— 附件摘要阶段 120s + 3 次 LLM 尝试 × 120s + 退避 2s / 4s = 486s（见 `ErlPythonClient` 注释）；Python 单测只钉单任务 LLM 部分 366s（`test_single_task_worst_case_is_bounded`）。多任务按并发 3 分批时整轮可能超过 500s，设计接受：任务留 `RUNNING`、10 分钟后同 id 重投（§7.5）。
 - **降级口径一字未变**：单份**下载失败 / 类型不受支持 / 解析为空 / 超时**一律 ~~`summaryAvailable = false`~~ **继续分析、不阻断**（只落一条 `logger.warning`）；~~**prompt 一个字没改** —— 「`summaryAvailable = false` 时不得凭文件名推断内容」这条规则自 v1.4 起就在（§6.6）~~ → **2026-09-29 / v4.71**（§0.44-R10）：`summaryAvailable` 字段删除，这类附件**整条不送进 prompt**，模型根本看不到这份文件，「不得凭文件名推断」那条提示词规则随之删除；「继续分析、不阻断、只落 WARN」不变。
-- ⚠️ **代价（需求方知情）**：① **每轮重生成都重付**一次解析 + 摘要 LLM 成本（管理端手动 `Regenerate` 因刻意跳过指纹短路，会重算该期次**全部**附件）；② 哪份证据被跳过了，**全站无任何提示**，且不落库 ⇒ 同一份附件这次失败下次可能成功、屏上与库里都不留痕（已改写留在 `CIOaas-web/docs/待优化项.md`）。
+- ⚠️ **代价（需求方知情）**：① **每轮重生成都重付**一次解析 + 摘要 LLM 成本（管理端手动 `Regenerate` 因刻意跳过指纹短路，会重算该期次**全部**附件；**v4.72**：超长附件每份是「段数 + 合并次数」次调用、全文都进 `ai_llm_conversation`，成本随全文长度增长）；② 哪份证据被跳过了，**全站无任何提示**，且不落库 ⇒ 同一份附件这次失败下次可能成功、屏上与库里都不留痕（已改写留在 `CIOaas-web/docs/待优化项.md`）；③ **v4.72**：超长附件至少两轮 LLM（并发段摘要 + 合并），比原先一次调用更容易触到单份 90s，到点即按无摘要继续（原先至少还有前 6 万字符的摘要）；三个常量需求方 2026-09-29 决定不调（§0.45-S4）。
 - ❗ **上线顺序：Python 必须先于 Java**。新 Java 不再预生成摘要，若 Python 还是老版（在 `refresh` 里读 `ai_rag_entry.summary`），**全部附件证据会静默丢失且无任何告警**。`V23` 的执行时机另有讲究，见 §5.5 与脚本头部。
 
 | # | 方法 / 路径 | 用途 |
@@ -3898,7 +3918,9 @@ gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/erl/
                                                           _call_llm_with_retry → _parse_dimension），不碰事务、失败一律上抛
 ❌ 2026-09-21 / v4.65 删除  ~~source/erl/application/service/erl_attachment_service.py~~ 及 erl_attachment_dto
                                                           ← 改调 rag 的 IngestService.summarize_file_inline
-                                                            （下载 → 解析 → 一次摘要 LLM，不建 entry / space / 登记行）
+                                                            （下载 → 解析 → ~~一次摘要 LLM~~ 摘要，不建 entry / space / 登记行；
+                                                              v4.72 起摘要覆盖全文，实现在 rag 的
+                                                              processor/summarizer.py，§0.45）
 ❌ v4.4 删除  source/ai/prompts/erl_gap_analysis_founder.md   ┐ 双 audience 方案取消（§0.10-D3），
 ❌ v4.4 删除  source/ai/prompts/erl_gap_analysis_gsv.md       ┘ 两份合并
 新增  source/ai/prompts/erl_gap_analysis.md              **v4.4**：单份 prompt（原带 # version: 1.0）
