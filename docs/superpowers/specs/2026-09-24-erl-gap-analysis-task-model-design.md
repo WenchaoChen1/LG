@@ -1,27 +1,27 @@
 # ERL 差距分析任务化（sprint119）设计
 
 > 关联文档：
-> - ERL 设计文档（唯一权威，本设计以 v4.68 / §0.41 挂接；D12 ~ D15 以 v4.71 / §0.44 挂接；D16 以 v4.73 / §0.46 挂接）：[../../Exit Readiness/设计/design-doc.md](../../Exit%20Readiness/设计/design-doc.md)
-> - 需求文档：[../../Exit_Readiness_PRD.md](../../Exit_Readiness_PRD.md)（§3.6 Goldie 建议；PRD:193 "所有维度两方都完成"）
+> - ERL 设计文档（唯一权威，本设计以 v4.68 / §0.41 挂接；D12 ~ D15 以 v4.71 / §0.44 挂接；D16 以 v4.73 / §0.46 挂接；D17 以 v4.74 / §0.47 挂接）：[../../Exit Readiness/设计/design-doc.md](../../Exit%20Readiness/设计/design-doc.md)
+> - 需求文档：[../../Exit_Readiness_PRD.md](../../Exit_Readiness_PRD.md)（§3.6 Goldie 建议；PRD:193 "只有所有维度两方都完成时，share按钮才被激活" —— 约束的是 **Share 门槛**（§7.4）；~~D3 据此把生成门槛也定为报告级~~，D17 起生成回到维度级）
 > - 后端规范：[../../../java/CIOaas-api/standards/coding.md](../../../java/CIOaas-api/standards/coding.md) · Python 规范：[../../../python/CIOaas-python/standards/coding.md](../../../python/CIOaas-python/standards/coding.md)
 > - 评审依据：2026-09-23/24 对用户表设计的 7 视角评审（本文件即其结论落地；原始 76 条发现不另存档）
 
-**状态**：设计已与需求方（本仓库负责人）逐项确认（2026-09-24），待实施计划。2026-09-28 ~ 09-29 追加 D12 ~ D15（severity 删除、提示词重写为 1.0、空 gaps 判失败、`model` 列删除），三仓均已实现。2026-09-29 再追加 D16（公司端以最新一条记录为准，只改 Java `visibleReport`）。
+**状态**：设计已与需求方（本仓库负责人）逐项确认（2026-09-24），待实施计划。2026-09-28 ~ 09-29 追加 D12 ~ D15（severity 删除、提示词重写为 1.0、空 gaps 判失败、`model` 列删除），三仓均已实现。2026-09-29 再追加 D16（公司端以最新一条记录为准，只改 Java `visibleReport`）。同日又追加 D17（生成门槛回到维度级、取代 D3；只改 Java 规划步骤 2 与接口 18 的 400 条件）。
 **分支**：`sprint119`（Java / Python / Web 三仓）。
 
-## 0. 决策记录（2026-09-24，全部已拍板；D12 ~ D16 为 2026-09-28 ~ 09-29 追加）
+## 0. 决策记录（2026-09-24，全部已拍板；D12 ~ D17 为 2026-09-28 ~ 09-29 追加）
 
 | # | 决定 | 取代的旧口径 |
 |---|------|-------------|
 | D1 | 走**全量任务化**：Java 持有"报告分享记录 + 按维度任务"的编排状态，Python 持有 AI 内容 | P3（design-doc §0.33）"产物三表归 Python、Java 无实体" |
 | D2 | **Java → Python 同步 HTTP**，Python 在 refresh 响应里逐任务回状态；**不做 Python → Java 回调** | 用户初稿的"成功后回调 Java" |
-| D3 | **生成门槛 = 报告级**：全部 Active 维度两端都 SUBMITTED 且无题集 mismatch 才建记录与任务 | design-doc v4.61-G1 维度级门槛（09-20） |
+| D3 | ~~**生成门槛 = 报告级**：全部 Active 维度两端都 SUBMITTED 且无题集 mismatch 才建记录与任务~~ → **被 D17 取代**（2026-09-29） | design-doc v4.61-G1 维度级门槛（09-20） |
 | D4 | **已分享记录不可变**（改动 → 新建记录，未变维度复制任务）；**未分享记录就地更新**（旧任务软删 + 新建） | V027 `shared_snapshot` JSONB 冻结 |
 | D5 | 保留 Python 侧任务表，定位为**生成日志 + 幂等标记**（非状态源） | — |
 | D6 | Python **每任务一次 LLM**，并发 3；不再有 index↔code 整批校验 | 一次 LLM 覆盖本轮全部维度 |
 | D7 | **永久砍掉** summary / analyzedContext / model（Java 侧）/ generated_at / note / why / evidence_missing / stale / generating / analyzedAt / dimensionStale / sharedAt / sharedBy 出参；prompt 升 v1.7（2026-09-29 由 D13 重写为 1.0） | v1.6 prompt 与现契约 |
 | D8 | 表名改为 `erl_gap_analysis_report`、`ai_erl_gap_analysis_task`、`ai_erl_gap_analysis_task_item`（绕开库中同名旧表与已锁定的 V024 / V026） | 用户初稿 `erl_gap_analysis` / `ai_erl_gap_analysis_dimension` |
-| D9 | 报告未就绪时两端已交的维度**沿用 `Analyzing…`**，不加新态；前端六态代码不动 | — |
+| D9 | ~~报告未就绪时两端已交的维度**沿用 `Analyzing…`**~~ → D17 起两端已交且可分析的维度即有任务，`Analyzing…` 就是真在跑；**不加新态**（FAILED 自动重投、屏上仍是 `Analyzing…`，§11）；前端六态代码不动 | — |
 | D10 | 接口 18（手动 Generate）**保持同步**，只换内部链路 | — |
 | D11 | 存量产物**不回填**；旧表分两批 DROP（Java 旧两表随 sprint119 脚本；Python 旧三表验证后 V029） | — |
 | D12 | **severity 整链删除**（2026-09-28）：大模型不再产出；Python 解析 / DTO / VO / ORM、Java `ErlSeverityEnum` 与 DTO / Response 里的字段、前端「— xxx severity」展示全删；`/items` 与给前端的接口 2 / 17 / 18 的 `gaps[]` 每项只剩 `title`；列由 V029 `DROP COLUMN`。理由：送来的维度里缺口都是止步那一级的 No、每道都是解锁下一级的硬门槛，分不出档；E2 色标面板 2026-09-24 已删，页面上只剩一句恒为 high 的后缀 | §3.4 `severity` 列与「越界出站归一 `MEDIUM`」；§6.2 / §7.2 的 `gaps[].severity`；Java 侧非法值降级 `MEDIUM` |
@@ -29,6 +29,7 @@
 | D14 | **空 gaps 判失败**（2026-09-29）：gaps 没有可用条目（空数组或全被过滤）与没有 gaps 数组一样判该任务 FAILED、`hasGap=null`，交 Java 重投，绝不当「无差距」；丢弃不可用条目打 WARN。Python 内部 `summary_available` 删除，没有摘要的附件整条不送进 prompt | §6.4「无差距时 `gaps` 为空且不输出 narrative」；§6.1 步骤 2「失败降级 `summaryAvailable=false`」 |
 | D15 | **`ai_erl_gap_analysis_task.model` 列删除**（2026-09-28，design-doc v4.71 补记）：它只写不读（Java 侧出参的 `model` 已由 D7 砍掉），存的又是代码常量、每行同值；「用了哪个模型」查 `ai_llm_call_log.llm_model`，按 `caller_agent='erl'` / `caller_node='erl_gap_analysis'` 过滤；由 V029 删列 | §3.3 `model` 列「排障」 |
 | D16 | **公司端以最新一条记录为准**（2026-09-29）：`visibleReport` 两端都取最新记录，公司端仅在它 `shared = true` 时可见，否则 `shared=false` 空态（`No gap analysis shared yet.`）；分享后任一端再提交、`reconcile` 新建出未分享记录 ⇒ 创始人回到空态，直到管理端再次 Share。期次级 `shared` 两端同义（= 最新记录已分享）；接口 1 / 2 同走 `visibleReport`。写路径（D4 / I1）不变；PRD:196「若分享后又重新提交内容 … founder 端的内容就置空，直到下次分享」原文即此口径，§9.3「PRD:193 回写为冻结口径」撤销 | §7.1「公司端 `latestSharedReport`」；§7.2「公司端 = 有已分享记录」；§8「创始人继续读旧已分享记录」 |
+| D17 | **生成门槛回到维度级**（2026-09-29，需求方：之前「两端所有维度都答完才生成」是理解偏差，应为「每个维度两端完成答题后就生成该维度」）：`reconcile` 步骤 2 只筛出**可分析维度**集合 A（§2），只为 A 建 / 补 / 重建与派发任务；A 为空 ⇒ 不建、不改任何行（没有任何维度两端都交了 ⇒ `NOT_SUBMITTED`；两端都交了的维度全部 mismatch ⇒ `MISMATCHED`）。**题集 mismatch 只跳过这一维**，其它维照常生成；该维已有的旧任务在未分享记录里原样留着（不软删、不派发，前端该维 mismatch 态盖过旧结论），分叉新记录时不复制。未分享 / 已分享的处理沿用 D4（未分享 ⇒ 就地补建、不新建记录；已分享 ⇒ 新记录 + 复制未变维度）。**Share 门槛不变**（§7.4，PRD:193 字面约束的就是 share 按钮）：部分维度有任务的报告分享不了。回到 design-doc v4.61-G1 的维度级口径但落在任务模型上（G2 / G3 / G4 / G9 的指纹、按维覆盖、analyzedContext 不恢复）；表结构、I1 ~ I5、§4、§6 契约不变，**Python 零改动、前端零代码改动** | D3；D9 的「报告未就绪时沿用 `Analyzing…`」；§11「报告级门槛下空轮询 125s」 |
 
 ## 1. 目标
 
@@ -39,10 +40,10 @@
 ## 2. 术语与不变量
 
 - **SOT**：某公司某期次某端某维度最新一次 SUBMITTED 的评估（`submitted_at DESC, id DESC`，`ErlAssessmentRepository` 现有查询）。
-- **可分析维度**：两端都有 SOT 且不处于题集 mismatch（`resolveQuestionSetMismatch` 现有逻辑）。
-- **报告就绪（ready）**：每个 Active 维度都是可分析维度。
+- **可分析维度**：两端都有 SOT 且不处于题集 mismatch（`resolveQuestionSetMismatch` 现有逻辑）。D17 起它就是**生成门槛**：`reconcile` 只为可分析维度建 / 补 / 重建与派发任务。
+- **报告就绪（ready）**：每个 Active 维度都是可分析维度。~~生成门槛（D3）~~ → D17 起**只用于 Share 门槛**（§7.4）。
 - **零感知差维度**：两端 `levelScore` 相等（`ErlScoreCalculator.noPerceptionGap`），不送 LLM，直接判无差距。D14 起这是 `has_gap = false` 的唯一来源。
-- **分歧题**（2026-09-29，D13）：送 LLM 的维度里两端答得不一样的那道题 = 分数低那端止步的那道 No。design-doc v4.69 起答 No 之后同级后面的作答全部重置，分数高那端在该级整级都是 Yes，`questions` 又只含两端都答过的题 ⇒ 每个送 LLM 的维度恰好一道；题库版本不一致时 `reconcile` 返回 `MISMATCHED`、不派发。只对 v4.69 上线之后的提交成立：之前提交的存量 SOT 不回收，首个 No 之后若还留有两端都答过的题，可能不止一道（Java 组包只按「两端都答过」过滤）。
+- **分歧题**（2026-09-29，D13）：送 LLM 的维度里两端答得不一样的那道题 = 分数低那端止步的那道 No。design-doc v4.69 起答 No 之后同级后面的作答全部重置，分数高那端在该级整级都是 Yes，`questions` 又只含两端都答过的题 ⇒ 每个送 LLM 的维度恰好一道；题库版本不一致的维度不派发（~~`reconcile` 返回 `MISMATCHED`~~ → D17：只跳过该维；两端都交了的维度全部不一致时才返回 `MISMATCHED`）。只对 v4.69 上线之后的提交成立：之前提交的存量 SOT 不回收，首个 No 之后若还留有两端都答过的题，可能不止一道（Java 组包只按「两端都答过」过滤）。
 - 不变量 I1：`shared = true` 的报告记录及其任务**永不修改、永不软删**。
 - 不变量 I2：Python 条目表一次写入永不 UPDATE / DELETE。
 - 不变量 I3：任务状态只能 `PENDING → RUNNING → SUCCESS | FAILED`，所有状态更新都是条件 UPDATE（CAS）。
@@ -133,7 +134,7 @@ PENDING ──(派发前 CAS)──► RUNNING ──(Python 响应 SUCCESS，CA
 |---|---|---|
 | ① 评估提交 | `ErlAssessmentServiceImpl.submit` 事务提交后 `AfterCommitExecutor` → `@Async("ioExecutor")`，`force=false` | 取代现 `regenerate`；参数带请求线程捕获的 Bearer 与 userId |
 | ② 管理端读接口 17 | `stale`-等价判定前直接调 `reconcile`，Redis 冷却键 `erl:gapAnalysis:cooldown:{c}:{p}` 60s，`@Async` | 取代触发点 B；同时兜住存量已交齐期次的首次生成与并发对账 |
-| ③ 接口 18 手动 Generate | 请求线程**同步**调 `reconcile(force=true)`，返回最终状态 | D10；门槛不就绪 → 400（同现状） |
+| ③ 接口 18 手动 Generate | 请求线程**同步**调 `reconcile(force=true)`，返回最终状态 | D10；~~门槛不就绪 → 400（同现状）~~ → D17：没有任何维度两端都交了 ⇒ 400 `At least one dimension must be submitted by both sides before generating.`；两端都交了的维度全部 mismatch ⇒ 不报错、原样返回；force 重跑全部可分析维度 |
 
 `cio.erl.ai-enabled = false` 时 ① ② 整体跳过（不建行），③ 不受影响（同现状）。
 
@@ -141,18 +142,19 @@ PENDING ──(派发前 CAS)──► RUNNING ──(Python 响应 SUCCESS，CA
 
 ```
 1  加 Java Redis 锁 erl:gapAnalysis:plan:{c}:{p}（SETNX 60s）；抢不到直接返回
-2  Active 维度、每维两端 SOT、mismatch 集合 → ready；!ready ⇒ 释放锁返回（不建、不改任何行）
-3  R = 最新记录；每维目标 source = (F_sot.id, G_sot.id)，zero = noPerceptionGap(F.levelScore, G.levelScore)
-4  R 不存在 ⇒ 建 R + 全维任务：zero ⇒ SUCCESS/has_gap=false；否则 PENDING
-5  R 已分享 ⇒ changed = source 与 R 中活任务不同、或 R 中该维活任务非 SUCCESS 的维度（force ⇒ 全部）
+2  Active 维度、每维两端 SOT、mismatch 集合 → A = 可分析维度集合（D17；原为 ready / !ready，D3）；A 为空 ⇒ 释放锁返回（不建、不改任何行）；不在 A 里的维度本轮不建、不补、不派发
+3  R = 最新记录；A 中每维目标 source = (F_sot.id, G_sot.id)，zero = noPerceptionGap(F.levelScore, G.levelScore)
+4  R 不存在 ⇒ 建 R + A 中各维任务：zero ⇒ SUCCESS/has_gap=false；否则 PENDING
+5  R 已分享 ⇒ changed = A 中 R 里没有该维活任务、source 与 R 中活任务不同、或 R 中该维活任务非 SUCCESS 的维度（force ⇒ A 全部）
      —— 后一条保住 I1：分享时已停用、之后又恢复的维度若在 R 里留有未完成任务，不得在 R 上认领重跑；
-     changed 为空 ⇒ 不建新记录（此时 R 中全部 Active 维度任务必为 SUCCESS，步骤 7 不会碰 R）；
-     否则建 R'：changed 维建新任务（同 4）；未变维：原任务 SUCCESS ⇒ 复制
+     changed 为空 ⇒ 不建新记录（此时 R 中 A 各维任务必为 SUCCESS，步骤 7 只看 A、不会碰 R）；
+     否则建 R'（只含 A 中各维；不在 A 里的维度 —— 如处于 mismatch —— 不带过去）：changed 维建新任务（同 4）；未变维：原任务 SUCCESS ⇒ 复制
        （status/has_gap/source 照抄；有内容的任务 result_task_id = 原.result_task_id ?? 原.id，
         has_gap=false 的复制品 result_task_id 留 NULL，与 §3.2 一致）；
        原任务非 SUCCESS ⇒ 不复制，建新 PENDING（重跑，避免结果回写到旧任务而复制品永远 RUNNING）
-6  R 未分享 ⇒ changed 维（force ⇒ 全部）：旧活任务 deleted=true，同 R 下建新任务（同 4）
-7  待派发 = 最新记录下 status ∈ {PENDING, FAILED} ∪ {RUNNING 且超龄} 的活任务，逐个 CAS → RUNNING
+6  R 未分享 ⇒ A 中：R 里没有该维活任务 ⇒ 直接补建（同 4，不软删）；source 变了（force ⇒ A 全部）⇒ 旧活任务 deleted=true，同 R 下建新任务（同 4）；
+     不在 A 里的维度（如处于 mismatch）旧任务原样留着，不软删、不派发
+7  待派发 = 最新记录下属于 A 的活任务里 status ∈ {PENDING, FAILED} ∪ {RUNNING 且超龄} 的，逐个 CAS → RUNNING
 8  释放锁
 9  待派发非空 ⇒ 组包一次调 Python refresh ⇒ 按响应逐任务 CAS 落 status + has_gap
 ```
@@ -236,7 +238,7 @@ Python 流程：
 | `dimensionStale` | **恒 false**（字段保留一版供前端兼容，六态 `Updating…` 不再可达） |
 | 删除 | `analyzedAt`、`gaps[].note / evidenceMissing`、`actions[].why` |
 
-D9：报告未就绪时，两端已交的维度 `analyzed=false` ⇒ 前端 `Analyzing…`（接受空轮询 125s 后提示刷新）。
+~~D9：报告未就绪时，两端已交的维度 `analyzed=false` ⇒ 前端 `Analyzing…`（接受空轮询 125s 后提示刷新）。~~ → D17：两端已交且可分析的维度即有任务，`analyzed=false` ⇒ `Analyzing…` 就是真在跑；两端没交齐 ⇒ `bothSubmitted=false`（`Not submitted`）；mismatch 维 ⇒ `questionSetMismatch=true`，前端按它盖过旧结论。
 
 ### 7.3 接口 1（卡片）/ 接口 2（维度详情）
 
@@ -247,7 +249,7 @@ D9：报告未就绪时，两端已交的维度 `analyzed=false` ⇒ 前端 `Ana
 
 ### 7.4 Share（接口 27）
 
-`isShareable` = ready ∧ 最新记录存在 ∧ 未分享 ∧ 全部活任务 `SUCCESS` ∧ 每维任务 source == 当前 SOT。
+`isShareable` = ready（D17 起 ready 只用于这里，PRD:193）∧ 最新记录存在 ∧ 未分享 ∧ ~~全部活任务 `SUCCESS`~~ **每个 Active 维度都有活任务且 `SUCCESS`**（D17：报告里可能只有部分维度的任务，「全部活任务」会漏判；Java 本就逐个 Active 维度查）∧ 每维任务 source == 当前 SOT。报告里只有部分维度的任务时分享不了（D17，Share 门槛保持全部维度）。
 流程：`SELECT … FOR UPDATE` 最新记录 → 校验 → 置 `shared / shared_at / shared_by`。前端请求体不变（不带 analysisId）；管理员点击与后台新建记录之间的窄竞态 ⇒ 400 "Content updated, please refresh"，接受。
 
 ## 8. 并发、幂等、自愈汇总
@@ -262,6 +264,7 @@ D9：报告未就绪时，两端已交的维度 `analyzed=false` ⇒ 前端 `Ana
 | 迟到响应撞已软删 / 已终态任务 | CAS rowcount 0，忽略 |
 | 同一 task 被双跑 | 日志行 / 条目撞唯一键 ⇒ rollback 重查日志行：先到者 SUCCESS ⇒ 按它的 has_gap 返回；先到者 FAILED ⇒ 重试写入一次，把 FAILED 覆盖为 SUCCESS；查不到行 ⇒ 真异常记 FAILED |
 | 已分享记录后又提交 | 新记录（未分享，I1）；~~创始人继续读旧已分享记录~~ → D16：公司端空态，直到再次 Share |
+| 已分享后又有新维度交齐（D17） | 新记录（未分享，I1）：复制 A 中未变且 SUCCESS 的任务、为新交齐的维度建新任务；公司端空态，直到再次 Share（D16） |
 
 ## 9. 迁移与部署
 
@@ -285,15 +288,15 @@ V028（含 GRANT）→ Java sprint119 脚本 → `cio.erl.ai-enabled=false` → 
 
 ## 10. 测试策略
 
-- Java：`reconcile` 规划逻辑单测（首建 / 已分享复制 / 未分享软删 / force / 超龄重投 / 双端交错 / ready=false 不建行 / 零感知差直建 SUCCESS）；仓储（最新行排序、部分唯一索引冲突、CAS 更新 rowcount）；`ErlPythonClient` 新契约；接口 1 / 2 / 17 / 27 拼装（原文误作 21，2026-09-29 订正）（管理端 vs 公司端选行、`analysisServiceUnavailable`、`isShareable` 五条）。
+- Java：`reconcile` 规划逻辑单测（首建 / 已分享复制 / 未分享软删 / force / 超龄重投 / 双端交错 / ~~ready=false 不建行~~ 可分析维度为空不建行、只为可分析维度建任务、未分享记录按维补建、已分享记录因新维度交齐而分叉、mismatch 只跳过该维（D17）/ 零感知差直建 SUCCESS）；仓储（最新行排序、部分唯一索引冲突、CAS 更新 rowcount）；`ErlPythonClient` 新契约；接口 1 / 2 / 17 / 27 拼装（原文误作 21，2026-09-29 订正）（管理端 vs 公司端选行、`analysisServiceUnavailable`、`isShareable` 五条）。
 - Python：单任务 LLM 流程与并发、SUCCESS 日志短路、FAILED 日志、条目唯一键撞键按成功、items 端点分组、prompt 1.0 结构回归（D13：概况 + 白名单答题列表，不含止步 level / `taskId` / `fileId` 等，只带有摘要的附件）、空 gaps 与条目非字符串判 FAILED、丢条目打 WARN（D14）、Request VO 422 边界、V028 幂等重跑。
 - Web：无必需改动；若同批清理死字段，`erlService` 单测同步（D12 起 `mapGapItem` 只取 `title`）。
-- E2E（按记忆规则先审核再跑，只挑 2–3 个代表场景）：首次交齐生成 → Share → 一端改一维重交 → 管理端见新记录、~~创始人仍见旧报告~~ 创始人回到空态（D16）→ 再 Share → 创始人见新报告。
+- E2E（按记忆规则先审核再跑，只挑 2–3 个代表场景）：首次交齐生成 → Share → 一端改一维重交 → 管理端见新记录、~~创始人仍见旧报告~~ 创始人回到空态（D16）→ 再 Share → 创始人见新报告。D17 另加：只有一维两端交齐时该维即出结论（其余维 `Not submitted`）、Share 置灰；某维 mismatch 时其它维照常出结论。
 
 ## 11. 明确不做 / 已知代价
 
 - 不做真正的任务取消（LLM 请求不可中止）；不做扫描器；不做 Python → Java 回调；不做前端 `failed` 态（FAILED 自动重投，屏上仍是 `Analyzing…`）。
-- 报告级门槛下，部分维度已交齐时屏上显示 `Analyzing…` 并空轮询 125s（D9，需求方接受）。
+- ~~报告级门槛下，部分维度已交齐时屏上显示 `Analyzing…` 并空轮询 125s（D9，需求方接受）~~ → D17 起不复存在。代价换成：LLM 调用从「全交齐时一次发完」变成「每维交齐即发」，早生成的维度之后再重交会再跑一次；几维前后脚交齐时 Java 会并发发几个 refresh（Python 并发上限按请求计），同一附件挂在两维上会被分两次摘要（需求方 2026-09-29 接受）。
 - 接口 18 仍同步等待，网关 120s 先超时的既有问题保留（D10，JAVA-TODO:5 继续挂账）。
 - 未分享记录内被软删任务的 Python 条目成为孤儿行，留待后续清理任务处理。
 - 公司端 `questionSetMismatch / bothSubmitted` 不冻结（沿用 09-21 接受的口径）。
