@@ -2,3 +2,9 @@ ff_oauth_client.json
 ff_oauth_token*.json
 authorize_url.txt
 __pycache__/
+
+# 原始返回（含真实会议全文，约 3.6 MB），api-response-samples.md 的数据源
+ff_full.json
+gql_detail_full.json
+ff_mcp_list2.json
+ff_mcp_tr.json
