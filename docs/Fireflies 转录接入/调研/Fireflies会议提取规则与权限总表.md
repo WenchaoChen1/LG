@@ -130,8 +130,8 @@
 敏感信息处理：同 1b
 
 谁能看、在哪看：
-PM：Goldie、管理端知识库
-PGM/Super admin：Goldie、管理端知识库、会议管理页
+- PM：Goldie、管理端知识库
+- PGM/Super admin：Goldie、管理端知识库、会议管理页
 
 ----------------------
 
