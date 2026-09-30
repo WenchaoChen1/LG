@@ -2,13 +2,20 @@
 
 > 整理日期：2026-09-29
 >
-> **依据**：提取规则按 `docs/Fireflies 转录接入/设计/design-doc.md`（09-23 版）与《会议内容提取规则-需求文档》（09-29 更新版）；会议类型与权限以 2026-09-28 对方回复（见桌面《Fireflies集成-问题与回复对照》）为准。两者冲突处格内已按回复写明，冲突明细汇总在文末。
->
 > **角色**：创始人 = Company Admin + Company User；PM = Portfolio Manager；PGM = Portfolio Group Manager；SA = Super Admin。
 >
 > **查看位置**：**会议管理页** = Fireflies Management → Summary Records → Review 详情的 Content Routing Matrix；**原始转录页** = Fireflies Management → Raw Data。
 >
-> **产出格式**：所有产出均为 markdown，统一经大模型生成或整理；Fireflies 自带的摘要也要过一遍大模型，不原样入库。
+> **产出格式**：所有产出均为 markdown，统一经大模型生成或整理；ff自带的摘要也过一遍大模型产出 markdown。
+
+
+# rag 各角色权限现状
+| 角色 | 知识库 | summary | playbook |
+|---|---|---|---|
+| 公司端普通用户 | **Goldie**：本公司 APP 空间里自己上传的文件<br>**知识库页**：本公司由公司端上传的文件中自己的那些，只能下载自己的 | **Goldie**：自己上传文件的摘要<br>**Memory 页**：没有入口，直输地址提示无权限 | **Goldie**：打开 Playbook 开关后可用，全平台同一份 |
+| 公司端 Company Admin | **Goldie**：本公司 APP 空间的全部文件，不含管理端为本公司上传的<br>**知识库页**：本公司由公司端上传的全部文件，可按上传者筛选、可下载 | **Goldie**：本公司由公司端上传的文件的摘要<br>**Memory 页**：本公司的 Company Memory | 同上 |
+| 管理端 | **Goldie**：本组织的 ADMIN 空间，加上可见公司各自的 APP 空间；只召回属于可见公司的文件和本会话的文件<br>**知识库页**：选定组织下可见公司的文件（公司端、管理端上传的都有），可按公司、来源、上传者筛选；超管可下载任意公司的文件 | **Goldie**：可见公司的文件摘要（公司端、管理端上传的都算），加本会话文件<br>**Memory 页**：Company Memory 和 Portfolio Memory 两层，可按层、公司筛选 | **Goldie**：同上<br>**devSupport**：可维护（抓取、审核、发布） |
+| devSupport 使用者（在自己角色之外额外能看） | 全部空间的条目和正文，可跨空间做召回测试 | 条目详情、分段弹窗、召回结果里都有 summary | Playbook 空间的内容；维护操作仍只限管理端账号 |
 
 ----------------------
 
@@ -29,15 +36,15 @@
 
 ----------------------
 
-**GS→Founder**（含董事会）
+**GS→Founder**
 
-去向：1a + 1b（同一份，每家关联公司一条）
+去向：1a + 1b（同一份）
 
 提取规则：
 
-- **来源**：Fireflies返回的overview（为空时从原文生成）
+- **来源**：Fireflies返回的summary.overview（为空时从原文生成）
 - **处理**：经大模型整理为 markdown，≤1000 字符，超长的在这一步一并压缩
-- **粒度**：每家关联公司一条，1a 与 1b 用同一份文本
+- **粒度**：1a 与 1b 用同一份文本
 
 去逐字化：✅ 摘要定稿后过 n-gram 剔除
 
@@ -45,21 +52,21 @@
 
 谁能看、在哪看：
 
-- 公司端：经 Goldie
+- 公司端：Goldie
 - PM:Goldie
-- PGM: Goldie、会议管理页
+- PGM/Super Admin: Goldie、会议管理页
 
 ----------------------
 
-**GS→Founder**（含董事会）
+**GS→Founder**
 
-去向：Founder KB（Portfolio KB= Founder KB）（每家关联公司一条）
+去向：Founder KB、Portfolio KB（同一份）
 
 提取规则：
 
-- **来源**：Fireflies Essence Summary（Fireflies 生成的会议摘要）
+- **来源**：Fireflies summary.overview（Fireflies 生成的会议摘要）
 - **处理**：经大模型整理为 markdown
-- **粒度**：每家关联公司一条
+- **粒度**：管理端公司端关联同一份
 
 去逐字化：✅
 
@@ -67,14 +74,13 @@
 
 谁能看、在哪看：
 
-- Company User：Goldie、Founder KB 只看摘要
-- Company Admin:经 Goldie、Founder KB可看摘要+纪要
-- PM：Goldie、Portfolio KB 可看摘要
-- PGM：Goldie、会议管理页、Portfolio KB 可看摘要
+- 公司端：Goldie、Founder KB
+- PM：Goldie、Portfolio KB
+- PGM/Super Admin：Goldie、会议管理页、Portfolio KB
 
 ----------------------
 
-**GS→Founder**（含董事会）
+**GS→Founder**
 
 去向：Cross-Company（0~N 条）
 
@@ -83,26 +89,19 @@
 - **抽取**：可移植洞察点，每场 0~N 条，产出 0 条属正常
 - **判据**：脱离这家公司仍然成立，且对相似阶段的其他公司有参考价值
 - **标签**：行业/垂直、公司阶段（ARR 区间、轮次）、问题类型
-- 董事会：**董事会发言**（谨慎、敏感）
+- **需管理员审核**：Cross company 内容需要审核后发出
 
 去逐字化：✅
 
-敏感信息处理：[去身份]；董事会内容另加 [谨慎]
+敏感信息处理：[去身份]
 
 谁能看、在哪看：
 
-- PGM：Goldie、会议管理页；
-- PM、公司端：Goldie，只收到管理员批准过的 play
+- PGM/Super Admin：Goldie、会议管理页；
+- PM、公司端：Goldie
 
 ----------------------
 
-**GS→LP**
-
-去向：1a / Founder KB
-
-提取规则：不产出
-
-----------------------
 
 **GS→LP**
 
@@ -111,7 +110,7 @@
 提取规则：
 
 - **基金层**：组合（基金）级别摘要，归到 GS 基金实体（Fund II / Fund III / Credit Fund）：募资进度、基金整体回报、LP 结构与关切
-- **公司层**：按正文提到的被投公司拆分，每家一条，只采高置信识别：交易事实（被兜售、估值、买方、价格、时间表）、LP 对该公司的评价、GS 的退出计划与估值判断
+- **公司层**：按正文提到的**被投公司**拆分，每家一条，只采高置信识别：交易事实（被兜售、估值、买方、价格、时间表）、LP 对该公司的评价、GS 的退出计划与估值判断
 
 去逐字化：✅
 
@@ -119,8 +118,8 @@
 
 谁能看、在哪看：
 
-- PM、Company Admin：Goldie
-- PGM：Goldie、会议管理页
+- PM：Goldie
+- PGM/Super Admin：Goldie、会议管理页
 
 ----------------------
 
@@ -137,7 +136,9 @@
 
 敏感信息处理：同 1b
 
-谁能看、在哪看：PM、PGM：Goldie、管理端知识库、会议管理页
+谁能看、在哪看：
+- PM：Goldie、管理端知识库
+- PGM/Super admin：Goldie、管理端知识库、会议管理页
 
 ----------------------
 
@@ -161,8 +162,8 @@
 
 谁能看、在哪看：
 
-- 公司端：Goldie（匿名版）
-- PM、PGM：Goldie（署名版）、会议管理页（两版各一行）
+- PM/公司端：Goldie（匿名版）
+- PGM/Super admin：Goldie（署名版）、会议管理页（两版各一行）
 
 ----------------------
 
@@ -183,17 +184,8 @@
 
 谁能看、在哪看：
 
-- PGM：Goldie、会议管理页；
-- PM、公司端：Goldie，只收到管理员批准过的 play
-
-----------------------
-
-**GS Internal**
-
-去向：1a / Founder KB / 专家证词
-
-提取规则：不产出
-
+- PGM/Super admin：Goldie、会议管理页；
+- PM、公司端：Goldie
 ----------------------
 
 **GS Internal**
@@ -213,7 +205,7 @@
 谁能看、在哪看：
 
 - PM、Company Admin：Goldie
-- PGM：Goldie、会议管理页
+- PGM/Super admin：Goldie、会议管理页
 
 ----------------------
 
@@ -232,8 +224,8 @@
 
 谁能看、在哪看：
 
-- PM、Company Admin：Goldie、管理端知识库
-- PGM：Goldie、管理端知识库、会议管理页
+- PM：Goldie、管理端知识库
+- PGM/Super admin：Goldie、管理端知识库、会议管理页
 
 ----------------------
 
@@ -254,18 +246,10 @@
 
 谁能看、在哪看：
 
-- PGM：Goldie、会议管理页；
-- PM、公司端：Goldie，只收到管理员批准过的 play
-
+- PGM/Super admin：Goldie、会议管理页；
+- PM、公司端：Goldie
 ----------------------
 
-**GS→External Partner**（战略+退出合并）
-
-去向：1a / Founder KB
-
-提取规则：不产出
-
-----------------------
 
 **GS→External Partner**（战略+退出合并）
 
@@ -283,8 +267,8 @@
 
 谁能看、在哪看：
 
-- PM、Company Admin：Goldie
-- PGM：Goldie、会议管理页
+- PM：Goldie
+- PGM/Super admin：Goldie、会议管理页
 
 ----------------------
 
@@ -303,8 +287,8 @@
 
 谁能看、在哪看：
 
-- PM、Company Admin：Goldie、管理端知识库
-- PGM：Goldie、管理端知识库、会议管理页
+- PM：Goldie、管理端知识库
+- PGM/Super admin：Goldie、管理端知识库、会议管理页
 
 ----------------------
 
@@ -329,7 +313,7 @@
 谁能看、在哪看：
 
 - 公司端：Goldie（匿名版）
-- PM、PGM：Goldie（署名版）、会议管理页（两版各一行）
+- PM、PGM、Super admin：Goldie（署名版）、会议管理页（两版各一行）
 
 ----------------------
 
@@ -353,8 +337,8 @@
 
 谁能看、在哪看：
 
-- PGM：Goldie、会议管理页；
-- PM、公司端：Goldie，只收到管理员批准过的 play
+- PGM/Super admin：Goldie、会议管理页；
+- PM、公司端：Goldie
 
 ----------------------
 
@@ -368,6 +352,8 @@
 
 敏感信息处理：—
 
-谁能看、在哪看：PGM：会议管理页，指定类型 → 首次提取（Authorize 默认不勾）→ Confirm & Apply Routing
+谁能看、在哪看：PGM：
+
+- 会议管理页，指定类型 → 首次提取（Authorize 默认不勾）→ Confirm & Apply Routing
 
 ----------------------
