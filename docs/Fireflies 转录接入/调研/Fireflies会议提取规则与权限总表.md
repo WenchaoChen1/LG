@@ -69,7 +69,7 @@
 
 - 公司端：Goldie、Founder KB
 - PM：Goldie、Portfolio KB
-- ：Goldie、会议管理页、Portfolio KB
+- PGM/Super Admin：Goldie、会议管理页、Portfolio KB
 
 ----------------------
 
