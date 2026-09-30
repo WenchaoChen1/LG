@@ -10,7 +10,7 @@
 |---|---|---|---|---|-------------------------------------------------------------------|
 | **所有类型** | 原始转录<br>（永久留存，不进向量库） | 带时间戳、说话人的完整逐字稿 | ❌ 原文 | ❌ | 管理端 PGM/Super Admin：原始转录页（Raw data）<br>公司端：原始转录只有参会人本人可看 |
 | **GS→Founder**<br>（含董事会） | 1a + 1b<br>（同一份，每家关联公司一条） | **来源**：Fireflies返回的overview（为空时从原文生成）<br>**处理**：经大模型整理为 markdown，≤1000 字符，超长的在这一步一并压缩<br>**粒度**：每家关联公司一条，1a 与 1b 用同一份文本 | ✅ 摘要定稿后过 n-gram 剔除 | 创始人已经参与会议，不做敏感信息过滤 | 公司端：经 Goldie<br>PM:Goldie<br>PGM: Goldie、会议管理页 |
-|  | Founder KB（Portfolio KB= Founder KB）<br>（每家关联公司一条） | **来源**：Fireflies Essence Summary（Fireflies 生成的会议摘要）<br>**处理**：经大模型整理为 markdown<br>**粒度**：每家关联公司一条 | ✅ | 创始人已经参与会议，不做敏感信息过滤 | Company User：Goldie、Founder KB 前台<br>Company Admin:经 Goldie、Founder KB可看摘要<br>PM：Goldie、Portfolio KB 可看摘要<br>PGM：Goldie、会议管理页、Portfolio KB 可看摘要 |
+|  | Founder KB（Portfolio KB= Founder KB）<br>（每家关联公司一条） | **来源**：Fireflies Essence Summary（Fireflies 生成的会议摘要）<br>**处理**：经大模型整理为 markdown<br>**粒度**：每家关联公司一条 | ✅ | 创始人已经参与会议，不做敏感信息过滤 | Company User：Goldie、Founder KB 只看摘要<br>Company Admin:经 Goldie、Founder KB可看摘要+纪要<br>PM：Goldie、Portfolio KB 可看摘要<br>PGM：Goldie、会议管理页、Portfolio KB 可看摘要 |
 |  | Cross-Company<br>（0~N 条） | **抽取**：可移植洞察点，每场 0~N 条，产出 0 条属正常<br>**判据**：脱离这家公司仍然成立，且对相似阶段的其他公司有参考价值<br>**标签**：行业/垂直、公司阶段（ARR 区间、轮次）、问题类型<br>董事会：**董事会发言**（谨慎、敏感） | ✅ | [去身份]；董事会内容另加 [谨慎] | PGM：Goldie、会议管理页；<br>PM、公司端：Goldie，只收到管理员批准过的 play |
 | **GS→LP** | 1a / Founder KB | 不产出 |  |  |  |
 |  | 1b<br>（按正文提到的公司拆分，只采高置信） | **基金层**：组合（基金）级别摘要，归到 GS 基金实体（Fund II / Fund III / Credit Fund）：募资进度、基金整体回报、LP 结构与关切<br>**公司层**：按正文提到的被投公司拆分，每家一条，只采高置信识别：交易事实（被兜售、估值、买方、价格、时间表）、LP 对该公司的评价、GS 的退出计划与估值判断 | ✅ | 是 [交易敏感] 的唯一去处；提到其他被投公司时剥掉对方标识 | PM、Company Admin：Goldie<br>PGM：Goldie、会议管理页 |
