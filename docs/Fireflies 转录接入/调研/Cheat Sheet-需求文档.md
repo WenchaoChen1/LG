@@ -6,17 +6,17 @@
 
 **字段：**
 
-- 姓名：唯一识别符
+- Name 姓名：唯一识别符
 
 - Email(s)（可多个）：若有多个显示多个，显示不开可用省略号
 
-- 组织
+- Organization 组织
 
-- 角色
+- Role 角色
 
-- 专长标签：若有多个显示多个，显示不开可用省略号
+- Expertise tags 专长标签 ：下拉多选内容Multiples, Buyer behavior, Exit trends, Software usage, Commercial buying behavior
 
-- 有效期：显示为时间段，如 "Aug 2, 2026 – present"；开放式条目以 present 结尾; 超过 90天未复核的条记录展示 "Needs review"
+- Validity period 有效期：显示为时间段，如 "Aug 2, 2026 – present"；开放式条目以 present 结尾; 超过 90天未复核的条记录展示 "Needs review"
 
 - 来源标识：在管理员审核会议总结时导入的条目显示 "From FF Summary Records" 来源标识
 - Filter:可以按照role过滤
@@ -45,7 +45,11 @@
 
 **专长标签**
 
-- 专长标签为下拉多选，选项来自独立的 "Expertise Tags" 配置页（可增删标签）
+- 专长标签为下拉多选，内容Multiples, Buyer behavior, Exit trends, Software usage, Commercial buying behavior
+
+**Area of expertise 专业领域**
+
+- 用于上下文说明，但该字段不用于路由，仅作描述性用途。
 
 **有效期**
 
@@ -76,6 +80,6 @@
 - 可点击面包屑：Fireflies / Cheat Sheet / Role History（前两级可跳回对应页面）
 
 - 独立页面表格展示，不做行内展开
-- 每个版本保留**完整快照**：Name、Email(s)（可多个）、Role、Organization、Expertise tags、Validity period、Updated by（含更新日期）
+- 每个版本保留**完整快照**：Name、Email(s)（可多个）、Role、Organization、Expertise tags、Area of expertise、有效期
 - 角色以蓝色标签展示，专长标签为灰色小标签
 - 按生效日期排序，可追溯每个人在每个时期的完整登记状态
