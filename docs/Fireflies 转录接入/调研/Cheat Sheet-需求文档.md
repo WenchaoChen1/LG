@@ -14,7 +14,7 @@
 
 - Role 角色
 
-- Expertise tags 专长标签 ：下拉多选内容Multiples, Buyer behavior, Exit trends, Software usage, Commercial buying behavior
+- Expertise tags 专长标签 ：下拉多选内容Multiples, Buyer behavior, Exit trends, Software usage, Commercial buying behavior，可手动新增
 
 - Validity period 有效期：显示为时间段，如 "Aug 2, 2026 – present"；开放式条目以 present 结尾; 超过 90天未复核的条记录展示 "Needs review"
 
@@ -45,7 +45,7 @@
 
 **专长标签**
 
-- 专长标签为下拉多选，内容Multiples, Buyer behavior, Exit trends, Software usage, Commercial buying behavior
+- 专长标签为下拉多选，内容Multiples, Buyer behavior, Exit trends, Software usage, Commercial buying behavior，可手动新增
 
 **Area of expertise 专业领域**
 
