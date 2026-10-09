@@ -275,7 +275,7 @@ POST /api/ai/chat/threads/{threadId}/infer-company
 |------|------|
 | `source/chatbot/interfaces/routes.py` | 新增 `POST /threads/{threadId}/infer-company` 端点，含 thread 归属校验 |
 | `source/chatbot/interfaces/vo/{request,response}.py` | 新增该端点的 Request / Response VO（分层规范强制：Request/Response 在路由层、Service 签名只用 DTO） |
-| `source/chatbot/application/service/` | 新增推断服务：归属校验 → 短路判断 → 取历史+draft → 取候选清单 → 编号 → haiku 判定 → 序号回查 → 结果。主方法平铺调用子方法 |
+| `source/chatbot/application/service/` | 新增推断服务：归属校验 → 短路判断 → 取历史+draft → 取候选清单 → 编号 → haiku 判定 → 序号回查 → 结果。主方法平铺调用子方法。（2026-10-09 起「编号 → haiku 判定」这段搬到 `source/ai/agent/company_infer_agent/`，service 只传候选公司名过去，其余步骤不变） |
 | `source/ai/prompts/chatbot/` | 新增推断提示词（中文）：给编号候选清单，要求只返回序号、拿不准返回 0，不得输出公司名或 id |
 | **`source/ai/tools/knowledge_base_tool.py`**<br>**`find_files_tool.py`**<br>**`file_summary_tool.py`** | **（D1）** 调整 `metadata["end_types"]` 声明，使管理端 standard 轨能绑定这三个工具 |
 | **`source/ai/agent/chatbot_graph/nodes/retrieval_agent.py`** | **（D1）** `_file_directive` 的 admin 分支：不再返回空指令；同步移除「前端已禁管理端上传」的过期注释 |
