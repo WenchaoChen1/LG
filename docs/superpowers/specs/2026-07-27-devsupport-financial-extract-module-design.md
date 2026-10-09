@@ -56,8 +56,8 @@ Python 侧有只读列表接口 `GET /lg/financial-extract-tasks`（`source/lg/f
 | 问题 | 处置 |
 |---|---|
 | **跨公司越权读写**：`pullExtractData` / `pullExtractDataIncrement` / conflict service 的 `loadTask` 以及 `deleteFiles` / `replaceFile` / `uploadComplete` / `verify` / `completeTask` 全部只 `findById` + 判 `deleted`，**不校验 companyId**（全模块唯一带公司过滤的是 `resolveOrCreateTask`）。且 `verify` 明确注释"state machine check intentionally skipped"后直接 `deleteAllByTaskId`；`FILE_MUTATION_BLOCKED` 不含 `REVIEWING` / `READY_TO_COMMIT` / `CONFLICT_RESOLUTION`，这些状态的文件可删可换 | 见 §3.6（范围决策，建议纳入本次） |
-| **TIFF 预览全局失效（既存缺陷，非本模块新增）**：`previewAsPng` 现在**已需 JWT**（`@AnonymousAccess` 只剩死 import，`CommonSecurityConfiguration` 兜底 `anyRequest().authenticated()`），但前端 `ImagePreview` 用 `<img src>` 直载、带不上 Authorization 头 → **所有状态**的 TIFF 预览都 401，不只终态。`isPreviewable` 白名单不含 `COMPLETED` 只是叠加在上面的第二道门 | 进 CIOaas-api 台账；本模块记为已知限制 |
-| 死代码：`streamFilePreview` + `PREVIEW_URL_TEMPLATE` 无 controller 映射、`AnonymousAccess` 死 import、controller javadoc 仍写"安全闸门为 @AnonymousAccess 无鉴权"（事实已错） | 进 CIOaas-api 台账 |
+| **TIFF 预览全局失效（既存缺陷，非本模块新增）**：`previewAsPng` 现在**已需 JWT**（`@AnonymousAccess` 只剩死 import，`CommonSecurityConfiguration` 兜底 `anyRequest().authenticated()`），但前端 `ImagePreview` 用 `<img src>` 直载、带不上 Authorization 头 → **所有状态**的 TIFF 预览都 401，不只终态。`isPreviewable` 白名单不含 `COMPLETED` 只是叠加在上面的第二道门 | ~~进 CIOaas-api 台账；本模块记为已知限制~~ **已修复（2026-08-03）**：前端 `ImagePreview` 改为带 Bearer fetch 后转 blob URL（web `fc03af87`）；`PREVIEW_ALLOWED` 白名单补齐全部 8 个真实状态（Java `b56ec1f98`）；修复时另查出 `reader.setInput` 参数矛盾使任意 TIFF 必 500，改为 `setInput(iis, false, true)`（Java `9c3d46b04`） |
+| 死代码：`streamFilePreview` + `PREVIEW_URL_TEMPLATE` 无 controller 映射、`AnonymousAccess` 死 import、controller javadoc 仍写"安全闸门为 @AnonymousAccess 无鉴权"（事实已错） | ~~进 CIOaas-api 台账~~ **已清理**：`PREVIEW_URL_TEMPLATE` 于 2026-08-03 随 pullExtractData 删除（`2a06a710b`）；`streamFilePreview`、死 import 与过时 javadoc 于 2026-10-09 随 TIFF 预览加固一并清理 |
 | `findOrganizationIdByUserId` 是 `LIMIT 1` 无 `ORDER BY`，多组织用户取到不确定值 | 进 CIOaas-api 台账 |
 | conflict service 签名直接返回 Response VO（`Page<AiDataMappingNoteResponse>`）、模块未按 `architecture.md` §1 四层组织、Controller 路径 camelCase 不符 `coding.md` §1 | 进 CIOaas-api 台账 |
 | `/devSettings` 两个 Tab 与本模块重复；`aiExtract` 的 companyName/createdByName 类型与 Python 实现脱节 | 进 CIOaas-web 台账 |
@@ -174,7 +174,8 @@ devSupport 侧栏
 
 只读详情 → GET /api/ai/financial-extract/manage/tasks/{taskId}/extract-data（Python 新域）
          → 任何状态都回放文件 + 解析行 + 用户编辑痕迹（edit* 字段）+ 权威 companyId
-         → previewUrl 经 lgpi_api.query_file_link（Java getFileLinkById）取预签名 GET
+         → previewUrl：非 TIFF 经 lgpi_api.query_file_preview_link（Java getPreviewLinkById）取预签名 GET，
+           取不到兜底 query_file_link；TIFF 直接给 Java PNG 代理的同源相对路径（§5.2 第 5 条）
 
 快照写入 → Java resolveOrCreateTask（任务唯一创建点）落 end_type / organization_id 两列
 生产上传流 → Java 既有 13 个端点原样不动
@@ -208,7 +209,7 @@ source/financial_extract/
     └── repository/extraction_task_repository.py   本域查询封装（首参 session、不 commit）
 ```
 
-分工边界（照 file_registry 先例）：**ORM 实体在共享 DB 层** `lg/db/models/models.py`（`ExtractionTask` / `AiFileRegistry` / `FileRecord` / `ExtractedData`），本域不另建实体；本域 repository 只做本域视角的查询封装（分页筛选、按 task 取文件与单元格），不含业务编排。鉴权 `ctx: AuthUser = Depends(get_current_user)`；文件链接经 `lgpi_api.query_file_link`（Python 不直连 S3——"去 S3 直连"是 2026-07 已收敛的平台约定）。
+分工边界（照 file_registry 先例）：**ORM 实体在共享 DB 层** `lg/db/models/models.py`（`ExtractionTask` / `AiFileRegistry` / `FileRecord` / `ExtractedData`），本域不另建实体；本域 repository 只做本域视角的查询封装（分页筛选、按 task 取文件与单元格），不含业务编排。鉴权 `ctx: AuthUser = Depends(get_current_user)`；文件链接经 `lgpi_api.query_file_preview_link` / `query_file_link`（Python 不直连 S3——"去 S3 直连"是 2026-07 已收敛的平台约定）。
 
 **列表接口**：
 
@@ -237,10 +238,10 @@ GET /api/ai/financial-extract/manage/tasks/{task_id}/extract-data
 2. **`status`**：任务当前状态原样下发（前端轮询终止判定读它）
 3. **带权威 `companyId`**（取自 task 行，§3.6 末条；`data` 增加该字段，前端只读模式用）
 4. **ACL 失败 / 任务不存在 / 已软删**：返 **HTTP 200 + `success=false`**（前端只在 `resp.success === false` 时终止并报错；HTTP 异常会落进 catch 静默每 5 秒重试）
-5. **`previewUrl`**：逐文件经 `lgpi_api.query_file_link`（用户 token 透传）取预签名 GET，TTL 由 Java `getFileLinkById` 平台口径决定（与 file_registry 下载一致，不单独设计）；单文件取链接失败降级空串（不炸整个回放）。**TIFF 文件 previewUrl 置空**——浏览器渲不了 TIFF，Java 的 PNG 代理端点又对历史任务不可用（§2.5 既存缺陷），签了也白搭
+5. **`previewUrl`**：~~逐文件经 `lgpi_api.query_file_link`（用户 token 透传）取预签名 GET，TTL 由 Java `getFileLinkById` 平台口径决定（与 file_registry 下载一致，不单独设计）~~（2026-07-28 改，`f85e1edf`）非 TIFF 逐文件经 `lgpi_api.query_file_preview_link`（用户 token 透传，Java `getPreviewLinkById` 预览专用预签名：按后缀覆盖响应头、TTL 24h），取不到再兜底 `lgpi_api.query_file_link`（Java `getFileLinkById`）；两路都失败降级空串（不炸整个回放）。~~**TIFF 文件 previewUrl 置空**——浏览器渲不了 TIFF，Java 的 PNG 代理端点又对历史任务不可用（§2.5 既存缺陷），签了也白搭~~ **TIFF（2026-08-03 随 §2.5 缺陷修复改回）**：不外呼预签名，直接返回 Java PNG 代理的同源相对路径 `/api/web/ai/financialExtraction/tasks/{taskId}/preview/{fileId}/png`，与生产拉取接口同一写法（前端带 Bearer fetch 后转 blob URL 展示）
 6. `RawCell` 字段映射自 `ExtractedData` 列（`source_*`/`edit_*` → lowerCamelCase；`sourceValue`/`editValue` Numeric→float、None 保持 null；`tableId`/`parentTableId` 透传）
 
-**测试**：`tests/financial_extract/`（interfaces / application 分层镜像），DB session mock、`query_file_link` mock，覆盖 ACL 三分支（公司端锁定 / 管理端全量 / 越界 success=false）与 RawCell 字段映射。
+**测试**：`tests/financial_extract/`（interfaces / application 分层镜像），DB session mock、`query_file_preview_link` / `query_file_link` mock，覆盖 ACL 三分支（公司端锁定 / 管理端全量 / 越界 success=false）与 RawCell 字段映射。
 
 **冲突记录接口（2026-07-28 增量，用户要求补上冲突数据展示）**：
 
@@ -379,7 +380,7 @@ src/pages/financial/aiFinancialExtraction/components/
 
 1. **`DataMappingPanel` 2196 行是 Phase 5 的主要风险面**。§6.4 已把写入口逐点列出（含那个挂载即改数据的 `useLayoutEffect`），实施时按清单逐项核对，不要凭"看起来只读了"收工。
 2. **`end_type` / `organization_id` 对历史任务是近似值或 NULL**；`organization_id` 即便对新任务也只是"登录态主组织"、多组织用户不确定（§3.5）。口径写进列注释。**该列不参与鉴权**，标错只影响筛选结论。
-3. **TIFF 预览当前对所有任务都失败**（既存缺陷，前端 `<img>` 带不上 JWT），不是只读页引入的；只读回放对 TIFF 直接置空 previewUrl（§5.2 第 5 条）。
+3. ~~**TIFF 预览当前对所有任务都失败**（既存缺陷，前端 `<img>` 带不上 JWT），不是只读页引入的；只读回放对 TIFF 直接置空 previewUrl（§5.2 第 5 条）。~~ **已解决（2026-08-03）**：前端改带 Bearer fetch + blob URL、状态白名单补齐、`setInput` 修复（§2.5）；只读回放改回下发 PNG 代理相对路径（§5.2 第 5 条）。
 4. ~~`CONFLICT_RESOLUTION` 任务的 PENDING 冲突不可见~~ **已解决（2026-07-28）**：独立冲突展示页（§6.5）+ Python conflicts 接口（§5.2）返回全量 resolution 含 PENDING。生产 `dataMappingNotes` 接口本身的局限（无 taskId、过滤 PENDING）仍在台账。
 5. **只读页看不到 `FILE_FAILED` 文件**（除非按 §6.4 把 FileSelector 的集合放宽）。
 6. **目录 options 接口是超管 only（Java `assertSuperAdmin`）**。管理端（company_id 空）按生态不变式即超管，名称解析可用；公司端用户能进页面（ACL 圈定本公司）但 options 会 403、解析不出名称，会看到裸 ID——与 chatManage 现状一致。
@@ -387,4 +388,4 @@ src/pages/financial/aiFinancialExtraction/components/
 8. **`/devSettings` 两个 Tab 功能重复**，本次不动，已进台账。
 9. **§3.7 两项范围决策未定**（默认不做）：若都不做，本页会把写越权的可利用面从"已知某个 taskId 的人"扩大到"所有能打开列表页的人"，且 Python `/lg/*` 裸接口仍在无鉴权全量吐清单。
 10. **§3.6 的管理端放开依赖平台不变式**（"company_id 空 ⟺ roleType=1"），部署前跑一次验证 SQL；不变式破产属平台级问题、另行立项。
-11. **previewUrl 逐文件经 Java `getFileLinkById` 取**，一个任务 N 个文件 = N 次内部 HTTP 调用（N≤20），本机 Java→RDS 慢时回放接口首包会慢；可接受（管理端排查页非高频路径）。
+11. **previewUrl 非 TIFF 逐文件经 Java `getPreviewLinkById` 取**（取不到再兜底 `getFileLinkById`，TIFF 不外呼），一个任务 N 个非 TIFF 文件 = N 次内部 HTTP 调用（N≤20，兜底时每个再多一次），本机 Java→RDS 慢时回放接口首包会慢；可接受（管理端排查页非高频路径）。
