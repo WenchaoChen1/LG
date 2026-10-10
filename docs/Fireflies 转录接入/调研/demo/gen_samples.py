@@ -60,7 +60,7 @@ w = W.append
 
 w("""# Fireflies 会议接口返回样例（四份）
 
-> 关联文档: [API 能力与数据质量调研](./fireflies-api-capability-survey.md)（结构对比见其附录 B）、[实测脚本](./demo/README.md)
+> 关联文档: [API 能力与数据质量调研](./fireflies-api-capability-survey.md)（结构对比见其附录 B）、[实测脚本](../调研/demo/README.md)
 
 > **用途**：并排看清同一场会议在四个接口下**返回什么结构、装什么值**。字段层面的逐项差异表在调研文档附录 B，本文件不重复，只放实际返回。
 >
@@ -175,5 +175,5 @@ w("""## 4. MCP 详情（`fireflies_get_transcript`）
 """ % (MID, trim_mcp_text(mcp_detail)))
 
 out = "".join(W)
-io.open("../api-response-samples.md", "w", encoding="utf-8", newline="\n").write(out)
+io.open("../../设计/api-response-samples.md", "w", encoding="utf-8", newline="\n").write(out)
 print("生成 %d 字符" % len(out))

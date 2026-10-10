@@ -1,6 +1,6 @@
 # Fireflies MCP / OAuth 实测脚本
 
-2026-09-18 做通道调研时写的几个最小脚本（`register.py`、`cross_channel_check.py` 为 2026-09-21 补），`fireflies-api-capability-survey.md` §3.0 与附录 B 的 MCP 侧数据都由它们跑出来。
+2026-09-18 做通道调研时写的几个最小脚本（`register.py`、`cross_channel_check.py` 为 2026-09-21 补），[`fireflies-api-capability-survey.md`](../../设计/fireflies-api-capability-survey.md) §3.0 与附录 B 的 MCP 侧数据都由它们跑出来。
 **只是验证可行性的探针，不是生产实现**——产品化时授权回调要落到 Java 后端（参照 QuickBooks 那套），不是这里的 localhost 服务。
 
 > Fireflies 自己没有开发者级的 OAuth 文档，只在帮助中心说了句「按提示完成授权」。
