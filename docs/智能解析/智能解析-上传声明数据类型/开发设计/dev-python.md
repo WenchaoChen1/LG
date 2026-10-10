@@ -5,6 +5,7 @@
 > - 需求：[requirement-doc](../需求/requirement-doc.md)（R3 / R4 / R5 / R10 / R11 与本文直接相关）
 > - 参考代码：[code-examples](./code-examples.md) 的「Python」一节（V030、两个新 helper 骨架、init_task 映射、测试桩）
 > - Java 侧：[dev-java](./dev-java.md)（写 `business_type`、§10 J-R2 / J-R4 与本文风险项互指）；前端开发设计各自成文
+> - 总览与发布单：[dev-design-doc](./dev-design-doc.md)（§3.2 发布顺序与窗口期核查 SQL）
 > - 被取代的旧规则：[需求文档-Actuals导入中处理当前日历月数据](../../需求文档-Actuals导入中处理当前日历月数据.md)
 > - 智能解析 Python 总体方案：[python-design](../../调研/python-design.md)
 
@@ -21,11 +22,11 @@
 | 设计前提 | 代码现状 | 结论 |
 |---|---|---|
 | init_task 组装文件清单时能读到 `business_type` | `graph/nodes/init_task_node.py:79-98` 查的是整个 `AiFileRegistry` ORM 对象（`ef`），`business_type` 已映射（`lg/db/models/models.py:190`） | ✅ 查询不用改，直接读 `ef.business_type` |
-| "文件判 FILE_FAILED" 有现成机制可用 | 现有 FILE_FAILED 只有两条路：`save_to_db_node.py:30-41`（`is_corrupted` 或 `error_message` → `update_file_status`）与 consumer 的 `settle_stuck_file_claims`（只动 PROCESSING）。**init 阶段没有逐文件失败机制** | 新增：init 内直接写 FILE_FAILED + 不进 `file_list`（§3.2） |
+| "文件判 FILE_FAILED" 有现成机制可用 | 现有 FILE_FAILED 只有两条路：`save_to_db_node.py:30-41`（`is_corrupted` 或 `error_message` → `update_file_status`）与 consumer 的 `settle_stuck_file_claims`（只动 PROCESSING）。**init 阶段没有逐文件失败机制** | 新增：init 内用带守卫的条件 UPDATE 写 FILE_FAILED + 不进 `file_list`（§3.2，审核 S-10） |
 | Stage 2.6 / 2.8 的位置 | `graph/nodes/shared.py:2680-2724`：Stage 2 → 2.6 → 2.7 → 2.8 → 2.85 → 2.45 → 2.5 | 2.6 原位替换，2.8 删除，护栏插在 2.6 之后、2.7 之前（§4.1） |
-| "沿用传给大模型的参考日期"（D6） | 大模型的参考日期在各 preprocess 里各取一次 `datetime.now(timezone.utc)`（`pdf_preprocess_node.py:405`、`:554`，`image_preprocess_node.py:237`，`excel_extract_agent/locate.py:79`）；refine 自己再取一次（`shared.py:2691`），2.6 / 2.8 用的是 refine 这一份 | **同一口径、不是同一个值**。护栏沿用 refine 自取的那一份（与旧 2.8 相同）；跨 UTC 月末的极端时刻两者可能差一个月，因模型的类型判定已不参与结果，无影响 |
+| "沿用传给大模型的参考日期"（D6） | 大模型的参考日期在各 preprocess 里各取一次 `datetime.now(timezone.utc)`（`pdf_preprocess_node.py:405`、`:554`，`image_preprocess_node.py:237`，`excel_extract_agent/locate.py:79`）；refine 自己再取一次（`shared.py:2691`），2.6 / 2.8 用的是 refine 这一份 | **同一口径、不是同一个值**。护栏改用 init_task 每任务取一次的 `reference_month`（§3.4，审核 S-7），同一任务的全部文件共用一个截止月；跨 UTC 月末时它与模型参考日期可能差一个月，因模型的类型判定已不参与结果，无影响 |
 | 训练信号 / RAG override / task 级归一化不看类型 | `ai_financial_training_data.py`、`consumer/learn/`、`ai_financial_embedding_service.py`、`finalize_extract_node.py` 中 `data_type` 均 0 处命中 | ✅ 不动 |
-| Python 读 `business_type` 的地方只匹配 rag 取值 | `file_registry_repository.py` / `lg/db/service/file_registry.py` 全部是 `== KNOWLEDGE_BASE / SESSION_UPLOAD / PLAYBOOK` 等值过滤；`file_registry_service.py:520-524` 的下载分支对两者之外的取值与 NULL 走同一条路 | ✅ `EXTRACT_FI_*` 行与今天的 NULL 财务行行为完全一致 |
+| Python 读 `business_type` 的地方只匹配 rag 取值 | 除 `register_playbook_file` / `register_erl_file` 对非 NULL 值拒写外（`file_registry.py:320`、`:412`；不可达且对财务行更安全），其余读取均为等值过滤（`file_registry_repository.py` / `lg/db/service/file_registry.py` 的 `== KNOWLEDGE_BASE / SESSION_UPLOAD / PLAYBOOK` 等）；`file_registry_service.py:520-524` 的下载分支对两者之外的取值与 NULL 走同一条路（审核 C-10） | ✅ `EXTRACT_FI_*` 行与今天的 NULL 财务行行为完全一致 |
 | `business_type` 无 CHECK、长度够 | ORM `String(40)`；最近一次列注释在 `sql/migrations/business/V023__sprint118_erl_attachment_summary_only.sql:36`，无约束 | ✅ V030 只改 COMMENT；business 迁移树当前最大号 V029，全部分支无 V030 |
 
 ---
@@ -34,19 +35,22 @@
 
 | # | 文件 | 动作 | 内容 | 节 |
 |---|---|---|---|---|
-| 1 | `graph/nodes/init_task_node.py` | 改 | 读 `business_type` → `FileInfo.data_type`；未声明 / 非法 → `update_file_status(FILE_FAILED)` 且不进 `file_list`；模块 docstring Step 3 补一句 | §3 |
-| 2 | `graph/state.py` | 改 | 新增 `DataType = Literal["ACTUALS", "PROFORMA"]`；`FileInfo` 加必填键 `data_type: DataType`；模块 docstring 的「只投影三个字段」注记补 `data_type` 同理；**删** `RawRow.parent_table_id`（`:98-101`） | §3.3 / §7 |
-| 3 | `graph/nodes/shared.py` | 改 | 删 Stage 2.6 / 2.8 及其专用常量；新增 Stage 2.6 `apply_declared_data_type_in_tables`、Stage 2.65 `drop_current_and_future_actuals_in_tables`；改 refine 接线；同步 `__all__` 与 6 处注释 | §4 |
-| 4 | `source/lg/db/service/extract_financial.py` | 改 | 删 `save_extracted_tables` 里的 `parent_table_id=cell.get(...)`（`:433-434`，连同注释） | §7 |
+| 1 | `graph/nodes/init_task_node.py` | 改 | 读 `business_type` → `FileInfo.data_type`；未声明 / 非法 → `fail_uploaded_files`（带守卫判 FILE_FAILED）且不进 `file_list`；返回任务级 `reference_month`；模块 docstring Step 3 与 `:4` 的"写 …"清单各补一句 | §3 |
+| 2 | `graph/state.py` | 改 | 新增 `DeclaredDataType = Literal["ACTUALS", "PROFORMA"]`（不叫 `DataType`：`source/ai/tools/_support/_enums.py:30` 已有同名的无关类型，审核 C-17）；`FileInfo` 仅新增必填键 `data_type: DeclaredDataType` 及注释，`error_message` 上方 `:43-47` 的 5 行注释原样保留（审核 C-16）；`MainGraphState` 任务级段加 `reference_month: NotRequired[str]`（审核 S-7）；模块 docstring 的「只投影三个字段」注记补 `data_type` 同理；**删** `RawRow.parent_table_id`（`:98-101`） | §3.3 / §3.4 / §7 |
+| 3 | `graph/nodes/shared.py` | 改 | 删 Stage 2.6 / 2.8 及其专用常量、`datetime` 导入；删 2.7 的"组内类型不一致整组跳过"分支（审核 A-9）；新增 Stage 2.6 `apply_declared_data_type_in_tables`、Stage 2.65 `drop_current_and_future_actuals_in_tables`；改 refine 接线（参考月改读 state）；同步 `__all__` 与注释 | §4 |
+| 4 | `source/lg/db/service/extract_financial.py` | 改 | 新增 `fail_uploaded_files`（审核 S-10）；删 `save_extracted_tables` 里的 `parent_table_id=cell.get(...)`（`:433-434`，连同注释） | §3.2 / §7 |
 | 5 | `source/lg/db/models/models.py` | 改（仅注释） | `AiFileRegistry` 类 docstring（`:128-137`）与 `business_type` docstring（`:190-192`）；`ExtractedData.parent_table_id` 行尾注释（`:286`） | §7 / §8 |
 | 6 | `sql/migrations/business/V030__sprint121_ai_file_registry_business_type_extract_fi.sql` | **新增** | 只有一条 `COMMENT ON COLUMN ai_file_registry.business_type` | §8 |
 | 7 | `source/ai/agent/excel_extract_agent/verify.py` | 改（注释 + 文案） | ⑨b data_type WARN（`:832-849`）的注释与两条 WARN 文案，逻辑不动 | §6 |
-| 8 | `source/ai/agent/excel_extract_agent/pipeline.py` | 改（仅注释） | `:103` page_number 行尾注释、`:105-109` data_type 注释、`_data_type_of` docstring（`:180-185`） | §6 |
+| 8 | `source/ai/agent/excel_extract_agent/pipeline.py` | 改（仅注释） | `:104` page_number 行尾注释、`:106-109` data_type 注释、`_data_type_of` docstring（`:180-185`）（审核 C-11） | §6 |
 | 9 | `source/ai/CLAUDE.md` | 改 | `:47` init_task 行、`:49` shared.py 行的 Stage 清单 | §9 |
-| 10 | 测试 | 删 2 / 改 1 / 增 2 | 见 §10 | §10 |
+| 10 | 测试 | 删 2 / 改 2 / 仅改注释 8 处 / 增 2 | 见 §10（审核 A-10） | §10 |
+| 11 | `graph/node_return.py` | 改 | `InitTaskReturn`（`:26-39`）加 `reference_month: str`（审核 S-7） | §3.4 |
+| 12 | `graph/nodes/parallel_files_node.py` | 改 | `_TASK_SCOPED_KEYS`（`:101-103`）加 `"reference_month"`——worker 只拷这几个顶层键（审核 S-7） | §3.4 |
+| 13 | `source/ai/agent/excel_extract_agent/nodes/extract_node.py` | 改（仅注释） | `:49`（审核 C-14） | §4.6 |
 
-不改：提示词（§6）、`build.py`、`parallel_files_node.py`、`save_to_db_node.py`、`finalize_extract_node.py`、
-`ai/nodes/file_download_check_node.py`、SQS 消费与消息结构（D4）。
+不改：提示词（§6）、`build.py`、`save_to_db_node.py`、`finalize_extract_node.py`、`consumer/handlers.py`（initial_state 刻意不预填
+`reference_month`，§3.4）、`ai/nodes/file_download_check_node.py`、SQS 消费与消息结构（D4）。
 
 ---
 
@@ -54,7 +58,7 @@
 
 ### 3.1 映射
 
-模块常量 `_DATA_TYPE_BY_BUSINESS_TYPE: dict[str, DataType]` 只两项：`EXTRACT_FI_ACTUALS → ACTUALS`、
+模块常量 `_DATA_TYPE_BY_BUSINESS_TYPE: dict[str, DeclaredDataType]` 只两项：`EXTRACT_FI_ACTUALS → ACTUALS`、
 `EXTRACT_FI_PROFORMA → PROFORMA`（D3：对内 `EXTRACT_FI_*`，对外与单元格 `ACTUALS / PROFORMA`，Python 只在这里转一次）。
 **精确匹配、区分大小写**：`None` / 空串 / rag 取值 / 小写 / 直接写 `ACTUALS` 一律视为未声明——Java 侧 T1 用例
 （[dev-java](./dev-java.md) §9）把这两个字面值钉成跨语言契约，Python 不做宽容归一。
@@ -64,9 +68,15 @@
 ### 3.2 未声明 → FILE_FAILED：选型与时序
 
 在 Step 3 的循环里（`init_task_node.py:91-98`）：映射得到类型 → 照常组 `FileInfo` 并带上 `data_type`；
-映射不到 → 记入 `undeclared` 列表、**不进 `file_list`**。读 session 关闭后，逐个调
-`update_file_status(file_id, FILE_FAILED, _ERR_DATA_TYPE_NOT_DECLARED)`（`extract_financial.py:303`，自开写事务），
-每个文件一条 WARNING（带原始 `business_type` 值）。`read_files` 那条 INFO 日志加 `undeclared=%d`。
+映射不到 → 记入 `undeclared` 列表、**不进 `file_list`**。读 session 关闭后，每个文件先打一条 WARNING（带原始
+`business_type` 值），再一次调用新函数 `fail_uploaded_files(file_ids, error_message) -> int`；`read_files` 那条 INFO
+日志加 `undeclared=%d`（审核 S-10）。
+
+`fail_uploaded_files` 放 `extract_financial.py` 的 `update_file_status`（`:303`）之后，自开写事务，一条**条件 UPDATE**：
+只动 `status='UPLOADED' AND deleted=false` 的行，写 FILE_FAILED + 文案，返回实际更新行数；少于 `len(undeclared)` 时
+init 再打一条 WARNING（期间已被删除 / 替换，未动）。守卫写法同 `settle_stuck_file_claims`（`:260-268`）：init 读清单与
+这次写之间有窗口，期间 Java 可能已删除 / 替换该文件，不带守卫会把它覆盖成 FILE_FAILED。不扩展 `update_file_status`：
+它是 `session.get` + 赋值、不带条件，且被 save_to_db 等调用方共用，加分支会把两种语义混进一个函数。
 
 文案（禁改字面，经 `get_extract_data` 展示在文件行上，与既有 "File parsing failed" 同风格）：
 `"Table type (Actuals / Proforma) was not declared for this file; please re-upload it"`。
@@ -96,13 +106,27 @@
 
 ### 3.3 声明类型怎么到 refine
 
-`FileInfo` 加必填键 `data_type: DataType`（init 保证进 `file_list` 的文件必有值）。它与 `file_format` 一样**只在
+`FileInfo` 加必填键 `data_type: DeclaredDataType`（init 保证进 `file_list` 的文件必有值）。它与 `file_format` 一样**只在
 `file_list[current_file_index]` 里**，不投影到 state 顶层（`state.py:7-9` 的注记补一句"`data_type` 同理"）。
 沿途三处复制都是整条 dict 拷贝，新键自然保留：`file_download_check_node.py:124-128`、
 `parallel_files_node.py:225`（每 worker 一份）、`save_to_db_node.py:53`。
 
 refine 直接下标读取 `state["file_list"][state["current_file_index"]]["data_type"]`，**不做缺省兜底**：缺键 =
 编程错误，抛出比静默按 ACTUALS 处理安全（D9 不回退推断）。
+
+### 3.4 任务级参考月（审核 S-7）
+
+init_task 在成功路径的返回里取一次 `datetime.now(timezone.utc).strftime("%Y-%m")`，写 state 顶层 `reference_month`。
+D6 口径不变（处理时刻 UTC），只是从"每个文件 refine 时各取一次"提前到"任务开始处理时取一次"：同一任务的全部文件
+共用一个截止月，跨 UTC 月末处理的多文件任务不会出现同批文件截止月不同。
+
+| 落点 | 做法 |
+|---|---|
+| `MainGraphState`（`state.py:161-177` 任务级段） | 加 `reference_month: NotRequired[str]`。NotRequired：START 时还没有（同 per-file 字段的理由）。**不在 `consumer/handlers.py:187-211` 的 initial_state 预填**：预填空串时，init 一旦漏写，护栏 `month >= ""` 恒真、静默剔光 Actuals；缺键 KeyError 更安全 |
+| `InitTaskReturn`（`node_return.py:26-39`） | 加 `reference_month: str`。校验失败路径直接 END，不写 |
+| 串行环路 | LangGraph state 顶层键原样保留到每个文件的 refine，不用改 |
+| 并行路径 | worker 的 state **只拷 `_TASK_SCOPED_KEYS`**（`parallel_files_node.py:101-103`、`:117`、`:224`），新顶层键不会自动带上 → 元组加 `"reference_month"`。漏加 = 多文件任务（默认走并行）每个文件 refine 都 KeyError，由 §10.2 的 `test_parallel_files.py` 新用例钉住 |
+| refine | 直接下标 `state["reference_month"]`，不兜底（同 §3.3） |
 
 ---
 
@@ -126,7 +150,8 @@ refine 直接下标读取 `state["file_list"][state["current_file_index"]]["data
 | 2724 | 2.5 | `finalize_source_is_mapped_in_tables` |
 
 改造后：1b.5 → 1c → 1d → 2 → **2.6 声明类型落表** → **2.65 Actuals 当月护栏** → 2.7 → 2.85 → 2.45 → 2.5。
-即 `:2681-2705` 整段换成"取声明类型 + 取参考月 + 两次调用"，`:2710-2714` 删除。主方法仍是平铺调用，无分支。
+即 `:2681-2705` 整段换成"取声明类型 + 读 state 参考月 + 两次调用"，`:2710-2714` 删除，`:2708` 的 2.7 注释去掉
+"+ 组内 data_type 一致"（审核 A-9）。主方法仍是平铺调用，无分支。
 
 **护栏插在这里的理由**（逐个对着前后 Stage）：
 
@@ -141,7 +166,7 @@ refine 直接下标读取 `state["file_list"][state["current_file_index"]]["data
 
 ### 4.2 Stage 2.6：`apply_declared_data_type_in_tables`
 
-签名：`(tables, file_id, *, data_type: DataType) -> list[TableInfo]`。
+签名：`(tables, file_id, *, data_type: DeclaredDataType) -> list[TableInfo]`。
 
 - 每张表 `data_type` 一律设为声明类型（需求 R3）。**不看 `is_financial`**：进到 refine 的表三条轨都只含财务表
   （旧轨 `shared.py:446-453` 判 false 直接 `continue`；坐标轨只塞财务表），且 `save_extracted_tables` 本来也不看它。
@@ -151,20 +176,20 @@ refine 直接下标读取 `state["file_list"][state["current_file_index"]]["data
 
 ### 4.3 Stage 2.65：`drop_current_and_future_actuals_in_tables`
 
-签名：`(tables, file_id, *, data_type: DataType, reference_month: str) -> list[TableInfo]`。
+签名：`(tables, file_id, *, data_type: DeclaredDataType, reference_month: str) -> list[TableInfo]`。
 
 | 规则 | 实现 |
 |---|---|
 | PROFORMA 不剔（R5） | `data_type != "ACTUALS"` 直接原样返回 |
 | 剔除对象（R4） | `column_month` 匹配 `_MONTH_RE`（`YYYY-MM`）且 `>= reference_month` 的 cell；`YYYY-MM` 字符串比较即时间序，跨年正确 |
 | 推断月份同样检查 | 不看 `is_predict_month` |
-| 无月份保留（R4 末条） | `None` / `""` / 非 `YYYY-MM` 一律保留——与 2.85 / 旧 2.8 同一个 `_MONTH_RE` 口径 |
+| 无月份保留（R4 末条） | "无月份"指 `column_month` 为空：`None` / `""` / 非 `YYYY-MM` 一律保留——与 2.85 / 旧 2.8 同一个 `_MONTH_RE` 口径。⚠️ 映射页标 NO DATE 的行**不只是这类**：行内有系统推断月份的 cell（`is_predict_month=True`，`shared.py:1368-1399`；前端 `DataMappingPanel.tsx:261-272`）同样标 NO DATE，这类 cell 有月份，推断到 ≥ 当前月的**会被剔除**。需求 R4 末条措辞是否随之调整待产品确认，本文按设计 §5.3 实现（审核 D-4） |
 | 整表剔空 | 有 cell 且全被剔的表从列表移除；原本就空的表不动（不扩大行为面） |
 | 列位 / 行位 | **不重排**。留洞有先例：旧 2.8 拆出的尾表列位从 N 起（`shared.py:1813-1814`），2.85 软删的行在读取时被过滤 |
 | 日志 | 一条 INFO：`actuals_guard: file_id=… ref_month=… dropped_cells=… dropped_tables=… dropped_months=[…]`——"为什么我 10 月的数据没了"靠它排查 |
 
-`reference_month` 由 refine 传入：`datetime.now(timezone.utc).strftime("%Y-%m")`（D6，与旧 2.6 / 2.8 同一口径）。
-做成参数是为了单测注入，不在 helper 内部取时钟。
+`reference_month` 由 refine 从 `state["reference_month"]` 读出传入（init_task 每任务取一次，§3.4，审核 S-7）。
+做成参数是为了单测注入，helper 内部不取时钟。
 
 ### 4.4 整个文件被剔空
 
@@ -179,36 +204,40 @@ refine 直接下标读取 `state["file_list"][state["current_file_index"]]["data
 |---|---|---|
 | `finalize_data_type_in_tables`（`:1417-1542`，含章节横幅） | **删** | 被 2.6 取代；`coding.md` §6「禁止废弃代码」 |
 | `split_proforma_tail_in_tables` + `_PROFORMA_SPLIT_NAMESPACE`（`:1773-1926`） | **删** | 被 2.65 取代；新任务不再产 `parent_table_id` |
+| 2.7 的组内类型不一致整组跳过分支（`:1633-1646`）+ 计数器 `n_groups_skipped_mixed_type`（`:1623`）+ 汇总日志的 `skipped_mixed_type=%d` 字段与参数（`:1762`、`:1764`） | **删**（审核 A-9） | 2.6 已把同一文件内的表类型统一为声明类型，该分支不可达；它的设防理由（2.8 在其后拆出同名 PROFORMA 表）随 2.8 一起消失。`tests/ai/nodes/test_infer_missing_rows_flags.py` 无用例覆盖它 |
 | `_PROFORMA_KEYWORDS_RE`（`:109-117`） | **删** | 唯一使用方是旧 2.6 |
 | `_DATA_TYPES`（`:122-124`） | **删** | 唯一使用方是旧 2.6 |
 | `_MONTH_RE`（`:119-120`） | 保留 | 2.85 与 2.65 在用 |
-| `import uuid` / `from datetime import datetime, timezone` | 保留 | Stage 1a 建 `table_id`（`:458`）/ refine 取参考月 |
+| `from datetime import datetime, timezone`（`:49`） | **删**（审核 S-7） | 唯一使用方是 refine 取时钟（`:2691`），改读 state 后无引用 |
+| `import uuid`（`:46`） | 保留 | Stage 1a 建 `table_id`（`:458`） |
 | `__all__`（`:2748-2756`） | 删两项、加两项 | 分组注释改成 `# Stage 2 / 2.45 / 2.5 / 2.6 / 2.65 / 2.7 / 2.85` |
 | refine 里的 `sheets` / `sheet_names_by_page` / `file_format` 读取（`:2684-2699`） | **删** | 只服务旧 2.6 |
 
-新 helper 放在原 Stage 2.6 章节位置（`infer_missing_months_in_tables` 之后），各带章节横幅；需要从 `state` 多导入 `DataType`。
+新 helper 放在原 Stage 2.6 章节位置（`infer_missing_months_in_tables` 之后），各带章节横幅；需要从 `state` 多导入
+`DeclaredDataType`。
 
 ### 4.6 注释同步（只改文字，不改逻辑）
 
 | 位置 | 改成 |
 |---|---|
-| 文件头 `:3`、`:7`、`:22` 的 Stage 清单 | 去掉 2.8；2.6 描述改"表类型 = 文件声明类型"；在 2.6 后加一行 `Stage 2.65 drop_current_and_future_actuals_in_tables (Actuals 文件剔除当前月及以后)` |
+| 文件头 `:3`、`:7`、`:22` 的 Stage 清单 | `:3` 去掉 2.8、加 2.65；`:7` 加 2.65；`:22` 函数名与描述改为 `apply_declared_data_type_in_tables`（表类型 = 文件声明类型），其后加一行 `Stage 2.65 drop_current_and_future_actuals_in_tables (refine_extraction 调用,Actuals 文件剔除当前月及以后)`（审核 C-15；`:14-28` 的章节清单本来就没有 2.8） |
 | `renumber_column_positions_by_month` docstring `:1116-1117` | 删"而 Stage 2.8 … 跑在本步骤之后"这半句，保留"列一旦并了就救不回来"的结论 |
-| 2.7 `:1633-1637`（组内类型不一致整组跳过） | **代码保留**，注释改为：2.7 本身的不变量（实际数与预测数不互相补行）；自 sprint121 同一文件内类型统一为声明类型，正常路径不再触发 |
+| refine 里 2.7 调用上方注释 `:2708` | 去掉"+ 组内 data_type 一致"（分支已删，§4.5，审核 A-9） |
 | 2.85 docstring `:2020` | "Stage 2.8 之后(拆表收尾…)" → "Stage 2.65 之后(Actuals 剔除完成、表集合最终化)" |
 | 2.45 docstring `:2119-2120` | "Stage 2.8 … 之后" → "Stage 2.85 之后" |
-| refine docstring `:2569-2586` 与 `:2715-2718` 注释 | Stage 清单同上；"state 读 … sheets(excel 供 Stage 2.6 …)" → "file_list[current_file_index].data_type"；"在 2.8 之后" → "在 2.65 之后" |
+| refine docstring `:2569-2586` 与 `:2715-2718` 注释 | Stage 清单同上；"state 读 … sheets(excel 供 Stage 2.6 …)" → "file_list[current_file_index].data_type / reference_month"；"在 2.8 之后" → "在 2.65 之后" |
+| `excel_extract_agent/nodes/extract_node.py:49` | "sheet 元数据照样保留（下游 Stage 2.6 要按 page_number 取 sheet 名）" → "sheet 元数据保留；refine 自 sprint121 起不再读取"（审核 C-14） |
 
 ---
 
 ## 5. 下游输入的变化（回归要盯的点）
 
-去重、补行、映射判定的**算法都不变**，但输入变了，回归时要对比结果（设计 §5.4 只列了前两条）：
+去重、补行、映射判定的**算法都不变**，但输入变了，回归时要对比结果（审核 C-18）：
 
 1. **2.85 去重**：去重键含 `data_type`（`shared.py:1950-1962`）。过去同一文件里模型把月表判 ACTUALS、YTD 表判
    PROFORMA 时两表不互删；现在类型统一，**可能多标记一些重复 cell**——这是对的（前端合并桶键同样含 dataType）。
 2. **2.85 去重**：Actuals 文件的当月及以后 cell 先被剔，各表"月份跨度"变小，**权威表的选择可能变**。
-3. **2.7 补行**：过去因模型给的类型不一致被整组跳过（`:1638-1646`）的同名表组，现在会正常进入补行判断，
+3. **2.7 补行**：过去因模型给的类型不一致被整组跳过的同名表组（该分支本次删除，§4.5），现在会正常进入补行判断，
    **可能补出过去没有的占位行**。
 4. **2.5 映射判定**：某行唯一的推断月份 cell 被剔后，该行**不再被整行降级**，`source_is_mapped` 可能由 false 变 true
    ——预期内（那个 cell 本来就不入库）。
@@ -221,9 +250,9 @@ refine 直接下标读取 `state["file_list"][state["current_file_index"]]["data
 
 | 对象 | 决定 | 理由 |
 |---|---|---|
-| 提示词：`excel_extract_locate.v3.md` §6（`:361-395`）、`identify_statement.html.v2.md` / `.vision.v2.md` §5.6、`data_values.*.v3.md` 的 `data_type` 上下文标签 | **不改** | ① 结果被 2.6 覆盖，零功能影响；② 改坐标轨出参契约按提示词约定要升 v4，并连带改 `verify.py`、`pipeline.py` 与 `tests/ai/excel_extract_agent/test_prompts.py` 里钉住这些段落的 ≥4 条断言；③ 旧轨分类提示词改动要真文件回归；④ 代价只是每表几个输出 token |
+| 提示词：`excel_extract_locate.v3.md` §6（`:361-398`，审核 C-12）、`identify_statement.html.v2.md` / `.vision.v2.md` §5.6、`data_values.*.v3.md` 的 `data_type` 上下文标签 | **不改** | ① 结果被 2.6 覆盖，零功能影响；② 改坐标轨出参契约按提示词约定要升 v4，并连带改 `verify.py`、`pipeline.py` 与 `tests/ai/excel_extract_agent/test_prompts.py` 里钉住这些段落的 ≥4 条断言；③ 旧轨分类提示词改动要真文件回归；④ 代价只是每表几个输出 token |
 | Stage 1b（pdf / image）收到的 `data_type` 上下文标签（`pdf_preprocess_node.py:615`、`:699`，`image_preprocess_node.py:294`） | **不改**，仍是模型自判的类型 | 提示词明写该标签"不改变 cell 抽取规则"（`data_values.html.v3.md:106`、`.vision.v3.md:102`），只在规则 7 兜底归类时作参考；改成声明类型要把 `file_list` 穿进三处参数组装，收益不抵改动面 |
-| `excel_extract_agent/pipeline._data_type_of` | **保留逻辑**，只改 docstring 与 `:105-109` 注释 | 它把模型判定带进 `TableInfo`，2.6 才算得出 `llm_disagreed`；删掉还要改 `test_pipeline.py` |
+| `excel_extract_agent/pipeline._data_type_of` | **保留逻辑**，只改 docstring、`:104` 行尾注释与 `:106-109` 注释（审核 C-11） | 它把模型判定带进 `TableInfo`，2.6 才算得出 `llm_disagreed`；删掉还要改 `test_pipeline.py` |
 | `excel_extract_agent/verify.py` ⑨b WARN | **保留检查**，改注释与文案 | 提示词仍要求这个字段，WARN 仍是"模型没守出参契约"的信号；但现有文案"会退回算术校正 … 落到默认值 ACTUALS"已不成立，会误导排查，必须改。只是日志，无测试断言该文案 |
 
 以上清理（提示词去掉 data_type 段、删 `_data_type_of` 与 ⑨b）留到下次因别的原因改这几份提示词时一并做。
@@ -268,7 +297,7 @@ refine 直接下标读取 `state["file_list"][state["current_file_index"]]["data
 
 | 文件 | 位置 | 改成 |
 |---|---|---|
-| `source/ai/CLAUDE.md` | `:47` init_task 行 | "任务初始化节点（校验 + 标记 PROCESSING + 读文件清单 + 读声明类型，未声明的文件直接 FILE_FAILED）" |
+| `source/ai/CLAUDE.md` | `:47` init_task 行 | "任务初始化节点（校验 + 标记 PROCESSING + 读文件清单 + 读声明类型，未声明的文件直接 FILE_FAILED + 取任务级参考月）" |
 | `source/ai/CLAUDE.md` | `:49` shared.py 行 | "… / 2.5 source_is_mapped / 2.6 data_type / 2.7 …" → "… / 2.5 source_is_mapped / 2.6 表类型 = 文件声明类型 / 2.65 Actuals 剔除当前月及以后 / 2.7 …" |
 
 `CIOaas-python/CLAUDE.md`、`source/lg/CLAUDE.md`、`source/financial_extract/CLAUDE.md`、`docs/prompt-usage-map.md`
@@ -279,7 +308,8 @@ refine 直接下标读取 `state["file_list"][state["current_file_index"]]["data
 
 ## 10. 测试
 
-按根 `CLAUDE.md`，开发完不自动跑；以下是改动范围与收到指令后的执行清单。
+按根 `CLAUDE.md`，开发完不自动跑；以下是改动范围与收到指令后的执行清单。合计：删 2 个文件、改 2 个文件的用例、
+8 处只改注释 / docstring（分布在 5 个文件，`test_renumber_column_positions.py` 两类改动都有）、增 2 个文件（审核 A-10）。
 
 ### 10.1 删除
 
@@ -290,15 +320,28 @@ refine 直接下标读取 `state["file_list"][state["current_file_index"]]["data
 
 ### 10.2 修改
 
+改断言 / 用例：
+
 | 文件 | 改什么 |
 |---|---|
-| `tests/ai/nodes/test_renumber_column_positions.py:425-449`（`test_refine_pipeline_renumbers_columns_before_aligning_rows`） | state 补 `file_list=[{…, "data_type": "PROFORMA"}]` 与 `current_file_index=0`——否则 refine 读声明类型时 `KeyError`。用 PROFORMA 是为了护栏不剔任何 cell，不干扰它要钉的顺序 |
-| `tests/ai/excel_extract_agent/test_pipeline.py:109` | 只改行尾注释"下游 Stage 2.6 校正" → "下游 Stage 2.6 以文件声明覆盖"，断言不变 |
+| `tests/ai/nodes/test_renumber_column_positions.py:426-449`（`test_refine_pipeline_renumbers_columns_before_aligning_rows`，审核 C-13） | `:447` 的 state 补 `file_list=[{…, "data_type": "PROFORMA"}]`、`current_file_index=0`、`reference_month="2026-10"`——否则 refine 读声明类型 / 参考月时 `KeyError`。用 PROFORMA 是为了护栏不剔任何 cell，不干扰它要钉的顺序 |
+| `tests/ai/nodes/test_parallel_files.py` | `_state()`（`:30-40`）补 `"reference_month": "2026-10"`；新增 `test_worker_state_carries_reference_month`：用 `_install_fakes` 后把 refine 换成记录 `st["reference_month"]` 的桩，断言每个 worker 都拿到——钉住 `_TASK_SCOPED_KEYS`（§3.4，审核 S-7） |
+
+只改注释 / docstring（断言不变，审核 C-14）：
+
+| 位置 | 改成 |
+|---|---|
+| `tests/ai/excel_extract_agent/test_pipeline.py:109` | 行尾注释"下游 Stage 2.6 校正" → "下游 Stage 2.6 以文件声明覆盖" |
+| `tests/ai/excel_extract_agent/test_extract_node.py:100` | "下游只读 sheet_index / sheet_name（Stage 2.6 按 … 映射）" → "下游自 sprint121 起不再读取（原 Stage 2.6 按 … 映射）" |
+| `tests/ai/excel_extract_agent/test_extract_node.py:278` | "下游 Stage 2.6 按 page_number → sheet 名做 Proforma 复核" → "ExcelSheetInfo 契约要求保留；refine 自 sprint121 起不再读取" |
+| `tests/ai/excel_extract_agent/test_prompts.py:165`、`:181`、`:184` | 三处 "Stage 2.6" 改为 "sprint121 前的 Stage 2.6"，并在 `:165` 所在 docstring 末补一句"现表类型 = 文件声明类型，本用例只钉提示词契约（§6 保留不动）" |
+| `tests/ai/excel_extract_agent/test_tools.py:735` | 引用的 `tests/ai/nodes/test_finalize_data_type.py` 已删 → 写成"原 `test_finalize_data_type.py`（sprint121 已删）" |
+| `tests/ai/nodes/test_renumber_column_positions.py:95` | 删"而 Stage 2.8 拆 PROFORMA 跑在本步骤**之后**"，保留"列一旦并了救不回来"（同 `shared.py:1116-1117`） |
 
 ### 10.3 新增
 
-`tests/ai/nodes/test_declared_data_type.py`（helper 直接注入 `reference_month`；节点级用例取远离当前的月份
-`2000-01` / `2999-01`，再加一个由 `datetime.now(timezone.utc)` 算出的当月，避免冻结时钟）：
+`tests/ai/nodes/test_declared_data_type.py`（helper 直接注入 `reference_month`；节点级用例经 `state["reference_month"]`
+注入，不依赖时钟，审核 S-7）：
 
 | 用例 | 断言 |
 |---|---|
@@ -310,20 +353,23 @@ refine 直接下标读取 `state["file_list"][state["current_file_index"]]["data
 | `test_table_emptied_by_guard_is_removed` | 全被剔的表移除；原本就空的表保留 |
 | `test_column_positions_not_renumbered` | 新月在左的版式（col 1 = 当月）剔后余下 cell 的 `column_position` 仍是 2、3… |
 | `test_proforma_file_keeps_every_month` | 过去 / 当月 / 未来全留 |
-| `test_refine_node_reads_declared_type_from_file_list` | 参数化 ACTUALS / PROFORMA，真跑 `refine_extraction_node`（只 patch `_apply_rag_override_safe`），模型标签给反 → 全表 = 声明；ACTUALS 只剩 `2000-01`，PROFORMA 三个月都在；表数不变（不再拆表）；没有 cell 带 `parent_table_id` |
-| `test_inferred_total_column_at_current_month_is_dropped` | 真跑：col 1 = 上月、col 2 无月份（`lg_category` 给非 UNMAPPED）→ Stage 2 推成当月 → 被剔；该行余下 cell `source_is_mapped` 为 true（不再被推断列拖累） |
-| `test_whole_file_dropped_yields_no_tables` | ACTUALS 且全部月份 ≥ 当月 → `tables == []`，无 `error_message`（即 save_to_db 判 REVIEW_READY） |
-| `test_guard_runs_after_month_inference_and_before_downstream_stages` | 把 Stage 2 / 2.6 / 2.65 / 2.7 / 2.85 / 2.45 / 2.5 换成记录器，断言调用顺序；钉住 §4.1 的插入点（同 `test_renumber_column_positions.py:425` 的写法） |
+| `test_refine_node_reads_declared_type_from_file_list` | 参数化 ACTUALS / PROFORMA，state ref `2026-10`，真跑 `refine_extraction_node`（只 patch `_apply_rag_override_safe`），模型标签给反 → 全表 = 声明；ACTUALS 只剩 `2026-09`，PROFORMA `2026-09/10/11` 都在；表数不变（不再拆表）；没有 cell 带 `parent_table_id` |
+| `test_refine_uses_task_reference_month_not_clock` | state ref `2000-01`、ACTUALS、cell 月份 `2026-05` → `tables == []`：证明读的是 state 而不是时钟 |
+| `test_inferred_total_column_at_current_month_is_dropped` | 真跑，state ref `2026-10`：col 1 = `2026-09`、col 2 无月份（`lg_category` 给非 UNMAPPED）→ Stage 2 推成 `2026-10` → 被剔；该行余下 cell `source_is_mapped` 为 true（不再被推断列拖累） |
+| `test_whole_file_dropped_yields_no_tables` | ACTUALS 且全部月份 ≥ ref → `tables == []`，无 `error_message`（即 save_to_db 判 REVIEW_READY） |
+| `test_guard_runs_after_month_inference_and_before_downstream_stages` | 把 Stage 2 / 2.6 / 2.65 / 2.7 / 2.85 / 2.45 / 2.5 换成记录器，断言调用顺序；钉住 §4.1 的插入点（同 `test_renumber_column_positions.py:426` 的写法） |
 
 `tests/ai/nodes/test_init_task_declared_type.py`（桩掉 `init_task_node.get_session` / `mark_task_processing` /
-`update_file_status`；查询链桩见 [code-examples](./code-examples.md)）：
+`fail_uploaded_files`；查询链桩见 [code-examples](./code-examples.md)）：
 
 | 用例 | 断言 |
 |---|---|
 | `test_business_type_maps_to_declared_data_type` | 参数化两值 → `file_list[0]["data_type"]` 为 `ACTUALS` / `PROFORMA` |
-| `test_undeclared_file_is_failed_and_left_out` | 参数化 `None / "" / "KNOWLEDGE_BASE" / "extract_fi_actuals" / "ACTUALS"` → `update_file_status` 以 `(file_id, "FILE_FAILED", 文案)` 调用一次；不在 `file_list` |
+| `test_undeclared_file_is_failed_and_left_out` | 参数化 `None / "" / "KNOWLEDGE_BASE" / "extract_fi_actuals" / "ACTUALS"` → `fail_uploaded_files` 以 `([file_id], 文案)` 调用一次；不在 `file_list` |
 | `test_all_files_undeclared_gives_empty_file_list` | `file_list == []`，`task_status == PROCESSING`（之后 FAILED 由既有 `test_finalize_extract.py:300` 覆盖） |
-| `test_mixed_batch_keeps_declared_files_in_order` | 已声明文件保持查询返回的顺序，未声明的逐个判失败 |
+| `test_mixed_batch_keeps_declared_files_in_order` | 已声明文件保持查询返回的顺序，未声明的一并判失败 |
+| `test_reference_month_is_set_once_per_task` | 返回的 `reference_month == datetime.now(timezone.utc).strftime("%Y-%m")`（审核 S-7） |
+| `test_fail_uploaded_files_update_carries_uploaded_and_deleted_guard` | 桩 `extract_financial.get_session`（写法同 `tests/consumer/test_handlers_recovery.py:295`）：UPDATE 的 WHERE 含 `file_id`、`status`、`deleted`，SET 含 FILE_FAILED 与文案（审核 S-10） |
 
 ### 10.4 回归（函数不改，必须保持绿）
 
@@ -342,16 +388,22 @@ uv run python -m pytest tests/ai/nodes tests/ai/excel_extract_agent tests/lg tes
 
 ---
 
-## 11. 发布与兼容
+## 11. 发布与兼容（审核 S-1 / A-1 / A-2）
+
+三端必须在**同一个发布窗口**内上线，回滚也必须三端一起（与设计 §8、[dev-design-doc](./dev-design-doc.md) §3.2 一致）。
 
 | 顺序 | 内容 | 说明 |
 |---|---|---|
 | 任意时间 | V030 | 只改注释，人工 psql |
 | 1 | Java + 前端同批 | 见 [dev-java](./dev-java.md) |
-| 2 | Python | 先发 Python 会让新任务全部判失败（登记行还没有类型）；Java 先发时旧 Python 忽略这一列，平滑过渡（设计 §8） |
+| 2 | **Python 紧接着发（同一窗口）** | 不能先发：新任务的登记行还没有类型，全部判 FILE_FAILED。也不能隔开发：旧 Python 不读声明、按旧逻辑推断类型，而新映射页已不能逐行改类型（R7），判错的类型改不回来 |
+| 3 | 发布后核查 | 执行 [dev-design-doc](./dev-design-doc.md) §3.2 的窗口期核查 SQL，找出按旧逻辑处理、类型与声明不一致的任务 |
 
 - **在途任务**：Python 发版时还在排队、且是 Java 发版前提交的任务，登记行为 NULL → 文件 FILE_FAILED（需求 R11）。
-- **单独回滚 Python**：旧 Python 不读 `business_type`，回到按表推断；已写入的 `EXTRACT_FI_*` 不影响它。不需要清数据。
+- **回滚三端一起**，不需要清数据：
+  - 只回滚 Java + 前端、保留新 Python：旧 commitUpload 不写 `business_type`，此后每个新文件都 FILE_FAILED，**不允许**。
+  - 只回滚 Python：仅作短时止血。旧 Python 不读 `business_type`、回到按表推断（已写入的 `EXTRACT_FI_*` 不影响它），
+    期间声明不生效、用户又改不了类型；恢复后用上面的核查 SQL 补查。
 - **不加 env 开关**：回滚靠回退版本，不做新旧逻辑并存。
 
 ---
@@ -364,10 +416,11 @@ uv run python -m pytest tests/ai/nodes tests/ai/excel_extract_agent tests/lg tes
 | R2 | 2.85 去重、2.7 补行、2.5 映射判定的输入变化（§5） | 真文件验收 ② 对比去重标记；日志 `dedupe_duplicate_month_cells` / `infer_missing_rows` 前后对照 |
 | R3 | 列位 / 行位留洞 | 有先例（§4.3）；验收 ① 里用"新月在左"的版式确认映射页正常渲染 |
 | R4 | 模型把历史月读成未来月（年份错读）时，Actuals 文件里该列被静默剔除 | 过去同样的错会让整表被改判 Proforma，现在影响面更小；按 `actuals_guard` 日志的 `dropped_months` 排查 |
-| R5 | "当前月"口径：Python 用处理时刻 UTC；Java 护栏用 JVM 默认时区（[dev-java](./dev-java.md) J-R4）；用户本地时区在月末前后与 UTC 差一个月 | 需求 R4 已定以 UTC 为准；确认生产 JVM 跑在 UTC |
+| R5 | "当前月"口径：Python 用 init_task 开始处理任务时的 UTC 年月，全任务共用（§3.4）；Java 护栏用 JVM 默认时区（[dev-java](./dev-java.md) J-R4）；用户本地时区在月末前后与 UTC 差一个月 | 需求 R4 已定以 UTC 为准；确认生产 JVM 跑在 UTC。跨 UTC 月末的 SQS 重投会让 init 重新取值，已终态的文件不重跑，于是同一任务先后两次投递处理的文件截止月可能不同——只在月末重投时出现，可接受（审核 S-7） |
 | R6 | 非 `YYYY-MM` 形态的月份被当成"无月份"保留 | 与 2.85 口径一致；提交时 Java Actuals 护栏兜底 |
 | R7 | 上线前建的任务在映射页替换文件 → 继承 NULL → FILE_FAILED，用户不知原因（[dev-java](./dev-java.md) J-R2） | 文案明确写"未声明类型、请重新上传" |
-| R8 | 旧日志行 `finalize_data_type` / `split_proforma_tail` 消失 | 改 grep `declared_data_type` / `actuals_guard`；init 的未声明告警 grep `init_task_node[declared_type]` |
+| R8 | 旧日志行 `finalize_data_type` / `split_proforma_tail` 消失；`infer_missing_rows` 汇总日志少了 `skipped_mixed_type` 字段（审核 A-9） | 改 grep `declared_data_type` / `actuals_guard`；init 的未声明告警 grep `init_task_node[declared_type]` |
+| R9 | 合计列被 Stage 2 推成"末月 + 1"后能否被剔，取决于"末月 + 1"是否 ≥ 当前月，属巧合：典型历史文件（如 1-6 月 + 合计列、10 月处理）的合计列被推成 7 月、照常保留入库 | 改造前就是这样（映射页靠 NO DATE 徽标由用户改），本需求不处理（审核 D-14） |
 
 ---
 
@@ -375,8 +428,7 @@ uv run python -m pytest tests/ai/nodes tests/ai/excel_extract_agent tests/lg tes
 
 - 不回退旧推断：类型缺失只判失败（D9）。
 - 不改提示词、不升提示词版本号；不把声明类型传给 Stage 1b（§6）。
-- 不给 init 加批量写库函数：每批文件数很少，逐个 `update_file_status` 足够。
+- 不把 `update_file_status` 改成条件更新：另加 `fail_uploaded_files`，现有调用方不动（§3.2）。
 - 不删 ORM 的 `parent_table_id` 列与读路径（§7）。
-- 不动 2.7 的类型一致性判据，只改注释（§4.6）。
 - 不清理坐标轨仍在产出、但 refine 已不再读取的 `sheets`（`ExcelPreprocessReturn` 契约，与本需求无关）。
 - 不加 env 开关；不补写历史数据。

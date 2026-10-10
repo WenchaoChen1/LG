@@ -43,12 +43,11 @@
 | `web/services/api/ai/dto.ts` | **新增** | `export type FinancialDataType = 'ACTUALS' \| 'PROFORMA'`。页面两处（上传弹窗、映射页）都要用它标注状态，按 architecture §4.1 页面只能拿 `dto.ts`，不能拿 `request.ts` |
 | `web/services/api/ai/request.ts` | **新增** | 只放本次改动的两个请求体：`GetUploadUrlRequest` / `GetUploadUrlFileItem`（`dataType?`）、`CommitUploadRequest` / `CommitUploadFileItem`（`dataType` 必填） |
 | `web/services/api/ai/aiService.ts` | 改 | 两个函数改用上面的 Request 类型（§2.2）；其余内联类型**不搬**（属 `TODO(service-dto)` 存量，不在本期） |
+| `web/services/api/ai/README.md` | **新增**（审核 A-11） | R8 域文档最小版（architecture §3.1 R8 强制；`services/api/` 下 25 个域已有 20 个有 README，`ai/` 是缺的 5 个之一）。三节：① 域职责——智能解析上传 / 映射 / 冲突提交的 HTTP 调用，对应 Java `/api/web/ai/financialExtraction/*`、`/api/web/financial-data-conflict/*` 与 Python 拉取接口 `/api/ai/financial-extract/*`；② 文件介绍——`aiService.ts`（全部 API 函数 + 存量内联类型）、`request.ts`（本期两个请求体）、`dto.ts`（`FinancialDataType`）；③ 对外契约——跨域只可 import `dto.ts`，函数经 `services/service/ai/aiService.ts` 透传，`request.ts` 仅本层用；页面仍从 `aiService.ts` 引内联类型属 `TODO(service-dto)` 存量，照实写明 |
 
 - 不复用 `ai页/types.ts:123` 的 `TabType`：值相同但语义是"标签页"，而且 services 不能反向 import pages
   （2026-07-22 刚解除过一次倒挂，见 `aiService.ts:249-251` 注释）。
 - 不放 `src/utils/enum.ts`：只有 financial 一个一级域在用，不是跨域共享内核。
-- `web/services/api/ai/` 至今没有 R8 域文档 `README.md`（存量缺口）。本期新增两个文件，按 R8 应补一份最小
-  README（职责 / 目录介绍 / 对外契约）；如不想扩大范围可只在 PR 描述里说明，由 owner 决定。
 
 ### 2.2 两个函数的签名
 
@@ -104,6 +103,7 @@ tableType?: FinancialDataType   // 未选 = undefined（D7：无默认值）
 
 `import` 增量：antd `Alert / Select / Dropdown / Menu`、`DownOutlined`；`FinancialDataType`（`@/services/api/ai/dto`）；
 三个常量（`@/pages/financial/aiFinancialExtraction/constants`，本组件已从这里拿 `UPLOAD_ACCEPTED_EXTENSIONS`，沿用先例）。
+顺手删掉 `:2` 早已无用的 `CloseOutlined`（关闭图标用的是 `<img>`，tsc 现报 TS6133）（审核 C-25）。
 
 ### 3.3 Next 启用与提交
 
@@ -141,13 +141,14 @@ Remove（`:256-273`）、Cancel（`:282-292`，删暂存文件）、关闭重置
 
 ### 3.6 样式（`ImportStatementsModal.less`）
 
-桌面宽度推算（行内可用宽 = 弹窗宽 − 左右 padding 56 − 行 padding 24 − 边框 2）：
+桌面宽度推算（行内可用宽 = 弹窗宽 − 左右 padding 56 − 行 padding 24 − 边框 2；文件名列 = 行内可用宽 − 图标 14
+（`.fileIconWrap` / `.fileIconImg`，less `:161-170`）− 各定宽列 − 列间 gap 8 × (列数 − 1)；Remove 列 60）（审核 C-22 重算，结论不变）：
 
 | 方案 | 文件名列剩余宽度 |
 |---|---|
-| 现状 560，无类型列 | ≈ 190px |
-| 560 + 类型列 128 | ≈ 54px（不可用） |
-| **640，FILE SIZE 列 180 → 120，类型列 128** | ≈ 194px（与现状持平） |
+| 现状 560，无类型列 | 478 − 14 − 180 − 60 − 24 ≈ 200px |
+| 560 + 类型列 128 | 478 − 14 − 180 − 128 − 60 − 32 ≈ 64px（不可用） |
+| **640，FILE SIZE 列 180 → 120，类型列 128** | 558 − 14 − 120 − 128 − 60 − 32 ≈ 204px（与现状持平） |
 
 | 选择器 | 改动 |
 |---|---|
@@ -194,7 +195,7 @@ Remove（`:256-273`）、Cancel（`:282-292`，删暂存文件）、关闭重置
 | `dataTypesUpdated`（`useOCRData.ts:76-83`）、`computeSubmitSummary`、`buildMappedData`、面板 `mappedDataAll`（`:1735` 只收 ACTUALS / PROFORMA） | 有效类型都是合法值 | 不变 |
 | `collectEditedData`（`AiFinancialExtractionPage.tsx:46-63`）→ `/complete` 的 `editedData` | 只改了指标的 cell，`editSourceDataType` 送 `''`；Java 用 `defaultString` 落库（`AiFinancialExtractionConflictServiceImpl.java:562`），与"只改日期 / 数值"的既有情形相同 | 不变 |
 | `isCellEditedByUser`（`rowClassify.ts:114-115`） | 新任务该分支永不命中；历史任务里用户以前改过的类型仍被识别并提交 | 保留，不删 |
-| 跨表合并分桶键含 dataType（`DataMappingPanel.tsx:335-337`） | 一批里可以混合两种文件且常有同名科目 | **必须保留**，否则 Actuals 与 Proforma 同名行会被并到一起 |
+| 跨表合并分桶键含 dataType（`DataMappingPanel.tsx:338`，上方 `:335-337` 是说明注释）（审核 C-25） | 一批里可以混合两种文件且常有同名科目 | **必须保留**，否则 Actuals 与 Proforma 同名行会被并到一起 |
 | 类型为 `''` 的行 | 两个标签页都过滤掉（`r.dataType === activeTab`），改前就看不到 | 不会因去掉选项而新增"看不见的行"；新任务 Python 恒写声明类型 |
 
 ### 4.3 Upload New Document：先选类型再选文件（临时交互，待 Q2）
@@ -272,10 +273,15 @@ Java 在 `file/replace` 里把旧文件的类型复制给新文件。
 Jest + `@testing-library/react@12`（无 `renderHook`；hook 用最小 Harness 组件承载，先例
 `pages/askGoldie/memorySettings/hooks/useMemoryData.test.tsx`）。测试文件与被测文件同目录 `*.test.tsx`。
 
+`jest.config.js` 没有任何全局 setup，新测试文件要自己补两件事：
+- **新测试文件须显式引入 jest-dom**：`import '@testing-library/jest-dom'`（无 `setupFilesAfterEnv`，`toBeDisabled` /
+  `toBeInTheDocument` 靠它；先例 `pages/exitReadiness/assessment/AssessmentPage.test.tsx`）（审核 C-19）。
+- 没开 `clearMocks` / `resetMocks`，mock 调用记录跨用例累积：读 `mock.calls[0]` 的文件须在 `beforeEach` 里 `mockReset()`（审核 C-2）。
+
 | 文件（新增） | 用例 | 关键 mock |
 |---|---|---|
-| `FinancialEntry/components/ImportStatementsModal.test.tsx` | ① 两个文件传完、都未选类型 → Next disabled ② 只选一个 → 仍 disabled ③ 逐个选齐 → enabled ④ 批量设 Actuals → 两行都是 Actuals 且 Next enabled；再把一行改 Proforma → Next 后 `commitUpload` 收到 `{companyId, files:[{fileId, dataType:'ACTUALS'}, {fileId, dataType:'PROFORMA'}]}` ⑤ 批量设置后再加一个文件 → 新行为空、Next disabled ⑥ 横幅文案常驻 ⑦ 上传中 Clear All 仍只清上传中的文件（行为回归） | `@/services/service/ai/aiService`（`getAiUploadUrl` 按文件名回 fileId、`commitUpload`、`batchDeleteFilesByIds`）；`uploadValidation` 两个函数透传；`UploadErrorToast`；`window.XMLHttpRequest` 换成 `send()` 后触发 `load`(200) 的假实现 |
-| `ai页/components/DataMappingPanel.test.tsx` | ① 打开 Unmapped 行的指派下拉 → 没有 "Actual" / "Forecast" 文本 ② 点 "Gross Revenue" → `onRowEdit` 第二参严格等于 `{editLgCategory:'Gross Revenue'}`，无 `editSourceDataType` 键 ③ Mapped 行选 "Unmapped Accounts" → patch 为 `{editLgCategory:'UNMAPPED'}` ④ PROFORMA 文件的行指派后仍在 Proforma 标签页 | 夹具：一个 `REVIEW_READY` 文件，行要有月份且每月有值（`canAssign` = `rowHasAllValues && !hasPredictMonth`，`:1140`） |
+| `FinancialEntry/components/ImportStatementsModal.test.tsx` | ① 两个文件传完、都未选类型 → Next disabled ② 只选一个 → 仍 disabled ③ 逐个选齐 → enabled ④ 批量设 Actuals → 两行都是 Actuals 且 Next enabled；再把一行改 Proforma → Next 后 `commitUpload` 收到 `{companyId, files:[{fileId, dataType:'ACTUALS'}, {fileId, dataType:'PROFORMA'}]}` ⑤ 批量设置后再加一个文件 → 新行为空、Next disabled ⑥ 横幅文案常驻 ⑦ 上传中 Clear All 仍只清上传中的文件（行为回归） ⑧ 只有一个文件：批量设置照常显示，选好类型后 Next enabled（审核 D-13） | `@/services/service/ai/aiService`（`getAiUploadUrl` 按文件名回 fileId、`commitUpload`、`batchDeleteFilesByIds`）；`uploadValidation` 两个函数透传；`UploadErrorToast`；`window.XMLHttpRequest` 换成 `send()` 后触发 `load`(200) 的假实现。⑦ 另换一个 `send()` **不**触发 `load` 的变体，让文件停在上传中，其 `abort()` 走组件的 abort 分支（自动 load 的假实现到不了"上传中"）（审核 C-20） |
+| `ai页/components/DataMappingPanel.test.tsx` | ① 打开 Unmapped 行的指派下拉 → 没有 "Actual" / "Forecast" 文本 ② 点 "Gross Revenue" → `onRowEdit` 第二参严格等于 `{editLgCategory:'Gross Revenue'}`，无 `editSourceDataType` 键 ③ Mapped 行选 "Unmapped Accounts" → patch 为 `{editLgCategory:'UNMAPPED'}`。（原 ④"PROFORMA 行指派后仍在 Proforma 标签页"删除：`onRowEdit` 是普通 `jest.fn`，面板数据不会变，断言恒真；行不换标签页已由 ② 的 patch 不含 `editSourceDataType` 保证（审核 C-24）） | 夹具：一个 `REVIEW_READY` 文件，行要有月份且每月有值（`canAssign` = `rowHasAllValues && !hasPredictMonth`，`:1140`） |
 | `ai页/components/FileSelector.test.tsx` | ① 菜单点 Upload New Document → 出现类型弹窗、OK disabled、未打开文件框 ② 选 Proforma → OK → `HTMLInputElement.prototype.click` 被调用 ③ 对 multiple input 触发 change → `onUploadFiles(files, 'PROFORMA')` ④ 再次打开弹窗 → Radio 为空 ⑤ Replace Document 不出弹窗、直接打开单选框，`onReplaceFile(oldId, file)` 签名不变 | `fromModal`、`uploadStage:'done'`、两个 `REVIEW_READY` 文件且选中其一（Replace 才显示） |
 | `ai页/hooks/useOCRData.test.tsx` | ① `uploadAdditionalFiles([f], 'ACTUALS')` → `getAiUploadUrl` 的 `fileList` 为 `[{fileName, length, dataType:'ACTUALS'}]` ② `replaceFile(old, f)` → `fileList[0]` 没有 `dataType` 键 | `getAiUploadUrl` 回 `{success:false}` 让流程在第一步收住；`uploadValidation`（`validateFiles` / `filterByMagicNumber` / `checkFileMagic` / `activeUploadNames`）透传 |
 
@@ -283,18 +289,35 @@ antd 在 jsdom 里的操作：Select 用 `fireEvent.mouseDown(combobox)` 打开�
 `.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option[title="…"]`；Dropdown 菜单项在
 `.ant-dropdown:not(.ant-dropdown-hidden) .ant-dropdown-menu-item`。骨架见 [code-examples](./code-examples.md)。
 
-轻量校验：`npm run tsc`、`npm run lint`（含 `check:routes` / `check:pages`，本期不动路由）。按根 `CLAUDE.md`，单测等用户下令再统一跑。
+轻量校验：
+- **tsc 判据：改动文件不新增 tsc 错误**（审核 C-23）。`npm run tsc` 在本地当不了闸门：`@types/color-convert` 是空壳
+  stub 包，直接跑只报一条 TS2688 就中止；排除它后全仓存量约 1.4k 条错误（`eea52f3c` 实测 1377 条）。做法：
+  ```
+  npx tsc --noEmit -p tsconfig.json --types "$(ls node_modules/@types | grep -v '^color-convert$' | paste -sd, -)"
+  ```
+  输出按本期改动文件过滤，与改动前对比。基线：`AiFinancialExtractionPage.tsx` 2 条（`LeftOutlined` / `buildMappedData`
+  未使用，非本期引入）、`ImportStatementsModal.tsx` 1 条（`CloseOutlined`，本期删掉后为 0），其余改动文件 0 条。
+- `npm run lint`（含 `check:routes` / `check:pages`，本期不动路由）。
+
+按根 `CLAUDE.md`，单测等用户下令再统一跑。
 
 ---
 
-## 8. 发布
+## 8. 发布与回滚
+
+Java、前端、Python 三端在**同一个发布窗口**上线（审核 S-1 / A-1）：
 
 | 顺序 | 内容 | 原因 |
 |---|---|---|
-| 与 Java **同批** | 本文全部改动 | commitUpload 请求体两端同时切换：旧前端 + 新 Java → `{fileIds}` 被 `@NotEmpty files` 拒（HTTP 422）；新前端 + 旧 Java → `fileIds` 缺失被拒。映射页上传同理（新 Java 的 uploadComplete 要求类型） |
-| Python 在 Java 之后 | 不涉及前端 | 设计 §8 |
+| 1 | Java + 前端**同批**（本文全部改动） | commitUpload 请求体两端同时切换：旧前端 + 新 Java → `{fileIds}` 被 `@NotEmpty files` 拒（HTTP 422）；新前端 + 旧 Java → `fileIds` 缺失被拒。映射页上传同理（新 Java 的 uploadComplete 要求类型） |
+| 2 | Python，**紧接第 1 步、同一窗口内** | 不能先发：登记行还没有类型，新任务会全部判失败。也不能拖：新前端已去掉逐行改派（§4.1），旧 Python 却忽略文件声明、照旧推断表类型——两步之间创建的任务，推断错的行在映射页改不回来，只能重传 |
 
-回滚：前端与 Java 一起回滚。版本切换窗口里，开着旧页面的用户点 Next 会看到全局错误横幅 + 每个文件一条上传失败吐司，刷新后恢复。
+回滚：**三端一起回滚**（审核 A-2）。只回 Java + 前端、留新 Python → 旧端不写声明，新 Python 把新任务全判 FILE_FAILED；
+只回 Python → 又落回"新界面不能逐行改派 + 旧 Python 不认声明"。版本切换窗口里，开着旧页面的用户点 Next 会看到全局错误横幅
++ 每个文件一条上传失败吐司，刷新后恢复。发布后的核对 SQL 见 [dev-design-doc](./dev-design-doc.md) §3。
+
+commitUpload 在原路径上改请求体，已拍板登记为例外（审核 A-3，见 dev-java §10 J-R8）：改 `commitUpload` 请求体的那次前端提交，
+body 末尾加 `BREAKING CHANGE:` 脚注，写明须与 Java 同批发布。
 
 ---
 
@@ -308,4 +331,7 @@ antd 在 jsdom 里的操作：Select 用 `fireEvent.mouseDown(combobox)` 打开�
 | 4 | 文件框必须同步打开 | §4.3 的约束写进注释；单测 ② 守住 `click()` 在 OK 回调里被同步调用 |
 | 5 | 跨表合并键里的 dataType | 混合批次让它比以前更重要，后续重构不能删（§4.2） |
 | 6 | 422 时只显示通用失败 | commitUpload 校验失败时前端不展示服务端文案（`res.success` 判失败 → GENERIC 吐司）。前端已拦截，正常不可达，不另做 |
-| 7 | 规范偏离 | i18n 硬编码（§6）、上传弹窗跨功能夹 import 常量（§5）、`services/api/ai` 仍以内联类型为主且无 README（§2.1），均为存量口径，本期只保证新增部分落到 `request.ts` / `dto.ts` |
+| 7 | 规范偏离 | i18n 硬编码（§6）、上传弹窗跨功能夹 import 常量（§5）、`services/api/ai` 仍以内联类型为主（§2.1；R8 README 本期补上，审核 A-11），均为存量口径，本期只保证新增部分落到 `request.ts` / `dto.ts` |
+| 8 | **待拍板**：Python 的失败原因用户看不到（审核 D-1） | 未声明类型的文件被 Python 判 FILE_FAILED，错误 "Table type (Actuals / Proforma) was not declared for this file; please re-upload it" 已随 `error` 传进 `FileProcessingErrorsModal`（`AiFinancialExtractionPage.tsx:246`），但弹窗只渲染通用文案 + 文件名（`FileProcessingErrorsModal.tsx:38-49`，`error` 没用上）；只有只读回放（devSupport）才把失败文件放进列表并挂 error Tooltip（`FileSelector.tsx:355-363`）。可选：弹窗里在每个文件名下渲染它的 `error`。新前端已拦截未选类型，碰到的主要是发布窗口前后的在途任务 |
+| 9 | **待拍板**：Actuals 标签页的月份选择器能选当月和未来月（审核 D-9） | NO DATE 行的 `MonthPickerPopover`（`DataMappingPanel.tsx:761-810`，用于 `:1107`、`:1160`）不限月份；在 Actuals 标签页选了当月 / 未来月，提交时被 Java Actuals 护栏静默剔除（`AiFinancialExtractionConflictServiceImpl.java:667-668` 按 `isClosedActualsMonth` 做 `removeIf`），用户无感知。可选：Actuals 标签页里禁用这些月份，或在选择器里显示固定说明 `ACTUALS_CURRENT_MONTH_NOTE` |
+| 10 | **待拍板**：Actuals 文件被整份剔除时的空状态像解析失败（审核 D-10） | Actuals 文件只有当月 / 未来月数据时会被 Python 全部剔除，落到空状态 "No financial accounts found for the uploaded file."（`DataMappingPanel.tsx:2029-2033`）或 "No financial accounts extracted. …"（`UploadSuccessModal.tsx:31-34`），看着像解析失败。可选：两处空状态文案后追加 `ACTUALS_CURRENT_MONTH_NOTE` |

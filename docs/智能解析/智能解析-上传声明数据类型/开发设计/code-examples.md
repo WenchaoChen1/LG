@@ -30,9 +30,10 @@
 COMMENT ON COLUMN ai_file_registry.business_type IS 'Business-type enum. purpose = rag rows: APP_USER / ADMIN_USER / APP_COMPANY / ADMIN_COMPANY / ADMIN_ORGANIZATION / KNOWLEDGE_BASE / PLAYBOOK / PARSING_MEMORY / ERL_ATTACHMENT / SESSION_UPLOAD. purpose = financial_extract rows: EXTRACT_FI_ACTUALS / EXTRACT_FI_PROFORMA = the statement type (Actuals / Proforma) the user declared for the file at upload, written by Java; NULL for files uploaded before sprint121. Only KNOWLEDGE_BASE rows take part in the chatbot retrieval scope and the Memory panel, so ERL_ATTACHMENT and EXTRACT_FI_* rows are excluded from both by definition.';
 ```
 
-### P2. `graph/state.py`
+### P2. `graph/state.py`（另附 `node_return.py`、`parallel_files_node.py` 各一处）
 ```python
-DataType = Literal["ACTUALS", "PROFORMA"]
+# 不叫 DataType：ai/tools/_support/_enums.py:30 已有同名的无关类型（审核 C-17）
+DeclaredDataType = Literal["ACTUALS", "PROFORMA"]
 
 
 class FileInfo(TypedDict):
@@ -43,18 +44,46 @@ class FileInfo(TypedDict):
     # 用户上传时声明的文件类型：init_task 由 ai_file_registry.business_type 映射而来
     # （EXTRACT_FI_ACTUALS / EXTRACT_FI_PROFORMA）。未声明的文件在 init 即判 FILE_FAILED、
     # 不进 file_list，所以进来的记录必有值。与 file_format 一样不投影到 state 顶层。
-    data_type: DataType
+    data_type: DeclaredDataType
+    # 文件级解析错误的持久记录（None / 不存在 = 该文件解析无代码错误）。
+    # 由 save_extract_data_to_db_node Step 4 从顶层 state.error_message 同步写入，
+    # save_to_db Step 5 据此判定整 task 终态（所有文件都有 error_message → FAILED）。
+    # 仅由"明确的代码错误"触发：download / LLM API / JSON 解析失败等；no_tables（内容
+    # 上没识别到财务表）等业务软失败**不**写此字段。
     error_message: NotRequired[Optional[str]]
+
+
+class MainGraphState(TypedDict):
+    # ── 任务级（init_task 跑完即填，文件循环全程不动）────────────────
+    ...  # task_id … next_row_id_in_task 不变
+    # Actuals 护栏的截止月（YYYY-MM，处理时刻 UTC，D6）：init_task 每任务取一次，本任务全部
+    # 文件共用（审核 S-7）。NotRequired：START 时还没有。consumer/handlers.py 的 initial_state
+    # 刻意不预填——空串会让护栏 month >= "" 恒真、静默剔光 Actuals，缺键 KeyError 更安全。
+    reference_month: NotRequired[str]
+```
+`FileInfo` 仅新增 `data_type` 及其注释，`error_message` 上方原有的 5 行注释（`state.py:43-47`）原样保留（审核 C-16）。
+
+```python
+# node_return.py · InitTaskReturn 末尾加一行
+    reference_month: str
+
+# parallel_files_node.py · worker 的 state 只拷这几个顶层键；漏加 = 并行路径每个文件 refine KeyError
+_TASK_SCOPED_KEYS = (
+    "task_id", "task_status", "company_id", "created_by", "file_ids", "file_list",
+    "reference_month",
+)
 ```
 
-### P3. `graph/nodes/init_task_node.py`（映射与 Step 3 / 3.1）
+### P3. `graph/nodes/init_task_node.py`（映射、Step 3 / 3.1、返回参考月）与 `extract_financial.fail_uploaded_files`
 ```python
-from ai.agent.financial_extract_graph.state import DataType, FileInfo, MainGraphState
-from lg.db.service.extract_financial import mark_task_processing, update_file_status
+from datetime import datetime, timezone
+
+from ai.agent.financial_extract_graph.state import DeclaredDataType, FileInfo, MainGraphState
+from lg.db.service.extract_financial import fail_uploaded_files, mark_task_processing
 
 # 登记行 business_type → 文件声明类型（设计 D3：对内 EXTRACT_FI_*，对外与单元格 ACTUALS / PROFORMA）。
 # 精确匹配、区分大小写——两个字面值是与 Java（AiFinancialFileDataType）的跨语言契约。
-_DATA_TYPE_BY_BUSINESS_TYPE: dict[str, DataType] = {
+_DATA_TYPE_BY_BUSINESS_TYPE: dict[str, DeclaredDataType] = {
     "EXTRACT_FI_ACTUALS": "ACTUALS",
     "EXTRACT_FI_PROFORMA": "PROFORMA",
 }
@@ -84,7 +113,8 @@ _ERR_DATA_TYPE_NOT_DECLARED = (
             file_list.append(file_info)
 
     # ── Step 3.1: 未声明类型的文件直接判 FILE_FAILED、不进 file_list ─────
-    # 不回退旧推断（设计 D9）。放在读 session 关闭之后：update_file_status 自开写事务。
+    # 不回退旧推断（设计 D9）。放在读 session 关闭之后：fail_uploaded_files 自开写事务，
+    # 且只动仍是 UPLOADED、未删除的行（读与写之间 Java 可能已删除 / 替换该文件，审核 S-10）。
     # 不进 file_list 不影响任务终态：finalize 对空 / 全失败的 file_list 判 FAILED。
     for file_id, business_type in undeclared:
         logger.warning(
@@ -92,22 +122,72 @@ _ERR_DATA_TYPE_NOT_DECLARED = (
             "-> FILE_FAILED (table type not declared)",
             task_id, file_id, business_type,
         )
-        update_file_status(file_id, FileStatus.FILE_FAILED.value, _ERR_DATA_TYPE_NOT_DECLARED)
+    n_failed = fail_uploaded_files([fid for fid, _ in undeclared], _ERR_DATA_TYPE_NOT_DECLARED)
+    if n_failed < len(undeclared):
+        logger.warning(
+            "init_task_node[declared_type]: task_id=%s %d undeclared file(s) no longer "
+            "UPLOADED or deleted meanwhile, left untouched",
+            task_id, len(undeclared) - n_failed,
+        )
     logger.info(
         "init_task_node[read_files]: task_id=%s file_ids=%d files=%d undeclared=%d",
         task_id, len(file_ids), len(file_list), len(undeclared),
     )
+
+    ...  # Step 3.5 / Step 4 不变
+
+    return InitTaskReturn(
+        task_status=TaskStatus.PROCESSING.value,
+        file_list=file_list,
+        current_file_index=0,
+        error_message=None,
+        next_row_id_in_task=next_row_id_in_task,
+        # Actuals 护栏的截止月（D6：处理时刻 UTC）：每任务取一次，本任务全部文件共用；
+        # refine 读 state["reference_month"]，不再逐文件取时钟（审核 S-7）。
+        reference_month=datetime.now(timezone.utc).strftime("%Y-%m"),
+    )
+```
+
+```python
+# lg/db/service/extract_financial.py · 新增，放在 update_file_status 之后（审核 S-10）
+def fail_uploaded_files(file_ids: list[str], error_message: str) -> int:
+    """把仍是 UPLOADED 且未删除的文件置 FILE_FAILED + ``error_message``，返回实际更新行数。
+
+    init_task 判"未声明类型"用。守卫写在 UPDATE 的 WHERE 里（同 ``settle_stuck_file_claims``）：
+    init 读文件清单与这次写之间有窗口，期间 Java 可能已删除 / 替换该文件，不带守卫会把它
+    覆盖成 FILE_FAILED。
+    """
+    if not file_ids:
+        return 0
+    with get_session() as session:
+        n = (
+            session.query(AiFileRegistry)
+            .filter(
+                AiFileRegistry.file_id.in_(file_ids),
+                AiFileRegistry.status == FileStatus.UPLOADED.value,
+                AiFileRegistry.deleted == False,  # noqa: E712
+            )
+            .update(
+                {AiFileRegistry.status: FileStatus.FILE_FAILED.value,
+                 AiFileRegistry.error_message: error_message},
+                synchronize_session=False,
+            )
+        )
+        session.commit()
+    return n
 ```
 
 ### P4. `graph/nodes/shared.py`（两个新函数，放在原 Stage 2.6 的位置）
 ```python
-from ai.agent.financial_extract_graph.state import DataType, MainGraphState, RawRow, TableInfo
+# 顶部 import:state 多导入 DeclaredDataType;`from datetime import datetime, timezone` 删除
+# (唯一使用方是 refine 旧的取时钟处,参考月改读 state)
+from ai.agent.financial_extract_graph.state import DeclaredDataType, MainGraphState, RawRow, TableInfo
 
 # =============================================================================
 # Stage 2.6: 表类型 = 文件声明类型
 # =============================================================================
 def apply_declared_data_type_in_tables(
-    tables: list[TableInfo], file_id: str, *, data_type: DataType,
+    tables: list[TableInfo], file_id: str, *, data_type: DeclaredDataType,
 ) -> list[TableInfo]:
     """Stage 2.6:文件内每张表的 ``data_type`` 统一设为用户上传时声明的类型(需求 R3)。
 
@@ -127,7 +207,7 @@ def apply_declared_data_type_in_tables(
 # Stage 2.65: Actuals 文件剔除当前月及以后的 cell
 # =============================================================================
 def drop_current_and_future_actuals_in_tables(
-    tables: list[TableInfo], file_id: str, *, data_type: DataType, reference_month: str,
+    tables: list[TableInfo], file_id: str, *, data_type: DeclaredDataType, reference_month: str,
 ) -> list[TableInfo]:
     """Stage 2.65:声明为 ACTUALS 的文件,剔除 ``column_month >= reference_month`` 的 cell(需求 R4)。
 
@@ -136,7 +216,8 @@ def drop_current_and_future_actuals_in_tables(
     - 链式推出的月份(is_predict_month=True,含被推成"末月+1"的合计列)同样参与——故须在 Stage 2 之后。
     - 剔空的表整张移除(原本就空的表不动);整文件剔空 = tables=[],与 no_tables 同形。
     - 不重排 column_position / row_position(留洞有先例,下游不要求连续)。
-    - PROFORMA 原样返回(需求 R5)。``reference_month`` 由调用方传入(处理时刻 UTC,D6),便于单测注入。
+    - PROFORMA 原样返回(需求 R5)。``reference_month`` 由 refine 从 state 顶层传入(init_task 每任务
+      取一次,处理时刻 UTC,D6),本函数不取时钟、便于单测注入。
     """
     if data_type != "ACTUALS":
         return tables
@@ -174,18 +255,22 @@ def drop_current_and_future_actuals_in_tables(
     declared = state["file_list"][state["current_file_index"]]["data_type"]
     tables = apply_declared_data_type_in_tables(tables, file_id, data_type=declared)
     # Stage 2.65: Actuals 剔除当前月及以后。须在 Stage 2 之后(推出来的月份也要查)+
-    # 2.7 / 2.85 / 2.45 / 2.5 之前(它们只该处理最终入库的 cell)。
-    reference_month = datetime.now(timezone.utc).strftime("%Y-%m")
+    # 2.7 / 2.85 / 2.45 / 2.5 之前(它们只该处理最终入库的 cell)。截止月由 init_task
+    # 每任务取一次(state 顶层 reference_month),同任务全部文件共用,本节点不取时钟。
     tables = drop_current_and_future_actuals_in_tables(
-        tables, file_id, data_type=declared, reference_month=reference_month,
+        tables, file_id, data_type=declared, reference_month=state["reference_month"],
     )
+    # Stage 2.7: 跨 logical table 账户对齐补缺。必须在 Stage 2 之后(依赖月份补齐)
+    # + Stage 2.5 之前(让补出来的 cells 也走 source_is_mapped 重算)。
+    # 触发条件严:同 file + 同 table_name + 月份连续 + 单 group ≥ 2 table。
     tables = infer_missing_rows_per_account(tables, file_id)
+    # 2.85 / 2.45 / 2.5 及其注释不变(2.85 注释里的"在 2.8 之后"改"在 2.65 之后")
     tables = dedupe_duplicate_month_cells_in_tables(tables, file_id)
     tables = apply_zero_default_in_tables(tables)
     tables = finalize_source_is_mapped_in_tables(tables)
 ```
 
-### P6. 单测桩（`tests/ai/nodes/test_init_task_declared_type.py`、`test_declared_data_type.py`）
+### P6. 单测桩（`tests/ai/nodes/test_init_task_declared_type.py`、`test_declared_data_type.py`、`test_parallel_files.py` 新增用例）
 ```python
 from types import SimpleNamespace
 
@@ -233,9 +318,15 @@ def _row(file_id, business_type):
 
 def _run(monkeypatch, rows):
     failed = []
+
+    def _fail(ids, msg):
+        if ids:                 # 全部已声明时 init 也会以空列表调用一次,不记
+            failed.append((list(ids), msg))
+        return len(ids)
+
     monkeypatch.setattr(mod, "get_session", lambda: _Session(rows))
     monkeypatch.setattr(mod, "mark_task_processing", lambda *a: True)
-    monkeypatch.setattr(mod, "update_file_status", lambda *a: failed.append(a))
+    monkeypatch.setattr(mod, "fail_uploaded_files", _fail)
     state = {"task_id": "t1", "file_ids": [r[0].file_id for r in rows], "created_by": "u1"}
     return mod.init_task_node(state), failed
 
@@ -257,6 +348,90 @@ def test_actuals_drops_current_and_future_months():
     out = drop_current_and_future_actuals_in_tables(
         [tbl], "f1", data_type="ACTUALS", reference_month="2026-10")
     assert [c["column_month"] for c in out[0]["raw_rows"]] == ["2026-08", "2026-09"]
+
+
+# 节点级用例的 state:参考月经 state 注入、不取时钟(审核 S-7)。
+# test_renumber_column_positions.py:447 同样补 file_list(data_type=PROFORMA,护栏不剔)/
+# current_file_index / reference_month 三个键。
+from ai.agent.financial_extract_graph.nodes import shared   # 落地放文件顶部
+
+
+def _refine_state(tables, data_type, reference_month="2026-10"):
+    return {"task_id": "t1", "file_id": "f1", "tables": tables,
+            "file_list": [{"file_id": "f1", "file_name": "f1.xlsx", "file_status": "PROCESSING",
+                           "file_format": "excel", "data_type": data_type}],
+            "current_file_index": 0, "reference_month": reference_month}
+
+
+def test_refine_uses_task_reference_month_not_clock(monkeypatch):
+    monkeypatch.setattr(shared, "_apply_rag_override_safe", lambda tables, *a: tables)
+    tbl = {"table_id": "t", "table_name": "P&L", "page_number": 1, "is_financial": True,
+           "data_type": "ACTUALS", "raw_rows": [_cell(1, "2026-05")]}
+    out = shared.refine_extraction_node(_refine_state([tbl], "ACTUALS", reference_month="2000-01"))
+    assert out["tables"] == []          # 2026-05 >= 2000-01 → 剔光:读的是 state 而不是时钟
+
+
+# init:参考月每任务取一次
+from datetime import datetime, timezone   # 落地放文件顶部
+
+
+def test_reference_month_is_set_once_per_task(monkeypatch):
+    out, _ = _run(monkeypatch, [_row("f1", "EXTRACT_FI_ACTUALS"), _row("f2", "EXTRACT_FI_PROFORMA")])
+    assert out["reference_month"] == datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+# fail_uploaded_files 的守卫(桩写法同 tests/consumer/test_handlers_recovery.py:295)
+def test_fail_uploaded_files_update_carries_uploaded_and_deleted_guard(monkeypatch):
+    import contextlib
+
+    import lg.db.service.extract_financial as ef
+
+    updates = []
+
+    class _Q:
+        def __init__(self):
+            self._filters = []
+
+        def filter(self, *args):
+            self._filters.extend(args)
+            return self
+
+        def update(self, values, synchronize_session=None):
+            updates.append((list(values.values()), " AND ".join(str(f) for f in self._filters)))
+            return 1
+
+    class _S:
+        def query(self, *entities):
+            return _Q()
+
+        def commit(self):
+            pass
+
+    @contextlib.contextmanager
+    def _get_session():
+        yield _S()
+
+    monkeypatch.setattr(ef, "get_session", _get_session)
+    assert ef.fail_uploaded_files(["f1"], "msg") == 1
+    (values, where), = updates
+    assert "file_id" in where and "status" in where and "deleted" in where
+    assert "FILE_FAILED" in values and "msg" in values
+
+
+# test_parallel_files.py:_state() 补 "reference_month": "2026-10",并新增
+def test_worker_state_carries_reference_month(monkeypatch):
+    from ai.agent.financial_extract_graph.nodes import parallel_files_node as helper
+
+    _install_fakes(monkeypatch, helper, rows_per_file={})
+    seen = []
+
+    def _refine(st):
+        seen.append(st["reference_month"])      # 漏进 _TASK_SCOPED_KEYS → KeyError
+        return {"tables": []}
+
+    monkeypatch.setattr(helper, "refine_extraction_node", _refine)
+    helper.parallel_extract_files_node(_state(3))
+    assert seen == ["2026-10"] * 3
 ```
 
 ## Java
@@ -341,6 +516,7 @@ import java.util.List;
 public class AiFinancialCommitUploadRequest {
 
   @NotBlank
+  @Size(max = 36)
   @Schema(description = "公司 ID", requiredMode = Schema.RequiredMode.REQUIRED)
   private String companyId;
 
@@ -409,7 +585,7 @@ public class AiFinancialCommitUploadFileItem {
 ```
 
 ### J6. ServiceImpl 片段
-需新增 import：`java.util.LinkedHashMap`、`java.util.Map`、`java.util.Optional`，以及 `AiFinancialFileDataType`、`AiFinancialCommitUploadRequest`、`AiFinancialCommitUploadFileItem`。
+需新增 import：`java.util.LinkedHashMap`、`java.util.Map`，以及 `AiFinancialFileDataType`、`AiFinancialCommitUploadRequest`、`AiFinancialCommitUploadFileItem`（replaceFile 改用 `orElseThrow`，不再需要 `java.util.Optional`）。
 ```java
   /** 接口值 ACTUALS / PROFORMA → 登记行 business_type（映射见 AiFinancialFileDataType）；空或非法抛 BadRequestException。 */
   private static String toBusinessType(String dataType) {
@@ -418,24 +594,35 @@ public class AiFinancialCommitUploadFileItem {
       .orElseThrow(() -> new BadRequestException("dataType must be ACTUALS or PROFORMA: " + dataType));
   }
 
-  // ── commitUpload：替换原 :391-402 去重段，循环改遍历 map ──
+  // ── commitUpload：替换原 :391-402 去重段并加已提交校验，循环改遍历 map ──
   @Override
   @Transactional(propagation = Propagation.REQUIRED, rollbackFor = Exception.class)
   public AiFinancialCommitUploadResponse commitUpload(AiFinancialCommitUploadRequest request) {
     String companyId = request.getCompanyId().trim();
-    if (request.getFiles() == null || request.getFiles().isEmpty()) {
-      throw new BadRequestException("files is required");
-    }
-    // fileId → business_type（保持请求顺序）。类型在建任务之前全部校验完，失败不留空任务；
+    // fileId → business_type（保持请求顺序）。类型在建任务之前全部校验完，失败不建任务；
     // 同一文件重复且类型相同 → 去重；类型不同 → 拒绝（R6：一个文件只能是一种类型）
     Map<String, String> businessTypeByFileId = new LinkedHashMap<>();
-    for (AiFinancialCommitUploadFileItem item : request.getFiles()) {
-      String fileId = item.getFileId().trim();
-      String businessType = toBusinessType(item.getDataType());
-      String previous = businessTypeByFileId.putIfAbsent(fileId, businessType);
-      if (previous != null && !previous.equals(businessType)) {
-        throw new BadRequestException("Conflicting dataType for file: " + fileId);
+    if (request.getFiles() != null) {
+      for (AiFinancialCommitUploadFileItem item : request.getFiles()) {
+        if (item == null || StringUtils.isBlank(item.getFileId())) {
+          continue;   // 同旧实现跳过空项；入口 @NotNull / @NotBlank 已拦，这里只防直接调用时 NPE（审核 C-7）
+        }
+        String fileId = item.getFileId().trim();
+        String businessType = toBusinessType(item.getDataType());
+        String previous = businessTypeByFileId.putIfAbsent(fileId, businessType);
+        if (previous != null && !previous.equals(businessType)) {
+          throw new BadRequestException("Conflicting dataType for file: " + fileId);
+        }
       }
+    }
+    if (businessTypeByFileId.isEmpty()) {
+      throw new BadRequestException("files is required");
+    }
+    // 已登记的文件不得再次提交：@Id 是业务赋值的 file_id，save 新对象会 merge 覆盖已有行（审核 S-6）。
+    // findAllById 不带 deleted 条件，软删行同样拦
+    List<AiFileRegistry> registered = extractionFileRepository.findAllById(businessTypeByFileId.keySet());
+    if (!registered.isEmpty()) {
+      throw new BadRequestException("File already committed: " + registered.get(0).getFileId());
     }
 
     String bucketName = s3Properties.getBucketName();
@@ -479,23 +666,29 @@ public class AiFinancialCommitUploadFileItem {
       }
     }
 
-  // ── replaceFile：替换原 :276-287 ──
-    // 1. 旧文件下线：ai_file_registry 软删 + files/S3 物理删。类型须在软删前取到（软删后按未删条件查不到）
-    Optional<AiFileRegistry> oldRow = extractionFileRepository.findByFileIdAndDeletedFalse(oldId);
-    String inheritedBusinessType = oldRow.map(AiFileRegistry::getBusinessType).orElse(null);
-    oldRow.ifPresent(this::softDeleteExtractionFile);
-    fileRepository.findById(oldId).ifPresent(f -> fileService.delete(oldId));
-
-    // 2. 新文件转 UPLOADED 并继承旧文件的声明类型（R8），推进 task 状态 + 触发 Python 解析（本次仅解析 newId）
+  // ── replaceFile：替换原 :276-287（先校验、后删除，审核 S-5）──
+    // 1. 校验：旧登记行必须存在（assertFileBelongsToTask 在登记行、files 行都不在时会放行）；
+    //    新行必须 PENDING。都在删除之前做——fileService.delete 的 S3 删除不随事务回滚
+    AiFileRegistry oldRow = extractionFileRepository.findByFileIdAndDeletedFalse(oldId)
+      .orElseThrow(() -> new BadRequestException("Old file not found for task: " + oldId));
     AiFileRegistry newRow = extractionFileRepository.findByFileIdAndDeletedFalse(newId)
       .orElseThrow(() -> new BadRequestException("New ai_file_registry row not found or already deleted: " + newId));
     if (!"PENDING".equals(newRow.getStatus())) {
       throw new BadRequestException("New file must be PENDING for replace; current=" + newRow.getStatus());
     }
+    String inheritedBusinessType = oldRow.getBusinessType();   // 软删前取（软删后按未删条件查不到）
+
+    // 2. 旧文件下线：ai_file_registry 软删 + files/S3 物理删
+    softDeleteExtractionFile(oldRow);
+    fileRepository.findById(oldId).ifPresent(f -> fileService.delete(oldId));
+
+    // 3. 新文件转 UPLOADED 并继承旧文件的声明类型（R8），推进 task 状态 + 触发 Python 解析（本次仅解析 newId）
     if (inheritedBusinessType == null) {
-      // 上线前上传的旧文件没有类型（R11 不补写）：照设计原样复制，Python 会把新文件判为 FILE_FAILED
-      log.warn("[replaceFile] old file has no declared type, new file inherits null: taskId={}, oldFileId={}, newFileId={}",
-        tid, oldId, newId);
+      // 上线前上传的旧文件没有类型（R11 不补写）：照设计原样复制，Python 会把新文件判为 FILE_FAILED。
+      // 是否改为直接拒绝待产品拍板（dev-java §10 J-R2）。traceId 由 MDC 带出（coding.md §11）
+      log.warn("[AI-Extract] replaceFile: old file has no declared type, new file inherits null: "
+        + "taskId={}, organizationId={}, userId={}, oldFileId={}, newFileId={}",
+        tid, task.getOrganizationId(), SecurityUtils.getUserId(), oldId, newId);
     }
     newRow.setBusinessType(inheritedBusinessType);   // 无条件覆盖：替换以旧文件为准
     newRow.setStatus("UPLOADED");
@@ -521,6 +714,7 @@ public class AiFinancialCommitUploadFileItem {
   private String businessType;
 ```
 另需同步：类 javadoc 第 29 行"本财务模块仅写 OCR 相关列"、字段组注释第 88-90 行"本财务模块不写这些列"，改为"除 business_type 外不写"。
+另：`AiFinancialExtractionMappingData.parentTableId` 的 javadoc（第 39-44 行）与 `AiFinancialPullExtractRowResponse.parentTableId` 的 `@Schema` 描述（第 30-33 行）各补一句"历史字段：sprint121 起新任务恒为 NULL，仅供历史回放"（Python 停止写 parent_table_id，审核 A-7）。
 
 ### J8. 单测骨架
 ```java
@@ -628,7 +822,81 @@ class AiFinancialExtractionDeclaredTypeTest {
     assertTrue(oldRow.getDeleted());
   }
 
-  // T5–T8、T10、T12 同构，省略
+  /** 审核 S-6：已有登记行（含软删）的 fileId 不得再次提交——save 会 merge 覆盖旧行。 */
+  @Test
+  void commitUploadRejectsAlreadyRegisteredFile() {
+    AiFileRegistry existing = registryRow("f-1", "REVIEW_READY", "EXTRACT_FI_ACTUALS");
+    existing.setDeleted(true);   // findAllById 不带 deleted 条件，软删行同样拦
+    when(extractionFileRepository.findAllById(any())).thenReturn(List.of(existing));
+
+    BadRequestException ex = assertThrows(BadRequestException.class,
+      () -> service.commitUpload(commitRequest(item("f-1", "ACTUALS"))));
+
+    assertEquals("File already committed: f-1", ex.getMessage());
+    verify(taskRepository, never()).save(any());
+    verify(extractionFileRepository, never()).save(any());
+    verifyNoInteractions(sqsProcessor);
+  }
+
+  /** 审核 S-5：旧登记行不存在（files 行也没有，assertFileBelongsToTask 放行）→ 拒绝，且什么都不删。 */
+  @Test
+  void replaceFileRejectsMissingOldRow() {
+    when(taskRepository.findById(TASK_ID)).thenReturn(Optional.of(task("REVIEWING")));
+    AiFileRegistry newRow = registryRow("new", "PENDING", null);
+    when(extractionFileRepository.findByFileIdAndDeletedFalse("old")).thenReturn(Optional.empty());
+    when(extractionFileRepository.findByFileIdAndDeletedFalse("new")).thenReturn(Optional.of(newRow));
+    when(fileRepository.findById("old")).thenReturn(Optional.empty());
+    when(fileRepository.findById("new")).thenReturn(Optional.of(new FileObject()));
+
+    BadRequestException ex = assertThrows(BadRequestException.class,
+      () -> service.replaceFile(TASK_ID, replaceRequest()));
+
+    assertEquals("Old file not found for task: old", ex.getMessage());
+    assertEquals("PENDING", newRow.getStatus());
+    verify(fileService, never()).delete(any());
+  }
+
+  /** 审核 S-5：新行不是 PENDING → 拒绝，旧文件没被删（先校验后删除）。 */
+  @Test
+  void replaceFileValidatesNewRowBeforeDeletingOld() {
+    when(taskRepository.findById(TASK_ID)).thenReturn(Optional.of(task("REVIEWING")));
+    AiFileRegistry oldRow = registryRow("old", "REVIEW_READY", "EXTRACT_FI_ACTUALS");
+    when(extractionFileRepository.findByFileIdAndDeletedFalse("old")).thenReturn(Optional.of(oldRow));
+    when(extractionFileRepository.findByFileIdAndDeletedFalse("new"))
+      .thenReturn(Optional.of(registryRow("new", "UPLOADED", null)));
+    when(fileRepository.findById("new")).thenReturn(Optional.of(new FileObject()));
+
+    assertThrows(BadRequestException.class, () -> service.replaceFile(TASK_ID, replaceRequest()));
+
+    assertFalse(oldRow.getDeleted());
+    verify(fileService, never()).delete(any());
+  }
+
+  // T5、T10、T12 与上面同构，省略。
+  // T6–T8 走 presignUploads，比 commitUpload 多下面这些 stub（审核 C-3）；请求项的 length 是 Long，必须赋值（:129 拆箱）
+  private void stubPresign() {
+    when(s3Properties.getBucketName()).thenReturn(BUCKET);
+    when(fileRepository.saveAndFlush(any())).thenAnswer(inv -> {   // 不 stub 则 persisted 为 null，:149 NPE
+      FileObject fo = inv.getArgument(0);
+      fo.setId(UUID.randomUUID().toString());
+      return fo;
+    });
+    when(storage.presignPutObject(eq(BUCKET), anyString(), anyString(), any()))   // 不 stub 则 :186 NPE
+      .thenReturn(new PresignedPutObjectResult("https://s3.example/put", Map.of(), 900L));
+  }
+
+  /** T6 / T7 带 taskId：任务状态不能是 UPLOAD_COMPLETE / PROCESSING，否则 :113 blocksNewUpload 拒绝。 */
+  private void stubTaskForPresign() {
+    when(taskRepository.findByIdAndCompanyIdAndDeletedFalse(TASK_ID, COMPANY_ID))
+      .thenReturn(Optional.of(task("REVIEWING")));
+  }
+
+  private static AiFinancialFileReplaceRequest replaceRequest() {
+    AiFinancialFileReplaceRequest request = new AiFinancialFileReplaceRequest();
+    request.setOldFileId("old");
+    request.setNewFileId("new");
+    return request;
+  }
 
   private void stubStagedFile(String fileId) {
     FileObject fo = new FileObject();
@@ -697,6 +965,15 @@ class AiFinancialCommitUploadRequestValidationTest {
     request.setCompanyId("company-1");
     request.setFiles(List.of(item));
     assertTrue(violatedPaths(request).contains("files[0].dataType"));
+  }
+
+  /** V4：presign 的 dataType 可选但须合法；只校验这一个字段，未赋值的 fileName / length 不掺进来（审核 C-4）。 */
+  @Test
+  void presignDataTypeIsOptionalButMustBeValid() {
+    AiFinancialPresignUploadFileItem item = new AiFinancialPresignUploadFileItem();
+    assertTrue(validator.validateProperty(item, "dataType").isEmpty());
+    item.setDataType("X");
+    assertEquals(1, validator.validateProperty(item, "dataType").size());
   }
 
   private static Set<String> violatedPaths(Object bean) {
@@ -797,7 +1074,7 @@ export const ACTUALS_CURRENT_MONTH_NOTE =
 
 ### W5. `ImportStatementsModal.tsx`（片段）
 ```tsx
-import { CloseOutlined, DownOutlined } from '@ant-design/icons';
+import { DownOutlined } from '@ant-design/icons'; // 原 CloseOutlined 一直没用（关闭图标是 <img>，tsc 报 TS6133），顺手删除（审核 C-25）
 import { Alert, Dropdown, Menu, Modal, Progress, Select } from 'antd';
 import type { FinancialDataType } from '@/services/api/ai/dto';
 import {
@@ -1177,6 +1454,15 @@ class FakeXHR {
   abort() { this.handlers.abort?.(); }
 }
 
+// ⑦ 专用：send() 不触发 load，文件停在上传中；abort() 沿用父类，触发组件注册的 abort 分支（审核 C-20）
+class HangingXHR extends FakeXHR {
+  static instances: HangingXHR[] = [];
+  aborted = false;
+  constructor() { super(); HangingXHR.instances.push(this); }
+  send() {}
+  abort() { this.aborted = true; super.abort(); }
+}
+
 const mockGetUploadUrl = getAiUploadUrl as jest.Mock;
 const mockCommit = commitUpload as jest.Mock;
 const fileOf = (name: string) => new File(['abc'], name);
@@ -1190,7 +1476,8 @@ async function addFiles(names: string[]) {
   await act(async () => {
     fireEvent.change(input, { target: { files: names.map(fileOf) } });
   });
-  await waitFor(() => expect(screen.queryByText(/%$/)).toBeNull()); // 进度百分比消失 = 全部 done
+  // 进度百分比消失 = 全部 done；多行同时上传时 queryByText 会因多个匹配而抛错，改用 queryAllByText（审核 C-21）
+  await waitFor(() => expect(screen.queryAllByText(/%$/)).toHaveLength(0));
 }
 
 function pickRowType(rowIndex: number, label: string) {
@@ -1265,10 +1552,43 @@ it('顶部固定显示 Actuals 当月说明', () => {
     screen.getByText('For Actuals files, data for the current month and later is not extracted.'),
   ).toBeInTheDocument();
 });
+
+it('上传中 Clear All 只清上传中的文件（行为回归，审核 C-20）', async () => {
+  renderModal();
+  await addFiles(['a.xlsx']); // FakeXHR 自动 load → a 已 done
+  HangingXHR.instances = [];
+  Object.defineProperty(window, 'XMLHttpRequest', { value: HangingXHR, writable: true });
+  const input = document.body.querySelector('input[type="file"]') as HTMLInputElement;
+  await act(async () => {
+    fireEvent.change(input, { target: { files: [fileOf('b.xlsx')] } });
+  });
+  await waitFor(() => expect(HangingXHR.instances).toHaveLength(1)); // b 的 XHR 已发出、停在上传中
+  fireEvent.click(screen.getByRole('button', { name: 'Clear All' }));
+  expect(HangingXHR.instances[0].aborted).toBe(true);
+  expect(screen.queryByText('b.xlsx')).toBeNull();
+  expect(screen.getByText('a.xlsx')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Clear All' })).toBeNull();
+});
+
+it('只有一个文件：批量设置照常显示，选好类型后 Next 可用（审核 D-13）', async () => {
+  renderModal();
+  await addFiles(['a.xlsx']);
+  expect(screen.getByText(/Set table type for all files to/)).toBeInTheDocument();
+  expect(nextBtn()).toBeDisabled();
+  pickRowType(0, 'Actuals');
+  expect(nextBtn()).toBeEnabled();
+});
 ```
 
 ### W13. 单测骨架：`FileSelector.test.tsx`（关键用例）
 ```tsx
+import React from 'react';
+// toBeDisabled 来自 jest-dom；jest.config.js 无 setupFilesAfterEnv，须逐文件显式引入（先例 AssessmentPage.test.tsx）（审核 C-19）
+import '@testing-library/jest-dom';
+import { render, fireEvent, screen } from '@testing-library/react';
+import FileSelector from './FileSelector';
+
+// 关键用例体（写在 it(...) 内）
 const clickSpy = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined);
 render(
   <FileSelector files={twoReadyFiles} uploadStage="done" fromModal selectedFileId={null}
@@ -1290,6 +1610,7 @@ expect(onUploadFiles).toHaveBeenCalledWith([f], 'PROFORMA');
 
 ### W14. 单测骨架：`useOCRData.test.tsx`（harness 写法，仓库没有 renderHook）
 ```tsx
+import { getAiUploadUrl } from '@/services/service/ai/aiService';
 jest.mock('umi', () => ({ history: { push: jest.fn() } }));
 jest.mock('@/services/service/ai/aiService', () => ({
   getAiUploadUrl: jest.fn(), pullExtractData: jest.fn(), pullExtractDataIncrement: jest.fn(),
@@ -1304,6 +1625,10 @@ jest.mock('../utils/uploadValidation', () => ({
   activeUploadNames: () => new Set<string>(),
 }));
 jest.mock('../components/UploadErrorToast', () => ({ pushUploadError: jest.fn() }));
+
+const mockGetUploadUrl = getAiUploadUrl as jest.Mock;
+// jest.config.js 没开 clearMocks / resetMocks：每例前清掉上一例的调用记录，否则 replaceFile 用例读到的 calls[0] 是上一例 uploadAdditionalFiles 的（审核 C-2）
+beforeEach(() => mockGetUploadUrl.mockReset());
 
 let api: ReturnType<typeof useOCRData>;
 const Harness: React.FC = () => { api = useOCRData(); return null; };

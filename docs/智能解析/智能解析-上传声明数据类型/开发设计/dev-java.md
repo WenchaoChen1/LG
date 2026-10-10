@@ -13,6 +13,7 @@
 
 下文路径简写：`extract/` = `CIOaas-api/gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/ai/financial/extract/`。
 行号基于 `CIOaas-api` 分支 `sprint121`、提交 `ccf3430f6`（2026-10-09）。
+2026-10-10 按第⑥阶段开发设计审核修订，改动处标「（审核 X-n）」。
 
 ---
 
@@ -26,18 +27,18 @@
 | commitUpload 建任务 + 建登记行 + 发 SQS | `service/AiFinancialExtractionServiceImpl.java:388-451`：去重 fileIds（`:392-402`）→ 建 task（`:406`）→ 逐个 HEAD + `new AiFileRegistry` + `save`（`:411-436`）→ 任务置 `UPLOAD_COMPLETE` + 发 SQS（`:442-444`） | ✅ |
 | 带 taskId 的 getUploadUrl 建 PENDING 登记行 | `ServiceImpl:109-110` 以 `taskId` 是否为空区分；`:155-166` 建 PENDING 行，`:171-173` `saveAll` | ✅ |
 | uploadComplete 请求不变 | `ServiceImpl:311-380`；本批 = `kept` 中 `PENDING → UPLOADED` 的行（`:357-364`） | ✅ |
-| replaceFile 请求不变 | `ServiceImpl:251-293`；旧行在 `:277` 软删，新行在 `:281-287` 置 `UPLOADED` | ✅ 需在软删前取旧行的类型 |
+| replaceFile 请求不变 | `ServiceImpl:251-293`；旧行在 `:277` 软删，新行在 `:281-287` 置 `UPLOADED` | ✅ 需在软删前取旧行的类型；顺序改为先校验后删除（§4.4，审核 S-5） |
 | SQS 在提交之后发 | `infrastructure/messaging/AiFinancialExtractionSqsProcessor.java:62-73` + `:125-137`：在事务内调用时挂到 `afterCommit` | ✅ Python 读到的一定是已提交的 `business_type` |
 | 财务抽取行的 `business_type` 全部为空、Java 从未写过 | `grep setBusinessType / getBusinessType` 在 `web/ai/` 下 0 处 | ✅ |
 | `business_type` 无 CHECK 约束、长度够 | 实体 `domain/AiFileRegistry.java:102` `length = 40`；Python 迁移只有 COMMENT 没有 CHECK | ✅ `EXTRACT_FI_PROFORMA` 19 个字符 |
 | Actuals 当月护栏 | `service/AiFinancialExtractionConflictServiceImpl.java:665-668` + `:1678`（`isClosedActualsMonth`） | ✅ 不动 |
-| 校验失败返回 400 | **不成立**，见 §5 | ⚠️ |
+| 校验失败返回 400 | 本工程没有返回 HTTP 400 的路径（§5.2） | ✅ 原设计写 400，已按 §11 同步修订（审核 C-9） |
 
 **模块结构现状**：本模块是平铺包（`controller/ service/ domain/ repository/ util/ vo/`），没有
 `interfaces/application/domain` 四层；6 个 Service 方法签名**全部直接收 Request**，枚举放在 `util/`
 且不带 `Enum` 后缀（`util/AiFinancialExtractionTaskStatus.java`）。本需求**沿用模块现状**，新类按现有位置
 与命名放，不在本需求里重构分层。这一点偏离 `standards/architecture.md` §1 与 `coding.md` §2
-（「Service 不接触 Request」），留到开发设计审核时确认（§10 J-R1）。
+（「Service 不接触 Request」），**经第⑥阶段审核同意，登记为模块例外**（2026-10-10，§10 J-R1）。
 
 ---
 
@@ -53,12 +54,15 @@
 | 6 | `extract/service/AiFinancialExtractionService.java` | 改 | `commitUpload` 签名（`:37`）与 javadoc（`:30-36`） |
 | 7 | `extract/service/AiFinancialExtractionServiceImpl.java` | 改 | 四个入口 + 一个私有转换方法，§4 |
 | 8 | `extract/domain/AiFileRegistry.java` | 改（只改注释） | §7 |
-| 9 | `extract/vo/request/AiFinancialStagedFilesRequest.java` | 字段不动 | 类注释 `:11-15` 的「Shared by commitUpload and batchDeleteByIds」改完后失效，建议只删掉 commitUpload 这半句 |
-| 10 | 单测两个新文件 | **新增** | §9 |
+| 9 | `extract/domain/AiFinancialExtractionMappingData.java`、`extract/vo/response/AiFinancialPullExtractRowResponse.java` | 改（只改注释） | `parentTableId` 的 javadoc（`:39-44`）与 `@Schema` 描述（`:30-33`）补一句「历史字段：sprint121 起新任务恒为 NULL，仅供历史回放」——Python 停止写 `parent_table_id`（dev-python §7）（审核 A-7） |
+| 10 | `extract/vo/request/AiFinancialStagedFilesRequest.java` | 字段不动 | 类注释 `:11-15` 的「Shared by commitUpload and batchDeleteByIds」改完后失效，建议只删掉 commitUpload 这半句 |
+| 11 | `extract/service/AiFinancialExtractionConflictServiceImpl.java` | 改（删 1 行） | `applyUserEditsToMappingData` 不再写 `editSourceDataType`（删 `:562`），§4.5（审核 S-4，已拍板） |
+| 12 | `extract/vo/request/AiFinancialEditedCellItem.java` | 改（只改注释） | `editSourceDataType`（`:43-45`）字段保留，`@Schema` 描述改为「sprint121 起忽略、不再落库」 |
+| 13 | 单测两个新文件 | **新增** | §9 |
 
-**不改**：SQS 消息（`contract/AiFinancialExtractionSqsMessage.java`）、verify / complete
-（`AiFinancialExtractionConflictServiceImpl`）、`AiFinancialStagedFilesRequest` 的字段、Repository、
-`/files/batchDeleteByIds`。
+**不改**：SQS 消息（`contract/AiFinancialExtractionSqsMessage.java`）、verify / complete 的写入逻辑
+（`AiFinancialExtractionConflictServiceImpl` 只删 §4.5 那一行）、`AiFinancialStagedFilesRequest` 的字段、Repository（§4.1 的已提交校验用
+`JpaRepository` 自带的 `findAllById`）、`/files/batchDeleteByIds`。
 
 ---
 
@@ -69,10 +73,10 @@
 | `ACTUALS` | `EXTRACT_FI_ACTUALS` |
 | `PROFORMA` | `EXTRACT_FI_PROFORMA` |
 
-只提供两个静态方法，形状照抄同目录 `AiFinancialExtractionTaskStatus.fromCode`：
+只提供两个静态方法：
 
-- `Optional<AiFinancialFileDataType> fromCode(String raw)`：接口值转枚举，空或不认识返回 empty（区分大小写，
-  与请求上的 `@Pattern` 一致）。
+- `Optional<AiFinancialFileDataType> fromCode(String raw)`：接口值转枚举，空或不认识返回 empty，区分大小写。
+  形状同 `AiFinancialExtractionTaskStatus.fromCode`，但不 trim（与 `@Pattern` 一致）（审核 C-6）。
 - `boolean isDeclaredBusinessType(String businessType)`：登记行上的值是不是两个声明类型之一；历史行的 NULL 返回 false。
 
 **为什么放 `util/` 而不是 `gstdev-cioaas-common`**：只有本模块用，不跨业务域（`architecture.md` §1.1 只要求
@@ -89,21 +93,30 @@ Service 里加一个私有静态方法 `toBusinessType(String dataType)`：调 `
 
 ### 4.1 `POST /tasks/commitUpload`
 
-**请求**：`{companyId, files: [{fileId, dataType}]}`，字段与校验注解见 §5.1。响应不变。
+**请求**：`{companyId, files: [{fileId, dataType}]}`，字段与校验注解见 §5.1。`companyId` 比旧类多一个
+`@Size(max = 36)`：它会拼进 staging 前缀并写入 `company_id`（实体 `length = 36`，`AiFileRegistry.java:75`），超长值在入口就拦掉（审核 S-10）。
+响应不变。
 
-**Service 改动**（`:388-451`，主流程顺序不变，只换掉两处）：
+**Service 改动**（`:388-451`，主流程顺序不变，换掉两处、加一处）：
 
 1. **去重段**（`:391-402`）：`Set<String> fileIds` 换成 `LinkedHashMap<String, String> businessTypeByFileId`
    （fileId → business_type，保持请求顺序）。逐项 `toBusinessType(item.getDataType())` 后 `putIfAbsent`：
+   - 空项（`item == null` 或 `fileId` 为空）`continue` 跳过，与旧实现跳过空 fileId 的行为一致；入口
+     `@NotNull` / `@NotBlank` 已拦，这里只防直接调用 Service 时 NPE（审核 C-7）。
    - 同一 fileId 重复出现、类型相同：去重（与原先 `LinkedHashSet` 去重的行为一致）。
    - 同一 fileId 重复出现、**类型不同**：抛 `BadRequestException("Conflicting dataType for file: " + fileId)`
      （需求 R6：一个文件只能是一种类型。原实现是静默去重，换成映射后不挡的话就成了「后一个覆盖前一个」）。
-   - 原 `"fileIds is required"` 的空列表兜底保留，文案改成 `"files is required"`（`@NotEmpty` 已在入口拦截，
-     这里只防直接调用 Service）。
-2. **建登记行**（`:425-434`）：在 `row.setDeleted(Boolean.FALSE)` 之后加
+   - 原 `"fileIds is required"` 的兜底保留在循环之后（map 为空即抛），文案改成 `"files is required"`。
+2. **已提交校验**（新增，审核 S-6）：`AiFileRegistry` 的 `@Id` 是业务赋值的 `file_id`（`AiFileRegistry.java:52-54`），
+   `save()` 一个 new 出来的对象时 Spring Data 判为非新实体、走 `merge`，库里已有同 `file_id` 的行（含软删行，
+   实体没有 `@SQLRestriction`）会被整行覆盖。现在重复提交只是碰巧失败：merge 不触发 `@PrePersist`，`created_at`
+   被写成 NULL 撞 NOT NULL（`AiFileRegistry.java:135-136`），落 `Throwable` 兜底返回 500。改为在去重之后、建任务之前用 `JpaRepository`
+   自带的 `findAllById(businessTypeByFileId.keySet())`（不带 `deleted` 条件，软删行也查得到）查一次，查到任意一行就抛
+   `BadRequestException("File already committed: " + fileId)`。
+3. **建登记行**（`:425-434`）：在 `row.setDeleted(Boolean.FALSE)` 之后加
    `row.setBusinessType(businessTypeByFileId.get(fileId))`。循环改为遍历 `businessTypeByFileId` 的 entry。
 
-所有类型校验都在 `resolveOrCreateTask`（`:406`）**之前**完成，失败时不会留下空任务。HEAD 校验、`missing` /
+类型校验与已提交校验都在 `resolveOrCreateTask`（`:406`）**之前**完成，失败时不会建任务。HEAD 校验、`missing` /
 `committed` 两个清单、任务状态推进、SQS 都不动。
 
 ### 4.2 `POST /tasks/getUploadUrl`
@@ -127,22 +140,44 @@ Service 里加一个私有静态方法 `toBusinessType(String dataType)`：调 `
 
 两个关键点：
 
-- **只校验 `PENDING` 行**：`fileIds` 里允许出现已解析的历史文件（`:301-302`、`:365` 的注释与分支），上线前建的任务里
+- **只校验 `PENDING` 行**：`fileIds` 里允许出现已解析的历史文件（`:299` 的 javadoc、`:365` 的分支注释）（审核 C-5），上线前建的任务里
   这些行的 `business_type` 是 NULL（需求 R11 不补写），全量校验会把老任务的"上传新文件"整个拦死。
 - **放在改状态的循环（`:356-371`）之前**：先校验后改写，失败时没有任何行被改。即便在中途抛出，整个事务也会回滚，
   挂在 afterCommit 的 SQS 不会发出。
 
 ### 4.4 `POST /tasks/{taskId}/file/replace`
 
-**请求**不变。**Service 改动**：
+**请求**不变。**Service 改动**（替换 `:276-287`，先校验、后删除）：
 
-1. `:277` 的软删要先拿到旧行：把 `findByFileIdAndDeletedFalse(oldId).ifPresent(this::softDeleteExtractionFile)`
-   拆成"先查出 `Optional` → 再 `ifPresent` 软删"，并记下 `oldRow.map(AiFileRegistry::getBusinessType).orElse(null)`。
-   **必须在软删之前或同一次查询里取**，软删之后 `findByFileIdAndDeletedFalse` 就查不到了。
-2. `:286` `newRow.setStatus("UPLOADED")` 旁边加 `newRow.setBusinessType(inherited)`：**无条件覆盖**，即使前端调
+1. **旧登记行必须存在**（审核 S-5）：`:277` 的 `findByFileIdAndDeletedFalse(oldId).ifPresent(...)` 改成
+   `.orElseThrow(() -> new BadRequestException("Old file not found for task: " + oldId))`。`assertFileBelongsToTask`
+   （`:743-756`）在登记行不存在时只回退查 `files`，`files` 行也没有就直接放行，所以现状下旧文件不存在也能"替换"成功；
+   加了继承后，这种请求会让新文件拿到 NULL 类型。
+2. **新行校验挪到删除之前**（审核 S-5）：新行查询 + `PENDING` 校验（原 `:281-285`）挪到旧文件下线（`:277-278`）之前。
+   `fileService.delete` 的 S3 删除即时生效、不随事务回滚（`FileServiceImpl:106-111`），现状是先删旧文件再校验新行，
+   新行不合法时事务回滚了，旧文件的 S3 对象却已经没了。
+3. **取类型再软删**：`inherited = oldRow.getBusinessType()` 在软删之前取（软删后 `findByFileIdAndDeletedFalse` 查不到）。
+4. `:286` `newRow.setStatus("UPLOADED")` 旁边加 `newRow.setBusinessType(inherited)`：**无条件覆盖**，即使前端调
    getUploadUrl 时误带了 `dataType` 也以旧文件为准（需求 R8：替换文件继承类型）。
-3. `inherited == null`（旧文件是上线前上传的）：照设计原样复制 NULL，打一条 `log.warn`（含 taskId / oldFileId /
-   newFileId）。这个文件随后会被 Python 判为 `FILE_FAILED`（设计 §5.1、D9），见 §10 J-R2。
+5. `inherited == null`（旧文件是上线前上传的）：照设计原样复制 NULL，打一条 `log.warn`（审核 S-10）。按 `coding.md` §11
+   （每条业务日志含 traceId / userId / organizationId）：traceId 由 `LoggingContextFilter` 放进 MDC、日志格式自带；
+   userId 照 `:721` 显式取 `SecurityUtils.getUserId()`；organizationId 取 `task.getOrganizationId()`（任务创建时的快照，
+   老任务可能为空）；再加 taskId / oldFileId / newFileId，前缀沿用模块的 `[AI-Extract]`。这个文件随后会被 Python 判为
+   `FILE_FAILED`（设计 §5.1、D9）。是否改为直接拒绝替换"类型为 NULL 的旧文件"**待产品拍板**，见 §10 J-R2。
+
+### 4.5 complete：不再保存前端回传的 `editSourceDataType`（审核 S-4，2026-10-10 拍板）
+
+`ConflictServiceImpl.applyUserEditsToMappingData` 把映射页的编辑写回 `mapping_data`，`:562` 仍会保存前端回传的
+`editSourceDataType`。R7 已经去掉逐行改派，这个字段在新任务上不该再有值，**删掉 `:562` 这一行**：
+
+- **只删、不清空**：上线前已在映射页的任务，用户之前的改派值留在库里（前端 `rowClassify.ts:28`、`useOCRData.ts:56`
+  仍按 `editSourceDataType` 优先显示），删掉这行后不会被覆盖；改成写空串反而会把历史改派抹掉。
+- **请求字段保留**：`AiFinancialEditedCellItem.editSourceDataType` 不删，只改描述。旧前端还会传它（Jackson 已关
+  `FAIL_ON_UNKNOWN_PROPERTIES`，删了也不报错，但已发布接口不删字段，见 `coding.md` §9），Java 忽略即可。
+- **范围**：只管"编辑不落库"。complete 写财务数据时仍按前端回传的每行 `sourceDataType` 分 Actuals / Proforma
+  （`:982`），不和文件声明交叉核对（§10 J-R5）。
+- 不加单测：这是私有方法，要经 `completeTask` 整条链才能走到，桩链长；改动只是删一行。新前端也不再发这个字段，
+  联调观察不到差异。
 
 ---
 
@@ -152,7 +187,7 @@ Service 里加一个私有静态方法 `toBusinessType(String dataType)`：调 `
 
 | 字段 | 注解 | 说明 |
 |---|---|---|
-| `AiFinancialCommitUploadRequest.companyId` | `@NotBlank` | 同旧类 |
+| `AiFinancialCommitUploadRequest.companyId` | `@NotBlank @Size(max = 36)` | 旧类只有 `@NotBlank`；长度上限同 `company_id` 列（§4.1，审核 S-10） |
 | `AiFinancialCommitUploadRequest.files` | `@NotEmpty(message = "files is required")` `@Size(max = 100)`，元素 `@NotNull @Valid` | 上限沿用旧 `fileIds` 的 100 |
 | `AiFinancialCommitUploadFileItem.fileId` | `@NotBlank @Size(max = 36)` | 同旧 `fileIds` 元素 |
 | `AiFinancialCommitUploadFileItem.dataType` | `@NotBlank(message = "dataType is required")` + `@Pattern(regexp = "ACTUALS\|PROFORMA", message = "dataType must be ACTUALS or PROFORMA")` | 同模块先例：`vo/request/AiFinancialConflictResolveItem.java:23-27` 的 `action` 字段 |
@@ -170,12 +205,14 @@ occurred"，不满足"可读提示"。
 | commitUpload 缺 `files`、缺 `dataType`、`dataType` 非法；getUploadUrl 的 `dataType` 非法 | `@Valid` → `MethodArgumentNotValidException` | **HTTP 422**，body `{message: "Verification fails", errors: [{field: "files[0].dataType", message: "dataType must be ACTUALS or PROFORMA"}]}`（`GlobalExceptionHandler.java:45-68`） |
 | **旧前端**的 `{companyId, fileIds}` | `fileIds` 是未知字段，被忽略（`web/config/JacksonConfiguration.java:24`），`files` 为 null → `@NotEmpty` | **HTTP 422**，`field: "files"` |
 | commitUpload 同一 fileId 声明两种类型 | `BadRequestException` | **HTTP 200** + `{success: false, message}`（`GlobalExceptionHandler.java:158-162`） |
+| commitUpload 的 fileId 已有登记行（含软删，审核 S-6） | `BadRequestException` | HTTP 200 + `success: false`（现状是 500） |
 | uploadComplete 本批有文件未声明类型 | `BadRequestException` | HTTP 200 + `success: false` |
+| replaceFile 旧登记行不存在（审核 S-5） | `BadRequestException` | HTTP 200 + `success: false`（现状是放行） |
 | Service 被直接调用、`dataType` 非法（单测路径） | `BadRequestException`（`toBusinessType`） | — |
 
-⚠️ 设计文档 §4 写的"返回 400"在这个工程里不存在：`BadRequestException` 自带 `status = 400`
+原设计 §4 写的是"返回 400"，已按 §11 #1 同步修订（审核 C-9）：`BadRequestException` 自带 `status = 400`
 （`BadRequestException.java:16`），但全局处理器不读这个字段，统一返回 HTTP 200 + `success: false`。
-本文**不新增**异常处理分支，沿用现状（§11 #1）。
+本文**不新增**异常处理分支，沿用现状。
 
 ### 5.3 报错文案（英文，与模块现有文案一致）
 
@@ -186,7 +223,9 @@ occurred"，不满足"可读提示"。
 | `@Pattern` dataType | `dataType must be ACTUALS or PROFORMA` |
 | `toBusinessType` | `dataType must be ACTUALS or PROFORMA: {raw}` |
 | commitUpload 类型冲突 | `Conflicting dataType for file: {fileId}` |
+| commitUpload 重复提交 | `File already committed: {fileId}` |
 | uploadComplete 未声明 | `Table type (Actuals / Proforma) is required for file: {fileName}` |
+| replaceFile 旧文件不存在 | `Old file not found for task: {oldFileId}` |
 
 前端提交前已经拦截（Next 不可用），这几条都是兜底，前端不需要按文案做判断。
 
@@ -222,12 +261,26 @@ DB 列注释由 Python 迁移 V030 更新，Java 不建 SQL。
 | 组合 | 结果 |
 |---|---|
 | 新 Java + 旧前端 | commitUpload 全部 422（§5.2），**首次上传整条链路不可用** |
+| 新 Java + 旧前端（映射页） | Upload New Document 不带类型 → uploadComplete 拒绝（HTTP 200 + `success: false`）（审核 C-8） |
 | 旧 Java + 新前端 | 旧 `AiFinancialStagedFilesRequest.fileIds` 为 `@NotEmpty`，新前端不再传它 → 同样 422 |
-| 新 Java + 旧 Python | 旧 Python 忽略 `business_type`，继续按旧逻辑推断，可以平滑过渡（设计 §8） |
+| 新 Java + 新前端 + 旧 Python | 旧 Python 忽略声明、按旧逻辑推断；新前端已去掉逐行改派（R7），判错了用户改不回来——例如一个全是历史月份的 Proforma 文件被判成 ACTUALS，提交后写进 `finance_manual_data`。**不能作为过渡状态** |
+| 旧 Java + 新 Python | 旧 commitUpload 不写 `business_type` → 每个新文件都被判 `FILE_FAILED` |
 
-所以 **Java 与前端必须同批发布，回滚也必须同批回滚**；Python 在两者之后发布。已写入的 `EXTRACT_FI_*` 对回滚后的旧
-Java（从不读这一列）和旧 Python（rag 查询只匹配原来那几个取值）都无副作用，回滚不需要清数据。
-getUploadUrl 新增的 `dataType` 是可选字段，旧 Java 收到会忽略，对发布顺序没有额外要求。
+发布与回滚（审核 S-1 / A-1 / A-2，与设计 §8、[dev-design-doc](./dev-design-doc.md) §3.2 一致）：
+
+- **V030** 任意时间执行（只改注释）。
+- **Java + 前端 + Python 同一个发布窗口**：Java 与前端同批，Python 紧接着发（分钟级）。原稿"Python 可择日、平滑过渡"
+  不成立，原因见上表第 4 行。
+- **回滚三端一起**：回滚 Java + 前端时必须同时回滚 Python（否则就是上表最后一行）；只回滚 Python 只能作短时止血，
+  期间声明不生效。
+- 发布后用核查 SQL 找出窗口期内类型与声明不一致的任务，SQL 在 [dev-design-doc](./dev-design-doc.md) §3.2。
+
+已写入的 `EXTRACT_FI_*` 对回滚后的旧 Java（从不读这一列）和旧 Python（rag 查询只匹配原来那几个取值）都无副作用，
+回滚不需要清数据。getUploadUrl 新增的 `dataType` 是可选字段，旧 Java 收到会忽略，对发布顺序没有额外要求。
+
+**提交要求**（§10 J-R8）：commitUpload 改请求体的那次提交，body 末尾加 `BREAKING CHANGE:` 脚注，写明
+`POST /tasks/commitUpload` 的请求体由 `fileIds` 改为 `files[{fileId, dataType}]`、须与前端同批发布（`standards/git.md:24`；
+写法参照 ERL `96d59ec53`）。前端对应提交同样加。
 
 ---
 
@@ -256,8 +309,22 @@ getUploadUrl 新增的 `dataType` 是可选字段，旧 Java 收到会忽略，�
 | T10 | uploadComplete 的 `fileIds` 里混入历史 `REVIEW_READY` 行（NULL 类型）+ 本批已声明的 PENDING 行 | 不抛异常；只有 PENDING 行转 UPLOADED 并送解析 |
 | T11 | replaceFile 继承类型 | 旧行 `EXTRACT_FI_ACTUALS`，新 PENDING 行带 `EXTRACT_FI_PROFORMA`（模拟前端误传）→ 新行保存时为 `EXTRACT_FI_ACTUALS`；旧行 `deleted == true` |
 | T12 | replaceFile 旧行无类型 | 新行 `businessType` 为 null，不抛异常（设计原样复制） |
+| T13 | commitUpload 的 fileId 已有登记行（stub `findAllById` 返回一条 `deleted = true` 的行）（审核 S-6） | 抛 `BadRequestException("File already committed: f-1")`；`taskRepository.save`、`extractionFileRepository.save`、`sqsProcessor` 都 `never()` |
+| T14 | replaceFile 旧登记行不存在（`files` 行也没有，`assertFileBelongsToTask` 放行）（审核 S-5） | 抛 `BadRequestException`；`fileService.delete` `never()`；新行仍为 PENDING |
+| T15 | replaceFile 新行不是 PENDING（审核 S-5） | 抛 `BadRequestException`；旧行 `deleted` 仍为 false、`fileService.delete` `never()`（先校验后删除） |
 
-Mockito 严格模式下，拒绝类用例（T3 / T4 / T9）只 stub 会被走到的调用，否则会报 `UnnecessaryStubbingException`。
+Mockito 严格模式下，拒绝类用例（T3 / T4 / T9 / T13 / T14 / T15）只 stub 会被走到的调用，否则会报 `UnnecessaryStubbingException`。
+
+**同构省略只适用于 T5 / T10 / T12**（审核 C-3）。T6–T8 走 `presignUploads`，比 commitUpload 多几处 stub，不 stub 会 NPE：
+
+- `fileRepository.saveAndFlush(any())`：返回入参并 `setId(...)`，否则 `persisted` 为 null，`:149` `persisted.getId()` NPE（`:148-152`）；
+- `storage.presignPutObject(...)`：返回 `new PresignedPutObjectResult(url, requiredHeaders, expiresInSeconds)`（record，
+  `storage/model/PresignedPutObjectResult.java:12`），否则 `:186` `presigned.url()` NPE（调用在 `:180`）；
+- T6 / T7 带 taskId：`taskRepository.findByIdAndCompanyIdAndDeletedFalse(TASK_ID, COMPANY_ID)`（`:709`）返回状态不是
+  `UPLOAD_COMPLETE` / `PROCESSING` 的任务，否则被 `:113` 的 `blocksNewUpload` 拒绝；
+- 请求项的 `length` 是 `Long`，必须赋值（`:129` 拆箱）。
+
+T8 不带 taskId，不需要任务 stub，只断言 `saveAll` `never()`。
 
 **新文件 2**：`.../extract/vo/request/AiFinancialCommitUploadRequestValidationTest.java`
 
@@ -269,10 +336,10 @@ Mockito 严格模式下，拒绝类用例（T3 / T4 / T9）只 stub 会被走到
 | V1 | 合法 body | 0 条违规 |
 | V2 | 某项缺 `dataType` / 值为 `"Actuals"` / `"FORECAST"` | 违规路径为 `files[0].dataType` |
 | V3 | 旧 body 形状（只有 `companyId`，`files` 为 null） | 违规路径为 `files`——这条锁住"旧前端会被拒"（§8） |
-| V4 | `AiFinancialPresignUploadFileItem.dataType` 为 null 通过、`"X"` 不通过 | 可选但合法 |
+| V4 | `AiFinancialPresignUploadFileItem.dataType` 为 null 通过、`"X"` 不通过 | 用 `validator.validateProperty(item, "dataType")` 只校验这一个字段（先例同上 `:57`、`:63`），不校验整个 item——否则没赋值的 `fileName` / `length` 也会报违规（审核 C-4） |
 
-建议命令（按根 `CLAUDE.md`「测试运行策略」，等用户下指令再跑）：
-`mvn -pl gstdev-cioaas-web test -Dtest=AiFinancialExtractionDeclaredTypeTest+AiFinancialCommitUploadRequestValidationTest`；
+建议命令（按根 `CLAUDE.md`「测试运行策略」，等用户下指令再跑；Surefire 多个类用逗号分隔，审核 C-1）：
+`mvn -pl gstdev-cioaas-web test "-Dtest=AiFinancialExtractionDeclaredTypeTest,AiFinancialCommitUploadRequestValidationTest"`；
 回归加跑同包现有的 `AiFinancialExtractionPngPreviewTest`、`AiFinancialExtractionClosedMonthTest`。
 
 ---
@@ -281,12 +348,14 @@ Mockito 严格模式下，拒绝类用例（T3 / T4 / T9）只 stub 会被走到
 
 | # | 风险 / 问题 | 处置 |
 |---|---|---|
-| J-R1 | 本模块的 Service 直接收 Request，偏离「Request → DTO → Service」规范（§1） | 本需求沿用模块现状。若审核要求补 DTO，代价是只为 commitUpload 引入 `application/dto` + Converter，模块内会出现两种写法；更合理的是另立重构任务整体改 |
-| J-R2 | 上线前建的任务，在映射页**替换**旧文件 → 新文件继承 NULL → Python 判 `FILE_FAILED` | 符合设计 D9 / 需求 R11（历史不补写），但用户只会看到文件失败、不知道原因。可选改进：Java 在替换时发现旧文件没有类型就直接拒绝，给出可读提示（例如"请改用 Upload New Document"）——属于产品决策，不在 D1~D10 内，**本期按设计原样复制** |
+| J-R1 | 本模块的 Service 直接收 Request，偏离「Request → DTO → Service」规范（§1） | **已拍板（2026-10-10）：登记为模块例外**，新代码沿用模块现状、不补 DTO（只为 commitUpload 补会让同一接口里出现两种写法）。不记待优化项（审核 A-6） |
+| J-R2 | 上线前建的任务，在映射页**替换**旧文件 → 新文件继承 NULL → Python 判 `FILE_FAILED` | 符合设计 D9 / 需求 R11（历史不补写），但用户只会看到文件失败、不知道原因。可选改进：Java 在替换时发现旧文件没有类型就直接拒绝，给出可读提示（例如"请改用 Upload New Document"）——属于产品决策，不在 D1~D10 内，**待拍板**；拍板前按设计原样复制。§4.4 的"旧行必须存在、先校验后删除"（审核 S-5）与此无关，本期照做 |
 | J-R3 | 映射页 Upload New Document 的类型**只能在 getUploadUrl 时提交**，之后没有接口能改 | 设计 §10 Q2（类型选择的交互样式）尚未定稿。若设计稿选择"先上传、后选类型"，前端必须等用户选完再调 getUploadUrl；否则 Java 要在 uploadComplete 上加字段。请前端按此约束实现 |
 | J-R4 | "当前月"的口径两端不同：Python 用处理时刻的 UTC（D6），Java 护栏用 `LocalDate.now()` 的 JVM 默认时区（`ConflictServiceImpl:665`） | JVM 跑在 UTC 时两边一致；不是 UTC 时，月初几小时内两道防线的判断可能差一个月。D6 已定 Java 不参与，**本期不改**，上线前确认生产 JVM 时区即可 |
-| J-R5 | complete 仍然信任前端回传的每行 `sourceDataType`（`ConflictServiceImpl:982`），不和文件声明交叉核对 | 设计 §6 明确"complete 写入逻辑不变"；映射页已不能改派类型（R7），数据来自 Python 按声明类型写的单元格。不加校验 |
+| J-R5 | complete 仍然信任前端回传的每行 `sourceDataType`（`ConflictServiceImpl:982`），不和文件声明交叉核对 | 设计 §6 明确"complete 写入逻辑不变"；映射页已不能改派类型（R7），数据来自 Python 按声明类型写的单元格。不加交叉校验。最小加固**已拍板采用**（2026-10-10）：不再保存 `editSourceDataType`，见 §4.5（审核 S-4 / A-13） |
 | J-R6 | **顺带发现，与本需求无关**：commitUpload 的 S3 落盘校验（`ServiceImpl:418-424`）只 `catch` 异常、不看返回值，而 `headObject` 遇到 404 返回 `S3ObjectHead.missing()`、不抛异常（`storage/storage/AwsSThreeStorage.java:186-195`）。S3 上不存在的文件因此仍会被登记并送去解析，`missingFileIds` 实际只收得到"不在本公司 staging 目录"的文件 | 本期不改，由用户决定是否另立任务。单测 T2 里把 `headObject` stub 成 `exists = true`，这样以后修了这处，用例依然成立 |
+| J-R7 | 写路径没有"调用者 → 公司"授权：commitUpload 的 staging 前缀用请求体里的 `companyId`（`ServiceImpl:405`、`:414`）；带 taskId 的 getUploadUrl 按请求体 `companyId` 查任务（`:110`、`:706-711`）；uploadComplete 只按 taskId 查任务（`:316-345`）；complete 的 `loadTask` 同样只按 id（`ConflictServiceImpl:347-361`、`:1252-1263`）。`ServiceImpl:506` 的注释也承认预览接口不校验归属（审核 S-2） | 存量问题，本需求沿用。**2026-10-10 用户决定暂不处理** |
+| J-R8 | commitUpload 在原路径上改请求体，旧 `{companyId, fileIds}` 直接 422（§5.2 / §8），与 `coding.md:112`「已发布接口禁止删除字段或改类型，破坏性变更须新路径 + `BREAKING CHANGE`」不符 | **已拍板（2026-10-10）：登记为例外**，原路径改请求体、Java 与前端同批发布，两端提交 body 加 `BREAKING CHANGE:`（§8 提交要求）。理由：唯一调用方是同批发布的上传弹窗；类型必填后旧格式本来就无法兼容，开新路径只会让旧请求"调得通"、文件却在 Python 判失败；先例 ERL `96d59ec53`（审核 A-3） |
 
 ---
 
