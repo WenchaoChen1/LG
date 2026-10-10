@@ -4,7 +4,11 @@
 
 ## **一、参会人识别**
 
+- GS domain → LG user/company Team domain → cheat sheet → HubSpot → calendar name match → LLM inference → Pending Assignment.
+
 **明确禁止**使用会议标题作为识别依据。
+
+**GS域名** ：@whalesongproduct.com, @goldensection.com
 
 **LG平台使用人员识别**：
 - Email地址匹配平台中管理端和公司端用户，若email匹配为管理端用户，则认为此人是GS人员；若匹配为客户端用户，则认为此人是Founder,再去看此人属于哪家公司
