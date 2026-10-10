@@ -114,11 +114,14 @@ init 再打一条 WARNING（期间已被删除 / 替换，未动）。守卫写�
 refine 直接下标读取 `state["file_list"][state["current_file_index"]]["data_type"]`，**不做缺省兜底**：缺键 =
 编程错误，抛出比静默按 ACTUALS 处理安全（D9 不回退推断）。
 
-### 3.4 任务级参考月（审核 S-7）
+### 3.4 每批一次的参考月（审核 S-7）
 
 init_task 在成功路径的返回里取一次 `datetime.now(timezone.utc).strftime("%Y-%m")`，写 state 顶层 `reference_month`。
-D6 口径不变（处理时刻 UTC），只是从"每个文件 refine 时各取一次"提前到"任务开始处理时取一次"：同一任务的全部文件
-共用一个截止月，跨 UTC 月末处理的多文件任务不会出现同批文件截止月不同。
+D6 口径不变（处理时刻 UTC），只是从"每个文件 refine 时各取一次"提前到"init_task 时取一次"：每条 SQS 抽取消息都从
+START 跑、经过 init_task（`consumer/handlers.py:187-240`），所以"一次"= 一批上传（上传弹窗的 Next、映射页每次
+uploadComplete / replace 各是一批）。同一批文件共用一个截止月，跨 UTC 月末处理时不会出现同批文件截止月不同（需求 R4）。
+**不取 `ai_financial_extraction_task.created_at`**：映射页的后续上传沿用原任务，可能隔天甚至跨月，创建时间会过时，
+导致已结账的月份被当作当前月剔掉。
 
 | 落点 | 做法 |
 |---|---|
@@ -183,12 +186,12 @@ D6 口径不变（处理时刻 UTC），只是从"每个文件 refine 时各取�
 | PROFORMA 不剔（R5） | `data_type != "ACTUALS"` 直接原样返回 |
 | 剔除对象（R4） | `column_month` 匹配 `_MONTH_RE`（`YYYY-MM`）且 `>= reference_month` 的 cell；`YYYY-MM` 字符串比较即时间序，跨年正确 |
 | 推断月份同样检查 | 不看 `is_predict_month` |
-| 无月份保留（R4 末条） | "无月份"指 `column_month` 为空：`None` / `""` / 非 `YYYY-MM` 一律保留——与 2.85 / 旧 2.8 同一个 `_MONTH_RE` 口径。⚠️ 映射页标 NO DATE 的行**不只是这类**：行内有系统推断月份的 cell（`is_predict_month=True`，`shared.py:1368-1399`；前端 `DataMappingPanel.tsx:261-272`）同样标 NO DATE，这类 cell 有月份，推断到 ≥ 当前月的**会被剔除**。需求 R4 末条措辞是否随之调整待产品确认，本文按设计 §5.3 实现（审核 D-4） |
+| 无月份保留（R4 末条） | "无月份"指 `column_month` 为空：`None` / `""` / 非 `YYYY-MM` 一律保留——与 2.85 / 旧 2.8 同一个 `_MONTH_RE` 口径。⚠️ 映射页标 NO DATE 的行**不只是这类**：行内有系统推断月份的 cell（`is_predict_month=True`，`shared.py:1368-1399`；前端 `DataMappingPanel.tsx:261-272`）同样标 NO DATE，这类 cell 有月份，推断到 ≥ 当前月的**会被剔除**。需求 R4 末条已于 2026-10-10 按此修订，代码不变（审核 D-4） |
 | 整表剔空 | 有 cell 且全被剔的表从列表移除；原本就空的表不动（不扩大行为面） |
 | 列位 / 行位 | **不重排**。留洞有先例：旧 2.8 拆出的尾表列位从 N 起（`shared.py:1813-1814`），2.85 软删的行在读取时被过滤 |
 | 日志 | 一条 INFO：`actuals_guard: file_id=… ref_month=… dropped_cells=… dropped_tables=… dropped_months=[…]`——"为什么我 10 月的数据没了"靠它排查 |
 
-`reference_month` 由 refine 从 `state["reference_month"]` 读出传入（init_task 每任务取一次，§3.4，审核 S-7）。
+`reference_month` 由 refine 从 `state["reference_month"]` 读出传入（init_task 每批取一次，§3.4，审核 S-7）。
 做成参数是为了单测注入，helper 内部不取时钟。
 
 ### 4.4 整个文件被剔空
@@ -297,7 +300,7 @@ D6 口径不变（处理时刻 UTC），只是从"每个文件 refine 时各取�
 
 | 文件 | 位置 | 改成 |
 |---|---|---|
-| `source/ai/CLAUDE.md` | `:47` init_task 行 | "任务初始化节点（校验 + 标记 PROCESSING + 读文件清单 + 读声明类型，未声明的文件直接 FILE_FAILED + 取任务级参考月）" |
+| `source/ai/CLAUDE.md` | `:47` init_task 行 | "任务初始化节点（校验 + 标记 PROCESSING + 读文件清单 + 读声明类型，未声明的文件直接 FILE_FAILED + 取本批参考月）" |
 | `source/ai/CLAUDE.md` | `:49` shared.py 行 | "… / 2.5 source_is_mapped / 2.6 data_type / 2.7 …" → "… / 2.5 source_is_mapped / 2.6 表类型 = 文件声明类型 / 2.65 Actuals 剔除当前月及以后 / 2.7 …" |
 
 `CIOaas-python/CLAUDE.md`、`source/lg/CLAUDE.md`、`source/financial_extract/CLAUDE.md`、`docs/prompt-usage-map.md`
@@ -418,7 +421,7 @@ uv run python -m pytest tests/ai/nodes tests/ai/excel_extract_agent tests/lg tes
 | R4 | 模型把历史月读成未来月（年份错读）时，Actuals 文件里该列被静默剔除 | 过去同样的错会让整表被改判 Proforma，现在影响面更小；按 `actuals_guard` 日志的 `dropped_months` 排查 |
 | R5 | "当前月"口径：Python 用 init_task 开始处理任务时的 UTC 年月，全任务共用（§3.4）；Java 护栏用 JVM 默认时区（[dev-java](./dev-java.md) J-R4）；用户本地时区在月末前后与 UTC 差一个月 | 需求 R4 已定以 UTC 为准；确认生产 JVM 跑在 UTC。跨 UTC 月末的 SQS 重投会让 init 重新取值，已终态的文件不重跑，于是同一任务先后两次投递处理的文件截止月可能不同——只在月末重投时出现，可接受（审核 S-7） |
 | R6 | 非 `YYYY-MM` 形态的月份被当成"无月份"保留 | 与 2.85 口径一致；提交时 Java Actuals 护栏兜底 |
-| R7 | 上线前建的任务在映射页替换文件 → 继承 NULL → FILE_FAILED，用户不知原因（[dev-java](./dev-java.md) J-R2） | 文案明确写"未声明类型、请重新上传" |
+| R7 | 上线前建的任务在映射页替换文件 → 继承 NULL → FILE_FAILED，用户不知原因（[dev-java](./dev-java.md) J-R2） | 错误文案写明"未声明类型、请重新上传"，但只在 devSupport 回放可见；用户看到失败文件弹窗的通用说明（引导重新上传）。已拍板照此、前端不另做展示（审核 D-1） |
 | R8 | 旧日志行 `finalize_data_type` / `split_proforma_tail` 消失；`infer_missing_rows` 汇总日志少了 `skipped_mixed_type` 字段（审核 A-9） | 改 grep `declared_data_type` / `actuals_guard`；init 的未声明告警 grep `init_task_node[declared_type]` |
 | R9 | 合计列被 Stage 2 推成"末月 + 1"后能否被剔，取决于"末月 + 1"是否 ≥ 当前月，属巧合：典型历史文件（如 1-6 月 + 合计列、10 月处理）的合计列被推成 7 月、照常保留入库 | 改造前就是这样（映射页靠 NO DATE 徽标由用户改），本需求不处理（审核 D-14） |
 

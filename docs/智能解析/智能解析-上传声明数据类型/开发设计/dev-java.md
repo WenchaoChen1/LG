@@ -115,6 +115,11 @@ Service 里加一个私有静态方法 `toBusinessType(String dataType)`：调 `
    `BadRequestException("File already committed: " + fileId)`。
 3. **建登记行**（`:425-434`）：在 `row.setDeleted(Boolean.FALSE)` 之后加
    `row.setBusinessType(businessTypeByFileId.get(fileId))`。循环改为遍历 `businessTypeByFileId` 的 entry。
+4. **HEAD 看返回值**（`:417-422`，审核 J-R6，2026-10-10 拍板顺手修）：`storage.headObject(...)` 的结果
+   `exists()` 为 false 时同样 `missing.add(fileId); continue;`。原实现只 `catch` 异常，而 `headObject` 遇 404 返回
+   `S3ObjectHead.missing()`、不抛（`storage/storage/AwsSThreeStorage.java:186-195`），S3 上没有的文件照样被登记、送去
+   解析。不增加调用（HEAD 本来就发），无性能影响。全部 missing 时沿用 `:438-439` 的 `"No uploaded files found to commit"`。
+   前端配套：读 `missingFileIds` 逐个提示（dev-frontend §3.3）。
 
 类型校验与已提交校验都在 `resolveOrCreateTask`（`:406`）**之前**完成，失败时不会建任务。HEAD 校验、`missing` /
 `committed` 两个清单、任务状态推进、SQS 都不动。
@@ -163,7 +168,7 @@ Service 里加一个私有静态方法 `toBusinessType(String dataType)`：调 `
    （每条业务日志含 traceId / userId / organizationId）：traceId 由 `LoggingContextFilter` 放进 MDC、日志格式自带；
    userId 照 `:721` 显式取 `SecurityUtils.getUserId()`；organizationId 取 `task.getOrganizationId()`（任务创建时的快照，
    老任务可能为空）；再加 taskId / oldFileId / newFileId，前缀沿用模块的 `[AI-Extract]`。这个文件随后会被 Python 判为
-   `FILE_FAILED`（设计 §5.1、D9）。是否改为直接拒绝替换"类型为 NULL 的旧文件"**待产品拍板**，见 §10 J-R2。
+   `FILE_FAILED`（设计 §5.1、D9）。不改为直接拒绝替换"类型为 NULL 的旧文件"——已拍板照现稿，见 §10 J-R2。
 
 ### 4.5 complete：不再保存前端回传的 `editSourceDataType`（审核 S-4，2026-10-10 拍板）
 
@@ -312,6 +317,7 @@ DB 列注释由 Python 迁移 V030 更新，Java 不建 SQL。
 | T13 | commitUpload 的 fileId 已有登记行（stub `findAllById` 返回一条 `deleted = true` 的行）（审核 S-6） | 抛 `BadRequestException("File already committed: f-1")`；`taskRepository.save`、`extractionFileRepository.save`、`sqsProcessor` 都 `never()` |
 | T14 | replaceFile 旧登记行不存在（`files` 行也没有，`assertFileBelongsToTask` 放行）（审核 S-5） | 抛 `BadRequestException`；`fileService.delete` `never()`；新行仍为 PENDING |
 | T15 | replaceFile 新行不是 PENDING（审核 S-5） | 抛 `BadRequestException`；旧行 `deleted` 仍为 false、`fileService.delete` `never()`（先校验后删除） |
+| T16 | commitUpload 两个文件，第二个 HEAD 返回 `S3ObjectHead.missing()`（审核 J-R6） | `committedFileIds == [f-1]`、`missingFileIds == [f-2]`；`extractionFileRepository.save` 只调一次 |
 
 Mockito 严格模式下，拒绝类用例（T3 / T4 / T9 / T13 / T14 / T15）只 stub 会被走到的调用，否则会报 `UnnecessaryStubbingException`。
 
@@ -349,11 +355,11 @@ T8 不带 taskId，不需要任务 stub，只断言 `saveAll` `never()`。
 | # | 风险 / 问题 | 处置 |
 |---|---|---|
 | J-R1 | 本模块的 Service 直接收 Request，偏离「Request → DTO → Service」规范（§1） | **已拍板（2026-10-10）：登记为模块例外**，新代码沿用模块现状、不补 DTO（只为 commitUpload 补会让同一接口里出现两种写法）。不记待优化项（审核 A-6） |
-| J-R2 | 上线前建的任务，在映射页**替换**旧文件 → 新文件继承 NULL → Python 判 `FILE_FAILED` | 符合设计 D9 / 需求 R11（历史不补写），但用户只会看到文件失败、不知道原因。可选改进：Java 在替换时发现旧文件没有类型就直接拒绝，给出可读提示（例如"请改用 Upload New Document"）——属于产品决策，不在 D1~D10 内，**待拍板**；拍板前按设计原样复制。§4.4 的"旧行必须存在、先校验后删除"（审核 S-5）与此无关，本期照做 |
+| J-R2 | 上线前建的任务，在映射页**替换**旧文件 → 新文件继承 NULL → Python 判 `FILE_FAILED` | 符合设计 D9 / 需求 R11（历史不补写），但用户只会看到文件失败、不知道原因。可选改进：Java 在替换时发现旧文件没有类型就直接拒绝，给出可读提示（例如"请改用 Upload New Document"）——属于产品决策，不在 D1~D10 内。**已拍板（2026-10-10）：照现稿**，按设计原样复制、不在替换时拒绝；只影响上线时尚未提交的老任务，属过渡期问题。§4.4 的"旧行必须存在、先校验后删除"（审核 S-5）与此无关，本期照做 |
 | J-R3 | 映射页 Upload New Document 的类型**只能在 getUploadUrl 时提交**，之后没有接口能改 | 设计 §10 Q2（类型选择的交互样式）尚未定稿。若设计稿选择"先上传、后选类型"，前端必须等用户选完再调 getUploadUrl；否则 Java 要在 uploadComplete 上加字段。请前端按此约束实现 |
 | J-R4 | "当前月"的口径两端不同：Python 用处理时刻的 UTC（D6），Java 护栏用 `LocalDate.now()` 的 JVM 默认时区（`ConflictServiceImpl:665`） | JVM 跑在 UTC 时两边一致；不是 UTC 时，月初几小时内两道防线的判断可能差一个月。D6 已定 Java 不参与，**本期不改**，上线前确认生产 JVM 时区即可 |
 | J-R5 | complete 仍然信任前端回传的每行 `sourceDataType`（`ConflictServiceImpl:982`），不和文件声明交叉核对 | 设计 §6 明确"complete 写入逻辑不变"；映射页已不能改派类型（R7），数据来自 Python 按声明类型写的单元格。不加交叉校验。最小加固**已拍板采用**（2026-10-10）：不再保存 `editSourceDataType`，见 §4.5（审核 S-4 / A-13） |
-| J-R6 | **顺带发现，与本需求无关**：commitUpload 的 S3 落盘校验（`ServiceImpl:418-424`）只 `catch` 异常、不看返回值，而 `headObject` 遇到 404 返回 `S3ObjectHead.missing()`、不抛异常（`storage/storage/AwsSThreeStorage.java:186-195`）。S3 上不存在的文件因此仍会被登记并送去解析，`missingFileIds` 实际只收得到"不在本公司 staging 目录"的文件 | 本期不改，由用户决定是否另立任务。单测 T2 里把 `headObject` stub 成 `exists = true`，这样以后修了这处，用例依然成立 |
+| J-R6 | **顺带发现，与本需求无关**：commitUpload 的 S3 落盘校验（`ServiceImpl:418-424`）只 `catch` 异常、不看返回值，而 `headObject` 遇到 404 返回 `S3ObjectHead.missing()`、不抛异常（`storage/storage/AwsSThreeStorage.java:186-195`）。S3 上不存在的文件因此仍会被登记并送去解析，`missingFileIds` 实际只收得到"不在本公司 staging 目录"的文件 | **已拍板（2026-10-10）：本期顺手修**，见 §4.1 第 4 步、单测 T16；前端配套提示 missing 文件（dev-frontend §3.3） |
 | J-R7 | 写路径没有"调用者 → 公司"授权：commitUpload 的 staging 前缀用请求体里的 `companyId`（`ServiceImpl:405`、`:414`）；带 taskId 的 getUploadUrl 按请求体 `companyId` 查任务（`:110`、`:706-711`）；uploadComplete 只按 taskId 查任务（`:316-345`）；complete 的 `loadTask` 同样只按 id（`ConflictServiceImpl:347-361`、`:1252-1263`）。`ServiceImpl:506` 的注释也承认预览接口不校验归属（审核 S-2） | 存量问题，本需求沿用。**2026-10-10 用户决定暂不处理** |
 | J-R8 | commitUpload 在原路径上改请求体，旧 `{companyId, fileIds}` 直接 422（§5.2 / §8），与 `coding.md:112`「已发布接口禁止删除字段或改类型，破坏性变更须新路径 + `BREAKING CHANGE`」不符 | **已拍板（2026-10-10）：登记为例外**，原路径改请求体、Java 与前端同批发布，两端提交 body 加 `BREAKING CHANGE:`（§8 提交要求）。理由：唯一调用方是同批发布的上传弹窗；类型必填后旧格式本来就无法兼容，开新路径只会让旧请求"调得通"、文件却在 Python 判失败；先例 ERL `96d59ec53`（审核 A-3） |
 

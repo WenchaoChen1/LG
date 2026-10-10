@@ -56,7 +56,7 @@ class FileInfo(TypedDict):
 class MainGraphState(TypedDict):
     # ── 任务级（init_task 跑完即填，文件循环全程不动）────────────────
     ...  # task_id … next_row_id_in_task 不变
-    # Actuals 护栏的截止月（YYYY-MM，处理时刻 UTC，D6）：init_task 每任务取一次，本任务全部
+    # Actuals 护栏的截止月（YYYY-MM，处理时刻 UTC，D6）：init_task 每批（每条抽取消息）取一次，本批全部
     # 文件共用（审核 S-7）。NotRequired：START 时还没有。consumer/handlers.py 的 initial_state
     # 刻意不预填——空串会让护栏 month >= "" 恒真、静默剔光 Actuals，缺键 KeyError 更安全。
     reference_month: NotRequired[str]
@@ -142,7 +142,7 @@ _ERR_DATA_TYPE_NOT_DECLARED = (
         current_file_index=0,
         error_message=None,
         next_row_id_in_task=next_row_id_in_task,
-        # Actuals 护栏的截止月（D6：处理时刻 UTC）：每任务取一次，本任务全部文件共用；
+        # Actuals 护栏的截止月（D6：处理时刻 UTC）：每批（每条抽取消息）取一次，本批全部文件共用；
         # refine 读 state["reference_month"]，不再逐文件取时钟（审核 S-7）。
         reference_month=datetime.now(timezone.utc).strftime("%Y-%m"),
     )
@@ -216,7 +216,7 @@ def drop_current_and_future_actuals_in_tables(
     - 链式推出的月份(is_predict_month=True,含被推成"末月+1"的合计列)同样参与——故须在 Stage 2 之后。
     - 剔空的表整张移除(原本就空的表不动);整文件剔空 = tables=[],与 no_tables 同形。
     - 不重排 column_position / row_position(留洞有先例,下游不要求连续)。
-    - PROFORMA 原样返回(需求 R5)。``reference_month`` 由 refine 从 state 顶层传入(init_task 每任务
+    - PROFORMA 原样返回(需求 R5)。``reference_month`` 由 refine 从 state 顶层传入(init_task 每批
       取一次,处理时刻 UTC,D6),本函数不取时钟、便于单测注入。
     """
     if data_type != "ACTUALS":
@@ -256,7 +256,7 @@ def drop_current_and_future_actuals_in_tables(
     tables = apply_declared_data_type_in_tables(tables, file_id, data_type=declared)
     # Stage 2.65: Actuals 剔除当前月及以后。须在 Stage 2 之后(推出来的月份也要查)+
     # 2.7 / 2.85 / 2.45 / 2.5 之前(它们只该处理最终入库的 cell)。截止月由 init_task
-    # 每任务取一次(state 顶层 reference_month),同任务全部文件共用,本节点不取时钟。
+    # 每批取一次(state 顶层 reference_month),同批全部文件共用,本节点不取时钟。
     tables = drop_current_and_future_actuals_in_tables(
         tables, file_id, data_type=declared, reference_month=state["reference_month"],
     )
@@ -371,7 +371,7 @@ def test_refine_uses_task_reference_month_not_clock(monkeypatch):
     assert out["tables"] == []          # 2026-05 >= 2000-01 → 剔光:读的是 state 而不是时钟
 
 
-# init:参考月每任务取一次
+# init:参考月每批取一次
 from datetime import datetime, timezone   # 落地放文件顶部
 
 
@@ -634,7 +634,19 @@ public class AiFinancialCommitUploadFileItem {
     List<String> missing = new ArrayList<>();
     for (Map.Entry<String, String> entry : businessTypeByFileId.entrySet()) {
       String fileId = entry.getKey();
-      // …… 原 :412-424 不变（staging 前缀校验 + HEAD）……
+      // …… 原 :411-416 不变（staging 前缀校验）……
+      // HEAD 看返回值：对象不存在也算 missing（审核 J-R6）。原实现只 catch 异常，
+      // 而 headObject 遇 404 返回 S3ObjectHead.missing()、不抛，S3 上没有的文件照样被登记
+      try {
+        if (!storage.headObject(bucketName, fo.getName()).exists()) {
+          missing.add(fileId);
+          continue;
+        }
+      } catch (Exception ex) {
+        log.warn("commitUpload: file_id={} key={} HEAD failed: {}", fileId, fo.getName(), ex.getMessage());
+        missing.add(fileId);
+        continue;
+      }
       AiFileRegistry row = new AiFileRegistry();
       // …… 原 :426-433 不变 ……
       row.setDeleted(Boolean.FALSE);
@@ -685,7 +697,7 @@ public class AiFinancialCommitUploadFileItem {
     // 3. 新文件转 UPLOADED 并继承旧文件的声明类型（R8），推进 task 状态 + 触发 Python 解析（本次仅解析 newId）
     if (inheritedBusinessType == null) {
       // 上线前上传的旧文件没有类型（R11 不补写）：照设计原样复制，Python 会把新文件判为 FILE_FAILED。
-      // 是否改为直接拒绝待产品拍板（dev-java §10 J-R2）。traceId 由 MDC 带出（coding.md §11）
+      // 已拍板照此处理、不在替换时拒绝（dev-java §10 J-R2）。traceId 由 MDC 带出（coding.md §11）
       log.warn("[AI-Extract] replaceFile: old file has no declared type, new file inherits null: "
         + "taskId={}, organizationId={}, userId={}, oldFileId={}, newFileId={}",
         tid, task.getOrganizationId(), SecurityUtils.getUserId(), oldId, newId);
@@ -756,7 +768,7 @@ class AiFinancialExtractionDeclaredTypeTest {
     });
     stubStagedFile("f-1");
     stubStagedFile("f-2");
-    // 现实现不看返回值（见 J-R6）；stub 成存在，日后修了那处本用例仍成立
+    // HEAD 返回"存在"（J-R6 修后会看返回值）
     when(storage.headObject(eq(BUCKET), anyString()))
       .thenReturn(new S3ObjectHead(true, 1L, "etag", "application/octet-stream"));
 
@@ -767,6 +779,29 @@ class AiFinancialExtractionDeclaredTypeTest {
     assertEquals(List.of("EXTRACT_FI_ACTUALS", "EXTRACT_FI_PROFORMA"),
       rows.getAllValues().stream().map(AiFileRegistry::getBusinessType).toList());
     verify(sqsProcessor).sendExtractionStartMessage(eq(TASK_ID), eq(COMPANY_ID), any(), eq(List.of("f-1", "f-2")));
+  }
+
+  /** T16（审核 J-R6）：HEAD 返回"不存在"→ 进 missingFileIds、不登记；其余文件照常提交。 */
+  @Test
+  void commitUploadTreatsMissingS3ObjectAsMissing() {
+    when(s3Properties.getBucketName()).thenReturn(BUCKET);
+    when(taskRepository.save(any())).thenAnswer(inv -> {
+      AiFinancialExtractionTask t = inv.getArgument(0);
+      t.setId(TASK_ID);
+      return t;
+    });
+    stubStagedFile("f-1");
+    stubStagedFile("f-2");
+    when(storage.headObject(eq(BUCKET), anyString()))
+      .thenReturn(new S3ObjectHead(true, 1L, "etag", "application/octet-stream"))
+      .thenReturn(S3ObjectHead.missing());
+
+    AiFinancialCommitUploadResponse resp =
+      service.commitUpload(commitRequest(item("f-1", "ACTUALS"), item("f-2", "ACTUALS")));
+
+    assertEquals(List.of("f-1"), resp.getCommittedFileIds());
+    assertEquals(List.of("f-2"), resp.getMissingFileIds());
+    verify(extractionFileRepository, times(1)).save(any());
   }
 
   @Test
@@ -1128,6 +1163,11 @@ const handleNext = useCallback(async () => {
   try {
     const res = await commitUpload({ companyId, files });
     if (!res.success || !res.data?.taskId) throw new Error(res.message || 'Upload completion failed');
+    // S3 上没有对象的文件：Java 未登记、不会出现在映射页，逐个提示（审核 J-R6）；其余文件照常进入下一步
+    for (const id of res.data.missingFileIds ?? []) {
+      const uf = doneFiles.find((f) => f.fileId === id);
+      if (uf) pushUploadError('GENERIC', uf.file.name);
+    }
     // …其余与现状相同（taskIdRef / fileMeta / onNext；catch 推 GENERIC 并复位 isSubmitting）
   } catch {
     for (const uf of doneFiles) pushUploadError('GENERIC', uf.file.name);
@@ -1281,6 +1321,62 @@ const handleAssign = useCallback((rowId: string, lgCategory: string) => {
   // 需求 R7：只改指标，不写 editSourceDataType——行的类型始终跟随所在文件的声明
   onRowEdit(cellRefs, { editLgCategory: isUnmap ? 'UNMAPPED' : lgCategory });
 }, [onRowEdit, dismissAssignHint]);
+
+// ── MonthPickerPopover：Actuals 行置灰当前月及以后（审核 D-9，dev-frontend §4.6）──
+// 浏览器本地时间；与 Python（UTC）/ Java（服务器时区）月末几小时可能差一个月，可忽略
+const currentMonthKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const MonthPickerPopover: React.FC<{
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelect: (date: string) => void;
+  // YYYY-MM：该月及以后不可选（Actuals 行传当前月；提交时 Java 会剔除这些月，见需求 R4）
+  disableFromMonth?: string;
+  children: React.ReactNode;
+}> = ({ open, onOpenChange, onSelect, disableFromMonth, children }) => {
+  // ...year 状态与翻页不变
+        {MONTHS.map((m, i) => {
+          const value = `${year}-${String(i + 1).padStart(2, '0')}`;
+          return (
+            <button
+              key={m}
+              className={styles.monthPickerCell}
+              disabled={!!disableFromMonth && value >= disableFromMonth}
+              onClick={() => {
+                onSelect(value);
+                onOpenChange(false);
+              }}
+            >
+              {m}
+            </button>
+          );
+        })}
+  // ...Popover 包装不变
+};
+
+// 两处调用（NO DATE 行 :1107、推断月份行 :1160）各加一个 prop
+<MonthPickerPopover
+  open={selectingDate}
+  onOpenChange={(v) => onSelectDate(v ? row.rowId : null)}
+  onSelect={(date) => onSaveDate(row.rowId, date)}
+  disableFromMonth={row.dataType === 'ACTUALS' ? currentMonthKey() : undefined}
+>
+
+// ── 空状态追加当前月说明（审核 D-10，dev-frontend §4.7）──
+import { ACTUALS_CURRENT_MONTH_NOTE } from '../constants';
+
+<div className={styles.emptyText}>
+  No financial accounts found for the uploaded file. {ACTUALS_CURRENT_MONTH_NOTE}
+</div>
+
+// UploadSuccessModal.tsx（同样 import 常量），说明段落末尾追加
+<p className={styles.desc}>
+  No financial accounts extracted. {files.length} {fileWord} been uploaded to the
+  Imported Statements folder in Documentation. {ACTUALS_CURRENT_MONTH_NOTE}
+</p>
 ```
 
 ### W8. `DataMappingPanel.less`
@@ -1302,6 +1398,17 @@ const handleAssign = useCallback((rowId: string, lgCategory: string) => {
   &:last-child { border-bottom: none; }
 }
 // 删除：.mspMetricName / .mspOption / .mspDot / .mspDotActual / .mspDotForecast / .mspOptionText
+
+// .monthPickerCell（:1076）内追加：Actuals 行的当前月及以后（审核 D-9）
+.monthPickerCell {
+  &:disabled,
+  &:disabled:hover {
+    border-color: #E8E8E8;
+    background: #FAFAFA;
+    color: #BFBFBF;
+    cursor: not-allowed;
+  }
+}
 ```
 
 ### W9. `aiFinancialExtraction/types.ts`

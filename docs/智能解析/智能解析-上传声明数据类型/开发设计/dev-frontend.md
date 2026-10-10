@@ -120,6 +120,10 @@ uploadFiles.length > 0 && !isAnyUploading && !isSubmitting && uploadFiles.every(
 2. `:299` 的 `fileIds` 换成 `files = [{fileId, dataType: uf.tableType}]`（仍过滤空 fileId，与原 `.filter(Boolean)` 同义），
    `:304` 改调 `commitUpload({ companyId, files })`。
 
+3. 成功分支读 `res.data.missingFileIds`（审核 J-R6，2026-10-10 拍板）：Java 修好 S3 存在性校验后，S3 上没有对象的文件
+   不登记、不会出现在映射页。按 fileId 找回文件名，逐个 `pushUploadError('GENERIC', name)`，其余文件照常 `onNext`。
+   现在前端完全不读这个字段（`:304-311`）。
+
 失败分支（`:313-317`：每个 done 文件推一条 GENERIC 吐司、复位 `isSubmitting`）不变。Java 对缺类型 / 非法类型回
 **HTTP 422**（dev-java §5.2），`utils/request.ts:77-79` 会额外亮全局错误横幅——前端已拦截，正常路径到不了这里。
 
@@ -240,6 +244,33 @@ Java 在 `file/replace` 里把旧文件的类型复制给新文件。
 `parentTableId` 恒空，横幅不会出现；历史任务（含 devSupport 只读回放、上线前已进入映射的在途任务）照常显示。
 建议顺手把 `web/services/api/ai/aiService.ts:255-258` 的 `parentTableId` 注释补一句"新任务恒为空，仅历史任务有值"。
 
+### 4.6 Actuals 行的月份选择器：当前月及以后置灰（审核 D-9，2026-10-10 拍板）
+
+NO DATE 行的 Select Date 用 `MonthPickerPopover`（`DataMappingPanel.tsx:761-810`），现在任何月份都能点。Actuals 行选了
+当前月或未来月，提交时会被 Java 的 Actuals 护栏整格剔除（`AiFinancialExtractionConflictServiceImpl.java:667-668`），
+用户无感知。改为：**Actuals 行**的选择器里，当前月及以后的按钮置灰、不可点；Proforma 行不受限。
+
+| 位置 | 改动 |
+|---|---|
+| `MonthPickerPopover` props（`:761-766`） | 加可选 `disableFromMonth?: string`（`YYYY-MM`）：`${year}-${month} >= disableFromMonth` 的按钮 `disabled` |
+| 两处调用（`:1107` NO DATE 行、`:1160` 推断月份行） | 传 `disableFromMonth={row.dataType === 'ACTUALS' ? currentMonthKey() : undefined}`。`row.dataType` 已在行上（`:286`），Actuals 行只出现在 Actuals 标签页 |
+| 新增模块内小函数 `currentMonthKey()` | 浏览器本地时间的 `YYYY-MM`。与 Python（UTC）、Java（服务器时区）在月末几个小时内可能差一个月，影响可忽略（风险 X1） |
+| `DataMappingPanel.less` `.monthPickerCell`（`:1076`） | 加 `&:disabled` 样式：灰色、`cursor: not-allowed`，并压住 `:hover` 的橙色背景 |
+
+年份翻页不限制：翻到未来年份时，12 个月全部置灰。
+
+### 4.7 空状态追加当前月说明（审核 D-10，2026-10-10 拍板）
+
+Actuals 文件只有当前月及以后的数据时（如"截至今天"的资产负债表、月初的当月 P&L），会被 Python 整份剔除，界面落到空状态，
+看上去像没识别出来。两处空状态文案的末尾追加 `ACTUALS_CURRENT_MONTH_NOTE`（§5，与上传弹窗横幅同一常量）：
+
+| 位置 | 改后 |
+|---|---|
+| `DataMappingPanel.tsx:2031` 文件无数据的空状态 | "No financial accounts found for the uploaded file. For Actuals files, data for the current month and later is not extracted." |
+| `UploadSuccessModal.tsx:31-34` 整批无数据的弹窗说明 | 原段落末尾追加同一句 |
+
+不区分文件类型：前端拿不到被剔空文件的声明类型，而这句话自带 "For Actuals files" 前提，出现在 Proforma 文件或识别失败的空状态里也不误导。
+
 ---
 
 ## 5. 常量（`ai页/constants.ts`）
@@ -280,8 +311,8 @@ Jest + `@testing-library/react@12`（无 `renderHook`；hook 用最小 Harness �
 
 | 文件（新增） | 用例 | 关键 mock |
 |---|---|---|
-| `FinancialEntry/components/ImportStatementsModal.test.tsx` | ① 两个文件传完、都未选类型 → Next disabled ② 只选一个 → 仍 disabled ③ 逐个选齐 → enabled ④ 批量设 Actuals → 两行都是 Actuals 且 Next enabled；再把一行改 Proforma → Next 后 `commitUpload` 收到 `{companyId, files:[{fileId, dataType:'ACTUALS'}, {fileId, dataType:'PROFORMA'}]}` ⑤ 批量设置后再加一个文件 → 新行为空、Next disabled ⑥ 横幅文案常驻 ⑦ 上传中 Clear All 仍只清上传中的文件（行为回归） ⑧ 只有一个文件：批量设置照常显示，选好类型后 Next enabled（审核 D-13） | `@/services/service/ai/aiService`（`getAiUploadUrl` 按文件名回 fileId、`commitUpload`、`batchDeleteFilesByIds`）；`uploadValidation` 两个函数透传；`UploadErrorToast`；`window.XMLHttpRequest` 换成 `send()` 后触发 `load`(200) 的假实现。⑦ 另换一个 `send()` **不**触发 `load` 的变体，让文件停在上传中，其 `abort()` 走组件的 abort 分支（自动 load 的假实现到不了"上传中"）（审核 C-20） |
-| `ai页/components/DataMappingPanel.test.tsx` | ① 打开 Unmapped 行的指派下拉 → 没有 "Actual" / "Forecast" 文本 ② 点 "Gross Revenue" → `onRowEdit` 第二参严格等于 `{editLgCategory:'Gross Revenue'}`，无 `editSourceDataType` 键 ③ Mapped 行选 "Unmapped Accounts" → patch 为 `{editLgCategory:'UNMAPPED'}`。（原 ④"PROFORMA 行指派后仍在 Proforma 标签页"删除：`onRowEdit` 是普通 `jest.fn`，面板数据不会变，断言恒真；行不换标签页已由 ② 的 patch 不含 `editSourceDataType` 保证（审核 C-24）） | 夹具：一个 `REVIEW_READY` 文件，行要有月份且每月有值（`canAssign` = `rowHasAllValues && !hasPredictMonth`，`:1140`） |
+| `FinancialEntry/components/ImportStatementsModal.test.tsx` | ① 两个文件传完、都未选类型 → Next disabled ② 只选一个 → 仍 disabled ③ 逐个选齐 → enabled ④ 批量设 Actuals → 两行都是 Actuals 且 Next enabled；再把一行改 Proforma → Next 后 `commitUpload` 收到 `{companyId, files:[{fileId, dataType:'ACTUALS'}, {fileId, dataType:'PROFORMA'}]}` ⑤ 批量设置后再加一个文件 → 新行为空、Next disabled ⑥ 横幅文案常驻 ⑦ 上传中 Clear All 仍只清上传中的文件（行为回归） ⑧ 只有一个文件：批量设置照常显示，选好类型后 Next enabled（审核 D-13） ⑨ `commitUpload` 返回 `missingFileIds:['id-b.xlsx']` → 对 b.xlsx 推一条 GENERIC、`onNext` 仍被调用（审核 J-R6） | `@/services/service/ai/aiService`（`getAiUploadUrl` 按文件名回 fileId、`commitUpload`、`batchDeleteFilesByIds`）；`uploadValidation` 两个函数透传；`UploadErrorToast`；`window.XMLHttpRequest` 换成 `send()` 后触发 `load`(200) 的假实现。⑦ 另换一个 `send()` **不**触发 `load` 的变体，让文件停在上传中，其 `abort()` 走组件的 abort 分支（自动 load 的假实现到不了"上传中"）（审核 C-20） |
+| `ai页/components/DataMappingPanel.test.tsx` | ① 打开 Unmapped 行的指派下拉 → 没有 "Actual" / "Forecast" 文本 ② 点 "Gross Revenue" → `onRowEdit` 第二参严格等于 `{editLgCategory:'Gross Revenue'}`，无 `editSourceDataType` 键 ③ Mapped 行选 "Unmapped Accounts" → patch 为 `{editLgCategory:'UNMAPPED'}`。④ Actuals 的 NO DATE 行点 Select Date → 当前月按钮 `disabled`、上一个月可点；Proforma 的 NO DATE 行当前月可点（§4.6，审核 D-9）。期望月份在用例里按 `new Date()` 现算，不用假时钟（避免干扰 antd Popover）。⑤ 文件无任何行 → 空状态文案含 `ACTUALS_CURRENT_MONTH_NOTE`（§4.7，审核 D-10）。（原 ④"PROFORMA 行指派后仍在 Proforma 标签页"删除：`onRowEdit` 是普通 `jest.fn`，面板数据不会变，断言恒真；行不换标签页已由 ② 的 patch 不含 `editSourceDataType` 保证（审核 C-24）） | 夹具：一个 `REVIEW_READY` 文件，行要有月份且每月有值（`canAssign` = `rowHasAllValues && !hasPredictMonth`，`:1140`） |
 | `ai页/components/FileSelector.test.tsx` | ① 菜单点 Upload New Document → 出现类型弹窗、OK disabled、未打开文件框 ② 选 Proforma → OK → `HTMLInputElement.prototype.click` 被调用 ③ 对 multiple input 触发 change → `onUploadFiles(files, 'PROFORMA')` ④ 再次打开弹窗 → Radio 为空 ⑤ Replace Document 不出弹窗、直接打开单选框，`onReplaceFile(oldId, file)` 签名不变 | `fromModal`、`uploadStage:'done'`、两个 `REVIEW_READY` 文件且选中其一（Replace 才显示） |
 | `ai页/hooks/useOCRData.test.tsx` | ① `uploadAdditionalFiles([f], 'ACTUALS')` → `getAiUploadUrl` 的 `fileList` 为 `[{fileName, length, dataType:'ACTUALS'}]` ② `replaceFile(old, f)` → `fileList[0]` 没有 `dataType` 键 | `getAiUploadUrl` 回 `{success:false}` 让流程在第一步收住；`uploadValidation`（`validateFiles` / `filterByMagicNumber` / `checkFileMagic` / `activeUploadNames`）透传 |
 
@@ -332,6 +363,6 @@ body 末尾加 `BREAKING CHANGE:` 脚注，写明须与 Java 同批发布。
 | 5 | 跨表合并键里的 dataType | 混合批次让它比以前更重要，后续重构不能删（§4.2） |
 | 6 | 422 时只显示通用失败 | commitUpload 校验失败时前端不展示服务端文案（`res.success` 判失败 → GENERIC 吐司）。前端已拦截，正常不可达，不另做 |
 | 7 | 规范偏离 | i18n 硬编码（§6）、上传弹窗跨功能夹 import 常量（§5）、`services/api/ai` 仍以内联类型为主（§2.1；R8 README 本期补上，审核 A-11），均为存量口径，本期只保证新增部分落到 `request.ts` / `dto.ts` |
-| 8 | **待拍板**：Python 的失败原因用户看不到（审核 D-1） | 未声明类型的文件被 Python 判 FILE_FAILED，错误 "Table type (Actuals / Proforma) was not declared for this file; please re-upload it" 已随 `error` 传进 `FileProcessingErrorsModal`（`AiFinancialExtractionPage.tsx:246`），但弹窗只渲染通用文案 + 文件名（`FileProcessingErrorsModal.tsx:38-49`，`error` 没用上）；只有只读回放（devSupport）才把失败文件放进列表并挂 error Tooltip（`FileSelector.tsx:355-363`）。可选：弹窗里在每个文件名下渲染它的 `error`。新前端已拦截未选类型，碰到的主要是发布窗口前后的在途任务 |
-| 9 | **待拍板**：Actuals 标签页的月份选择器能选当月和未来月（审核 D-9） | NO DATE 行的 `MonthPickerPopover`（`DataMappingPanel.tsx:761-810`，用于 `:1107`、`:1160`）不限月份；在 Actuals 标签页选了当月 / 未来月，提交时被 Java Actuals 护栏静默剔除（`AiFinancialExtractionConflictServiceImpl.java:667-668` 按 `isClosedActualsMonth` 做 `removeIf`），用户无感知。可选：Actuals 标签页里禁用这些月份，或在选择器里显示固定说明 `ACTUALS_CURRENT_MONTH_NOTE` |
-| 10 | **待拍板**：Actuals 文件被整份剔除时的空状态像解析失败（审核 D-10） | Actuals 文件只有当月 / 未来月数据时会被 Python 全部剔除，落到空状态 "No financial accounts found for the uploaded file."（`DataMappingPanel.tsx:2029-2033`）或 "No financial accounts extracted. …"（`UploadSuccessModal.tsx:31-34`），看着像解析失败。可选：两处空状态文案后追加 `ACTUALS_CURRENT_MONTH_NOTE` |
+| 8 | **已拍板不改（2026-10-10）**：Python 的失败原因用户看不到（审核 D-1）。只在上线过渡期出现，通用说明已引导重新上传 | 未声明类型的文件被 Python 判 FILE_FAILED，错误 "Table type (Actuals / Proforma) was not declared for this file; please re-upload it" 已随 `error` 传进 `FileProcessingErrorsModal`（`AiFinancialExtractionPage.tsx:246`），但弹窗只渲染通用文案 + 文件名（`FileProcessingErrorsModal.tsx:38-49`，`error` 没用上）；只有只读回放（devSupport）才把失败文件放进列表并挂 error Tooltip（`FileSelector.tsx:355-363`）。可选：弹窗里在每个文件名下渲染它的 `error`。新前端已拦截未选类型，碰到的主要是发布窗口前后的在途任务 |
+| 9 | **已拍板（2026-10-10）：置灰**，见 §4.6。原问题：Actuals 标签页的月份选择器能选当月和未来月（审核 D-9） | NO DATE 行的 `MonthPickerPopover`（`DataMappingPanel.tsx:761-810`，用于 `:1107`、`:1160`）不限月份；在 Actuals 标签页选了当月 / 未来月，提交时被 Java Actuals 护栏静默剔除（`AiFinancialExtractionConflictServiceImpl.java:667-668` 按 `isClosedActualsMonth` 做 `removeIf`），用户无感知。可选：Actuals 标签页里禁用这些月份，或在选择器里显示固定说明 `ACTUALS_CURRENT_MONTH_NOTE` |
+| 10 | **已拍板（2026-10-10）：两处空状态追加说明**，见 §4.7。原问题：Actuals 文件被整份剔除时的空状态像解析失败（审核 D-10） | Actuals 文件只有当月 / 未来月数据时会被 Python 全部剔除，落到空状态 "No financial accounts found for the uploaded file."（`DataMappingPanel.tsx:2029-2033`）或 "No financial accounts extracted. …"（`UploadSuccessModal.tsx:31-34`），看着像解析失败。可选：两处空状态文案后追加 `ACTUALS_CURRENT_MONTH_NOTE` |

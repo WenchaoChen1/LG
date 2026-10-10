@@ -22,9 +22,9 @@
 
 | 端 | 主要改动 | 详见 |
 |---|---|---|
-| **Python** | init_task 读登记行 `business_type` 得到每个文件的声明类型，未声明的文件直接判 FILE_FAILED（带状态守卫的条件更新 `fail_uploaded_files`），并为整个任务取一次参考月 `reference_month`；refine 原 Stage 2.6（按月份校正类型）换成"表类型 = 声明类型"，原 Stage 2.8（当月拆成 Proforma 表）删除，新增 Stage 2.65"Actuals 文件剔除当前月及以后的单元格"，Stage 2.7 删掉已不可达的类型不一致分支；停止写 `parent_table_id`；迁移 V030（只改列注释）；删除两个旧测试文件、新增两个 | [dev-python](./dev-python.md) §2~§10 |
-| **Java** | 新增枚举 `AiFinancialFileDataType`（取值映射唯一定义处）和 commitUpload 的新请求类；commitUpload / getUploadUrl（带 taskId）写 `business_type`，commitUpload 拒绝已登记过的 fileId，uploadComplete 校验新文件已声明，replaceFile 继承旧文件类型并改为先校验后删除；complete 不再保存前端回传的 `editSourceDataType`；实体只改注释；无 DDL | [dev-java](./dev-java.md) §2~§9 |
-| **前端** | 上传弹窗加 TABLE TYPE 列、批量设置、说明横幅、Next 启用条件，commitUpload 按文件带类型；映射页去掉 Actual / Forecast 改派，Upload New Document 先选类型；新增 `services/api/ai/request.ts`、`dto.ts` 和域 README；4 个新单测文件 | [dev-frontend](./dev-frontend.md) §2~§7 |
+| **Python** | init_task 读登记行 `business_type` 得到每个文件的声明类型，未声明的文件直接判 FILE_FAILED（带状态守卫的条件更新 `fail_uploaded_files`），并为每批上传取一次参考月 `reference_month`（不用任务创建时间）；refine 原 Stage 2.6（按月份校正类型）换成"表类型 = 声明类型"，原 Stage 2.8（当月拆成 Proforma 表）删除，新增 Stage 2.65"Actuals 文件剔除当前月及以后的单元格"，Stage 2.7 删掉已不可达的类型不一致分支；停止写 `parent_table_id`；迁移 V030（只改列注释）；删除两个旧测试文件、新增两个 | [dev-python](./dev-python.md) §2~§10 |
+| **Java** | 新增枚举 `AiFinancialFileDataType`（取值映射唯一定义处）和 commitUpload 的新请求类；commitUpload / getUploadUrl（带 taskId）写 `business_type`，commitUpload 拒绝已登记过的 fileId，uploadComplete 校验新文件已声明，replaceFile 继承旧文件类型并改为先校验后删除；complete 不再保存前端回传的 `editSourceDataType`；commitUpload 的 S3 存在性校验改为看 HEAD 返回值（前端配套提示 missing 文件）；实体只改注释；无 DDL | [dev-java](./dev-java.md) §2~§9 |
+| **前端** | 上传弹窗加 TABLE TYPE 列、批量设置、说明横幅、Next 启用条件，commitUpload 按文件带类型；映射页去掉 Actual / Forecast 改派，Upload New Document 先选类型，Actuals 行的月份选择器置灰当前月及以后，两处空状态追加当前月说明；新增 `services/api/ai/request.ts`、`dto.ts` 和域 README；4 个新单测文件 | [dev-frontend](./dev-frontend.md) §2~§7 |
 
 ## 2. 跨端契约
 
@@ -88,7 +88,7 @@ where r.business_type in ('EXTRACT_FI_ACTUALS', 'EXTRACT_FI_PROFORMA')
 | 端 | 新增 | 改写 / 删除 | 回归 |
 |---|---|---|---|
 | Python | `test_declared_data_type.py`（13 例）、`test_init_task_declared_type.py`（6 例） | 删 `test_split_proforma_tail.py`、`test_finalize_data_type.py`；改 `test_renumber_column_positions.py` 的 state、`test_parallel_files.py` 加一例；`test_pipeline.py` 等 5 个文件共 8 处只改注释 / docstring（审核 A-8 / A-10） | 去重、补行、RAG override、训练信号、拉取 / 回放契约，见 [dev-python](./dev-python.md) §10 |
-| Java | `AiFinancialExtractionDeclaredTypeTest`（T1~T15）、`AiFinancialCommitUploadRequestValidationTest`（V1~V4） | — | `AiFinancialExtractionClosedMonthTest`（Actuals 护栏），见 [dev-java](./dev-java.md) §9 |
+| Java | `AiFinancialExtractionDeclaredTypeTest`（T1~T16）、`AiFinancialCommitUploadRequestValidationTest`（V1~V4） | — | `AiFinancialExtractionClosedMonthTest`（Actuals 护栏），见 [dev-java](./dev-java.md) §9 |
 | 前端 | `ImportStatementsModal.test.tsx`、`DataMappingPanel.test.tsx`、`FileSelector.test.tsx`、`useOCRData.test.tsx` | — | `src/pages/financial` 现有套件，见 [dev-frontend](./dev-frontend.md) §7。tsc 的门槛是"改动文件不新增错误"（全量 `npm run tsc` 本地跑不通，审核 C-23） |
 
 ### 4.2 联调（三端完成、V030 执行后）
@@ -104,18 +104,18 @@ where r.business_type in ('EXTRACT_FI_ACTUALS', 'EXTRACT_FI_PROFORMA')
 | 6 | 指派 LG 指标 | 下拉里没有 Actual / Forecast；指派后行留在原标签页 |
 | 7 | 去重回归：同一个含重复月份的文件新旧版本各跑一次 | 去重结果与改动前一致，或差异能用 [dev-python](./dev-python.md) §5 的输入变化解释 |
 
-第⑥阶段审核补充的场景如下，交第⑦阶段写成测试用例。标 ★ 的预期取决于 [审核报告](../开发设计审核/dev-design-review.md) 中待拍板的问题，拍板后再定：
+第⑥阶段审核补充的场景如下，交第⑦阶段写成测试用例。各场景的预期已按 [审核报告](../开发设计审核/dev-design-review.md) §4 的拍板结论写定：
 
 | # | 场景 | 预期 |
 |---|---|---|
-| 8 | 上一年 12 个月的预测表，声明为 Proforma ★D-6 | 全部进 Proforma 标签页；提交后在上一年生成 Source = Import Statements 的新版本，cash 重算，当年版本不受影响 |
-| 9 | Actuals 工作簿里另有一张 Budget sheet ★D-7 | 两张表都是 Actuals；同一科目、同一月份的值会在 Java 合计时相加 |
-| 10 | 无表头列被推断为当前月（推断月份） ★D-4 | 该列被剔除，不出现在 NO DATE 里 |
-| 11 | NO DATE 行在映射页指定为当前月或未来月 ★D-9 | 提交时被 Java 的 Actuals 护栏丢掉 |
-| 12 | 月初上传只有当月数据的 P&L，声明为 Actuals ★D-10 | 文件解析完成但没有数据，显示空状态 |
+| 8 | 上一年 12 个月的预测表，声明为 Proforma（需求 R5） | 全部进 Proforma 标签页；提交后在上一年生成名为 "Imported {导入日期}"、Source = Import Statements 的新版本，过去月份（含已锁定月）被覆盖，cash 重算，当年版本不受影响 |
+| 9 | Actuals 工作簿里另有一张 Budget sheet（需求 R9） | 两张表都是 Actuals；同一科目、同一月份的值会在 Java 合计时相加 |
+| 10 | 无表头列被推断为当前月（推断月份，常见于末尾的合计列） | 该列被剔除，不出现在 NO DATE 里（需求 R4 末条） |
+| 11 | NO DATE 行点 Select Date（dev-frontend §4.6） | Actuals 行：当前月及以后置灰、不可选；Proforma 行：任意月份可选 |
+| 12 | 上传"截至今天"的资产负债表（或月初的当月 P&L），声明为 Actuals（dev-frontend §4.7） | 文件解析完成但没有数据；空状态文案后带 "For Actuals files, data for the current month and later is not extracted." |
 | 13 | 只上传一个文件 | 选了类型后 Next 才可用；批量设置也显示 |
-| 14 | 选错类型后改正 ★D-5 | 当前只能取消映射、重新上传 |
-| 15 | 上线前已在映射页的任务：替换文件、上传新文件、提交 ★D-2 | 上传新文件必须选类型；提交照旧；替换文件的结果待拍板 |
+| 14 | 选错类型后改正（需求 R8） | 多文件：Delete 后 Upload New Document 同名文件不被判重、可选对类型，其他文件映射保留；单文件：Cancel 后重新上传 |
+| 15 | 上线前已在映射页的任务：替换文件、上传新文件、提交 | 上传新文件必须选类型；提交照旧；替换文件：接口返回成功、旧文件被删，新文件随后判 FILE_FAILED（已拍板照现稿） |
 | 16 | 发布窗口 | §3.2 的核查 SQL 结果为空 |
 
 ## 5. 风险汇总
@@ -126,14 +126,16 @@ where r.business_type in ('EXTRACT_FI_ACTUALS', 'EXTRACT_FI_PROFORMA')
 | X2 | 新状态迁移 UPLOADED → FILE_FAILED | 前端已核实没有"失败前必经 PROCESSING"的假设，剩 Java 侧在联调时确认 | dev-python R1 |
 | X3 | **三端必须同一窗口发布、一起回滚**（审核阻断项 S-1） | 按 §3.2 执行，发布后跑核查 SQL | §3.2 |
 | X4 | 去重、补行、映射判定的输入变化 | 联调场景 7 对比 | dev-python §5 |
-| X5 | 上线前建的任务替换文件：旧文件先被删，新文件再判失败，用户手里什么都不剩 | **待拍板**（审核 D-2 / A-5）：建议 replaceFile 删除前发现旧文件没有类型就拒绝，提示用 Upload New Document（Java 约 4 行） | dev-java J-R2 / dev-python R7 |
-| X6 | 选错类型、或上线前任务的类型来自旧推断，上线后都改不了 | **待拍板**（审核 D-5）：接受"取消映射重传"，或替换时允许重选类型 | dev-frontend 风险 3 |
+| X5 | 上线前建的任务替换文件：旧文件先被删，新文件再判失败，用户手里什么都不剩 | **已拍板（2026-10-10）：照现稿**，不在替换时拒绝。只影响上线时尚未提交的老任务，属过渡期问题；用户需用 Upload New Document 重传（审核 D-2 / A-5） | dev-java J-R2 / dev-python R7 |
+| X6 | 选错类型、或上线前任务的类型来自旧推断，上线后都改不了 | **已拍板（2026-10-10）：接受现状**，补救方式写进需求 R8（删除后重传 / 取消映射重传），替换仍继承（审核 D-5） | dev-frontend 风险 3 |
 | X7 | 设计稿未定的 Q1~Q4（占位文案、映射页选类型样式、弹窗宽度、Clear All 是否常驻） | 前端先按临时方案实现，集中在常量和样式里，定稿后小改 | design-doc §10 |
 | X8 | 规范偏离：commitUpload 原路径改请求体（java `coding.md` 禁止已发布接口的破坏性变更）；Java Service 直接收 Request；前端文案未走 i18n；`services/api/ai` 以内联类型为主 | **已拍板（2026-10-10）**：都登记为模块例外，不记待优化项；commitUpload 的 Java、前端提交 body 加 `BREAKING CHANGE:`（审核 A-3 / A-6） | dev-java J-R1 / J-R8 / dev-frontend 风险 7 |
 | X9 | 写路径没有"调用者 → 公司"授权（commitUpload、getUploadUrl、uploadComplete、complete） | 存量问题，本需求沿用；2026-10-10 用户决定暂不处理（审核 S-2） | dev-java J-R7 |
 | X10 | 服务端仍接受客户端改写类型（complete 收 `sourceDataType`，`editSourceDataType` 仍会落库） | 已拍板最小收口：不再保存 `editSourceDataType`（删一行）；complete 按行类型写入不变（审核 S-4 / A-13） | dev-java §4.5 / J-R5 |
 
-**顺带发现、与本需求无关**：commitUpload 的 S3 落盘校验不看返回值，S3 上不存在的文件也会被登记并送去解析（dev-java J-R6）。本期不改，是否另立任务由你决定。
+**顺带发现、与本需求无关**：
+- commitUpload 的 S3 落盘校验不看返回值，S3 上不存在的文件也会被登记并送去解析（dev-java J-R6）。2026-10-10 拍板**本期顺手修**（Java 约 2 行 + 前端提示 missing 文件约 3 行，无性能影响）。
+- Python `/api/ai/file-registry/records` 的改 / 删接口不区分 purpose，能改财务抽取行的状态或软删（审核 S-05）。没有界面入口，2026-10-10 拍板**不处理**。
 
 ## 6. 本期不做
 - QBO 公司的入口和类型规则（下个 sprint）。注意：commitUpload 的 `dataType` 本期改为必填，下个 sprint 的 QBO 入口要么由前端显式传 `PROFORMA`，要么由 Java 按公司类型补值（审核 D-15）。
@@ -142,4 +144,4 @@ where r.business_type in ('EXTRACT_FI_ACTUALS', 'EXTRACT_FI_PROFORMA')
 - 历史任务、历史文件补写类型；新旧逻辑并存的开关。
 
 ## 7. 下一步
-第⑥阶段审核已完成，见 [dev-design-review](../开发设计审核/dev-design-review.md)：阻断项已按审核修订，剩下待拍板的问题列在报告 §4。拍板后同步本目录文档，然后按 §3 开发。
+第⑥阶段审核已通过，见 [dev-design-review](../开发设计审核/dev-design-review.md)：阻断项已修订，拍板项已于 2026-10-10 全部定下并同步进本目录文档。按 §3 开发。
