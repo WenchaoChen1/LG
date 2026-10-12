@@ -16,7 +16,7 @@
 | R1.1 | 功能需求 | 仅手动录入类型公司可见 Import Statement 上传按钮；自动对接公司不显示 |
 | R1.2 | 业务规则 | Company Admin / Company User 可上传本公司文档；Portfolio portal 角色可上传其有权限的全部公司文档 |
 | R1.3 | UI 需求 | 上传按钮位置：Financial Entry / Committed Forecast 页面的 Import Statement 按钮，点击进入上传流程 |
-| R1.4 | 功能需求 | 支持上传 PDF（扫描/数字）、Excel（.xlsx/.xls）、CSV、图片（JPG/JPEG/PNG/TIFF） |
+| R1.4 | 功能需求 | 支持上传 PDF（扫描/数字）、Excel（.xlsx/.xls）、CSV、图片（JPG/JPEG/PNG/TIFF，含 .tif） |
 | R1.5 | 功能需求 | 桌面端支持拖拽上传或点击选择；移动端使用文件选择器（不支持拖拽） |
 | R1.6 | 功能需求 | 支持单文件与多文件批量上传 |
 | R1.7 | 边界条件 | 单文件 ≤ 20MB；批量总大小 ≤ 100MB |
@@ -86,7 +86,7 @@
 | R4.3 | 功能需求 | File Processing Errors 按钮：Re-upload / Discard Problem Files / ✖ |
 | R4.4 | 业务规则 | Re-upload 时第二批与第一批合计超 100MB 整批不上传 |
 | R4.5 | 业务规则 | 部分文件失败时 Discard 或 ✖ 回到解析页；全部文件失败时回到 Financial Entry |
-| R4.6 | UI 需求 | 左面板：文件选择下拉（默认 All Files）、Excel Sheet Tab、PDF 翻页、底部缩放控件 |
+| R4.6 | UI 需求 | 左面板：文件选择下拉（默认 All Files）、Excel Sheet Tab、PDF 翻页、底部缩放控件、TIFF 预览（下拉显示原文件名、多页竖向长图、超过 20 页或单页超过 1 亿像素不出预览但照常提取） |
 | R4.7 | 功能需求 | 左面板右上角支持新增/替换/删除已上传文件；选 All Files 时仅显示新增 |
 | R4.8 | UI 需求 | 右面板显示 Actuals 与 Proforma 两个 Tab；默认显示规则按数据类型组合判断 |
 | R4.9 | UI 需求 | 切换到无数据 Tab 显示空状态 No financial accounts found for this data type |
@@ -235,7 +235,7 @@
 | TC-020 | 支持的 PDF（扫描版） | 同上 | 我上传 scanned.pdf | 上传成功 |
 | TC-021 | 支持的 Excel | 同上 | 我先后上传 .xlsx 和 .xls | 均上传成功 |
 | TC-022 | 支持的 CSV | 同上 | 我上传 data.csv | 上传成功 |
-| TC-023 | 支持的图片 | 同上 | 我先后上传 .jpg/.jpeg/.png/.tiff | 全部上传成功 |
+| TC-023 | 支持的图片 | 同上 | 我先后上传 .jpg/.jpeg/.png/.tif/.tiff，以及大写后缀的 SCAN.TIF | 全部上传成功 |
 | TC-024 | 不支持的类型 | 同上 | 我上传 doc.docx | 显示 Failed to Upload doc.docx. File type is not supported |
 | TC-025 | 单文件超 20MB | 同上 | 我上传 25MB PDF | 显示 Failed to Upload {File name}. File exceeds the 20MB limit |
 | TC-026 | 单文件 = 20MB 边界 | 同上 | 我上传恰好 20MB PDF | 上传成功（含等于） |
@@ -367,6 +367,11 @@
 | | | | 我点击下一页 | 翻到下一页 |
 | TC-106 | 缩放控制 | 选中 PDF | 我查看底部 | 显示缩放控制条 |
 | | | | 我拖动缩放 | PDF 按比例缩放 |
+| TC-106a | TIFF 单页预览 | 已上传单页 scan.tif 并解析完成 | 我从下拉选中 scan.tif | 左面板正常显示图片；下拉里显示 scan.tif，不是 .png |
+| TC-106b | 多页 TIFF 长图 | 已上传 3 页 TIFF 并解析完成 | 我从下拉选中该文件 | 3 页按顺序竖向拼成一张图，滚动可见全部页；不显示翻页控件 |
+| TC-106c | TIFF 超出预览上限 | 已上传 21 页 TIFF 并解析完成 | 我从下拉选中该文件 | 左面板显示 "Failed to load image" |
+| | | | 我查看右侧映射数据并提交 | 映射数据照常出现，可正常提交 |
+| TC-106d | 大图降分辨率 | 已上传拼接后超过 1000 万像素的 TIFF 并解析完成 | 我从下拉选中该文件 | 正常显示（分辨率降低），不报错 |
 | TC-107 | 文件管理操作 | 已上传文件列表 | 我查看右上角 | 显示新增/替换/删除选项 |
 | TC-108 | All Files 时仅显新增 | 下拉为 All Files | 我查看右上角 | 仅显新增选项 |
 
@@ -715,7 +720,7 @@
 | R4.3 | 弹窗按钮 | ✅ | TC-096, TC-098, TC-100 | |
 | R4.4 | Re-upload 累计超 100MB | ✅ | TC-097 | |
 | R4.5 | Discard/✖ 返回逻辑 | ✅ | TC-098 ~ TC-101 | |
-| R4.6 | 左面板下拉/Sheet/翻页/缩放 | ✅ | TC-102 ~ TC-106 | |
+| R4.6 | 左面板下拉/Sheet/翻页/缩放/TIFF 预览 | ✅ | TC-102 ~ TC-106, TC-106a ~ TC-106d | |
 | R4.7 | 左面板文件管理 | ✅ | TC-107, TC-108 | |
 | R4.8 | 右面板 Tab 默认 | ✅ | TC-109, TC-110, TC-111 | |
 | R4.9 | 无数据 Tab 空状态 | ✅ | TC-112 | |

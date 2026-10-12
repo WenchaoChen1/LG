@@ -33,7 +33,7 @@
 - PDF（扫描版或数字版）
 - Excel（.xlsx、.xls）
 - CSV
-- 图片：JPG、JPEG、PNG、TIFF（TIFF：浏览器原生不支持 TIFF 显示，预览时把 TIFF 转 PNG，实际存储还是TIFF，名字也是TIFF后缀。）
+- 图片：JPG、JPEG、PNG、TIFF（含 .tif / .tiff 两种后缀，后缀不区分大小写）（TIFF：浏览器原生不支持 TIFF 显示，预览时把 TIFF 转 PNG，实际存储还是TIFF，名字也是TIFF后缀。）
 
 **上传方式**
 - 桌面端：拖拽至上传区域；或点击上传按钮选择文件。点击Cancel按钮或右上角✖按钮可以退出该上传流程
@@ -101,7 +101,7 @@
 #### 3.2a OCR + AI 提取（扫描 PDF / 图片）
 
 **适用文档**
-- 图片型 PDF、扫描 PDF、独立图片文件（JPG、PNG 等）。
+- 图片型 PDF、扫描 PDF、独立图片文件（JPG / JPEG / PNG / TIFF）；多页 TIFF 逐页识别，与多页 PDF 相同。
 - 支持多页文档；自动识别含财务表格的页面；无可提取财务内容的页面跳过并记录日志。
 
 **OCR 与表格提取**
@@ -263,9 +263,12 @@ The following files could not be processed. You can re-upload each file, or disc
 **左面板 — 源文档浏览器**
 - 顶部：文件选择下拉，若有多个文件，可切换文件或选择 "All Files" ，默认显示"All Files"，左面板显示文件列表。
   - Excel 多 Sheet：下拉下方显示 Sheet Tab 导航。
-  - PDF：显示翻页控件。- 点击右上角Cancel按钮，会出Cancel Data Mapping?确认弹框，可点击Cancel data mapping回到Financial Entry页面,若点击Continue data mapping,保持在本页不动。
+  - PDF：显示翻页控件。
   - All: 显示文件列表
-- 特殊情况：TIFF：浏览器原生不支持 TIFF 显示，预览时把 TIFF 转 PNG/JPG，实际存储还是TIFF，文件下拉里显示PNG/JPG后缀
+- 特殊情况：TIFF：浏览器原生不支持 TIFF 显示，预览时把 TIFF 转 PNG，实际存储还是TIFF，文件下拉里仍显示原文件名（TIFF 后缀）
+  - 多页 TIFF：所有页按顺序竖向拼成一张长图，上下滚动查看；没有 PDF 那样的翻页控件。
+  - 预览上限：超过 20 页、或任一页超过 1 亿像素时不生成预览，左面板显示 "Failed to load image"；数据照常提取、映射、写入，不受影响。拼接后超过 1000 万像素时自动降低分辨率显示。
+- 点击右上角Cancel按钮，会出Cancel Data Mapping?确认弹框，可点击Cancel data mapping回到Financial Entry页面,若点击Continue data mapping,保持在本页不动。
 
 - 右上角处有选项可新增（Upload New Documentation）文件 / 替换（Replace Documentation）与删除（Delete Documentation）已上传文件，若文件下拉处选择的ALL选项，则仅显示新增选项。单个文件时不可删除，删除按钮不展示。
 - 有 Excel / CSV 时可切换 Tab。
