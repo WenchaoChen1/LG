@@ -173,8 +173,8 @@ uploadComplete / replace 各是一批）。同一批文件共用一个截止月�
 
 - 每张表 `data_type` 一律设为声明类型（需求 R3）。**不看 `is_financial`**：进到 refine 的表三条轨都只含财务表
   （旧轨 `shared.py:446-453` 判 false 直接 `continue`；坐标轨只塞财务表），且 `save_extracted_tables` 本来也不看它。
-- 一条 INFO：`declared_data_type: file_id=… data_type=… tables=… llm_disagreed=…`。`llm_disagreed` = 模型给的类型
-  （含没给）与声明不一致的表数——零成本的观测量，用来回答"声明与模型判定多常打架"。
+- 一条 INFO：`declared_data_type: file_id=… data_type=… tables=…`。（原设计还带 `llm_disagreed` = 模型给的类型
+  与声明不一致的表数；2026-10-12 提示词清理后模型不再给类型，该观测量随之删除，见 §6 末尾。）
 - 返回新 list，不原地改入参。
 
 ### 4.3 Stage 2.65：`drop_current_and_future_actuals_in_tables`
@@ -258,7 +258,12 @@ uploadComplete / replace 各是一批）。同一批文件共用一个截止月�
 | `excel_extract_agent/pipeline._data_type_of` | **保留逻辑**，只改 docstring、`:104` 行尾注释与 `:106-109` 注释（审核 C-11） | 它把模型判定带进 `TableInfo`，2.6 才算得出 `llm_disagreed`；删掉还要改 `test_pipeline.py` |
 | `excel_extract_agent/verify.py` ⑨b WARN | **保留检查**，改注释与文案 | 提示词仍要求这个字段，WARN 仍是"模型没守出参契约"的信号；但现有文案"会退回算术校正 … 落到默认值 ACTUALS"已不成立，会误导排查，必须改。只是日志，无测试断言该文案 |
 
-以上清理（提示词去掉 data_type 段、删 `_data_type_of` 与 ⑨b）留到下次因别的原因改这几份提示词时一并做。
+以上清理（提示词去掉 data_type 段、删 `_data_type_of` 与 ⑨b）原定留到下次改这几份提示词时一并做。
+
+**2026-10-12 追加（用户决定提前清理）**：上表四行都已改掉，模型不再判断 Actuals / Proforma，也不再收到类型：
+- 输出契约变了的升版本（`git mv` 改名，便于对比）：`excel_extract_locate.v3.md` → `v4.md`（删原 § 6 数据类型整节、输出里的 `data_type`、参考日期，后续小节前移一位）；`identify_statement.html/.vision.v2.md` → `v3.md`（删 § 5.6、只服务于它的 § 4.3 Proforma 关键词、`data_type` 输出与 `data_type=null` 规则、参考日期，vision 版另删 `prior_page_data_type`；趁升版把输出里 `is_financial_reason` 挪到 `is_financial` 前，与「字段顺序即推理顺序」一致）。
+- 只去掉输入标签的原地改：`data_values.html/.vision.v3.md` 删 `data_type` 上下文标签与规则 7 里的引用。**不把声明类型传给模型**：标签本就不改变抽取规则，Actuals / Proforma 也不改变科目含义。
+- 代码：三个预处理节点与坐标轨 `locate.py` 不再算 / 传参考日期与 `data_type`；Stage 1a 与坐标轨产出的表 `data_type` 一律为 None，由 2.6 写入声明类型；删 `pipeline._data_type_of`、`verify.py` ⑨b、2.6 的 `llm_disagreed`。
 
 ---
 

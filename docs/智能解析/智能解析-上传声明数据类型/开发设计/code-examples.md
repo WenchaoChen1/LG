@@ -191,14 +191,12 @@ def apply_declared_data_type_in_tables(
 ) -> list[TableInfo]:
     """Stage 2.6:文件内每张表的 ``data_type`` 统一设为用户上传时声明的类型(需求 R3)。
 
-    模型在识别阶段给出的类型(pdf/image Stage 1a、excel 坐标轨步 1)不再参与判定,直接覆盖。
     进到 refine 的表三条轨都只含财务表,且落库不看 is_financial,故不按它过滤。
-    ``llm_disagreed`` 只作观测:模型判定(含没给)与声明不一致的表数。
+    (2026-10-12 起提示词不再让模型判断类型,原 ``llm_disagreed`` 观测随之删除。)
     """
-    n_disagreed = sum(1 for t in tables if t.get("data_type") != data_type)
     logger.info(
-        "declared_data_type: file_id=%s data_type=%s tables=%d llm_disagreed=%d",
-        file_id, data_type, len(tables), n_disagreed,
+        "declared_data_type: file_id=%s data_type=%s tables=%d",
+        file_id, data_type, len(tables),
     )
     return [{**tbl, "data_type": data_type} for tbl in tables]
 
