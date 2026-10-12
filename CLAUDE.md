@@ -1,13 +1,11 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## 必读子项目 CLAUDE.md（强制）
 
 - 每次问答都必须先根据问题与扫描到的目录，读取并遵循以下子项目 `CLAUDE.md`：
-  - `CIOaas-api/CLAUDE.md`
-  - `CIOaas-web/CLAUDE.md`
-  - `CIOaas-python/CLAUDE.md`
+  - `java/CIOaas-api/CLAUDE.md`
+  - `web/CIOaas-web/CLAUDE.md`
+  - `python/CIOaas-python/CLAUDE.md`
 - 若问题涉及 `cio-bigdata/`，还须读取 `cio-bigdata/CLAUDE.md`。
 - 若问题涉及在 `docs/` 下创建或修改功能文档，必须先读 `docs/CLAUDE.md`（定义 9 阶段文档流水线的目录结构、命名规则与禁止事项）。
 - 各子项目另有 `standards/`（`architecture.md`、`coding.md`、`git.md`）；开发前按对应子项目 `CLAUDE.md` 中的「规范加载」执行，**不要**在根目录重复抄写这些规范。
@@ -48,7 +46,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/待优化项.md`：排查/开发过程中**识别出但本次不处理**的优化点（技术债、依赖升级、性能隐患、存量坏文件等），识别出来即追加一条：`- **标题**（识别日期）：一两句问题与建议方案（来源）`。
 - `docs/已完成优化.md`：某个待优化项完成后，从待优化项中删除该条，并在此追加：`- **标题**（完成日期）：改动摘要（涉及文件/提交）`。
 
-适用范围：`CIOaas-api/docs/`、`CIOaas-web/docs/`、`CIOaas-python/docs/`。写入前先查重，同一事项更新原条目而不是新增。
+适用范围：`java/CIOaas-api/docs/`、`web/CIOaas-web/docs/`、`python/CIOaas-python/docs/`。写入前先查重，同一事项更新原条目而不是新增。
 
 ## 测试运行策略（强制）
 
@@ -66,114 +64,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - 代码审查（用多个 reviewer agent + 各语言审查 skill 并行）
   - 大范围调研（多个 explore agent 并行扫不同模块）
   - 头脑风暴 / 评估方案（多视角并行：安全 / 性能 / 可维护性 / UX 等）
-- **执行方式**：用 `Agent` 工具派发并行子代理（`Explore` 调研 / `general-purpose` 多步任务 / `Plan` 设计方案 等），配合可用的 skills；相互独立的子任务在**同一条消息里一次性发起**以并发执行。
 - **判断标准**：任务能拆成 ≥ 2 个独立子目标并行执行 → 拆开并行；否则单 agent。
 - **可以单跑的简单任务**：读单文件、改一行配置、查端口状态、grep 一个符号等明确单步操作，不必上 multi-agent。
-
-> 这是项目级强制规则，对所有 Claude Code 端（CLI / 桌面 / 网页 / IDE 插件）一致生效。
 
 ## Windows 开发环境
 
 - PowerShell 脚本（`.ps1`）必须在 PowerShell 中执行，**不能**在 bash/Git Bash 中运行
-- `conda` 命令在 bash 终端中不可用，需使用 Anaconda Prompt 或 PowerShell
-- Java/Maven 输出可能出现 GBK 编码乱码，可在 PowerShell 中运行：`chcp 65001` 切换为 UTF-8
-- 路径使用正斜杠（`/`）或双反斜杠（`\\`），避免在 bash 环境中混用
 
 ## 本地依赖环境（Docker）
 
-`docker-compose.yml` 一键拉起 LG 全部依赖镜像（与全局 `D:\docker\compose.yml` 独立，端口可共存）：
-
-```bash
-cp .env.docker.example .env.docker           # 首次：复制并改密码（.env.docker 不提交，含 PG/MySQL/Redis 密码）
-docker compose --env-file .env.docker up -d  # 默认起 postgres + mysql + nacos + redis
-docker compose down                          # 停容器保留数据
-docker compose down -v                       # 停容器并删卷（数据丢失！）
-```
-
-| 服务 | 镜像 | 端口 | 说明 |
-|------|------|------|------|
-| postgres | `pgvector/pgvector:pg15` | 5432 | 单实例双库隔离：业务库 `lg_test`（保持干净）+ RAG 库 `lg_rag`（**仅此库**装 pgvector + pg_trgm，由 `docker/postgres/init/` 初始化） |
-| mysql | `nacos/nacos-mysql:5.7` | 3306 | Nacos 配置中心后端存储 |
-| nacos | `nacos/nacos-server:v2.3.1` | 8848 / 9848 / 9849 | 配置中心 + 服务注册；控制台 `http://localhost:8848/nacos`（nacos/nacos） |
-| redis | `redis:7-alpine` | 6379 | 缓存 / 会话 |
-
-- 可选服务（默认注释）：`minio`（S3 本地替代）、`elasticsearch`（RAG 可选向量后端，默认 RAG 走 PG）。需要时取消对应 service + volume 注释。
-- 衔接关系：Java 各模块 `bootstrap.yml` 从 `${NACOS_SERVER_ADDR}`（默认 `localhost:8848`）读配置；Python 各业务表**不在启动期自动建表**——DDL 走版本化迁移 `CIOaas-python/sql/migrations/{business,vector}/`（V001 为全量 baseline，向量库需 pgvector 扩展），由 `CIOaas-python/scripts/migrate.py` 部署期自动执行或人工执行（详见 CIOaas-python/CLAUDE.md「数据库版本迁移」）。
+依赖服务见根目录 `docker-compose.yml`（头注释含服务/端口/可选服务说明）：首次 `cp .env.docker.example .env.docker`，再 `docker compose --env-file .env.docker up -d`（`down -v` 会删数据卷）。Python 业务表启动期不自动建表，DDL 在 `python/CIOaas-python/sql/migrations/`，执行方式见 `python/CIOaas-python/CLAUDE.md`「数据库版本迁移」。
 
 ## 项目概览
 
-本仓库是一个 monorepo。构建命令、模块结构、网关调试、分支命名等**均以各子目录 `CLAUDE.md` 与 `standards/` 为准**，此处仅作索引：
+本仓库是 monorepo，构建命令、模块结构、网关调试、分支命名等以各子项目 `CLAUDE.md` 与 `standards/` 为准。子项目：`java/CIOaas-api/`（Java 后端 + 网关）、`web/CIOaas-web/`（前端）、`python/CIOaas-python/`（AI / ML API，MCP 服务当前临时屏蔽）、`cio-bigdata/`（ETL，可能未拉取）。
 
-| 目录 | 技术栈 | 用途 |
-|------|--------|------|
-| `CIOaas-api/` | Java 17、Spring Boot 3、Spring Cloud | 后端 REST API + API 网关 |
-| `CIOaas-web/` | React 16、Ant Design Pro、UmiJS 3、TypeScript | 前端单页应用 |
-| `CIOaas-python/` | Python 3.12、FastAPI、FastMCP | 预测/财务 ML API（MCP 服务当前临时屏蔽） |
-| `cio-bigdata/` | Python 3.6、ETL / Singer、Airflow | 数据集成（Redshift、QuickBooks 等） |
-| `docs/` | Markdown | 功能需求文档、设计文档、审核报告 |
-| `docs/智能解析/调研/` | Markdown | OCR Agent 技术方案（系统架构/Java/Python/前端/设计理念） |
-| `docs/AI-Chatbot/` | Markdown | AI Chatbot V1 设计文档（范围/ACL/对话图/API 契约/双端 UX） |
-
-> 四个子项目（`CIOaas-api/`、`CIOaas-web/`、`CIOaas-python/`、`cio-bigdata/`）是**独立的嵌套 Git 仓库**，已在父仓库 `.gitignore` 中忽略，各有独立提交历史。某些 checkout 可能不包含全部子项目（例如 `cio-bigdata/` 当前未拉取时，涉及它的问题暂不适用）。
+> 四个子项目（`java/CIOaas-api/`、`web/CIOaas-web/`、`python/CIOaas-python/`、`cio-bigdata/`）是**独立的嵌套 Git 仓库**，已在父仓库 `.gitignore` 中忽略，各有独立提交历史。某些 checkout 可能不包含全部子项目（例如 `cio-bigdata/` 当前未拉取时，涉及它的问题暂不适用）。
 
 ## 跨项目协作模式
 
-Java 与 Python 之间有三种协作模式，按业务域区分：
+Java 与 Python 按业务域有三种协作模式：
 
-### AI 财务提取（智能解析）— SQS 异步
+- **智能解析（AI 财务提取）— SQS 异步**：Java ↔ Python 经 AWS SQS 双向通信，**不互相直调 HTTP**；Java 管文件上传 / S3 / 任务生命周期 / 认证 / 写 `fi_*` 表，Python 管 AI 提取 / 映射 / 映射记忆 / LLM；共享 PG、按 DB 角色隔离写权限。设计：`docs/智能解析/调研/system-architecture.md`。
+- **AI Chatbot — HTTP + SSE 流式**：前端调 Python `/api/ai/chat/*` 与 SSE `POST /api/ai/sse/stream`；Python 取 LG 业务数据**经 Java 网关回调 `/api/web/*`**（透传用户 token），不直连 Java 服务。细节见 `python/CIOaas-python/source/chatbot/CLAUDE.md`、`source/sse/CLAUDE.md` 与 `web/CIOaas-web/CLAUDE.md`；设计 `docs/AI-Chatbot/设计/design-doc.md`。
+- **Exit Readiness（ERL）— 内网直连同步 HTTP**：Java `erl/` 域是前端唯一出口并持编排状态（报告分享记录 + 维度任务状态机），Python `source/erl/` 只做每任务一次 LLM 生成并持 AI 内容、不做公司 ACL。Java **不经网关**直连 Python（Nacos `cio.erl.ai-base-url`；网关只有 `/api/web/**`、`/web/**` 两条路由；不用 SQS），且**必须转发调用者 Bearer token**（异步线程须在请求线程内先捕获）。设计 `docs/Exit Readiness/设计/design-doc.md`（其「经网关」与现状不符，以代码为准）；细节见 `python/CIOaas-python/source/erl/CLAUDE.md` 与 Java `ErlGapAnalysisServiceImpl` 注释。
 
-Java (CIOaas-api) 和 Python (CIOaas-python) 通过 AWS SQS 异步通信，**不直接互相调用 HTTP**：
+## 归档目录
 
-```
-Java → SQS 队列 → Python（AI 处理）
-Python → SQS 队列 → Java（结果回调）
-```
-
-- Java 负责：文件上传/S3 存储、任务生命周期、用户认证、最终数据写入 `fi_*` 表
-- Python 负责：AI 提取/映射、映射记忆管理、LLM 调用
-- 共享 PostgreSQL 数据库，但通过 DB 角色隔离各自的写权限
-
-详细设计见 `docs/智能解析/调研/system-architecture.md`。
-
-### AI Chatbot — HTTP 经网关 + SSE 流式
-
-Web 聊天页（`/devSupport/chat`）→ Java 网关 → Python `source/chatbot/`（业务模块，interfaces/application/domain 分层，`/api/ai/chat/*` 接口）；对话图与数据查询工具在 `source/ai/agent/chatbot_graph/`（standard 主图）、`source/ai/agent/chatbot_kb_graph/`（kb 纯知识库智能体独立子包）、`source/ai/agent/chatbot_combo_graph/`（combo 组合智能体独立子包）、`source/ai/tools/`（提示词中文、给用户的回答默认英文）：
-
-- SSE 流式经统一网关 `POST /api/ai/sse/stream`，channel 命名规范 `{模块}.{流类型}`（`chatbot.chat` / `demo.echo`）
-- **三智能体 + 知识库问答（2026-07）**：`chatbot.chat` payload 可选 `agent_mode`（`standard` 缺省 / `kb` 纯知识库 / `combo` 组合分诊），standard 轨新增知识库工具 `search_knowledge_base`（进程内直调 rag 检索，非经 Java 网关；检索范围自 2026-07-18 由 `ai_file_registry` 文件登记表按公司圈定——聊天上传注册即登记+向量化，无登记=检索不到）；模式选择**只看 payload `agent_mode`**（`kb`/`combo` 有效，其余含缺省归一 `standard`），保留供 API 调用方；**斜杠命令 `/knowledge`、`/combined` 已于 2026-08-26 拆除**——前端入口提示早在 2026-07-22（web `858deb1f`）就删了，命令只有知道的人手打得到，等于隐藏开关。前端无模式选择器、也不发 `agent_mode`，故 kb/combo 在产品界面上当前不可达（仅 API 直调可及）。设计见 `docs/superpowers/specs/2026-07-05-chatbot-knowledge-base-qa-design.md`
-- Python 查询 LG 业务数据（LGPI 公司/财务接口）时同样**经 Java 网关回调**（路由带 `/web` 前缀），不直连 Java 服务
-- 会话/消息持久化在共享 PG 表 `ai_chatbot_thread` / `ai_chatbot_message`（建表 DDL 在 `sql/migrations/business/V001__sprint111_baseline.sql` chatbot 段，走版本化迁移、启动期不自动建表）；消息带 `parent_message_id` 分支树，支持从任意消息 fork 新会话（前端问题编辑/回答重新生成都走 fork 分支）
-- 鉴权：Redis 会话 + 公司归属 ACL（Python 侧校验）；`/api/ai/chat/manage/*` 管理查询后端仅登录即可访问、不做端类型限制（管理端限制靠前端 devSupport 菜单，前端管理页 `/devSupport/chatManage`）
-- **断流恢复（切换会话 / 刷新页面续流，2026-06-15）**：后端生成与连接解耦，SSE 帧缓冲在 Redis（`sse:buf:{stream_id}`，TTL 1h，`Last-Event-ID` 重放，`GET /api/ai/sse/subscribe/{id}` 续看——2026-07-15 起要求登录态 Bearer + 建流时记录的归属校验，不再仅凭 stream_id）。前端把在跑流的 `stream_id` 按 threadId 存 `sessionStorage`，进入会话时有记录则经 `/subscribe` 从 seq 0 续流、否则读 DB；**末条已是落库的 assistant 则不续传**（防与重放重复渲染）。**纯前端，后端 0 改动**。详见 `docs/superpowers/plans/2026-06-15-ai-chatbot-resume-streaming.md`
-
-详细设计见 `docs/AI-Chatbot/设计/design-doc.md`，前后端实现计划见 `docs/superpowers/plans/2026-06-05-ai-chatbot-v1-*.md`、`docs/superpowers/plans/2026-06-15-ai-chatbot-resume-streaming.md`。
-
-### Exit Readiness（ERL）— HTTP 内网直连 + 同步非流式
-
-Java (`CIOaas-api` 的 `erl/` 域) 是前端唯一出口，并持有差距分析的**编排状态**（`erl_gap_analysis_report` 报告分享记录 + `erl_gap_analysis_dimension_task` 维度任务，状态机 PENDING → RUNNING → SUCCESS | FAILED 全部条件 UPDATE）；Python (`CIOaas-python/source/erl/`) **只做每任务一次的 LLM 生成并持有 AI 内容**（`ai_erl_gap_analysis_task` 生成日志 + `ai_erl_gap_analysis_task_item` 条目），**不落其它 ERL 业务表、不做公司 ACL**（Java 已校验）：
-
-```
-前端 → /api/web/erl/**  → 网关 → Java erl/ 域 → PostgreSQL（erl_* 共 11 张表）
-                                      |
-                                      +→ POST {cio.erl.ai-base-url}/api/ai/erl/gap-analysis/refresh  按任务生成，同步回每任务 status/hasGap
-                                      +→ POST {cio.erl.ai-base-url}/api/ai/erl/gap-analysis/items    按任务 id 批量取条目
-```
-
-- **不经网关，走内网直连**：本仓库网关只有 `/api/web/**` 与 `/web/**` 两条路由，**没有 `/api/ai/**` 路由**；与存量 `AI_MODEL_URL`（财务预测）一致，用 Nacos 配置项 `cio.erl.ai-base-url` + Hutool `HttpRequest` 直连 `python:8090`。设计文档写的「经网关」与仓库现状不符，以现状为准。
-- **不用 SQS**：单次秒级调用、用户可等待，为它付全套异步成本不划算（对比智能解析的长任务）。
-- **差距分析是异步非阻塞的**：评估提交事务内不碰差距分析表，提交后经 `AfterCommitExecutor` + `@Async("ioExecutor")` 调 `reconcileAsync` 对账（建记录 / 任务并派发），LLM 失败不回滚提交、已分享记录不被覆盖。同 `(company, period)` 的规划用 Redis 锁 `erl:gapAnalysis:plan:{c}:{p}` 串行化（fail-open，DB 部分唯一索引兜底）。
-- **鉴权靠转发调用者的 Bearer token**：Python 侧 `AuthMiddleware` 对每个非豁免路径都调 Java `check_access`，故 Java 调 Python 时必须带 token；异步线程取不到请求上下文，**token 在请求线程内捕获后作为参数传入**异步任务。
-- **每个维度任务一次 LLM 调用**（Python 并发 3，2026-09-24 任务化），GSV 端生成 → `Share to founder` 单向分享，已分享记录不可变、改动新建记录；三个触发点（提交后异步 / 管理端读接口 60s 冷却 / 手动 Generate 同步）共用 Java 的 `reconcile`；prompt 外置在 `source/ai/prompts/erl/`，单份 `erl_gap_analysis.md`（v1.0，2026-09-29 重构后版本号重启，单维输入）。
-
-详细设计见 `docs/Exit Readiness/设计/design-doc.md`。
-
----
-
-## 本地目录（不纳入 Git）
-
-以下目录在 `.gitignore` 中，不提交到远程：
-
-- `.claude/` — Claude Code 本地配置
-- `esapiens/`、`esapiens-python/` — OCR 引擎本地实验代码
-- `other/` — 归档的历史文档
-- `不要使用-Functional documentation/` — 已废弃的旧文档目录
+`other/`（归档历史文档）与 `不要使用-Functional documentation/`（已废弃旧文档）仅供考古，勿作为需求 / 设计依据。
