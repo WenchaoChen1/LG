@@ -123,7 +123,7 @@ where r.business_type in ('EXTRACT_FI_ACTUALS', 'EXTRACT_FI_PROFORMA')
 
 | # | 风险 | 处置 | 出处 |
 |---|---|---|---|
-| X1 | "当前月"有三套时钟：Python 用处理时刻 UTC（同一任务统一取一次，审核 S-7）；Java 的 Actuals 护栏用 JVM 默认时区；前端兜底时间轴用浏览器本地时间 | 需求已定以 UTC 为准。**上线前确认生产 JVM 时区为 UTC**（Dockerfile 没设 TZ，要看 ECS 任务定义），写进发布单。月末处理、次月提交时，刚结账的月份已被剔除，属于预期 | dev-java J-R4 / dev-python R5 |
+| X1 | "当前月"有三套时钟：Python 用处理时刻 UTC（同一任务统一取一次，审核 S-7）；Java 的 Actuals 护栏用 JVM 默认时区；前端兜底时间轴用浏览器本地时间 | 需求已定以 UTC 为准。**已确认生产 JVM 为 UTC**（2026-10-12，生产日志时间戳以 `Z` 结尾），与 Python 一致。月末处理、次月提交时，刚结账的月份已被剔除，属于预期 | dev-java J-R4 / dev-python R5 |
 | X2 | 新状态迁移 UPLOADED → FILE_FAILED | 前端已核实没有"失败前必经 PROCESSING"的假设，剩 Java 侧在联调时确认 | dev-python R1 |
 | X3 | **三端必须同一窗口发布、一起回滚**（审核阻断项 S-1） | 按 §3.2 执行，发布后跑核查 SQL | §3.2 |
 | X4 | 去重、补行、映射判定的输入变化 | 联调场景 7 对比 | dev-python §5 |
