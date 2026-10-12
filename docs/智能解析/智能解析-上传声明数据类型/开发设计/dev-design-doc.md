@@ -129,7 +129,7 @@ where r.business_type in ('EXTRACT_FI_ACTUALS', 'EXTRACT_FI_PROFORMA')
 | X4 | 去重、补行、映射判定的输入变化 | 联调场景 7 对比 | dev-python §5 |
 | X5 | 上线前建的任务替换文件：旧文件先被删，新文件再判失败，用户手里什么都不剩 | **已拍板（2026-10-10）：照现稿**，不在替换时拒绝。只影响上线时尚未提交的老任务，属过渡期问题；用户需用 Upload New Document 重传（审核 D-2 / A-5） | dev-java J-R2 / dev-python R7 |
 | X6 | 选错类型、或上线前任务的类型来自旧推断，上线后都改不了 | **已拍板（2026-10-10）：接受现状**，补救方式写进需求 R8（删除后重传 / 取消映射重传），替换仍继承（审核 D-5） | dev-frontend 风险 3 |
-| X7 | 设计稿未定的 Q3、Q4（弹窗宽度与手机布局、Clear All 是否常驻）；Q1 已定为 "Select type"，Q2 已定为二级菜单 | 前端先按临时方案实现，集中在常量和样式里，定稿后小改 | design-doc §10 |
+| X7 | 设计稿未定的 Q3（弹窗宽度与手机布局）；Q1 已定为 "Select type"，Q2 已定为二级菜单，Q4 已定 Clear All 维持现状 | 前端先按临时方案实现，集中在常量和样式里，定稿后小改 | design-doc §10 |
 | X8 | 规范偏离：commitUpload 原路径改请求体（java `coding.md` 禁止已发布接口的破坏性变更）；Java Service 直接收 Request；前端文案未走 i18n；`services/api/ai` 以内联类型为主 | **已拍板（2026-10-10）**：都登记为模块例外，不记待优化项；commitUpload 的 Java、前端提交 body 加 `BREAKING CHANGE:`（审核 A-3 / A-6） | dev-java J-R1 / J-R8 / dev-frontend 风险 7 |
 | X9 | 写路径没有"调用者 → 公司"授权（commitUpload、getUploadUrl、uploadComplete、complete） | 存量问题，本需求沿用；2026-10-10 用户决定暂不处理（审核 S-2） | dev-java J-R7 |
 | X10 | 服务端仍接受客户端改写类型（complete 收 `sourceDataType`，`editSourceDataType` 仍会落库） | 已拍板最小收口：不再保存 `editSourceDataType`（删一行）；complete 按行类型写入不变（审核 S-4 / A-13） | dev-java §4.5 / J-R5 |
