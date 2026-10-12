@@ -166,7 +166,7 @@ Remove（`:256-273`）、Cancel（`:282-292`，删暂存文件）、关闭重置
 **手机（`@media (max-width: 575px)`，`:297-340`）**：375 宽的手机上行内只剩 ≈290px，现状文件名列 ≈109px，
 再塞一个类型列文件名就没了。做法：`.fileRow` 加 `flex-wrap: wrap`，`.typeSelect` 设 `order: 1; flex: 1 1 100%; width: auto`
 ——类型下拉换到第二行占满整行；表头 `.colTableType` 在手机上 `display: none`；`.listFooterRow` 加 `flex-wrap: wrap`。
-原有 `.colFileSize/.fileSize/.progressWrap` 的 88px 规则保留。手机样式同样待 Figma 确认。
+原有 `.colFileSize/.fileSize/.progressWrap` 的 88px 规则保留。桌面 640 与手机折行均已定（设计 §10 Q3，2026-10-12）。
 
 ---
 
@@ -351,7 +351,7 @@ body 末尾加 `BREAKING CHANGE:` 脚注，写明须与 Java 同批发布。
 | # | 项 | 说明 / 处置 |
 |---|---|---|
 | 1 | Clear All 与需求 §5.1 的画法不一致 | 代码里 Clear All 只在上传中出现、只清上传中的文件；需求画成列表底部常驻。按"功能保持现状"不改，常驻与否请设计在 Figma 里确认 |
-| 2 | 弹窗宽度与手机布局（Q3） | 临时方案，集中在 less 内，定稿后小改。Q1 已定为 "Select type"（§5），Q2 已定为二级菜单（§4.3） |
+| 2 | 设计稿细节 | Q1~Q4 均已定（2026-10-12）：Q1 "Select type"（§5），Q2 二级菜单（§4.3），Q3 维持 640px + 手机折行（§3.6），Q4 Clear All 不变 |
 | 3 | 上线前已进入映射的在途任务 | 类型来自旧推断，上线后不能再逐行改；用户以前改过的类型保留生效但无法撤回。需要改类型只能重新上传。属 R7 的直接后果，建议产品知悉 |
 | 4 | 文件框必须同步打开 | §4.3 的约束写进注释；单测 ② 守住 `click()` 在 OK 回调里被同步调用 |
 | 5 | 跨表合并键里的 dataType | 混合批次让它比以前更重要，后续重构不能删（§4.2） |
