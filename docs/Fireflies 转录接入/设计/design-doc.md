@@ -298,7 +298,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 
 ### 1.8 参会人姓名回退匹配
 
-适用于 1.9 匹配链中的 Cheat Sheet 与 HubSpot 两级：**先用邮箱匹配，未命中再用姓名**（《AI Meeting Type 自动映射标准》平台外人员识别第 3 条）。LG 平台用户只按完整邮箱识别（1.9 ①），不做姓名匹配。
+即 1.9 匹配链的 ⑥「日历姓名匹配」（需求 calendar name match）：Cheat Sheet 与 HubSpot 的**邮箱都未命中后，再用姓名**匹配这两处登记的人员（《AI Meeting Type 自动映射标准》参会人识别首行；平台外人员识别第 3 条）。LG 平台用户只按完整邮箱识别（1.9 ②），不做姓名匹配。
 
 | 项 | 规则 |
 |---|---|
@@ -326,33 +326,48 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 | **人的身份** | 决定会议类型（GS 方 / Founder / LP / Partner） | 类型判不出 → 会议进 Pending |
 | **公司归属** | 决定产物落哪家公司 | 该公司的产物无处可落 |
 
-**匹配链（命中即止）**
+**匹配链（命中即止）**——顺序按《AI Meeting Type》参会人识别首行（2026-10-10 更新）：GS domain → LG user / company Team domain → cheat sheet → HubSpot → calendar name match → LLM inference → Pending Assignment
 
 | 顺序 | 匹配方式 | 匹配对象 | 产出 |
 |---|---|---|---|
-| ① | **完整邮箱** | LG 平台用户 | 管理端用户 → **GS 人员**；公司端用户 → **Founder**，并取其所属公司（公司状态限 Active / Thriving / Needs Intervention / Needs Guidance） |
-| ② | **邮箱 → 姓名**（1.8） | Cheat Sheet，按会议日期取当时生效版本；该日身份有重复取最新一条 | 人员确定 + 角色 / 专长标签 |
-| ③ | **邮箱 → 姓名** | HubSpot 联系人 | 人员确定（MVP 跳过，见下） |
-| ④ | **邮箱域名** | `goldensection.com` / `whalesongproduct.com` / `gstdev.com` | **仅判定「此人属 GS 方」**，不对应到具体人员 |
-| ⑤ | **LLM 推断** | 转录正文 | **只推断公司**，不解决「人是谁」（2026-09-22 澄清） |
-| ⑥ | —— | —— | Pending Assignment |
+| ① | **GS 域名** | 邮箱域名为 `whalesongproduct.com` / `goldensection.com` | **GS 人员**；只判定「属 GS 方」，不对应到具体人员 |
+| ② | **完整邮箱** | LG 平台用户 | 管理端用户 → **GS 人员**；公司端用户 → **Founder**，并取其所属公司（公司状态限 Active / Thriving / Needs Intervention / Needs Guidance） |
+| ③ | **公司 Team 域名** | 邮箱域名 = 某家公司 Team 记录的域名（规则见下） | **Founder**（公司方），并关联该公司 |
+| ④ | **邮箱** | Cheat Sheet，按会议日期取当时生效版本；该日身份有重复取最新一条 | 人员确定 + 角色 / 专长标签 |
+| ⑤ | **邮箱** | HubSpot 联系人 | 人员确定（MVP 跳过，见下） |
+| ⑥ | **日历姓名**（1.8） | Cheat Sheet（及 HubSpot）登记人员的姓名 | 人员确定；完全匹配，重名进 Pending |
+| ⑦ | **LLM 推断** | 转录正文 | **只推断公司**，不解决「人是谁」（2026-09-22 澄清） |
+| ⑧ | —— | —— | Pending Assignment |
 
-**GS 人员**的三个来源（取并）：① 管理端用户、② Cheat Sheet 中 role = `GS staff`、④ 三个域名回退——回退只在既不是管理端用户、也未登记在册时才用。Cheat Sheet 里的 `GS staff` 与 `Founder` 指**未使用 LG 平台**的人员。
+需求把 ②③ 写在同一步（LG user / company Team domain），本文拆开：完整邮箱命中 LG 用户优先，未命中再看公司 Team 域名。
 
-> **域名匹配的唯一用途是判定 GS 方**（用于会议类型分类），**不做人员对应**——同一域名下有多个账号，域名本身无法定位到人，也无此必要。
+**GS 人员**的来源（取并）：① GS 域名、② 管理端用户、④ / ⑥ Cheat Sheet 中 role = `GS staff`。**GS 域名改为首位判定**（原为最后的回退，《AI Meeting Type》参会人识别首行（2026-10-10 更新））。Cheat Sheet 里的 `GS staff` 与 `Founder` 指**未使用 LG 平台**的人员。
 
-**HubSpot**：三个仓库都没有 HubSpot 集成（2026-10-09 复核，零命中）。**MVP 先跳过该级**——Cheat Sheet 未命中即进入域名判定。代价：仅存在于 HubSpot、未登记进 Cheat Sheet 的外部人识别不出来，会多一批 Pending。是否补建见第十章。
+> 需求「GS 域名」一行只列 `whalesongproduct.com`、`goldensection.com` 两个；同文档「何为 GS 人员」的回退仍写三个域名（含 `gstdev.com`）。按最新的「GS 域名」一行实现，`gstdev.com` 账号若是管理端用户，仍由 ② 识别为 GS（待确认，第十章 #51）。
+
+**公司 Team 域名**（③，《AI Meeting Type》参会人识别首行（2026-10-10 更新）；以下安全规则为本方案，待确认，第十章 #52）：
+
+| 项 | 规则 |
+|---|---|
+| 域名取自 | 该公司 Team 记录里公司端用户的邮箱域名，公司状态同 ②；公司档案若有官网域名字段，开发设计可改用 |
+| 排除 | 公共邮箱域名（gmail.com、outlook.com、hotmail.com、yahoo.com、icloud.com、qq.com、163.com 等，清单可配）与 GS 域名——否则用个人邮箱的人会被挂到某家公司 |
+| 一个域名对应多家公司 | 不采纳，不猜；此人继续按 ④ 往下识别 |
+| 优先级 | 只在 ② 未命中时用 |
+| 追溯文案 | `Matched via email domain <domain>`（同需求示例，9.5.3） |
+
+**HubSpot**：三个仓库都没有 HubSpot 集成（2026-10-09 复核，零命中）。**MVP 先跳过该级**——Cheat Sheet 邮箱未命中即进入日历姓名匹配。代价：仅存在于 HubSpot、未登记进 Cheat Sheet 的外部人识别不出来，会多一批 Pending。是否补建见第十章。
 
 **公司归属**
 
 | 来源 | 规则 |
 |---|---|
-| **参会人完整邮箱** | 匹配公司在 LG 中的 Team 记录（即该公司的公司端用户，①）→ 关联该公司。**不按域名** |
-| **正文提及**（⑤，6.4（P1）） | GS 内部 / Partner 的公司层拆分靠它（GS → LP 不按公司拆分、不做公司识别，用户决定 2026-10-10，3.3）；仅凭 Cheat Sheet Founder 判出的 GS → 创始人也靠它反推公司——**正文识别恰好给出一家高置信公司才采纳，零家或多家一律 Pending**（1.10、2.1） |
+| **参会人完整邮箱** | 匹配公司在 LG 中的 Team 记录（即该公司的公司端用户，②）→ 关联该公司 |
+| **参会人邮箱域名** | 匹配公司 Team 域名（③）→ 唯一对应一家公司时关联该公司 |
+| **正文提及**（⑦，6.4（P1）） | GS 内部 / Partner 的公司层拆分靠它（GS → LP 不按公司拆分、不做公司识别，用户决定 2026-10-10，3.3）；仅凭 Cheat Sheet Founder 判出的 GS → 创始人也靠它反推公司——**正文识别恰好给出一家高置信公司才采纳，零家或多家一律 Pending**（1.10、2.1） |
 | **人工指定** | Summary Records 页增删公司（9.5.3） |
 
 - 一场会议可关联**多个公司**
-- 域名不参与公司归属
+- GS 域名不参与公司归属；公司 Team 域名参与（③）
 - 需求要求管理端能追溯「这场会议为何关联到此公司」（原型已包含）：命中依据写入 `IDENTIFY` 审计（9.10.2），Summary Records 按公司展示依据文案（9.5.3）
 
 **关键规则**
@@ -397,7 +412,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 | **分类** | 定每位参会人的身份，进而定会议类型 | 1.9 匹配链，命中即止 |
 | **补充**（enrichment） | 对**每位**参会人另查名册，识别专家身份 | 不论分类命中哪一级都查；按会议日期取 Cheat Sheet 当时生效的版本（9.7.2），先邮箱后姓名（1.8） |
 
-两步互不覆盖：补充查到的名册记录**不改变分类结果**——LG 平台用户在名册里另有登记时，身份仍以平台账号为准（1.9 ①），名册只贡献专家标志与专长标签。
+两步互不覆盖：补充查到的名册记录**不改变分类结果**——LG 平台用户在名册里另有登记时，身份仍以平台账号为准（1.9 ②），名册只贡献专家标志与专长标签。
 
 例：某人按 LG 公司端用户被判为 Founder → 会议为 GS → 创始人；补充时查名册发现其为专家 → 同一场会还产出专家证词（2.5）。**一场会可同时产出分类结果与专家证词。**
 
@@ -444,22 +459,23 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 
 **GS 方 ≥ 1 且 公司方 ≥ 1**（《AI Meeting Type》触发规则「≥1 位 GS 人员 + ≥1 位 founder 人员」），两侧各自按下列口径判定。逐人识别按 1.9 的匹配链命中即止，本节只列与本类型相关的口径。
 
-**GS 方 ≥ 1**——参会人中任一命中即成立（顺序同《AI Meeting Type》「何为 GS 人员」）：
+**GS 方 ≥ 1**——参会人中任一命中即成立（顺序按《AI Meeting Type》参会人识别首行（2026-10-10 更新），GS 域名在前）：
 
 | # | 条件 | 覆盖谁 |
 |---|---|---|
-| ① | 完整邮箱匹配 LG **管理端**用户 | 已注册平台的 GS 人员 |
-| ② | Cheat Sheet 中 role = `GS staff` | **未使用 LG 平台**的 GS 人员 |
-| ③ | 回退：邮箱域名为 `goldensection.com` / `whalesongproduct.com` / `gstdev.com` | 既不是管理端用户、也未登记在册的 GS 人员 |
+| ① | 邮箱域名为 `whalesongproduct.com` / `goldensection.com`（GS 域名） | 用 GS 邮箱参会的人员 |
+| ② | 完整邮箱匹配 LG **管理端**用户 | 已注册平台、但不用 GS 邮箱的 GS 人员 |
+| ③ | Cheat Sheet 中 role = `GS staff` | **未使用 LG 平台**、也不用 GS 邮箱的 GS 人员 |
 
-> 三个域名在平台用户表中各有 45 个账号，量级一致；`whalesongproduct.com` 亦为 Fireflies 实测参会人邮箱的实际域名。另存在 `gstdemo.com` / `gstvc.com` 各 1 个账号，**不计入** GS 方。
+> 平台用户表里 `goldensection.com` / `whalesongproduct.com` / `gstdev.com` 各有 45 个账号，`whalesongproduct.com` 亦为 Fireflies 实测参会人邮箱的实际域名。需求「GS 域名」现只列前两个；`gstdev.com` 的账号若是管理端用户仍由 ② 识别（第十章 #51）。另存在 `gstdemo.com` / `gstvc.com` 各 1 个账号，**不计入** GS 方。
 
 **公司方 ≥ 1**——参会人中任一命中即成立：
 
 | # | 条件 | 覆盖谁 |
 |---|---|---|
 | ① | 完整邮箱匹配 **LG 公司端用户**，且其所属公司 `status ∈ {2,3,4,5}` | 已注册平台的创始人／公司成员 |
-| ② | Cheat Sheet 中 role = `Founder` | **未使用 LG 平台**的创始人（手动维护） |
+| ② | 邮箱域名匹配某家公司的 **Team 域名**（唯一一家，规则见 1.9 ③） | 未注册平台、但用公司邮箱参会的公司成员 |
+| ③ | Cheat Sheet 中 role = `Founder` | **未使用 LG 平台**的创始人（手动维护） |
 
 公司状态取 `CompanyStatusEnum` 的四项：Needs Intervention(2) / Needs Guidance(3) / Thriving(4) / Active(5)；排除 Exited(1) / Shut down(6) / Off journey(7)。**不额外要求公司挂 portfolio**（比现成的 `isActiveCompany` 宽）。
 
@@ -469,10 +485,10 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 
 | 情形 | 判定 | 公司归属 |
 |---|---|---|
-| 会上有 LG 公司端用户（无论是否也有 Cheat Sheet Founder） | ✅ 本类型 | 按参会人**完整邮箱**匹配公司在 LG 的 Team 记录取 `company_id`（不按域名）；多家公司的用户同时到场则关联多家 |
-| **只有 Cheat Sheet Founder，无公司端用户** | ✅ 本类型 | Cheat Sheet 条目只有 `Organization` 文本、**没有 `company_id`**，只能**由正文提及反推**（6.4（P1）） |
+| 会上有 LG 公司端用户，或有人邮箱域名命中公司 Team 域名（无论是否也有 Cheat Sheet Founder） | ✅ 本类型 | 按参会人**完整邮箱**匹配公司 Team 记录，或按**邮箱域名**匹配公司 Team 域名，取 `company_id`；多家公司的人同时到场则关联多家 |
+| **只有 Cheat Sheet Founder，无公司端用户、也没有域名命中** | ✅ 本类型 | Cheat Sheet 条目只有 `Organization` 文本、**没有 `company_id`**，只能**由正文提及反推**（6.4（P1）） |
 
-**本类型的公司归属只来自到场的创始人**：正文里提到、但没有创始人到场的公司**不关联**——否则那家公司的创始人会读到一场自己没参加的会。会上有公司端用户时公司已由邮箱确定，6.4（P1）只做质量判断、不做公司识别（用户决定 2026-10-10）；只有 Cheat Sheet Founder 时才靠 P1 的正文提及反推公司。
+**本类型的公司归属只来自到场的创始人**：正文里提到、但没有创始人到场的公司**不关联**——否则那家公司的创始人会读到一场自己没参加的会。公司已由参会人邮箱确定时（公司端用户的完整邮箱，或公司 Team 域名），6.4（P1）只做质量判断、不做公司识别（用户决定 2026-10-10）；只有 Cheat Sheet Founder 时才靠 P1 的正文提及反推公司。
 
 **Cheat Sheet Founder 路径只采高置信度，低置信度一律 Pending**（阻断内容提取，等人工在 Summary Records 指定公司后再提取）。本类型误判代价比其余类型高一个量级：
 
@@ -808,7 +824,7 @@ GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归
 
 ### 4.1 判定条件
 
-**全员为 GS 人员，且人数 ≥ 2**（《AI Meeting Type》「≥2 位 GS 人员且无外部人员」）。GS 人员口径同 2.1：管理端用户 / Cheat Sheet `GS staff` / 回退三域名。
+**全员为 GS 人员，且人数 ≥ 2**（《AI Meeting Type》「≥2 位 GS 人员且无外部人员」）。GS 人员口径同 2.1：GS 域名 / 管理端用户 / Cheat Sheet `GS staff`。
 
 任一参会人未被确认为 GS 人员即**不判为本类**：属于公司方 → GS → Founder；命中 Cheat Sheet LP / Partner → 对应类；未识别 → **Pending Assignment**（1.9）。GS 员工用私人邮箱参会、且既非管理端用户也未在 Cheat Sheet 登记时，同样落入未识别。
 
@@ -835,7 +851,7 @@ GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归
 
 > 错误代价不对称：漏识别只是该公司 1b 少一条内容（静默）；**错识别会让 A 公司的交易事实进入 B 公司的 1b**，而 Portfolio Manager 只能看自己管辖的公司，这构成跨边界泄漏。故宁可漏不可错。
 >
-> 系统现状：**不存在「按名称匹配公司」的能力**，需新建。（按邮箱域名反查公司的能力同样没有，但公司归属已改走完整邮箱匹配，不再需要它——见 1.9。）
+> 系统现状：**不存在「按名称匹配公司」的能力**，需新建。（按邮箱域名反查公司的能力同样没有，需新建——公司 Team 域名匹配，1.9 ③、第八章 #24。）
 
 **抽取范围：只抽结论性内容**，不抽过程。
 
@@ -1137,6 +1153,7 @@ Python 路径相对 `python/CIOaas-python/source`，Java 路径相对 `java/CIOa
 | # | 改动 | 位置 |
 |---|---|---|
 | 23 | **`firm_profile` 组装**（1.7）：取组织名称 + 本租户 Portfolio 名称列表（`company_group`，按 `organization_id` 圈定）作为基金清单，传入 P5 / P6；同一份名单并入 Cross-Company 与证词的机械剥离清单（1.5） | 新 Fireflies 模块 |
+| 24 | **识别链按新需求调整**（1.9）：GS 域名（两个，可配置）首位判定；新建公司 Team 域名索引——按公司汇总公司端用户的邮箱域名，排除公共邮箱域名与 GS 域名，一个域名只对应一家公司才可用；完整邮箱未命中 LG 用户时按域名匹配；日历姓名匹配移到 HubSpot 之后；命中依据写入 `IDENTIFY` 审计 | 新 Fireflies 模块 |
 
 ---
 
@@ -1511,10 +1528,11 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | 命中方式 | 依据文案 |
 |---|---|
 | 参会人完整邮箱 → LG 公司端用户（该公司的 Team 记录） | `Matched via <email> (LG company user)` |
+| 参会人邮箱域名 → 公司 Team 域名（1.9 ③） | `Matched via email domain <domain>` |
 | 正文提及（6.4（P1），仅高置信） | `Inferred from transcript — <evidence>` |
 | 人工指定 | `Assigned by <user> on <date>` |
 
-> **没有"邮箱域名"这一条**。原型与需求示例写的是 `Matched via email domain northwindlabs.io`，但公司关联走的是**完整邮箱**匹配公司 Team 记录，域名只用于判定 GS 方、不参与公司归属（1.9）。页面按实际命中的完整邮箱展示。
+> 「邮箱域名」一条按新需求加回（《AI Meeting Type》参会人识别首行（2026-10-10 更新）：company Team domain）：完整邮箱未命中 LG 用户时，再按邮箱域名匹配公司 Team 域名，文案与需求示例 `Matched via email domain northwindlabs.io` 同。
 >
 > 手动添加的公司也要写依据，否则时间一长分不清哪些是 AI 判的、哪些是人改的——而这两者的可信度不同。
 
@@ -1583,7 +1601,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 
 | 过滤 | 依据 |
 |---|---|
-| GS 人员（管理端用户、注册表 `GS staff`、三域名） | 需求「GS 员工永远不会被标记」 |
+| GS 人员（GS 域名、管理端用户、注册表 `GS staff`） | 需求「GS 员工永远不会被标记」 |
 | 已标记为专家的人（按会议日期生效版本带专长标签） | 推测只针对"尚未被标记为专家"的人 |
 | 拒绝名单中的邮箱 | 需求「拒绝记录将保存该人员的 email」 |
 
@@ -2028,7 +2046,7 @@ Review 页上能改的三样东西，改完点 Start Extraction 触发重算，�
 
 原「GS → 创始人 ⇄ Board Call 只补跑 1b」一行随 Board Call 类型取消删除。
 
-**公司识别不重跑**。它在识别阶段独立完成（6.4（P1）），改判不影响其结果。例外：P1 此前跳过了公司识别——GS → 创始人且会上有公司端用户，或 GS → LP（均为用户决定 2026-10-10）——改判为 GS 内部 / GS → Partner 后，提取前补跑一次 P1，只取正文提及的公司。
+**公司识别不重跑**。它在识别阶段独立完成（6.4（P1）），改判不影响其结果。例外：P1 此前跳过了公司识别——GS → 创始人且公司已由参会人邮箱确定，或 GS → LP（均为用户决定 2026-10-10）——改判为 GS 内部 / GS → Partner 后，提取前补跑一次 P1，只取正文提及的公司。
 
 #### 9.9.3 参会人登记引起的连锁
 
@@ -2357,7 +2375,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 1 | 《Summary Records》的 Scrub Status 映射规则仍写「GS-Founder 会议类型 → Flagged」；AI Meeting Type 下拉仍列 Board Call / Strategic Partner / Exit Partner 三项 | 按 4 类 + Unknown、只有 Passed / Pending 实现（1.10、9.5.2） |
 | 2 | 剥离清单的适用范围：需求 I.2 把清单写在"去逐字化 · 机械擦除层"下，字面像对所有面向 Founder 的界面生效 | 按清单末句"传播前管理员审核"理解为只用于跨出本公司的去向（Cross-Company、证词）；1a / 1b / Founder KB / Portfolio KB 不剥离（1.4） |
 | 3 | GS → 创始人的 Founder KB / Portfolio KB：路由表写 Founder KB = Fireflies Essence Summary、Portfolio KB = 1,000 字以内摘要；用户决定（2026-09-30）两者为同一份 overview 整理稿 | 按用户决定实现（2.3）。另：本地样本 overview 均值约 916 字符，KB 正文与 1a 摘要几乎相同；若希望 KB 更完整，可纳入 Fireflies 的 `action_items` / `shorthand_bullet`（填充率 91% 以上） |
-| 4 | 公司关联：需求的追溯示例写"通过邮箱域名 acme.com 匹配至 Acme Inc"，与正文"按参会人邮箱地址匹配 Team 记录"矛盾 | 按完整邮箱实现，追溯文案写匹配到的邮箱（1.9、9.5.3） |
+| 4 | 公司关联：需求的追溯示例写"通过邮箱域名 acme.com 匹配至 Acme Inc"，与正文"按参会人邮箱地址匹配 Team 记录"矛盾 | **已按新需求处理**（《AI Meeting Type》参会人识别首行（2026-10-10 更新）加了 company Team domain）：完整邮箱优先，未命中再按邮箱域名匹配公司 Team 域名；追溯文案按实际命中写（1.9、9.5.3） |
 | 5 | LP 基金层的归属：总表写"归到 GS 基金实体（Fund II / Fund III / Credit Fund）" | **已关闭**：总表已于 2026-10-10 删除。现行：不建基金实体，归属机构层（3.3） |
 | 6 | Start Extraction 的 Company 必填：需求 III 字面要求所有类型都具备 Company 才激活 | 只对 GS → 创始人必填——GS → LP 不按公司拆分、不识别公司（#49），只谈战略的内部会可能一家公司都没有（9.5.1） |
 
@@ -2444,6 +2462,8 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 |---|---|---|
 | 49 | GS → LP 不按公司拆分（用户决定 2026-10-10）：不再按正文提到的被投公司拆分公司层 1b，不调 P3，P1 只做质量判断、不识别公司；只抽基金层（P4），基金层照旧不写具体被投公司 | **已定**（3.3）。依据：需求路由表 GS → LP 的 1b 与 Portfolio KB 两格都只写「组合（基金）级别摘要」，该文件历来没有按公司拆分；「公司层」源头是 09-21 版设计文档（依据已删除的旧版需求）。后果：LP 会上谈到具体被投公司的内容（如某公司正在被兜售、报价、买方）不进任何知识库——基金层不写具体公司，Cross-Company 与证词不收交易事实——只留原始转录（`ff_meeting`，Raw Data 页），Goldie 召回不到。待同步：需求路由表跨公司列「所有进行中的交易信息永不放出，只放该公司 1b」：不放出照旧，「只放该公司 1b」在本类型没有对应去处（本类型需求本就没有公司层 1b），按「不放出」理解 |
 | 50 | 需求术语 (1) Exit-Readiness / Strategy 无处引用：09-21 版挂在「GS → 董事会 / 创始人」1b「退出准备 / 战略方面的摘要（1）」，董事会类型取消后现行路由表没有任何一格引用它；GS 内部、GS → Partner 两类 1b 也没有术语定义 | **已定（用户决定 2026-10-10）**：借用 (1) 作 GS → Partner「涉及具体公司退出的摘要」的定义——抽取项加入退出就绪度与与退出相关的中长期战略（5.4、6.6）。GS 内部仍按本方案展开。可请需求方在路由表 Partner 1b 一格补注 (1) |
+| 51 | 《AI Meeting Type》内部不一致：参会人识别首行把 GS 域名放在第一步，「GS 域名」一行只列 `whalesongproduct.com`、`goldensection.com`；同文档「何为 GS 人员」仍把域名当最后的回退，且列三个域名（含 `gstdev.com`） | 按最新的首行与「GS 域名」一行实现：GS 域名首位判定、只认两个；`gstdev.com` 账号若是管理端用户仍识别为 GS（1.9、2.1）。请需求方统一「何为 GS 人员」一段 |
+| 52 | 公司 Team 域名匹配的安全规则：需求只写了 company Team domain，没说公共邮箱、一个域名对应多家公司怎么办 | 本方案：排除公共邮箱域名与 GS 域名；一个域名对应多家公司不采纳；只在完整邮箱未命中 LG 用户时使用（1.9 ③）。另：日历姓名匹配的姓名源仍取 Fireflies `meeting_attendance[].name`（`meeting_attendees` 的姓名实测为空，1.8） |
 
 **本次重写关闭的旧条目**：Partner 判定"角色 + 标签"（改为只看角色，5.1）；机密性规则的出处（改挂现行需求，1.7）；Expertise Tags 取值清单（固定 5 项，9.8）；仅凭 Cheat Sheet Founder 判定时的 Flagged 兜底（改为进 Pending，2.1）；`ADMIN_PORTFOLIO` 设想（改为机构层归属，#21）；Board Call 的 care flag（Board 已取消）；管理端知识库是否展示会议条目（需求已要求 Portfolio KB，1.1）；公司结构化记忆分类清单（用户已取消按记忆分类筛选）。原 10.3「与 2026-09-28 需求方答复的冲突」已全部被现行需求吸收，整节删除。
 
