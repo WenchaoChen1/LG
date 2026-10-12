@@ -291,6 +291,8 @@ organizationStatusDto.setPwd(pwd);
 
 **修复方向**：接口收敛为"只能查自己"或下线；切换组织改为服务端令牌交换；移除 `user.pwd` 可逆副本列与加解密工具。
 
+> **2026-10-12 部分已修**：前两项已做（Java `f80719181`），解密方法已删；`pwd` 的写入与 `encrypt`、硬编码密钥仍在。以上代码片段为修复前的快照。
+
 ### 6.2 生产 JWT 密钥为默认占位串
 
 - 默认值定义：`gstdev-cioaas-common/.../security/jwt/JwtTokenProvider.java:30`
@@ -617,3 +619,5 @@ const choose = (item: any) => {
 ```
 
 数据来源即 §6.1 那个无授权校验的接口。**修复方向是服务端令牌交换（token exchange），而不是回传口令。**
+
+> **2026-10-12 已修**：`choose()` 改为派发 `login/switchAccount` → `POST /oauth/switch`，不再接触口令（web `7e4e6c66`）。以上为修复前的快照。

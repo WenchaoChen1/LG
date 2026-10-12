@@ -315,7 +315,7 @@
 
 ### 两条阻断项
 
-1. **`user.pwd` 可逆口令副本**：明文直存（`UserServiceImpl.java:708`、`:1557`）或 AES-ECB 加密（`:1704-1712`），密钥硬编码在 `web/system/enums/PasswordSecretKeyEnum.java`。解密后经 Base64 回吐给浏览器（`:1410-1417`、`:1437-1445`、`:1753-1785`）。其中 `getOrganizationStatusByUserEmail`（`OrganizationController.java:86-90`）**需要登录但零授权校验**，且查询条件为 `role_type = 1`（`UserRepository.java:135-136`），即**专门返回超级管理员账号的口令**。
+1. **`user.pwd` 可逆口令副本**：明文直存（`UserServiceImpl.java:708`、`:1557`）或 AES-ECB 加密（`:1704-1712`），密钥硬编码在 `web/system/enums/PasswordSecretKeyEnum.java`。解密后经 Base64 回吐给浏览器（`:1410-1417`、`:1437-1445`、`:1753-1785`）。其中 `getOrganizationStatusByUserEmail`（`OrganizationController.java:86-90`）**需要登录但零授权校验**，且查询条件为 `role_type = 1`（`UserRepository.java:135-136`），即**专门返回超级管理员账号的口令**。**2026-10-12 部分已修**：该接口改为只查本人，它与 `/users/select` 都不再回传口令，切换组织改为 `POST /oauth/switch` 换发令牌（`f80719181`）；`pwd` 的写入与硬编码密钥仍在（见 Java 待优化项）。
 
 2. **生产 JWT 密钥为默认占位串**：`deploy/cioaas-web-prod.yml:103` 的 `jwt.secret` 与 `common/security/jwt/JwtTokenProvider.java:30` 的默认值完全一致，而该配置文件被 git 跟踪（同文件另含数据库密码、AWS 长期密钥、Stripe 生产私钥）。`JwtTokenProvider.java:40-46` 只校验密钥长度，不校验是否为默认值。
 
