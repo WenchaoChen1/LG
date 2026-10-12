@@ -161,7 +161,7 @@ Service 里加一个私有静态方法 `toBusinessType(String dataType)`：调 `
 2. **新行校验挪到删除之前**（审核 S-5）：新行查询 + `PENDING` 校验（原 `:281-285`）挪到旧文件下线（`:277-278`）之前。
    `fileService.delete` 的 S3 删除即时生效、不随事务回滚（`FileServiceImpl:106-111`），现状是先删旧文件再校验新行，
    新行不合法时事务回滚了，旧文件的 S3 对象却已经没了。
-3. **取类型再软删**：`inherited = oldRow.getBusinessType()` 在软删之前取（软删后 `findByFileIdAndDeletedFalse` 查不到）。
+3. **取类型再软删**：`inherited = oldRow.getBusinessType()` 在旧文件下线前取，作为新文件的继承值。
 4. `:286` `newRow.setStatus("UPLOADED")` 旁边加 `newRow.setBusinessType(inherited)`：**无条件覆盖**，即使前端调
    getUploadUrl 时误带了 `dataType` 也以旧文件为准（需求 R8：替换文件继承类型）。
 5. `inherited == null`（旧文件是上线前上传的）：照设计原样复制 NULL，打一条 `log.warn`（审核 S-10）。按 `coding.md` §11
@@ -356,7 +356,7 @@ T8 不带 taskId，不需要任务 stub，只断言 `saveAll` `never()`。
 |---|---|---|
 | J-R1 | 本模块的 Service 直接收 Request，偏离「Request → DTO → Service」规范（§1） | **已拍板（2026-10-10）：登记为模块例外**，新代码沿用模块现状、不补 DTO（只为 commitUpload 补会让同一接口里出现两种写法）。不记待优化项（审核 A-6） |
 | J-R2 | 上线前建的任务，在映射页**替换**旧文件 → 新文件继承 NULL → Python 判 `FILE_FAILED` | 符合设计 D9 / 需求 R11（历史不补写），但用户只会看到文件失败、不知道原因。可选改进：Java 在替换时发现旧文件没有类型就直接拒绝，给出可读提示（例如"请改用 Upload New Document"）——属于产品决策，不在 D1~D10 内。**已拍板（2026-10-10）：照现稿**，按设计原样复制、不在替换时拒绝；只影响上线时尚未提交的老任务，属过渡期问题。§4.4 的"旧行必须存在、先校验后删除"（审核 S-5）与此无关，本期照做 |
-| J-R3 | 映射页 Upload New Document 的类型**只能在 getUploadUrl 时提交**，之后没有接口能改 | 设计 §10 Q2（类型选择的交互样式）尚未定稿。若设计稿选择"先上传、后选类型"，前端必须等用户选完再调 getUploadUrl；否则 Java 要在 uploadComplete 上加字段。请前端按此约束实现 |
+| J-R3 | 映射页 Upload New Document 的类型**只能在 getUploadUrl 时提交**，之后没有接口能改 | 设计 §10 Q2 已定为二级菜单"先选类型、再选文件"（2026-10-10），类型在 getUploadUrl 时就已确定，满足此约束 |
 | J-R4 | "当前月"的口径两端不同：Python 用处理时刻的 UTC（D6），Java 护栏用 `LocalDate.now()` 的 JVM 默认时区（`ConflictServiceImpl:665`） | JVM 跑在 UTC 时两边一致；不是 UTC 时，月初几小时内两道防线的判断可能差一个月。D6 已定 Java 不参与，**本期不改**，上线前确认生产 JVM 时区即可 |
 | J-R5 | complete 仍然信任前端回传的每行 `sourceDataType`（`ConflictServiceImpl:982`），不和文件声明交叉核对 | 设计 §6 明确"complete 写入逻辑不变"；映射页已不能改派类型（R7），数据来自 Python 按声明类型写的单元格。不加交叉校验。最小加固**已拍板采用**（2026-10-10）：不再保存 `editSourceDataType`，见 §4.5（审核 S-4 / A-13） |
 | J-R6 | **顺带发现，与本需求无关**：commitUpload 的 S3 落盘校验（`ServiceImpl:418-424`）只 `catch` 异常、不看返回值，而 `headObject` 遇到 404 返回 `S3ObjectHead.missing()`、不抛异常（`storage/storage/AwsSThreeStorage.java:186-195`）。S3 上不存在的文件因此仍会被登记并送去解析，`missingFileIds` 实际只收得到"不在本公司 staging 目录"的文件 | **已拍板（2026-10-10）：本期顺手修**，见 §4.1 第 4 步、单测 T16；前端配套提示 missing 文件（dev-frontend §3.3） |

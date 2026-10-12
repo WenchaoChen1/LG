@@ -1100,8 +1100,8 @@ export const UPLOAD_DATA_TYPE_OPTIONS: { value: FinancialDataType; label: string
   { value: 'ACTUALS', label: 'Actuals' },
   { value: 'PROFORMA', label: 'Proforma' },
 ];
-// TABLE TYPE 下拉未选时的占位（需求 Q1，待设计确认）
-export const UPLOAD_DATA_TYPE_PLACEHOLDER = 'Select';
+// TABLE TYPE 下拉未选时的占位（需求 Q1 已定：与映射页 "Select Date" 同为"Select + 名词"写法）
+export const UPLOAD_DATA_TYPE_PLACEHOLDER = 'Select type';
 // Actuals 当前月保护的固定说明（需求 §5.1 / R4）
 export const ACTUALS_CURRENT_MONTH_NOTE =
   'For Actuals files, data for the current month and later is not extracted.';
@@ -1362,8 +1362,15 @@ const MonthPickerPopover: React.FC<{
   open={selectingDate}
   onOpenChange={(v) => onSelectDate(v ? row.rowId : null)}
   onSelect={(date) => onSaveDate(row.rowId, date)}
-  disableFromMonth={row.dataType === 'ACTUALS' ? currentMonthKey() : undefined}
+  disableFromMonth={actualsDisableFromMonth(row)}
 >
+
+// handleSaveDate 把本行 n 个格从起始月起依次 +1 月铺开：最后一格也须早于当前月，
+// 故 Actuals 行从「当前月 - (n-1)」起置灰（只拦起始月会漏掉多格行，代码审核发现）
+const actualsDisableFromMonth = (row: BuiltRow): string | undefined =>
+  row.dataType === 'ACTUALS'
+    ? addMonths(currentMonthKey(), -(Math.max(row.rawCellRefs.length, 1) - 1))
+    : undefined;
 
 // ── 空状态追加当前月说明（审核 D-10，dev-frontend §4.7）──
 import { ACTUALS_CURRENT_MONTH_NOTE } from '../constants';
@@ -1424,72 +1431,54 @@ export interface EditFields {
 }
 ```
 
-### W10. `FileSelector.tsx`（FileHeaderBar 片段，Upload New Document 选类型的临时方案，待 Q2）
+### W10. `FileSelector.tsx`（FileHeaderBar 片段，Upload New Document 二级菜单选类型，Q2 已定）
 ```tsx
-import { Spin, Dropdown, Menu, Tooltip, Modal, Radio, Alert } from 'antd';
 import type { FinancialDataType } from '@/services/api/ai/dto';
-import { UPLOAD_ACCEPTED_EXTENSIONS, UPLOAD_DATA_TYPE_OPTIONS, ACTUALS_CURRENT_MONTH_NOTE } from '../constants';
+import { UPLOAD_ACCEPTED_EXTENSIONS, UPLOAD_DATA_TYPE_OPTIONS } from '../constants';
 
-// Props 与 FileHeaderBarProps
+// Props / FileHeaderBarProps
+// dataType：Upload New Document 二级菜单里选的表类型，本次选中的文件共用
 onUploadFiles?: (files: File[], dataType: FinancialDataType) => void;
 
 // FileHeaderBar 内
-const [typePickerOpen, setTypePickerOpen] = useState(false);
-const [uploadType, setUploadType] = useState<FinancialDataType>();
+// Upload New Document 二级菜单选的表类型：打开文件框前记下，input onChange 里取用
+const uploadTypeRef = useRef<FinancialDataType | null>(null);
 
 const handleMenuClick = ({ key }: { key: React.Key }) => {
   if (key === 'delete' && onDeleteSelected) onDeleteSelected();
-  if (key === 'upload' && onUploadFiles) {
-    // 需求 R8：上传新文件先选类型；每次打开都清空（D7 无默认值）
-    setUploadType(undefined);
-    setTypePickerOpen(true);
+  // Upload New Document ▸ Actuals / Proforma：二级菜单项 key 即表类型
+  const uploadType = UPLOAD_DATA_TYPE_OPTIONS.find((o) => o.value === key)?.value;
+  if (uploadType && onUploadFiles) {
+    uploadTypeRef.current = uploadType;
+    // 必须在菜单点击的同步调用栈里打开文件框（浏览器要求用户手势），不能挪进 setTimeout / Promise
+    uploadInputRef.current?.click();
   }
+  // Replace 不问类型：后端在 file/replace 里继承被替换文件的类型
   if (key === 'replace' && onReplaceSelected) replaceInputRef.current?.click();
-};
-
-const handleTypePickerOk = () => {
-  setTypePickerOpen(false);
-  // 必须在 OK 点击的同步调用栈里打开文件框（浏览器要求用户手势），不能挪进 setTimeout / Promise / afterClose
-  uploadInputRef.current?.click();
 };
 
 const handleUploadInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
   const list = e.target.files;
+  const uploadType = uploadTypeRef.current;
   if (list && list.length > 0 && onUploadFiles && uploadType) {
     onUploadFiles(Array.from(list), uploadType);
   }
   e.target.value = '';  // 允许重复选同名文件
 };
 
-// JSX：放在 !readonly 的隐藏 input 片段内
-<Modal
-  visible={typePickerOpen}
-  title="Upload New Document"
-  okText="Select Files"
-  okButtonProps={{ disabled: !uploadType }}
-  onOk={handleTypePickerOk}
-  onCancel={() => setTypePickerOpen(false)}
-  centered
-  destroyOnClose
->
-  <p className={styles.typePickerText}>Select the table type for the files you are about to upload.</p>
-  <Radio.Group
-    className={styles.typePickerRadios}
-    value={uploadType}
-    onChange={(e) => setUploadType(e.target.value)}
+// 菜单 JSX：原 Menu.Item key="upload" 换成二级菜单（悬停展开，无默认值）
+{showUpload && (
+  <Menu.SubMenu
+    key="upload"
+    disabled={isProcessing}
+    icon={<img src="/svgs/AI/new_upload.svg" alt="" className={styles.menuIcon} />}
+    title="Upload New Document"
   >
     {UPLOAD_DATA_TYPE_OPTIONS.map((o) => (
-      <Radio key={o.value} value={o.value}>{o.label}</Radio>
+      <Menu.Item key={o.value}>{o.label}</Menu.Item>
     ))}
-  </Radio.Group>
-  <Alert type="info" showIcon message={ACTUALS_CURRENT_MONTH_NOTE} className={styles.typePickerNote} />
-</Modal>
-```
-```less
-// FileSelector.less
-.typePickerText { margin: 0 0 12px; font-family: 'Futura-PT-Medium', sans-serif; font-size: 14px; color: #4E5153; }
-.typePickerRadios { display: flex; gap: 24px; margin-bottom: 16px; }
-.typePickerNote { font-family: 'Futura-PT-Medium', sans-serif; font-size: 13px; }
+  </Menu.SubMenu>
+)}
 ```
 
 ### W11. `AiFinancialExtractionPage.tsx` 与 `useOCRData.ts`
@@ -1690,29 +1679,39 @@ it('只有一个文件：批量设置照常显示，选好类型后 Next 可用�
 ### W13. 单测骨架：`FileSelector.test.tsx`（关键用例）
 ```tsx
 import React from 'react';
-// toBeDisabled 来自 jest-dom；jest.config.js 无 setupFilesAfterEnv，须逐文件显式引入（先例 AssessmentPage.test.tsx）（审核 C-19）
+// toBeInTheDocument 等来自 jest-dom；jest.config.js 无 setupFilesAfterEnv，须逐文件显式引入（审核 C-19）
 import '@testing-library/jest-dom';
 import { render, fireEvent, screen } from '@testing-library/react';
 import FileSelector from './FileSelector';
 
-// 关键用例体（写在 it(...) 内）
-const clickSpy = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined);
-render(
-  <FileSelector files={twoReadyFiles} uploadStage="done" fromModal selectedFileId={null}
-    onSelectFile={jest.fn()} onCollapse={jest.fn()} onUploadFiles={onUploadFiles} />,
-);
-fireEvent.click(screen.getByAltText('dots'));
-fireEvent.click(screen.getByText('Upload New Document'));
-const ok = screen.getByRole('button', { name: 'Select Files' });
-expect(ok).toBeDisabled();
-expect(clickSpy).not.toHaveBeenCalled();
-fireEvent.click(screen.getByLabelText('Proforma'));
-fireEvent.click(ok);
-expect(clickSpy).toHaveBeenCalledTimes(1); // 同步打开文件框
-const input = document.body.querySelector('input[type="file"][multiple]') as HTMLInputElement;
-const f = new File(['x'], 'c.xlsx');
-fireEvent.change(input, { target: { files: [f] } });
-expect(onUploadFiles).toHaveBeenCalledWith([f], 'PROFORMA');
+// ImagePreview → ai service → utils/request（依赖 umi 运行时），这里切断
+jest.mock('@/services/service/ai/aiService', () => ({ fetchPreviewImage: jest.fn() }));
+
+// 二级菜单是 rc-menu 默认的悬停触发：对标题 mouseEnter，再异步等子项渲染
+const openUploadSubMenu = async () => {
+  fireEvent.click(screen.getByAltText('dots'));
+  fireEvent.mouseEnter(screen.getByRole('button', { name: /Upload New Document/ }));
+  await screen.findByRole('menuitem', { name: 'Proforma' });
+};
+
+it.each([
+  ['Actuals', 'ACTUALS'],
+  ['Proforma', 'PROFORMA'],
+])('点 %s 后同步打开文件框，选中的文件带 %s 上报', async (label, dataType) => {
+  const clickSpy = jest.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined);
+  render(
+    <FileSelector files={twoReadyFiles} uploadStage="done" fromModal selectedFileId="f1"
+      onSelectFile={jest.fn()} onCollapse={jest.fn()} onUploadFiles={onUploadFiles} onReplaceFile={jest.fn()} />,
+  );
+  await openUploadSubMenu();
+  fireEvent.click(screen.getByRole('menuitem', { name: label }));
+  expect(clickSpy).toHaveBeenCalledTimes(1); // 菜单点击回调里同步调用
+  const f = new File(['x'], 'c.xlsx');
+  fireEvent.change(document.body.querySelector('input[type="file"][multiple]') as HTMLInputElement,
+    { target: { files: [f] } });
+  expect(onUploadFiles).toHaveBeenCalledWith([f], dataType);
+  clickSpy.mockRestore();
+});
 ```
 
 ### W14. 单测骨架：`useOCRData.test.tsx`（harness 写法，仓库没有 renderHook）

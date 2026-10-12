@@ -8,7 +8,7 @@
 
 本文只写**功能设计**：流程、接口契约、数据模型、各端处理规则和交互，不写代码级实现（那是第五阶段 `开发设计/`）。
 
-**决策状态**：§9 中 D1~D10 已全部和产品确认；§10 剩四项设计稿细节待定，不影响后端。
+**决策状态**：§9 中 D1~D10 已全部和产品确认；§10 的 Q1、Q2 已定（2026-10-10），剩 Q3、Q4 两项设计稿细节待定，不影响后端。
 
 **修订**：2026-10-10 按三端开发设计对照真实代码的核对结果修订 §4、§5、§6、§7、§10（返回码、uploadComplete 的校验范围、初始化判失败的新状态迁移、下游输入变化、前端现状细节）。
 
@@ -147,7 +147,7 @@ verify / complete（不变；Java 的 Actuals 当月护栏保留，作为第二�
 | 位置 | 变化 |
 |---|---|
 | 指派 LG 指标的下拉 | 去掉 Actual / Forecast 选项，只选指标；行的类型跟随单元格（即文件声明）。原来改回 "Unmapped Accounts" 时也能顺带改类型，同样去掉 |
-| Upload New Document | 临时方案（待 §10 Q2）：先弹一个小窗选类型（无默认），确认后再打开文件选择框，本次选中的文件共用这个类型；调 getUploadUrl 时按文件带上 `dataType`。接口本身支持按文件传，以后改成逐个文件选只需改前端 |
+| Upload New Document | ⋯ 菜单里的二级菜单：Upload New Document ▸ Actuals / Proforma（无默认），点其中一项直接打开文件选择框，本次选中的文件共用这个类型；调 getUploadUrl 时按文件带上 `dataType`（§10 Q2，2026-10-10 定） |
 | Replace Document | 不变，不询问类型（继承）。选错类型的补救不走替换，见需求 R8（删除后重新上传，或取消映射重传） |
 | Actuals / Proforma 标签页 | 不变 |
 | "current month data may be incomplete" 横幅 | 新任务不会再触发（`parentTableId` 恒为空）。代码保留：历史任务在映射页（含 devSupport 只读回放）仍会显示（D9） |
@@ -184,7 +184,7 @@ verify / complete（不变；Java 的 Actuals 当月护栏保留，作为第二�
 ## 10. 待定（设计稿细节，不影响后端）
 | # | 问题 |
 |---|---|
-| Q1 | TABLE TYPE 下拉未选择时的占位文案（暂用 "Select"） |
-| Q2 | 映射页 Upload New Document 选择类型的交互样式（暂用"先选类型、再选文件"，见 §7.2） |
+| Q1 | **已定（2026-10-10）**：TABLE TYPE 下拉未选择时的占位文案为 "Select type" |
+| Q2 | **已定（2026-10-10）**：映射页 Upload New Document 用 ⋯ 菜单的二级菜单 Upload New Document ▸ Actuals / Proforma，见 §7.2 |
 | Q3 | 上传弹窗加宽后的宽度与手机布局（暂按 640px，见 §7.1） |
 | Q4 | Clear All 是否改为常驻（需求和设计稿画成常驻，现状只在上传中出现；本期按"功能不变"处理） |

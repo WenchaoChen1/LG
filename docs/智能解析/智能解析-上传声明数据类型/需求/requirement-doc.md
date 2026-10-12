@@ -131,7 +131,7 @@
 ## 八、待确认
 | # | 问题 | 负责 |
 |---|---|---|
-| Q1 | TABLE TYPE 下拉未选择时的占位文案（如 "Select"） | 设计 |
-| Q2 | 映射页 Upload New Document 选择类型的交互样式（小弹窗还是在文件选择后选择） | 设计 |
+| Q1 | TABLE TYPE 下拉未选择时的占位文案——**已定（2026-10-10）**："Select type" | 设计 |
+| Q2 | 映射页 Upload New Document 选择类型的交互样式——**已定（2026-10-10）**：⋯ 菜单里的二级菜单 Upload New Document ▸ Actuals / Proforma | 设计 |
 | Q3 | 上传弹窗增加 TABLE TYPE 列后的宽度与手机布局 | 设计 |
 | Q4 | Clear All 是否常驻（现状只在有文件上传中时出现） | 设计 |

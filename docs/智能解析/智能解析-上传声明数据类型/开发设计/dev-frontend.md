@@ -202,36 +202,30 @@ Remove（`:256-273`）、Cancel（`:282-292`，删暂存文件）、关闭重置
 | 跨表合并分桶键含 dataType（`DataMappingPanel.tsx:338`，上方 `:335-337` 是说明注释）（审核 C-25） | 一批里可以混合两种文件且常有同名科目 | **必须保留**，否则 Actuals 与 Proforma 同名行会被并到一起 |
 | 类型为 `''` 的行 | 两个标签页都过滤掉（`r.dataType === activeTab`），改前就看不到 | 不会因去掉选项而新增"看不见的行"；新任务 Python 恒写声明类型 |
 
-### 4.3 Upload New Document：先选类型再选文件（临时交互，待 Q2）
+### 4.3 Upload New Document：二级菜单选类型（Q2 已定，2026-10-10）
 
-需求 R8 要求上传新文件必须选类型；Q2 的样式待设计。先落一个**最小临时方案**，换样式时只动 `FileHeaderBar` 内部：
+需求 R8 要求上传新文件必须选类型。交互定为 ⋯ 菜单里的**二级菜单**（设计 §10 Q2 方案 c）：
 
 ```
-点 kebab → Upload New Document
-  → 打开小弹窗（antd Modal）：一句说明 + Radio.Group [Actuals | Proforma]（无默认，D7）+ 与上传弹窗同一条 Actuals 当月说明
-  → OK（文案 "Select Files"，未选类型时 disabled）
-  → 关弹窗，并在**同一个点击回调里同步**调 uploadInputRef.current.click() 打开系统文件框
-  → onChange：onUploadFiles(files, uploadType)
+点 kebab → 悬停 Upload New Document ▸ 展开 [Actuals | Proforma]（无默认，D7）
+  → 点其中一项：记下类型，并在**同一个菜单点击回调里同步**调 uploadInputRef.current.click() 打开系统文件框
+  → onChange：onUploadFiles(files, 所选类型)
 ```
 
 | 位置 | 改动 |
 |---|---|
-| `FileSelector.tsx:162` `FileHeaderBar` 内 | 新增两个 `useState`：`typePickerOpen`、`uploadType: FinancialDataType \| undefined`。纯 UI 交互状态，组件不调 API，符合 architecture §3 |
-| `:215` 菜单 `upload` 分支 | 不再直接点 input，改为 `setUploadType(undefined); setTypePickerOpen(true)`——每次打开都清空，保证无默认 |
-| `:219-225` `handleUploadInputChange` | 有文件且 `uploadType` 有值时调 `onUploadFiles(Array.from(list), uploadType)` |
-| `FileHeaderBar` JSX 尾部（隐藏 input 旁） | 渲染类型选择弹窗（`!readonly` 时） |
-| `:27`、`:156` 两处 `onUploadFiles` 类型 | `(files: File[]) => void` → `(files: File[], dataType: FinancialDataType) => void`；`:380` 透传不变 |
-| `FileSelector.less` | 新增 `.typePickerText`、`.typePickerRadios`、`.typePickerNote` 三个类（规范禁内联样式） |
+| `FileSelector.tsx` `FileHeaderBar` 菜单 | `upload` 由 `Menu.Item` 换成 `Menu.SubMenu`（保留 key `upload`、`disabled={isProcessing}`、图标），子项按 `UPLOAD_DATA_TYPE_OPTIONS` 渲染，key 即类型值 `ACTUALS` / `PROFORMA` |
+| `handleMenuClick` | key 命中类型值时写 `uploadTypeRef`（`useRef`，纯 UI 状态），再同步打开 multiple input |
+| `handleUploadInputChange` | 有文件且 `uploadTypeRef` 有值时调 `onUploadFiles(Array.from(list), type)`；仍清空 `e.target.value` |
+| 两处 `onUploadFiles` 类型 | `(files: File[]) => void` → `(files: File[], dataType: FinancialDataType) => void` |
 | `AiFinancialExtractionPage.tsx:760-767` | 回调改为 `(rawFiles, dataType) => uploadAdditionalFiles(rawFiles, dataType).catch(...)` |
-| `useOCRData.ts:392-393` | 签名 `(rawFiles: File[], dataType: FinancialDataType)`；`:415` `fileList` 每项带 `dataType`。依赖数组不变 |
+| `useOCRData.ts:392-393` | 签名 `(rawFiles: File[], dataType: FinancialDataType)`；`:415` `fileList` 每项带 `dataType` |
 
-**用户手势约束**：浏览器只允许在用户点击的同步调用栈里程序化打开文件框。antd `Modal` 的 `onOk` 由 OK 按钮的
-`onClick` 同步调用，满足条件；**不能**把 `click()` 放进 `setTimeout`、`Promise.then` 或 `afterClose`。
-用户在系统文件框里点了取消：onChange 不触发，什么也不发生，下次打开类型重新为空。
-
-为什么是"一次上传一种类型"而不是每个文件各选：最小实现；同一次选中的文件共用一个类型，混合类型分两次上传
-（R6 本来就要求一个文件一种类型）。接口层面 `fileList[]` 本来就是逐文件带 `dataType`，设计若改成"选完文件后逐个选"，
-只换 `FileHeaderBar` 的交互，service / hook 不用动。
+- **触发方式**：子菜单沿用 antd 默认的悬停展开（约 0.1s），不改成点击展开，桌面交互与现有菜单一致。子菜单弹层渲染在 `document.body`，不会被面板的 `overflow: hidden` 裁掉，贴近视口右缘时自动向左展开。
+- **用户手势约束**：浏览器只允许在用户点击的同步调用栈里程序化打开文件框，菜单项的 `onClick` 满足；**不能**把 `click()` 放进 `setTimeout` / `Promise.then`。用户在系统文件框里点取消：onChange 不触发，什么也不发生。
+- 不另放当前月说明：上传弹窗横幅已告知，Actuals 行的月份选择器也已置灰（§4.6）。
+- 一次选中的文件共用一个类型，混合类型分两次上传（R6 本来就要求一个文件一种类型）。接口层面 `fileList[]` 逐文件带 `dataType`，以后改交互只动 `FileHeaderBar`。
+- 已知小瑕疵（存量，本期不处理）：子菜单弹层是 antd 默认外观（2px 圆角、默认阴影），与主菜单自定义的 8px 圆角不一致，如需统一加一个 `popupClassName` 即可；`.dotsMenu :global(.ant-menu-item-disabled)` 的置灰规则在 Dropdown 里匹配不到（实际类名是 `ant-dropdown-menu-*`），处理中时三个菜单图标都不会变灰。
 
 ### 4.4 Replace Document
 
@@ -253,7 +247,7 @@ NO DATE 行的 Select Date 用 `MonthPickerPopover`（`DataMappingPanel.tsx:761-
 | 位置 | 改动 |
 |---|---|
 | `MonthPickerPopover` props（`:761-766`） | 加可选 `disableFromMonth?: string`（`YYYY-MM`）：`${year}-${month} >= disableFromMonth` 的按钮 `disabled` |
-| 两处调用（`:1107` NO DATE 行、`:1160` 推断月份行） | 传 `disableFromMonth={row.dataType === 'ACTUALS' ? currentMonthKey() : undefined}`。`row.dataType` 已在行上（`:286`），Actuals 行只出现在 Actuals 标签页 |
+| 两处调用（`:1107` NO DATE 行、`:1160` 推断月份行） | 传 `disableFromMonth={actualsDisableFromMonth(row)}`：Actuals 行返回「当前月 − (n−1)」，n = 本行格数 `row.rawCellRefs.length`；其它行返回 `undefined`。原因：`handleSaveDate` 把本行 n 个格从起始月起依次 +1 月铺开，只拦起始月的话，3 格行选上个月仍会铺到当前月和下个月，提交时被 Java 静默剔掉（代码审核发现，2026-10-10）。Actuals 行只出现在 Actuals 标签页 |
 | 新增模块内小函数 `currentMonthKey()` | 浏览器本地时间的 `YYYY-MM`。与 Python（UTC）、Java（服务器时区）在月末几个小时内可能差一个月，影响可忽略（风险 X1） |
 | `DataMappingPanel.less` `.monthPickerCell`（`:1076`） | 加 `&:disabled` 样式：灰色、`cursor: not-allowed`，并压住 `:hover` 的橙色背景 |
 
@@ -280,7 +274,7 @@ Actuals 文件只有当前月及以后的数据时（如"截至今天"的资产�
 | 常量 | 值 | 备注 |
 |---|---|---|
 | `UPLOAD_DATA_TYPE_OPTIONS` | `[{value:'ACTUALS', label:'Actuals'}, {value:'PROFORMA', label:'Proforma'}]` | R12：只用 Proforma 字样 |
-| `UPLOAD_DATA_TYPE_PLACEHOLDER` | `'Select'` | Q1 临时值 |
+| `UPLOAD_DATA_TYPE_PLACEHOLDER` | `'Select type'` | Q1 已定（2026-10-10）：系统里下拉占位无统一规范，取同一功能 "Select Date" 的"Select + 名词"写法 |
 | `ACTUALS_CURRENT_MONTH_NOTE` | `'For Actuals files, data for the current month and later is not extracted.'` | 需求 §5.1 原文 |
 
 上传弹窗从 `FinancialEntry/` 跨功能夹 import `aiFinancialExtraction/constants` 是既有先例（同属 financial 一级域）；
@@ -312,8 +306,8 @@ Jest + `@testing-library/react@12`（无 `renderHook`；hook 用最小 Harness �
 | 文件（新增） | 用例 | 关键 mock |
 |---|---|---|
 | `FinancialEntry/components/ImportStatementsModal.test.tsx` | ① 两个文件传完、都未选类型 → Next disabled ② 只选一个 → 仍 disabled ③ 逐个选齐 → enabled ④ 批量设 Actuals → 两行都是 Actuals 且 Next enabled；再把一行改 Proforma → Next 后 `commitUpload` 收到 `{companyId, files:[{fileId, dataType:'ACTUALS'}, {fileId, dataType:'PROFORMA'}]}` ⑤ 批量设置后再加一个文件 → 新行为空、Next disabled ⑥ 横幅文案常驻 ⑦ 上传中 Clear All 仍只清上传中的文件（行为回归） ⑧ 只有一个文件：批量设置照常显示，选好类型后 Next enabled（审核 D-13） ⑨ `commitUpload` 返回 `missingFileIds:['id-b.xlsx']` → 对 b.xlsx 推一条 GENERIC、`onNext` 仍被调用（审核 J-R6） | `@/services/service/ai/aiService`（`getAiUploadUrl` 按文件名回 fileId、`commitUpload`、`batchDeleteFilesByIds`）；`uploadValidation` 两个函数透传；`UploadErrorToast`；`window.XMLHttpRequest` 换成 `send()` 后触发 `load`(200) 的假实现。⑦ 另换一个 `send()` **不**触发 `load` 的变体，让文件停在上传中，其 `abort()` 走组件的 abort 分支（自动 load 的假实现到不了"上传中"）（审核 C-20） |
-| `ai页/components/DataMappingPanel.test.tsx` | ① 打开 Unmapped 行的指派下拉 → 没有 "Actual" / "Forecast" 文本 ② 点 "Gross Revenue" → `onRowEdit` 第二参严格等于 `{editLgCategory:'Gross Revenue'}`，无 `editSourceDataType` 键 ③ Mapped 行选 "Unmapped Accounts" → patch 为 `{editLgCategory:'UNMAPPED'}`。④ Actuals 的 NO DATE 行点 Select Date → 当前月按钮 `disabled`、上一个月可点；Proforma 的 NO DATE 行当前月可点（§4.6，审核 D-9）。期望月份在用例里按 `new Date()` 现算，不用假时钟（避免干扰 antd Popover）。⑤ 文件无任何行 → 空状态文案含 `ACTUALS_CURRENT_MONTH_NOTE`（§4.7，审核 D-10）。（原 ④"PROFORMA 行指派后仍在 Proforma 标签页"删除：`onRowEdit` 是普通 `jest.fn`，面板数据不会变，断言恒真；行不换标签页已由 ② 的 patch 不含 `editSourceDataType` 保证（审核 C-24）） | 夹具：一个 `REVIEW_READY` 文件，行要有月份且每月有值（`canAssign` = `rowHasAllValues && !hasPredictMonth`，`:1140`） |
-| `ai页/components/FileSelector.test.tsx` | ① 菜单点 Upload New Document → 出现类型弹窗、OK disabled、未打开文件框 ② 选 Proforma → OK → `HTMLInputElement.prototype.click` 被调用 ③ 对 multiple input 触发 change → `onUploadFiles(files, 'PROFORMA')` ④ 再次打开弹窗 → Radio 为空 ⑤ Replace Document 不出弹窗、直接打开单选框，`onReplaceFile(oldId, file)` 签名不变 | `fromModal`、`uploadStage:'done'`、两个 `REVIEW_READY` 文件且选中其一（Replace 才显示） |
+| `ai页/components/DataMappingPanel.test.tsx` | ① 打开 Unmapped 行的指派下拉 → 没有 "Actual" / "Forecast" 文本 ② 点 "Gross Revenue" → `onRowEdit` 第二参严格等于 `{editLgCategory:'Gross Revenue'}`，无 `editSourceDataType` 键 ③ Mapped 行选 "Unmapped Accounts" → patch 为 `{editLgCategory:'UNMAPPED'}`。④ Actuals 的 NO DATE 行点 Select Date → 当前月按钮 `disabled`、上一个月可点；3 格的 Actuals 行 → 「当前月−2」置灰、「当前月−3」可点；Proforma 的 NO DATE 行当前月可点（§4.6，审核 D-9）。期望月份在用例里按 `new Date()` 现算，不用假时钟（避免干扰 antd Popover）。⑤ 文件无任何行 → 空状态文案含 `ACTUALS_CURRENT_MONTH_NOTE`（§4.7，审核 D-10）。（原 ④"PROFORMA 行指派后仍在 Proforma 标签页"删除：`onRowEdit` 是普通 `jest.fn`，面板数据不会变，断言恒真；行不换标签页已由 ② 的 patch 不含 `editSourceDataType` 保证（审核 C-24）） | 夹具：一个 `REVIEW_READY` 文件，行要有月份且每月有值（`canAssign` = `rowHasAllValues && !hasPredictMonth`，`:1140`） |
+| `ai页/components/FileSelector.test.tsx` | ① 悬停展开 Upload New Document 二级菜单 → 出现 Actuals / Proforma、未打开文件框 ②③ 参数化 Actuals / Proforma：点子项 → `HTMLInputElement.prototype.click` 同步调用一次；对 multiple input 触发 change → `onUploadFiles([f], 对应类型)` ④ Replace Document 不问类型、直接打开单选框，`onReplaceFile(oldId, file)` 签名不变。测试对子菜单标题 `mouseEnter` 后用 `findByRole('menuitem')` 异步等子项 | `fromModal`、`uploadStage:'done'`、两个 `REVIEW_READY` 文件且选中其一（Replace 才显示） |
 | `ai页/hooks/useOCRData.test.tsx` | ① `uploadAdditionalFiles([f], 'ACTUALS')` → `getAiUploadUrl` 的 `fileList` 为 `[{fileName, length, dataType:'ACTUALS'}]` ② `replaceFile(old, f)` → `fileList[0]` 没有 `dataType` 键 | `getAiUploadUrl` 回 `{success:false}` 让流程在第一步收住；`uploadValidation`（`validateFiles` / `filterByMagicNumber` / `checkFileMagic` / `activeUploadNames`）透传 |
 
 antd 在 jsdom 里的操作：Select 用 `fireEvent.mouseDown(combobox)` 打开，选项在
@@ -357,7 +351,7 @@ body 末尾加 `BREAKING CHANGE:` 脚注，写明须与 Java 同批发布。
 | # | 项 | 说明 / 处置 |
 |---|---|---|
 | 1 | Clear All 与需求 §5.1 的画法不一致 | 代码里 Clear All 只在上传中出现、只清上传中的文件；需求画成列表底部常驻。按"功能保持现状"不改，常驻与否请设计在 Figma 里确认 |
-| 2 | Q1 占位文案、Q2 映射页交互、弹窗宽度与手机布局 | 均为临时方案，集中在常量与 `FileHeaderBar` / less 内，定稿后小改 |
+| 2 | 弹窗宽度与手机布局（Q3） | 临时方案，集中在 less 内，定稿后小改。Q1 已定为 "Select type"（§5），Q2 已定为二级菜单（§4.3） |
 | 3 | 上线前已进入映射的在途任务 | 类型来自旧推断，上线后不能再逐行改；用户以前改过的类型保留生效但无法撤回。需要改类型只能重新上传。属 R7 的直接后果，建议产品知悉 |
 | 4 | 文件框必须同步打开 | §4.3 的约束写进注释；单测 ② 守住 `click()` 在 OK 回调里被同步调用 |
 | 5 | 跨表合并键里的 dataType | 混合批次让它比以前更重要，后续重构不能删（§4.2） |
