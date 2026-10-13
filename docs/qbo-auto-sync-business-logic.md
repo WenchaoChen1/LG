@@ -148,7 +148,7 @@ QBO 的科目名每家公司都不一样，必须靠映射才能算出各类费�
 | Base URL | 沙箱 `https://sandbox-quickbooks.api.intuit.com`，生产 `https://quickbooks.api.intuit.com` |
 | 认证 | `Authorization: Bearer {accessToken}`，取 `quickbooks_connection` 中保存的 access token |
 | Token 刷新 | `POST https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer`，Basic Auth（`Base64(clientId:clientSecret)`），参数 `grant_type=refresh_token` |
-| 刷新时机 | **按需刷新**：同步前不预先刷新，接口返回非 200 或请求异常时刷新一次并重试一次 |
+| 刷新时机 | **按需刷新**：同步前不预先刷新。5xx、429、网络异常/超时属瞬时错误，**不刷新 token**，同 token 等 2s 再试 1 次（QBO 队列可见性超时 120s，单次调用不能比旧路径更久），仍失败即本次同步失败（照旧置 `Invalid`）；401 及其余 4xx 刷新一次 token 后重试一次（重试中遇瞬时错误同样再试 1 次，不再二次刷新）。刷新 token 接口本身无重试 |
 
 刷新成功：
 - 新 Token 立即写回 `quickbooks_connection`（`token_valid=true`），`company_quickbooks.status="success"`。
@@ -178,13 +178,22 @@ QBO 的科目名每家公司都不一样，必须靠映射才能算出各类费�
 |---|---------|-------------|--------|
 | 1 | `GET .../reports/AccountList` | 科目编号、名称、类型、明细类型、余额 | `quickbooks_account_list_detail`、`quickbooks_category_account` |
 | 2 | `GET .../reports/ProfitAndLoss?summarize_column_by=Month&start_date=&end_date=` | 每月 total_income、cogs、gross_profit、total_expenses、net_income；按费用映射汇总出 payroll、sm_expense、rd_expense、ga_expense、otherExpenses | `quickbooks_profit_and_loss` |
-| 3 | `GET .../reports/BalanceSheet?summarize_column_by=Month&start_date=&end_date=` | 每月 assets、liabilities；按科目段名匹配出应收、应付、长期债务、其他资产、其他负债；按资产映射汇总出 cash、rd_capitalized | `quickbooks_balance_sheet` |
+| 3 | `GET .../reports/BalanceSheet?summarize_column_by=Month&start_date=&end_date=` | 每月 assets（`TotalAssets` 合计）、liabilities（`Liabilities` 合计，不含权益；无该分组记 `0.00`，此字段无业务读方）；按分组代码取应收（`AR`）、应付（`AP`）、长期债务（`LongTermLiabilities`）、其他资产（`OtherCurrentAssets`，缺则 `FixedAssets`）、其他负债（`OtherCurrentLiabilities`），无已知代码时按分节标题文字兜底；按资产映射汇总出 cash、rd_capitalized | `quickbooks_balance_sheet` |
 | 4 | 由 #2、#3 生成 | 同利润表、资产负债表，另带 `realm_id`、`pull_time` | `quickbooks_profit_and_loss_log`、`quickbooks_balance_sheet_log` |
 | 5 | `GET .../query?query=select * from Preferences&minorversion=65`（XML） | 只取 `BookCloseDate`（账本关账日期） | `quickbooks_close_date` |
 
 - **时间范围**：今年往前 4 年的 1 月 1 日 ~ 今年 12 月 31 日，按月分列（`QuickbooksApiClient.buildDateRange`）。
 - **Other Expenses 的处理**：利润表里，Other Expenses 分类的合计会**覆盖** `other_income`，并从 `total_expenses` 中扣除。
-- 解析逻辑在 `QuickbooksDataParser`。
+- **响应格式（Reports API v2，2026-09-01 起唯一后端，2026-10-13 用沙箱实测）**：
+  - P&L 列 = 科目列 + 每月一列 + 末列 `Total`（`MetaData` 只有 `ColKey=total`）；BS 无 `Total` 列。月份列按 `MetaData` 里有无 `StartDate`/`EndDate` 识别，不按位置。
+  - 顶层分组：P&L 为 `Income`、`COGS`、`GrossProfit`、`Expenses`、`NetOperatingIncome`、`OtherExpenses`、`NetOtherIncome`、`NetIncome`；BS 为 `TotalAssets`、`TotalLiabilitiesAndEquity`。官方声明行顺序动态生成，一律按 `group` 取。
+  - 父科目恒为嵌套分节：自身金额在 `Header`，子科目在 `Rows`，`Summary` 为两者合计；费用 / 资产映射只累加 `Header` 与 `Data` 行，不读 `Summary`，不会重复计数。
+  - 无值单元格为 `""`，合计行为 `"0.00"`。
+- 解析逻辑在 `QuickbooksDataParser`，样例与单测见 Java `src/test/resources/quickbooks/`、`QuickbooksDataParserTest`。金额按 BigDecimal 精确累加，落库仍保持原文本格式（如 `"0.0"`、`"74.86"`）。
+- **解析自检**（`checkProfitAndLoss` / `checkBalanceSheet`，`NoReportData=true` 时跳过）：
+  - **阻断**：解析出的月份须从请求起始月起逐月连续、无重复，且至少覆盖到报表生成当月（`Header.Time`；未来月份可缺）；不满足 → 本次**不写**该报表及其 log 表（保留上次数据，旧 log 也不清理），记 error 日志；不抛异常、不改连接状态，次日定时同步自动重试。`sync_summary.json` 中对应计数（含 `*_log`）记为 `-1`；QBO Log 的 END 记录仍为成功（Connections 页据此判在线），但写明 "previous data kept for [...]"。
+  - **只记录**（error 日志，进 Sentry——意味着格式漂移、需改代码）：`GrossProfit ≠ Income − COGS`、`TotalAssets ≠ TotalLiabilitiesAndEquity`（逐列，容差 0.01）、BS 顶层分组缺失而按位置兜底。
+  - 月份列识别：`MetaData` 带 `StartDate`/`EndDate` 且 `ColKey` 不是 `total`。
 
 成功后：
 1. `sync_status=success`，`company_quickbooks.status=success`。
@@ -250,6 +259,7 @@ Automatic 模式下，系统所有财务功能的数据来源都是 QBO 表。�
 ### 8.1 实时换算（不落库）
 
 - 入口：`FiDataCalculateServiceImpl.getFiDataBetweenDates()` 按 `company_quickbooks.mode` 选择数据源。
+- P&L 与 BS 按月份（`start_date`）配对（`FiDataConverter.convert`），任一侧缺月只跳过该月，不会让后续月份错位；资本化研发的环比优先取上一自然月的 BS（P&L 与 BS 可能来自不同同步批次，如跨年窗口后移），该月不存在时退回上一条配对成功的月份。
 - Automatic 时读 QBO 利润表和资产负债表，经 `FiDataConverter` 转成统一的 `FiDataDto`，再做币种换算：
   - 指标：收入、COGS、各类费用、现金、应收应付、债务、资本化研发；
   - Payroll 按 S&M / G&A / R&D 百分比拆分到三个部门。
