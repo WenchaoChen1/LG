@@ -18,6 +18,8 @@
 
 - Validity period 有效期：显示为时间段，如 "Aug 2, 2026 – present"；开放式条目以 present 结尾; 超过 90天未复核的条记录展示 "Needs review"
 
+- 以上除Area of expertise之外，其他字段均为必填字段，均有必填符号*
+
 - 来源标识：在管理员审核会议总结时导入的条目显示 "From FF Summary Records" 来源标识
 - Filter:可以按照role过滤
 - Search bar: 支持模糊搜索，Name， Email(s)， Organization， Expertise
