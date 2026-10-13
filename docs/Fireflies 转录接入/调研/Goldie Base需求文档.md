@@ -7,7 +7,7 @@
 **概况：**
 
 - 原来的Knowledge Base页面改为该页面的一个tab，原有业务要求不变
-- 新增 Source栏，展示文件来源，Goldie:来自Goldie对话；Fireflies：来自Fireflies，点击可跳转到该文件关联的会议的raw data页
+- 新增 Source栏，展示文件来源，Goldie:来自Chat；Fireflies：来自Fireflies，点击可跳转到该文件关联的会议的raw data页
 - 如果文件不关联公司和portfolio，这两栏均显示“—”
 
 ## Memory Settings
@@ -25,7 +25,7 @@
 
 - Goldie Base页面第三个tab，该tab显示已经归类为cross company的内容
 - 每条内容附带会议名称及元数据，点击会议名称链接可跳转至该会议的Fireflies Summary Records页面，无该页面权限的角色（PM）不可点击名称
-- 有Add to playbook 开关，管理员可以打开使其进入playbook内容
+- 有Play candidate 开关，管理员可以打开使其进入playbook内容
 - 支持模糊查询会议内容、名称。
 - 时间过滤器可根据已选择时间段过滤
 
