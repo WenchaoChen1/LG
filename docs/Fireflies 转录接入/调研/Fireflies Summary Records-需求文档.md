@@ -20,6 +20,7 @@
 - Date：会议日期（拉取）
 - Duration：会议时长（拉取）
 - Fireflies ID：拉取
+- AI Meeting Type为必填，GS-Founder类型时 Company为必填，所有未识别人均应被处理
 
 - Scrub Status 徽章：✓ Passed（绿）/ ◷ Pending（红）
   - 映射规则: 人员 Unidentified/会议类型未判断成功→ Pending、GS-Founder会议类型 → Flagged
