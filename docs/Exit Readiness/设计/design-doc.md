@@ -10,7 +10,7 @@
 > - Python 规范：[../../../CIOaas-python/standards/architecture.md](../../../CIOaas-python/standards/architecture.md) · [../../../CIOaas-python/standards/coding.md](../../../CIOaas-python/standards/coding.md)
 > - 前端规范：[../../../CIOaas-web/standards/architecture.md](../../../CIOaas-web/standards/architecture.md) · [../../../CIOaas-web/standards/coding.md](../../../CIOaas-web/standards/coding.md)
 >
-> 阶段：④ 设计 | 版本：**v4.80** | 日期：2026-10-14 | 范围：ERL Card（含 Gap 区块）/ 维度详情 / 全维 Score Details（**双端可达**）/ 双端填报（**Yes/No 逐级解锁 + 维度级提交**）/ 题库配置（**`Question Library` / `Dimension Configuration` 两个顶层 Tab + 题库版本历史页**）/ 基准 / Goldie 差距分析（**已回归 V1，含 Share**）/ 组合层 ERL Tab
+> 阶段：④ 设计 | 版本：**v4.81** | 日期：2026-10-14 | 范围：ERL Card（含 Gap 区块）/ 维度详情 / 全维 Score Details（**双端可达**）/ 双端填报（**Yes/No 逐级解锁 + 维度级提交**）/ 题库配置（**`Question Library` / `Dimension Configuration` 两个顶层 Tab + 题库版本历史页**）/ 基准 / Goldie 差距分析（**已回归 V1，含 Share**）/ 组合层 ERL Tab
 
 # Exit Readiness（ERL）设计文档 V1
 
@@ -106,7 +106,8 @@
 | v4.77 | **2026-10-08** | **需求方 2026-10-08：ERL 八处调整 —— 卡头期次、维度行提交信息条、草稿提示可点、综合分两位小数、隐藏 BPMM、Perception Gap 标签对调、卡头 0 < 综合分 < 0.5 归 Founder Era、A3 页头草稿提示**（sprint120，Java + Web；Python 零改动） | **数据库零变更、Python 零改动；接口 1 只多一个字段，其余接口契约字段集不变，无上线顺序约束。**① **A1 卡头**：`Exit Readiness` 标题下加一行 `Through {季度}`（如 `Through Q3 2026`，取接口 1 `period`；`period` 为空或加载中不显示）；② **A1 维度行下加提交信息条**：展示端 = 管理端 GSV、公司端 Founder（与该行分数同一端），该端本期未提交 ⇒ `Information Not Submitted for this quarter`，已提交 ⇒ `Information Last Submitted {Aug. 15, 2026} \| {54 days ago}`（日期 `MMM. D, YYYY`，天数按浏览器本地日历日算、当天为 `today`）；接口 1 `dimensions[]` 新增 **`lastSubmittedAt`**（展示端 SOT 的 `submitted_at`，UTC ISO 串；无提交为 `null`、不回退另一端；两端都下发）；③ **`There is a draft` 可点**：A1 维度行 → 与该行 `Start an Assessment ›` 同一落地（填报页），A4 卡头 → 与 `+ Add New` 同一处理（带 `from`）；④ **综合分两位小数**：`ErlScoreCalculator.overallWeighted` 改 scale 2 HALF_UP（基准平均 / 基准分仍一位小数），A1 大号数字与 `X points out of 9` 显示两位小数（`5.28`；`5` → `5.00`），**F2 仍取整**；Era / Stage 按两位小数的值判定 —— 原先 3.96 进位成 4.0 判 Harvest & Growth，现在仍是 Founder Era，`[n.45, n.50)` 不再进位成 Stage n+1，`[6.95, 7.00)` 不再判 Exit；权重全为 10 的倍数时综合分至多一位小数、不受影响；⑤ **A1 不再显示 BPMM**（两端、不论有无数据），接口 1 仍返回恒 `null` 的 `bpmmScore`；⑥ **Perception Gap 标签对调**（Java `ErlScoreCalculator.gapDirection`）：创始人高于 GSV（差值 > 0）⇒ `NEGATIVE` / `Negative`，低于 ⇒ `POSITIVE` / `Positive`，相等 `NONE`；差值算法与 `Perception Gap: Negative 2` 的展示格式不变。④ 在 Java 上线时即对存量不整十权重的公司生效（综合分读时现算），Era / Stage / F2 整数分可能降一档 —— 已知后果，需求方已确认接受。另 A1 卡头撤销「0 < 综合分 < 0.5 ⇒ 不着色 + `—`」特例，按区间正常归 Founder Era（F2 照旧）；A3 页头 `+ New` 左侧加可点击的 `There is a draft`（接口 2 新增 `header.hasDraft`）。详见 §0.50 |
 | v4.78 | **2026-10-09** | **需求方 2026-10-09：A1 维度行空态删掉 `No data submitted for this quarter`**（sprint120，只改 Web） | **纯前端，接口契约、数据库、Java、Python 一律不变，无上线顺序约束。**这句与 v4.77 加在维度行下的提交信息条 `Information Not Submitted for this quarter`（§0.50-U2）重复 —— 两者判据同一条（展示端本期分数为空），空态行出现时信息条必在。删后空态行只剩右侧 `Start an Assessment ›`（仍靠右）；有在填草稿时左侧照常出 `There is a draft for {季度}`。详见 §0.51 |
 | v4.79 | **2026-10-13** | **实现一致性回写 + 待确认事项迁入**（前端台账清理时发现文档落后于实现；只改文档，代码零变更） | **① 回写 2026-09-07 ~ 09-24 已实现、文档未跟的口径**：C6 `Save` 不弹确认框；删除 / 停用改版（只有垃圾桶弹 `Modal.confirm`、电源按钮直接生效、tooltip 撤为原生 `title`）与停用行只放 `Name (ABBR)` + `INACTIVE` + `Activate`；C3 删题新文案；C1 维度 Tab 回跳定位；B 元信息栏，`Question set v{n}` 前端全部撤下；接口 28 无二次确认、连草稿行一起删（2026-09-24），找不到草稿幂等返回；ERL Card 撤整卡空态（2026-09-14）；0 分 Era 显示 `—`（2026-09-17）；题集不一致三处改版（2026-09-19：`New version pending` + 面板级告警 + 弹框整条告警）；`Perception Gap: -`（2026-09-23）；A3 页头只剩 `{n} questions`（2026-09-15 / 09-23）；基准入口改名 `View Top GSV Quartile & External Benchmarks`；B3 列表按原型（无 `Current` 徽章 / `Fund` 列 / 次级标注，提交时间到日）；PRD §四 附件改为题级（M13 两处均已回写）；§9 只有 Founder 提交的管理端行改为行内空态；§0.31-Z4 注 PRD 已改。**② 实现期发现的 10 个产品问题迁入 §13 Q26 ~ Q35**（原记前端 `docs/待优化项.md`）。版本表 v4.26 / v4.42 / v4.54 等历史版本行按惯例不改；§0.10 / §0.21 / §0.30 中仍被当作现行口径引用的条目及 v4.27-⑧ 已就地加删除线订正 |
-| **v4.80（本版）** | **2026-10-14** | **§13-Q31 关闭：确认提交追溯信息不再显示**（Java + Web，无 DDL） | **只删出参，不改界面**：接口 7 `records[]` 删 `fund` / `answeredCount` / `totalCount` / `terminatedLevel` / `isLatest` / `questionVersionNo`，服务端不再为它们查答案行、题目与版本表（B3 历史列表只剩一条主查询）；接口 2 / 8 / 22 共用的 `submission` 节点删 `questionVersionNo`（不再查版本表）。前端这些字段本就不渲染，两端无上线顺序约束 |
+| v4.80 | **2026-10-14** | **§13-Q31 关闭：确认提交追溯信息不再显示**（Java + Web，无 DDL） | **只删出参，不改界面**：接口 7 `records[]` 删 `fund` / `answeredCount` / `totalCount` / `terminatedLevel` / `isLatest` / `questionVersionNo`，服务端不再为它们查答案行、题目与版本表（B3 历史列表只剩一条主查询）；接口 2 / 8 / 22 共用的 `submission` 节点删 `questionVersionNo`（不再查版本表）。前端这些字段本就不渲染，两端无上线顺序约束 |
+| **v4.81（本版）** | **2026-10-14** | **接口 15 删无消费方的 `latest` 段**（Java + Web，无 DDL） | **只删出参，不改界面**：`latest { period, dimensions[] }` 恒等于 `records[]` 首条（不多查库），D1 卡一自 v4.40 起按 URL 期次从 `records[]` 挑记录、不再读它；为免有人误把卡一接回「最近一次提交」口径，前后端一并删除。两端无上线顺序约束 |
 
 ---
 
@@ -2470,12 +2471,13 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 
 | # | 方法 / 路径 | 用途 | 关键入参 | 关键出参 |
 |---|-------------|------|----------|----------|
-| 15 | `GET /erl/benchmark` | D1 页（两张卡一次取全） | `companyId` | `latest`、`records[]` |
+| 15 | `GET /erl/benchmark` | D1 页（两张卡一次取全） | `companyId` | ~~`latest`~~（2026-10-14 删）、`records[]` |
 | 16 | `POST /erl/benchmark` | D2 保存记录 | `companyId`、`period`、`note`、`dimensions[]`（**v4.4：项数动态，见下**） | `recordId` |
 
 **出参结构**：
 
 ```
+// 2026-10-14 删除 latest 段（v4.81）：D1 卡一自 v4.40 起按 URL 期次从 records[] 挑记录，该段已无消费方
 latest    { period,                                  // 最新一条记录的期次（排序键见 §7.8）；无记录为 null
             dimensions[{ code, name, abbr,           // v4.4：按配置版本 sort_order，不再是固定五维顺序
                          benchmarkitScore,
