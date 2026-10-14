@@ -256,7 +256,7 @@ Exit Readiness（ERL）是 Looking Glass 平台中用于评估投资组合公司
 - **权限模型**：Company User / Company Admin（Founder 侧）；Portfolio Manager / Portfolio Group Manager（GSV 侧）；ERL配置层级按照租户层级
 - **评估周期**：季度提交；提交后只读；同季度多次提交允许，最新为 source of truth。
 - **数据保留**：DI 数据不删除；所有历史评估提交完整保留。
-- **文件上传**：所有维度附件同步写入公司 Memory File，供 Goldie 分析使用。
+- **文件上传**：所有题目附件同步写入公司 Memory File，供 Goldie 分析使用。
 - **外部静态数据**：Benchmarkit、Top GSV Quartile 通过独立数据接入，不由平台内部计算。
 - **响应式**：所有页面覆盖桌面与移动端。
 - **导航一致性**：Exit Readiness ›〔Dimension Name〕 面包屑保留于维度页返回路径。
