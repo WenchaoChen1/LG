@@ -1099,7 +1099,7 @@ Python 路径相对 `python/CIOaas-python/source`，Java 路径相对 `java/CIOa
 
 | # | 改动 | 位置 |
 |---|---|---|
-| 6 | **种子新增 `EXPERT_TESTIMONY`、`CROSS_COMPANY`**，以及机构层空间所用的组合键（种子已有 `ADMIN_ORGANIZATION`，键开发设计定）；仿 `ensure_erl_space`（`:116`）为这些空间加 ensure / find 方法 | `rag/domain/enums.py:52-67`、`rag/application/service/business_association_service.py`（白名单校验 `:38,83`） |
+| 6 | **种子新增 `EXPERT_TESTIMONY`、`CROSS_COMPANY`**，以及机构层空间所用的组合键（种子已有 `ADMIN_ORGANIZATION`，键开发设计定）；仿 `ensure_erl_space`（`:116`；该方法已于 2026-10-14 删除，模板见开发设计 §3.2 注）为这些空间加 ensure / find 方法 | `rag/domain/enums.py:52-67`、`rag/application/service/business_association_service.py`（白名单校验 `:38,83`） |
 
 **召回**
 

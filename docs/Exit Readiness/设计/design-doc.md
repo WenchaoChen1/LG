@@ -2570,7 +2570,7 @@ POST /api/ai/erl/gap-analysis/items
 > - **Python 端点 `POST /api/ai/erl/attachments/summarize` 已删除**（连同 `erl_attachment_service` / `erl_attachment_dto`）。`erl/` 域现在~~**只有三个端点**：`/gap-analysis/refresh`、`GET /gap-analysis`、`/gap-analysis/share`~~ → **2026-09-24 起只有两个**：`POST /gap-analysis/refresh`、`POST /gap-analysis/items`（GET 与 share 删除，v4.68 / §0.41-O6；§10.2）。
 > - **Java 侧预生成链路整条删除**：`ErlAttachmentService#ingestAsync` / `markIngestStatus`、`ErlAssessmentServiceImpl#ingestAttachmentsAfterCommit`（saveDraft / submit 两处调用）、`ErlPythonClient#ingestAttachments`、`ErlAttachmentIngestResultDTO`、`ErlIngestStatusEnum` 全删；`applyAnswers` 与 `syncAttachments` 返回值改 `void`。
 > - **`erl_answer_attachment` 删 `ingest_status` / `registry_id` 两列**（`sprint118/V23`，§5.5）；前端出参 `ingestStatus` 与 `AttachedFilesCard` 组件同批删除。
-> - ⚠️ **`SUMMARY_ONLY` 处理类型、`ensure_erl_space`、`register_erl_file` 的代码与 schema 刻意保留、并未删除** —— 存量环境里还有按老链路建出来的 space / entry / 登记行，删掉代码那些行就成了读不出来的孤儿。它们现在**已无任何调用方**，清理（含存量数据）已登记在 `CIOaas-python/docs/待优化项.md`。**别把它们当成「已删除」去写文档或做检索验收。**
+> - ~~⚠️ **`SUMMARY_ONLY` 处理类型、`ensure_erl_space`、`register_erl_file` 的代码与 schema 刻意保留、并未删除** —— 存量环境里还有按老链路建出来的 space / entry / 登记行，删掉代码那些行就成了读不出来的孤儿。~~ → **2026-10-14 已删除**：test 的存量 space / entry / 登记行人工清理后（prod / uat 从未产生），`SUMMARY_ONLY` 处理类型、`ERL_ATTACHMENT` 关联类型、`ensure_erl_space`、`register_erl_file` 连同一次性迁移脚本一并删除，Python `business/V031` 把 `chk_rag_space_process_type` 收回三值。**保留** `factory.summarize_only_by_space` 管线——`summarize_file_inline` 现场摘要在用。
 > - ⚠️ **本节下面第 ⑤ 步描述的四步编排（`ensure_erl_space` → `ingest_kb_file` → `register_erl_file` → 摘要落库）已整条作废**，现状见「**新链路（2026-09-21 起）**」小节。
 
 前端沿用**存量直传通道**，不新建上传接口：

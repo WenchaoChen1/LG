@@ -38,6 +38,8 @@
 
 ### 3.2 空间定位：两个新方法，不改既有分叉
 
+> ⚠️ **2026-10-14 代码已变**：本节与 §3.4 当作模板的 `ensure_erl_space`、`register_erl_file`、`_scope_by_end`、`erl_attachment_service.py` 已随 ERL 附件死代码清理删除，`_ensure_space` 收回为只建 STANDARD 空间的 `ensure_kb_space`（不再接受 `business_type` / `process_type` 参数）。下文行号与「复用 / 照着写」以 CIOaas-python 提交 `323e61cc` 为准；开发时从该版本取模板，并把空间定位重新参数化。
+
 - `ensure_tenant_space()` — 复用 `_ensure_space()`（`business_association_service.py:133-211`，已支持传任意 `business_type` / `process_type`），照 `ensure_erl_space`（`:116-131`）写。
 - `find_tenant_space_id()` — 仿 `find_chat_space_id`（`:213-244`）。
 
