@@ -45,7 +45,7 @@
 | **KB-APP** | `(APP, APP_COMPANY, company_id)` | 每公司一个 | 空间层 | 该公司公司端用户 + 可访问该公司的管理端 | GS → 创始人的会议条目 |
 | **KB-ADMIN** | `(ADMIN, ADMIN_COMPANY, organization_id)` | **每组织一个（公司 id 隔离）** | **行级 `company_id`** | 仅管理端（可访问公司） | GS 内部 / Partner 的公司层条目 |
 | **机构层** | 组合键开发设计定（种子已有 `ADMIN_ORGANIZATION`） | 每组织一个 | 空间层 | 本组织**全体**管理端 | LP 的基金层条目 |
-| **证词-匿名** | `(APP, EXPERT_TESTIMONY, organization_id)` | 每组织一个 | 空间层 | 公司端；另经 Playbook 第二路（Play candidate 打开的条目），管理端也可能召回，去重见 9.11.6 | 证词匿名版 |
+| **证词-匿名** | `(APP, EXPERT_TESTIMONY, organization_id)` | 每组织一个 | 空间层 | 公司端 | 证词匿名版 |
 | **证词-署名** | `(ADMIN, EXPERT_TESTIMONY, organization_id)` | 每组织一个 | 空间层 | 管理端 | 证词署名版 |
 | **跨公司** | `(APP, CROSS_COMPANY, organization_id)` | 每组织一个 | 空间层 | 公司端 + 管理端 | Cross-Company（**仅审核放行的**） |
 
@@ -70,7 +70,7 @@
 |---|---|---|---|
 | 1a + 1b 摘要 / Founder KB + Portfolio KB 正文（**一条 APP 条目**） | KB-APP | 每关联公司一条 | Memory 页 Company Memory 层；公司端与管理端知识库页 |
 | Cross-Company（市场趋势、商业趋势、战略决议闭环、全公司视角） | 跨公司 | 0~N 条 | 审核放行后：Goldie Base 的 Cross company content Tab（PM / PGM / SA 只读，9.11.4）；审核与编辑：会议管理页（仅 PGM / Super Admin，9.6） |
-| 专家证词 · 匿名版 / 署名版（**仅当该创始人为专家**，2.5） | 证词-匿名 / 证词-署名 | 0~N 条，两版一一对应 | Goldie Base 的 Expert Testimony Tab（PM / PGM / SA，两版合为一行；PM 不显示说话人与专长标签，9.11.5） |
+| 专家证词 · 匿名版 / 署名版（**仅当该创始人为专家**，2.5） | 证词-匿名 / 证词-署名 | 0~N 条，两版一一对应 | Goldie Base 的 Expert Testimony Tab（PM / PGM / SA，两版合为一行，含说话人与专长标签，9.11.5） |
 
 > 四个去向共用一条 APP 条目：用户决定（2026-09-30）把 1a 与 1b 定为同一份文本、Founder KB 与 Portfolio KB 定为同一份（管理端与公司端关联同一份），而管理端能召回可访问公司的 APP 空间，无需另写 ADMIN 条目。
 >
@@ -82,7 +82,7 @@
 |---|---|---|---|
 | 1b + Portfolio KB · **基金层**（一条 ADMIN 条目，`company_id` 为空，带 Portfolio 标记） | 机构层 | 每场 0~1 条 | Memory 页、管理端知识库页的机构层展示（改造后） |
 | 证词 · 匿名版 | 证词-匿名 | 0~N 条 | Goldie Base 的 Expert Testimony Tab（PM / PGM / SA，两版合为一行，9.11.5） |
-| 证词 · 署名版 | 证词-署名 | 与匿名版一一对应 | 同匿名版；PGM / SA 另显示说话人与专长标签，PM 不显示 |
+| 证词 · 署名版 | 证词-署名 | 与匿名版一一对应 | 同匿名版；PM / PGM / SA 都显示说话人与专长标签（《Goldie Base》10-16 版） |
 | Cross-Company（市场趋势、商业趋势、战略决议闭环、全公司视角） | 跨公司 | 0~N 条 | 审核放行后：Goldie Base 的 Cross company content Tab（PM / PGM / SA 只读，9.11.4）；审核与编辑：会议管理页（仅 PGM / Super Admin，9.6） |
 
 > 本类型**不按公司拆分**（用户决定 2026-10-10，3.3）：1b / Portfolio KB 只有基金层一条；会上谈到的被投公司进行中交易写进基金层（需求「只放1b」，用户决定 2026-10-14），其余涉及具体被投公司的内容不进任何知识库，只留原始转录。
@@ -394,13 +394,14 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 
 | 状态 | 触发条件 | 是否阻断路由 |
 |---|---|---|
-| **Passed** | AI 判出会议类型与参会人、内容已路由，且**没有待审核内容**；或 Pending 会议经管理员应用路由（9.6.5） | 否 |
+| **Passed** | AI 判出会议类型与参会人、内容已路由，且**没有待审核内容、没有未处理的专家标记**；或 Pending 会议经管理员应用路由（9.6.5） | 否 |
 | **Pending**（待识别） | 参会人经 LLM 推断（6.13（P8））后仍 Unidentified；或会议类型未判定成功；或 GS → 创始人仅凭 Cheat Sheet Founder 判出、正文反推不出恰好一家高置信且为到场者所在的公司（本方案，2.1）；或 GS → 创始人的公司方只来自 P8 推断（用户决定 2026-10-14，2.1） | **是**，**内容提取与路由阻断**；识别结果（参会人、公司归属）照常产出并展示，等人工补齐后再提取 |
-| **Pending**（待审核） | 提取已完成，但有待审核内容：Cross-Company 行、GS → Partner 的 1b / Portfolio KB 行（默认不授权，1.7）、发言人身份来自 6.13（P8）推断且未入册的证词行、按 P7 建议标签抽的创始人证词行（用户决定 2026-10-14）。只要有待审核内容，状态就是 Pending（用户决定 2026-10-10） | **否**：已授权的其余内容照常路由，只有待审核行等管理员放行；管理员 `Confirm & Apply Routing` 即视为审核完成（勾选的放行、未勾选的不放行），会议转 `Passed` |
+| **Pending**（待确认专家） | 提取已完成，但 6.10（P7）给出了「可能为专家」标记，还有建议标签没被通过或驳回（用户决定 2026-10-16） | **是**：本场全部产物只落中间表、一律不投影（默认授权的也先不投影），Goldie 召不回；`Confirm & Apply Routing` 置灰，直到每个建议标签都通过或驳回；标签处理完即可点（矩阵没改动也可以），应用时按勾选投影，同时视为对待审核内容审核完成，会议转 `Passed`（用户决定 2026-10-16）。没人处理就一直停在这里（第十章 #61）。专家标记属于产生它的提取版本：重新提取的草稿里有标记时，会议状态不变、当前生效版本照旧在线，只是草稿要先处理完标记才能应用（9.6.4、9.6.5） |
+| **Pending**（待审核） | 提取已完成，但有待审核内容：Cross-Company 行、GS → Partner 的 1b / Portfolio KB 行（默认不授权，1.7）、发言人身份来自 6.13（P8）推断且未入册的证词行（用户决定 2026-10-14）。只要有待审核内容，状态就是 Pending（用户决定 2026-10-10） | **否**：已授权的其余内容照常路由，只有待审核行等管理员放行；管理员 `Confirm & Apply Routing` 即视为审核完成（勾选的放行、未勾选的不放行），会议转 `Passed` |
 
 > **`Flagged` 已取消**。它原有两个用途：提示人工判断 GS → Founder 是否应改判 Board Call，以及给「仅凭 Cheat Sheet Founder、公司靠正文反推」的路径做人工复核。Board Call 类型取消后前者已无意义；后者改为只采高置信度、低置信度一律 `Pending`——GS → 创始人的内容进创始人可读空间，错绑即客户侧泄漏，宁可阻断。
 >
-> **两种 Pending 在列表上标出原因**（待识别 / 待审核），管理员能分清是要补识别还是要审内容（9.4.2）。重新提取由管理员发起、经 `Confirm & Apply Routing` 才生效，应用即审核，所以「待审核」只出现在自动提取之后。
+> **三种 Pending 在列表上标出原因**（待识别 / 待确认专家 / 待审核），管理员能分清是要补识别、确认专家标签还是审内容（9.4.2）。重新提取由管理员发起、经 `Confirm & Apply Routing` 才生效，应用即审核，所以「待审核」只出现在自动提取之后。
 
 页面功能（列表、Review 详情、Content Routing Matrix、改判）见第九章 9.4 ~ 9.6、9.9。
 
@@ -448,13 +449,13 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 | **多标签** | 同一个人可以被推测为多个专长标签（《AI Meeting Type》10-13 版） |
 | **新标签** | 管理员新增的标签自动纳入推测范围（同上）——P7 按当前标签清单取值（6.10） |
 | **排除** | 该人 email + 该标签在本租户的**拒绝名单**中 → 不再就这个标签推测；他的其他标签照常推测 |
-| **展示** | Summary Records 参会人标签显示「可能为专家」，带 AI 推测的专长标签；管理员点姓名弹详情框（9.5.6） |
+| **展示** | Summary Records 参会人标签显示「可能为专家」，带 AI 推测的专长标签；管理员点姓名弹详情框（9.5.6）；有建议标签未处理时会议停在 `Pending`（待确认专家），整场不放行（1.10，用户决定 2026-10-16） |
 | **同意** | **按标签**逐个确认：同意的标签写入 Cheat Sheet，来源标识 `From FF Summary Records`（9.5.7） |
 | **拒绝** | **按标签**逐个拒绝：记录该人 email + 被拒的标签进拒绝名单，之后不再就该标签对此人推测；GS → 创始人本场按该标签抽出的证词作废（2.5）——需求 10-13 版：「拒绝时，系统记录该人员的 email 和被拒绝的标签……被拒绝的只是这一个标签，Goldie 仍然可以推断这个人的其他标签」 |
 
 **抽取侧**：由 6.10（P7）完成，GS → 创始人 / GS → LP / GS → Partner 三类会议各跑一次，与该类型的其余提示词并行调用（GS → 创始人的 P5 要等它返回，2.5）。程序先剔除 GS 人员，给每人附上不再推测的标签（已有的与已被拒绝的），可推测的标签为空的人也剔除，只把剩下的发言人交给它；返回的每个人带上其实质性主张及依据，程序按门槛（≥ 2 条）决定是否标记，主张与依据作为管理员确认时的参考。GS 内部会全员为 GS 人员，不调用。
 
-**同意只更新名册**，影响此后会议的补充识别；本场不重新提取（9.5.6、9.5.8）。GS → 创始人会上被推测为专家的创始人，本场已按建议标签抽过证词、默认不授权，管理员同意对应标签后在矩阵放行（2.5）。
+**同意只更新名册**，影响此后会议的补充识别；本场不重新提取（9.5.6、9.5.8）。GS → 创始人会上被推测为专家的创始人，本场已按建议标签抽过证词，标签通过即自动勾选、驳回即作废（2.5）；建议标签全部处理完之前整场不放行（1.10）。
 
 ---
 
@@ -530,7 +531,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 | Founder KB | ✅ | 由 overview 整理的 markdown 文档，无长度上限；overview 为空时按纪要结构从转录生成（6.5） | 公司端：Goldie、Founder KB 页；PM：Goldie、管理端知识库页；PGM / SA：Goldie、会议管理页、管理端知识库页 |
 | Portfolio KB | ✅ | **与 Founder KB 同一份** | 同 Founder KB |
 | Cross-Company | ✅ | 市场趋势、商业趋势、战略决议闭环、全公司视角四类，仅可迁移，0~N 条；**所有进行中的交易信息永不放出**；**须管理员审核后发出**（2.3） | 审核放行后——公司端：Goldie；PM：Goldie、Goldie Base 的 Cross company content Tab（只读，9.11.4）；PGM / SA：Goldie、该 Tab、会议管理页（审核与编辑的唯一入口，9.6） |
-| 专家证词 | **条件产出** | 仅当会上的创始人被标记为专家，或被 AI 推测为专家（2.5）；匿名版 + 署名版 | 公司端：Goldie（匿名版）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行；PM 不显示说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
+| 专家证词 | **条件产出** | 仅当会上的创始人被标记为专家，或被 AI 推测为专家（2.5）；匿名版 + 署名版 | 公司端：Goldie（匿名版）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行，含说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
 
 > **KB 两列按用户决定实现**：路由表字面 Founder KB 为「Fireflies Essence Summary」、Portfolio KB 为「1,000 字以内摘要」；用户决定（2026-09-30）把两者合为同一份 overview 整理稿，公司端与管理端关联同一份。
 >
@@ -632,7 +633,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 - 一场会可同时产出 2.2 的全部去向与本节证词；多位创始人均为专家时各自抽取
 - **只开放给创始人**：同场其他已在册的专家（如董事会会议上的外部董事）不在本类型产出证词——需求只开放了「该创始人」这一路（本方案口径）
 - 既未被标记为专家、也没被推测为专家 → 不产出
-- **按建议标签抽的证词**（被推测为专家的创始人，以及已在册专家被推测出的新标签；按 `(speaker_ref, category ∈ 建议标签)` 识别）：按建议标签抽的证词两版 Authorize 默认不勾，会议置 `Pending`（待审核）；管理员勾选并 `Confirm & Apply Routing` 即视为同意放行，不必先在专家确认框处理该标签（用户决定 2026-10-14）；之后在专家确认框拒绝该标签的，这些证词行作废（软删，已投影的知识库条目一并软删）；同意的，按会议日期重做标签回溯、刷新来源行（6.11 步骤 4）
+- **按建议标签抽的证词**（被推测为专家的创始人，以及已在册专家被推测出的新标签；按 `(speaker_ref, category ∈ 建议标签)` 识别）：随标签处理——标签通过 → 这些行自动勾选，与在册专家的证词一样；驳回 → 作废（软删）。标签处理完之前整场不放行（1.10「待确认专家」）。通过后按会议日期重做标签回溯、刷新来源行（6.11 步骤 4）（用户决定 2026-10-16，取代 10-14「勾选并应用即放行」）
 
 **抽取范围**
 
@@ -677,7 +678,7 @@ GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归
 | Founder KB | ❌ | | |
 | Portfolio KB | ✅ | 同 1b（仅基金层），markdown 文档 | PM：Goldie、管理端知识库页；PGM / SA：Goldie、管理端知识库页、会议管理页 |
 | Cross-Company | ✅ | 市场趋势、商业趋势、战略决议闭环、全公司视角四类，仅可迁移；**所有进行中的交易信息永不放出**；一份匿名版，**须管理员审核后发出**（2.3、3.5） | 审核放行后——公司端：Goldie；PM：Goldie、Goldie Base 的 Cross company content Tab（只读，9.11.4）；PGM / SA：Goldie、该 Tab、会议管理页（审核与编辑的唯一入口，9.6） |
-| 专家证词 | ✅ | 融资 / 市场 / 估值倍数（3.4） | 公司端：Goldie（匿名版）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行；PM 不显示说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
+| 专家证词 | ✅ | 融资 / 市场 / 估值倍数（3.4） | 公司端：Goldie（匿名版）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行，含说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
 
 ### 3.3 1b 与 Portfolio KB 提取规则
 
@@ -769,9 +770,9 @@ GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归
 
 > 原设计匿名版首行为 `来源：某<专长标签>领域的<角色>`，依据是已删除的旧需求文档中「某医疗 IT 买家指出……」的措辞；现行需求明确角色不向 Founder 展示，按现行需求改。这一点对 2.5 的创始人证词尤其要紧——匿名版若写出「某……领域的创始人」，同行可据此缩小范围，正是需求要防的反推。
 
-公司端只解匿名版空间、管理端只解署名版空间，**两端都不会重复命中同一条证词的两个版本**。例外是 Play candidate：打开后 Playbook 第二路对管理端也返回匿名版，可能与知识库那路的署名版在同一轮各出现一次；本方案同一轮里两路命中同一中间表行时丢弃第二路那条（去重键为中间表行，证词两版视为同一行，9.11.6），去重后上述结论仍成立。
+公司端只解匿名版空间、管理端只解署名版空间，**两端都不会重复命中同一条证词的两个版本**。
 
-**管理端页面**：Goldie Base 的 Expert Testimony Tab 一条证词一行（两版正文相同，不分两行），PM / PGM / SA 可见；PGM / SA 另显示说话人姓名、组织、角色与专长标签，PM 都不显示（9.11.5）。公司端没有这个 Tab，只经 Goldie 召回匿名版。
+**管理端页面**：Goldie Base 的 Expert Testimony Tab 一条证词一行（两版正文相同，不分两行），PM / PGM / SA 可见；都显示说话人姓名、组织、角色与专长标签（9.11.5）。公司端没有这个 Tab，只经 Goldie 召回匿名版。
 
 > 署名**不能放 `chunk.metadata`**：`SearchHitDTO` 只透出 `chunk_id / content / entry_id / entry_title / space_id / space_name / similarity / match_type / uploaded_at / chunk_kind / file_id`，**metadata 不在返回字段中**，管理端召回后拿不到。
 
@@ -977,7 +978,7 @@ GS staff、LP、Strategic Partner、Exit Partner、Founder
 | Founder KB | ❌ | | |
 | Portfolio KB | ✅ | 同 1b，markdown 文档；**同样默认扣留** | PM：Goldie、管理端知识库页（放行后）；PGM / SA：会议管理页（扣留期间即可见）、Goldie、管理端知识库页（放行后） |
 | Cross-Company | ✅ | 市场趋势、商业趋势、战略决议闭环、全公司视角四类，仅可迁移；**所有进行中的交易信息永不放出**；**须管理员审核后发出**（2.3、5.5） | 审核放行后——公司端：Goldie；PM：Goldie、Goldie Base 的 Cross company content Tab（只读，9.11.4）；PGM / SA：Goldie、该 Tab、会议管理页（审核与编辑的唯一入口，9.6） |
-| 专家证词 | ✅ | 商业采购行为、软件使用、估值倍数、买方行为、退出趋势（**5 类**，5.6） | 公司端：Goldie（匿名版）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行；PM 不显示说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
+| 专家证词 | ✅ | 商业采购行为、软件使用、估值倍数、买方行为、退出趋势（**5 类**，5.6） | 公司端：Goldie（匿名版）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行，含说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
 
 ### 5.4 1b 与 Portfolio KB 提取规则
 
@@ -1139,7 +1140,7 @@ Python 路径相对 `python/CIOaas-python/source`，Java 路径相对 `java/CIOa
 
 改造 14 顺带修复一个现存问题：创始人会话中 `organizationId` 一直为空，证词匿名版与跨公司空间按组织键控，不修则 #7 在公司端解不出这两个空间；后续任何按组织圈定的功能也都会踩此坑。
 
-改造 9、10 合起来决定「谁能召回什么」，是本方案改动现有知识库召回语义的地方（Playbook 召回的改动见 #21），上线前需对公司端普通用户、Company Admin、PM、PGM 四种身份逐一回归。
+改造 9、10 合起来决定「谁能召回什么」，是本方案改动现有知识库召回语义的地方（Playbook 召回不改，#21），上线前需对公司端普通用户、Company Admin、PM、PGM 四种身份逐一回归。
 
 **Portfolio KB 基金标签**
 
@@ -1154,11 +1155,9 @@ Python 路径相对 `python/CIOaas-python/source`，Java 路径相对 `java/CIOa
 | 17 | **新页面与 Tab 容器**（9.11.1）：Ask Goldie 下新建 Goldie Base 页与路由，4 个 Tab，公司端只渲染 Knowledge Base 与 Memory Settings。**门户外壳上提**：两页现各自渲染门户外壳（侧栏 + 标题 + 手机端底栏：`KnowledgeBasePage.tsx:489-496,641-647`、`MemorySettingsPage.tsx:98,224-227`），「原样挂进 Tab」做不到——外壳上提到 Goldie Base 页，两页只保留内容区，业务原样搬入；`PortalTab` 类型（`PortalTabBar.tsx:21`）随之调整。**门户布局判定**：`src/layouts/BasicLayout.tsx` 的 `isChatPortal`（`:147-150`）与顶栏高亮 `askAI`（`:462-467`）按 `/askGoldie`、`/knowledgeBase`、`/memorySettings` 三个前缀判断，新路由放在 `/askGoldie` 下，或同步改这两处。`/knowledgeBase`、`/memorySettings` 保留为跳到对应 Tab 的地址（路由 `config/routes.ts:193-212`；`askGoldie/README.md:25` 规定线上 URL 不能改）：redirect 可行（先例 `config/routes.ts:903-906`），须放在 404 兜底之前。入口改指新页：聊天侧栏 `HistorySidebar.tsx:169-181`、手机端底部 Tab `PortalTabBar.tsx:56-66`、门户导航高亮 `PortalNavSidebar.tsx:25`；入口测试 `PortalNavSidebar.test.tsx:49-52`、`PortalTabBar.test.tsx:64-66` 断言旧 URL，一起改；README 同步 | web `config/routes.ts`、`src/layouts/BasicLayout.tsx`、`src/pages/askGoldie/`（新页面 + 两页去外壳 + `README.md`）、`src/pages/devSupport/chat/components/`（三个入口组件 + 两个入口测试） |
 | 18 | **Knowledge Base Tab 的 Source 列**（9.11.2）：列表接口的 `source` 现只取 'session' / 'company'（`_project_row`，`file_registry/application/service/file_registry_service.py:716`），改为 `GOLDIE` / `FIREFLIES`，同步改 DTO 默认值（`file_registry/application/dto/file_registry_dto.py:35`）、VO 默认值（`file_registry/interfaces/vo/response.py:41-44`）与路由映射（`file_registry/interfaces/routes.py:205`）；**不要动**同名的 `ChatScopeFileDTO.source`（`file_registry_service.py:365`，`find_files` 工具在用，`test_find_files_tool.py:63,86` 有断言）。Fireflies 行带会议 id，**只经中间表反查**（与 1.2「登记表不加会议列」一致）。Source 可否跳 Raw Data 由**后端按行算出**（仿现有 `canOpen`，`file_registry_dto.py:32`）：仅对有该会议 Raw Data 权限的查看者为真（9.3.6），前端不自行判断参会与角色，为假时显示纯文字。web `KbDocument` 加字段，页面加 Source 列。Portfolio / Company 列为空显示「—」在桌面表格已是现状（`KnowledgeBasePage.tsx:400-426`）；手机端折行 `renderMobileMeta`（`KnowledgeBasePage.tsx:326-347`）现对空 Portfolio / Company 整块不渲染，要改为同样显示 Source 与 `—` | `file_registry/application/service/file_registry_service.py`、`file_registry/application/dto/file_registry_dto.py`、`file_registry/interfaces/vo/response.py`、`file_registry/interfaces/routes.py`、新 Fireflies 模块（中间表反查）、web `src/services/api/fileRegistry/fileRegistryApi.ts`、`src/pages/askGoldie/knowledgeBase/KnowledgeBasePage.tsx` |
 | 19 | **Memory Settings Tab 的标签**（9.11.3）：业务类型从 `lg/db/service/file_registry.py` 的 `list_kb_entry_scopes` 带出（`:263-277`，现只 select `entry_id / end_type / company_id`；只取 `KNOWLEDGE_BASE` 的过滤在 `:271`），不在 `memory_service`；memory 列表（`memory/application/memory_service.py:86-127`）的 DTO 透传，`memory/interfaces/routes.py:88-94` 的 DTO→VO 逐字段映射加上，供前端区分 Fireflies 条目。web 逐层加字段：`src/services/api/memory/response.ts:14-21`、`dto.ts`、`src/services/service/memory/memoryService.ts:30-37`（逐字段映射），使用处 `MemoryList.tsx:47`、`MemoryDetailModal.tsx:34`。`MemoryMetaRow.tsx:22-38` 的内容类型标签由写死的「Document Summary」改为参数，Fireflies 条目另显示 `Fireflies Memory`、内容类型为 `Meeting Summary`；公司名为空时显示「—」（现状整块不渲染） | `lg/db/service/file_registry.py`、`memory/application/memory_service.py`、`memory/application/memory_dto.py`、`memory/interfaces/vo.py`、`memory/interfaces/routes.py`、web `src/services/api/memory/`（`response.ts`、`dto.ts`）、`src/services/service/memory/memoryService.ts`、`src/pages/askGoldie/memorySettings/components/`（`MemoryMetaRow.tsx`、`MemoryList.tsx`、`MemoryDetailModal.tsx`） |
-| 20 | **两个新 Tab 的列表接口**（9.11.4 / 9.11.5）：Cross company content、Expert Testimony 各一个，仅管理端；数据取中间表（9.6.4）里已授权的 Cross-Company / 证词行 + `ff_meeting`（会议名称与元数据），不从 RAG 条目反查；中间表证词行须带结构化字段——发言人（speaker_ref → 参会人、姓名、组织、角色）与回溯后的专长标签，正文与来源行分开存（9.6.4）；PM 请求时证词行不返回说话人（姓名、组织、角色）与专长标签。关键字模糊匹配内容与会议名称，日期区间按会议日期（UTC 自然日、含边界），仿 devSupport 会话管理（后端 `chatbot/interfaces/routes.py:240-268`，前端 RangePicker `ChatManagePage.tsx:58,471`）；`escape_like` / `utc_day_start` / `utc_day_end_exclusive` 现为 chatbot 私有（`chatbot/domain/repository/_common.py:7-17`），先挪到 `common/`；`file_registry/domain/repository/file_registry_repository.py:177-179` 另有一份内联的同款转义，挪 `escape_like` 时一并收口 | 新 Fireflies 模块、`common/`、`chatbot/domain/repository/_common.py`（改为引用）、`file_registry/domain/repository/file_registry_repository.py`（改为引用）、web Goldie Base 页 |
-| 21 | **Play candidate**（9.11.6）：中间表加 `in_playbook`（默认关）；开关接口限 PGM / SA，写 `PLAYBOOK_TOGGLE` 审计（9.10.2）。Playbook 召回加第二路，**只放在工具层**（`search_playbooks` 工具）：在手册命中之外，对本组织已授权、`in_playbook = true` 的跨公司条目与证词**匿名版**条目调 `search_service.recall(space_ids=..., file_ids=...)`（`rag/application/service/search_service.py:289-307`，`file_ids` 过滤 `:402-407`）。本组织没有打标条目时**直接跳过第二路**：空 `file_ids` 会回退为不过滤、召回整个空间（`:404-407`），空作用域则抛 400（`:391-399`）或 401（`:231-235`），调用时传 `empty_scope_ok=True`。不放进 `playbook_service.search`：它在库未发布 / 无 ACTIVE / 无命中 / 低置信时提前返回（`rag/application/service/playbook_service.py:1557-1600`），在 service 里合并会被吞掉，且会让 rag 依赖 Fireflies 模块。结果模型 `PlaybookSearchResult`（`rag/application/dto/playbook_dto.py:55-77`，现只有 `playbooks / coverage / note`）**新增独立字段**承载第二路命中，`coverage` 只描述手册那一路——否则 `coverage="low"` 时提示词要求模型说「方法论库没有这个主题」（`ai/prompts/chatbot/search_playbooks_prompt.py:64-66`），与第二路有命中矛盾。同一轮里第二路与知识库检索命中同一中间表行的，丢弃第二路那条（9.11.6）。手册一路仍全局（`rag/domain/process_type.py:111-126`；工具不按公司 / 端过滤，`ai/tools/search_playbooks_tool.py:7-10`）；第二路单独定阈值与条数（手册的 0.50 + rerank 按手册分段校准）。提示词：出参契约变了，工具提示词升版本号；第二路另标来源「本机构会议沉淀的经验（已匿名）」，不说成第三方方法论或「贵公司资料」（`search_playbooks_prompt.py:18-19,71-73`）；`ai/prompts/chatbot/retrieval_agent_prompt.py:304-318` 的 `_PLAYBOOK_RULES` 也把 playbook 定性为「第三方通用方法论、全平台同一份」，一并改；工具说明【何时用】（`search_playbooks_prompt.py:25-35`）只覆盖「怎么做」类问题，问市场趋势、估值倍数时不会触发，要补触发场景。触发沿用聊天输入框的 Playbook 开关（web `InputBox.tsx:486-510`；后端 `use_playbook`，关时不绑定 `search_playbooks`，见 `ai/agent/chatbot_graph/nodes/retrieval_agent.py` 的 `_tools_for_turn`，`:324-347`，关键 `:343-344`），不改。第二路按调用者组织圈定，公司端依赖 #14 补出的 `organization_id`。文档同步：`ai/CLAUDE.md:127` 的「进程内直调」清单、`search_playbooks_tool.py` 顶部说明 | 中间表迁移脚本、新 Fireflies 模块、`ai/tools/search_playbooks_tool.py`、`rag/application/dto/playbook_dto.py`、`ai/prompts/chatbot/search_playbooks_prompt.py`、`ai/prompts/chatbot/retrieval_agent_prompt.py`、`ai/CLAUDE.md` |
-| 22 | **管理端角色判定**（9.1）：两个新 Tab 与 Fireflies Management 四页都要区分 PM 与 PGM / SA，现有字段区分不了——管理端用户 roleType 一律为 1（Java `RoleTypeEnum.java:4`，common 模块），Python `CurrentUser` 只有 `role_type / super_admin / roles`、没有权限码（`lgpi_api/current_user_api.py:52-64`），前端只认 `roleType===1`（`KnowledgeBasePage.tsx:118`）。本方案：**PGM / SA = 管理端，且（superAdmin 或角色菜单含 `seeAllPortfolio`）**，PM = 管理端其余用户，沿用现有菜单码口径（Java 组管理员判定 `CompanyGroupServiceImpl.java:501-518`；PM 名单取「没有该菜单」，`UserRepository.java:254-263`；web `PortfolioCompaniesPage.tsx:240`）。Java 把判定结果暴露给 Python（如 `GET /users/current` 的 `AuthenticatedUserDto` 加一个布尔字段，`system/controller/UserController.java:63`）；Python `CurrentUser` 加对应字段，接口据此裁字段 / 拒写；前端不自己判角色，用后端返回的标志位（如 `canManage`、按行的可点标志） | Java `system/contract/user/AuthenticatedUserDto.java`、`UserServiceImpl`（`current`）、`lgpi_api/current_user_api.py`、新 Fireflies 模块、web Goldie Base 页与 Fireflies Management 四页 |
-
-改造 21 让 Playbook 召回从「全局一份手册」变为「手册 + 本组织打了标记的会议内容」，同样需按上述四种身份回归：第二路只召回本组织、证词只出匿名版。
+| 20 | **两个新 Tab 的列表接口**（9.11.4 / 9.11.5）：Cross company content、Expert Testimony 各一个，仅管理端；数据取中间表（9.6.4）里已授权的 Cross-Company / 证词行 + `ff_meeting`（会议名称与元数据），不从 RAG 条目反查；中间表证词行须带结构化字段——发言人（speaker_ref → 参会人、姓名、组织、角色）与回溯后的专长标签，正文与来源行分开存（9.6.4）。关键字模糊匹配内容与会议名称，日期区间按会议日期（UTC 自然日、含边界），仿 devSupport 会话管理（后端 `chatbot/interfaces/routes.py:240-268`，前端 RangePicker `ChatManagePage.tsx:58,471`）；`escape_like` / `utc_day_start` / `utc_day_end_exclusive` 现为 chatbot 私有（`chatbot/domain/repository/_common.py:7-17`），先挪到 `common/`；`file_registry/domain/repository/file_registry_repository.py:177-179` 另有一份内联的同款转义，挪 `escape_like` 时一并收口 | 新 Fireflies 模块、`common/`、`chatbot/domain/repository/_common.py`（改为引用）、`file_registry/domain/repository/file_registry_repository.py`（改为引用）、web Goldie Base 页 |
+| 21 | **Play candidate**（9.11.6）：中间表加 `in_playbook`（默认关），只作 playbook 候选标记，不进 Playbook 召回；开关接口限 PGM / SA，写 `PLAYBOOK_TOGGLE` 审计（9.10.2）。原「Playbook 召回第二路」改造（`search_playbooks` 工具多一路、结果模型加字段、提示词改造）随需求 10-16「进入 playbook candidate」取消（用户决定 2026-10-16，第十章 #62） | 中间表迁移脚本、新 Fireflies 模块、web Goldie Base 页 |
+| 22 | **管理端角色判定**（9.1）：两个新 Tab 与 Fireflies Management 四页都要区分 PM 与 PGM / SA，现有字段区分不了——管理端用户 roleType 一律为 1（Java `RoleTypeEnum.java:4`，common 模块），Python `CurrentUser` 只有 `role_type / super_admin / roles`、没有权限码（`lgpi_api/current_user_api.py:52-64`），前端只认 `roleType===1`（`KnowledgeBasePage.tsx:118`）。本方案：**PGM / SA = 管理端，且（superAdmin 或角色菜单含 `seeAllPortfolio`）**，PM = 管理端其余用户，沿用现有菜单码口径（Java 组管理员判定 `CompanyGroupServiceImpl.java:501-518`；PM 名单取「没有该菜单」，`UserRepository.java:254-263`；web `PortfolioCompaniesPage.tsx:240`）。Java 把判定结果暴露给 Python（如 `GET /users/current` 的 `AuthenticatedUserDto` 加一个布尔字段，`system/controller/UserController.java:63`）；Python `CurrentUser` 加对应字段，接口据此给出可点标志 / 拒写；前端不自己判角色，用后端返回的标志位（如 `canManage`、按行的可点标志） | Java `system/contract/user/AuthenticatedUserDto.java`、`UserServiceImpl`（`current`）、`lgpi_api/current_user_api.py`、新 Fireflies 模块、web Goldie Base 页与 Fireflies Management 四页 |
 
 **提取输入**
 
@@ -1167,7 +1166,7 @@ Python 路径相对 `python/CIOaas-python/source`，Java 路径相对 `java/CIOa
 | 23 | **`firm_profile` 组装**（1.7）：取组织名称 + 本租户 Portfolio 名称列表（`company_group`，按 `organization_id` 圈定）作为基金清单，传入 P5 / P6；同一份名单并入 Cross-Company 与证词的机械剥离清单（1.5） | 新 Fireflies 模块 |
 | 24 | **识别链按新需求调整**（1.9）：GS 域名（三个，可配置）首位判定；新建 LG 用户域名索引——按公司汇总公司端用户的邮箱域名、另汇总本租户管理端用户的邮箱域名，排除公共邮箱域名与 GS 域名，一个域名只对应一方（一家公司，或管理端）才可用；完整邮箱未命中 LG 用户时按域名匹配；日历姓名匹配移到 HubSpot 之后；命中依据写入 `IDENTIFY` 审计 | 新 Fireflies 模块 |
 | 25 | **参会人 LLM 推断**（6.13（P8））：程序匹配链与发言人映射之后，有未识别的参会人或映射不上的发言人时调 P8；组装 `attendees` / `unmapped_speakers` / `registry_candidates`（名册按会议日期取生效版本、排除本场已识别的人）；校验 ref / id / 角色取值，采纳 `high`；公司方只来自 P8 时置 `Pending`、不走 P1 正文反推；身份来自 P8、未入册的人的证词 Authorize 默认不勾；仍映射不上的发言人不传给 P5 / P7；推断结果写入 `IDENTIFY` 审计，`low` 的推断供 Summary Records 登记弹框预填 | 新 Fireflies 模块 + `source/ai/prompts/fireflies/` |
-| 26 | **专家推测按标签确认 / 拒绝**（1.11、9.5.6）：拒绝名单按 `(organization_id, email, 专长标签)` 记录；P7 的候选发言人附上各自不再推测的标签（已有的、已被拒绝的），程序校验时再挡一次；Summary Records 专家确认框逐个标签确认 / 拒绝 | 新 Fireflies 模块、Summary Records 页 |
+| 26 | **专家推测按标签确认 / 拒绝**（1.11、9.5.6）：拒绝名单按 `(organization_id, email, 专长标签)` 记录；P7 的候选发言人附上各自不再推测的标签（已有的、已被拒绝的），程序校验时再挡一次；Summary Records 专家确认框逐个标签确认 / 拒绝；建议标签未处理时会议置 `Pending`（待确认专家）、整场不投影、`Confirm & Apply Routing` 置灰；确认 / 拒绝联动按建议标签抽的证词行（自动勾选 / 作废）；打开确认框时按名册与拒绝名单自动消解；列表按 Pending 原因筛选 | 新 Fireflies 模块、Summary Records 页 |
 
 ---
 
@@ -1198,7 +1197,7 @@ Fireflies Management 下的四个页面以 Tab 组织，顺序按原型：Summar
 
 **权限**：Fireflies Management 四页限本租户的 Portfolio Group Manager / Super Admin——Raw Data 与 Configuration 的依据见 9.3.6 / 9.2.7；Summary Records 即文中的「会议管理页」，按《会议内容提取规则》III「管理员干预」只列 PGM / Super Admin；Cheat Sheet 需求未写，按同一口径对齐。
 
-**PM 与 PGM / SA 的判定**（本方案；Fireflies Management 四页与 Goldie Base 两个新 Tab 同用）：**PGM / SA = 管理端用户，且 superAdmin 或角色菜单含 `seeAllPortfolio`**；PM = 管理端其余用户。现状：管理端用户 roleType 一律为 1（Java `RoleTypeEnum.java:4`），按 roleType 区分不了 PM 与 PGM；已有的区分口径是菜单码 `seeAllPortfolio`——Java「组管理员」判定 `CompanyGroupServiceImpl.java:501-518`，PM 名单取「没有该菜单」的用户（`UserRepository.java:254-263`），web 同（`PortfolioCompaniesPage.tsx:240`）。Python `CurrentUser` 只有 `role_type / super_admin / roles`、没有权限码（`lgpi_api/current_user_api.py:52-64`），前端只认 `roleType===1`（`KnowledgeBasePage.tsx:118`）。做法：Java 把判定结果暴露给 Python（如 `/users/current` 加一个布尔字段），Python 接口据此裁字段 / 拒写；前端不自己判角色，用后端返回的标志位（如 `canManage`、按行的可点标志）。改动见第八章 #22。
+**PM 与 PGM / SA 的判定**（本方案；Fireflies Management 四页与 Goldie Base 两个新 Tab 同用）：**PGM / SA = 管理端用户，且 superAdmin 或角色菜单含 `seeAllPortfolio`**；PM = 管理端其余用户。现状：管理端用户 roleType 一律为 1（Java `RoleTypeEnum.java:4`），按 roleType 区分不了 PM 与 PGM；已有的区分口径是菜单码 `seeAllPortfolio`——Java「组管理员」判定 `CompanyGroupServiceImpl.java:501-518`，PM 名单取「没有该菜单」的用户（`UserRepository.java:254-263`），web 同（`PortfolioCompaniesPage.tsx:240`）。Python `CurrentUser` 只有 `role_type / super_admin / roles`、没有权限码（`lgpi_api/current_user_api.py:52-64`），前端只认 `roleType===1`（`KnowledgeBasePage.tsx:118`）。做法：Java 把判定结果暴露给 Python（如 `/users/current` 加一个布尔字段），Python 接口据此给出可点标志 / 拒写；前端不自己判角色，用后端返回的标志位（如 `canManage`、按行的可点标志）。改动见第八章 #22。
 
 职责不重叠：Raw Data 只对**原文**负责，Summary Records 只对**派生产物**负责（跨公司内容的审核、授权与措辞修订也都在这里）。同一场会在 Raw Data 与 Summary Records 各出现一次，互不替代。
 
@@ -1451,7 +1450,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 
 该页是**派生产物**的查看与改判入口，只对提取结果负责；原文归 Raw Data。权限见 9.1（PGM / Super Admin）。
 
-**Tab 上带 Pending 红点**——有未处理的 Pending 会议时亮起（待识别、待审核都算），是整个 Fireflies 模块唯一的主动提醒。
+**Tab 上带 Pending 红点**——有未处理的 Pending 会议时亮起（待识别、待确认专家、待审核都算，按原因分别计数），是整个 Fireflies 模块唯一的主动提醒。
 
 #### 9.4.1 列表字段
 
@@ -1461,28 +1460,29 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | Time | **单列合并**展示 `Jul 15, 2026 · 10:00 AM`（与 Raw Data 的 Date / Time 两列不同，两页各按自己的原型来） |
 | AI Meeting Type | 蓝色标签；`Unknown` 为灰色 |
 | Companies | 已采纳的公司名，多家时逗号分隔；宽度不够用 `...` 截断 |
-| Status | `Passed` 绿 / `Pending` 红 |
+| Status | `Passed` 绿 / `Pending` 红，旁注原因（待识别 / 待确认专家 / 待审核，9.4.2） |
 | 行末 | `Review` 链接进详情 |
 
 **会议名与 `Review` 链接均可点击**，都进该会议的详情页（9.5）。
 
 **搜索**：模糊匹配 Meeting 与 Companies。
-**筛选**：AI Meeting Type、Status、Period 三个下拉（`All meeting types` / `All statuses` / `All time`）。
+**筛选**：AI Meeting Type、Status、Period 三个下拉（`All meeting types` / `All statuses` / `All time`）。Status 下拉含 `Passed` 与三种 Pending 原因（9.4.2）。
 **分页**：每页 10 条，与 Raw Data 及系统内同类页面一致，默认按会议时间倒序。
 
 #### 9.4.2 Status 与阻断关系
 
-**只有两态**（需求已删除 `Flagged`）：
+**只有两态**（需求已删除 `Flagged`），`Pending` 按原因分三种：
 
 | 状态 | 含义 | 是否阻断 |
 |---|---|---|
-| `Passed` | 类型与参会人均判定成功、内容已路由，且没有待审核内容；或 Pending 会议经管理员应用路由（9.6.5） | 否 |
+| `Passed` | 类型与参会人均判定成功、内容已路由，且没有待审核内容、没有未处理的专家标记；或 Pending 会议经管理员应用路由（9.6.5） | 否 |
 | `Pending`（待识别） | 参会人经 P8 推断后仍未识别（含没有邮箱的参会人，#59）；或类型未判出；或 GS → 创始人定不出公司（仅凭 Cheat Sheet `Founder` 成立、正文反推不出恰好一家高置信且为到场者所在的公司，或公司方只来自 P8，2.1） | **是**，内容提取与路由未执行；识别结果照常展示 |
-| `Pending`（待审核） | 提取已完成，但有待审核内容：Cross-Company、GS → Partner 1b / Portfolio KB、发言人身份来自 P8 推断且未入册的证词、按 P7 建议标签抽的创始人证词（1.10） | **否**，其余已授权内容照常路由；`Confirm & Apply Routing` 后转 `Passed` |
+| `Pending`（待确认专家） | 提取已完成，但有「可能为专家」的建议标签未通过或驳回（1.10，用户决定 2026-10-16） | **是**，整场产物不投影；`Confirm & Apply Routing` 置灰，标签全部处理完才可点 |
+| `Pending`（待审核） | 提取已完成，但有待审核内容：Cross-Company、GS → Partner 1b / Portfolio KB、发言人身份来自 P8 推断且未入册的证词（1.10） | **否**，其余已授权内容照常路由；`Confirm & Apply Routing` 后转 `Passed` |
 
 **`Flagged` 取消**的理由见 1.10；它原来兼做的「仅凭 Cheat Sheet Founder 的 GS → 创始人会议人工复核」由上表「待识别」的第三个条件承接。
 
-**列表的 Pending 标签旁显示原因**：待识别 / 待审核。两者处理方式不同——前者补参会人、类型或公司后点 Start Extraction，后者在矩阵勾选要放行的行后点 Confirm & Apply Routing。
+**列表的 Pending 标签旁显示原因**：待识别 / 待确认专家 / 待审核，列表可按原因筛选。三者处理方式不同——待识别补参会人、类型或公司后点 Start Extraction；待确认专家在参会人标签上逐个通过或驳回建议标签，再点 Confirm & Apply Routing；待审核在矩阵勾选要放行的行后点 Confirm & Apply Routing。一场会可能同时有待确认专家与待审核内容，原因按此顺序显示。
 
 
 ---
@@ -1497,7 +1497,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | Date | `started_at`，日期 + 时间合并展示 |
 | Duration | 取整到分钟 |
 | Fireflies ID | `fireflies_id`，Fireflies 返回的原生 id |
-| Scrub Status | 两态徽章：✓ `Passed`（绿）/ ◷ `Pending`（红），同列表 Status |
+| Scrub Status | 两态徽章：✓ `Passed`（绿）/ ◷ `Pending`（红，旁注原因与剩余件数，如「2 个建议标签未处理」），同列表 Status |
 | AI Meeting Type | 当前值标签 + 下拉，切换时标签实时更新（9.5.2） |
 | Company | 已采纳公司的标签 + 识别依据（9.5.3） |
 | Portfolio | 多选标记（9.5.4） |
@@ -1509,6 +1509,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 |---|---|---|
 | 无未识别信息（已提取过） | 置灰 | 类型、公司、参会人**有改动**，且必填项齐全；GS → LP 的公司改动不算（Company 不参与该类型路由，3.3） |
 | 有未识别信息（`Pending` 待识别） | 置灰 | 必填项全部填好 |
+| 提取作废、P1 或 P8 最终失败（`Pending` 待识别，必填项本已齐全） | 置灰 | 必填项齐全即激活，不要求改动（6.11「失败处理」） |
 | 提取进行中 / 提取完成后 | 置灰 | 直到再次出现改动 |
 
 **必填项**（《Summary Records》10-13 版：「AI Meeting Type 为必填，GS-Founder 类型时 Company 为必填，所有未识别人均应被处理」）：AI Meeting Type 不为 `Unknown`；参会人中没有 `Unidentified`；**GS → 创始人须至少有一家 Company**。改动后必填项不齐（如把类型改回 `Unknown`、移除了最后一家公司）→ 按钮置灰。
@@ -1629,21 +1630,22 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | 推测依据 | 按标签分组列出的实质性主张及其依据（转述、不引原句，带时间点） |
 | 建议标签 | AI 推测的专长标签（取自 Cheat Sheet 的标签清单），**每个标签一行，各自选同意或拒绝**（需求 10-13 版「管理员逐条确认或拒绝每个推断标签」；《Summary Records》「同意和拒绝是针对这个人的邮箱 + 标签」） |
 | 登记字段 | 同 9.5.5 弹框：Name、Email(s)、Organization、Role、Expertise tags（带入同意的标签，可再补）、Area of expertise、Validity period（**From 默认带会议日期**） |
-| 按钮 | `Save`（每个建议标签都选了同意或拒绝才可点）/ 关闭（不处理，徽标保留） |
+| 按钮 | `Save`（每个建议标签都选了同意或拒绝才可点；全部拒绝时不写名册、不校验登记字段）/ 关闭（不保存，已选的同意或拒绝不保留；徽标保留，显示剩余未处理的标签数） |
 
-Name 是否可改沿用 9.5.5：已在册的人只读（同意 = 给他追加一个带标签的新版本），未在册的人可订正后入册。
+Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正后入册。已在册的人同意标签时，对他在会议日期当天及之后生效的每个版本各追加一份副本：区间不变（起点截到会议日期）、字段不变，只加上该标签；不新写开放式版本——否则在较早的会议上同意，新版本会因「区间重合取最新」覆盖他之后换角色、组织或邮箱的版本（9.7.2）。
 
 | 动作 | 结果 |
 |---|---|
-| **同意某个标签** | 该标签写入 Cheat Sheet（来源 `From FF Summary Records`，9.5.7），此人从生效日起即为专家，徽标出现 `Expert`；此后仍会就他还没有的标签推测。`Save` 要求每个建议标签都已处理（需求「逐条确认或拒绝每个推断标签」） |
-| **拒绝某个标签** | 记录（该人邮箱，该标签）进**拒绝名单**，此后任何会议都不再就这个标签推测他；其他标签照常；GS → 创始人本场按该标签抽出的证词行作废（软删，已投影的一并软删，2.5） |
+| **同意某个标签** | 该标签写入 Cheat Sheet（来源 `From FF Summary Records`，9.5.7），此人从生效日起即为专家，徽标出现 `Expert`；GS → 创始人本场按该标签抽出的证词自动勾选（2.5）；本场该发言人的全部证词行（不限会议类型）按会议日期重做回溯、刷新来源行；此后仍会就他还没有的标签推测。`Save` 要求每个建议标签都已处理（需求「逐条确认或拒绝每个推断标签」） |
+| **拒绝某个标签** | 记录（该人邮箱，该标签）进**拒绝名单**，此后任何会议都不再就这个标签推测他；其他标签照常；GS → 创始人本场按该标签抽出的证词行作废（软删，2.5） |
 | 建议标签**全部被拒绝** | 徽标消失 |
+| 打开确认框时该（邮箱，标签）已入册或已在拒绝名单（在别场会议处理过，或在 Cheat Sheet 里直接加过） | **自动消解**：按同意或拒绝处理本场（证词自动勾选或作废），并提示「已于其他会议处理」。专家标记每场单独处理，不跨会议联动（用户决定 2026-10-16，第十章 #63） |
 
 **LG 平台用户被确认为专家**：典型是 GS → 创始人会上的创始人。同意时同样在注册表建一条（角色 `Founder`，姓名取平台账号姓名），**只为承载专长标签**；他的身份分类仍以平台账号为准——识别链对平台用户命中即止（1.9），注册表这一条只在补充识别（1.11）时被查到。这改变了"平台用户在注册表里没有副本"的旧口径；与《Cheat Sheet》「Founder 指未使用 LG 平台的人」的口径如何对齐，未决，见第十章。
 
 **拒绝名单**：按 `(organization_id, email, 专长标签)` 记录，附操作人、时间、来源会议。没有撤销入口——误拒的补救是直接在 Cheat Sheet 给此人加该专长标签，加了就是专家，不再需要推测。
 
-**不重新提取本场**：GS → 创始人会议里按建议标签抽的证词已在矩阵里（默认不授权）。管理员勾选并 `Confirm & Apply Routing` 即放行，不必先处理标签；同意标签后程序按会议日期重做回溯、刷新来源行；拒绝标签则这些行作废（2.5）。From 默认带会议日期，以便回溯与日后重新提取都能取到新登记的标签。
+**不重新提取本场**：有建议标签未处理时会议停在 `Pending`（待确认专家），整场不放行；管理员把每个建议标签都通过或驳回后，`Confirm & Apply Routing` 才可点（1.10，用户决定 2026-10-16）。GS → 创始人按建议标签抽的证词：通过即自动勾选并按会议日期重做回溯、刷新来源行，驳回即作废（2.5）。From 默认带会议日期，以便回溯与日后重新提取都能取到新登记的标签。
 
 #### 9.5.7 回填注册表
 
@@ -1660,7 +1662,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读（同意 = 给他追加一
 | 改动 | 怎么提交 | 何时生效 |
 |---|---|---|
 | 类型、公司 | 改完点 Start Extraction 生成草稿 → `Confirm & Apply Routing` | 应用时替换当前生效版本 |
-| 参会人登记 / 专家确认与拒绝 | 登记弹框内 `Confirm`；专家确认框内逐标签同意 / 拒绝后 `Save` | 立即写注册表 / 拒绝名单；同时联动本场按建议标签抽出的证词行（同意即刷新来源行，拒绝即作废，2.5）；对本场其余内容的影响要经 Start Extraction（9.9.3） |
+| 参会人登记 / 专家确认与拒绝 | 登记弹框内 `Confirm`；专家确认框内逐标签同意 / 拒绝后 `Save` | 立即写注册表 / 拒绝名单；同时联动本场按建议标签抽出的证词行（同意即勾选并刷新来源行，拒绝即作废，2.5）；建议标签全部处理完，`Confirm & Apply Routing` 才可点（1.10）；对本场其余内容的影响要经 Start Extraction（9.9.3） |
 | Portfolio 标记 | `Confirm & Apply Routing` | 应用时 |
 | 矩阵内容、授权 | 见 9.6.5 | |
 
@@ -1717,9 +1719,9 @@ Name 是否可改沿用 9.5.5：已在册的人只读（同意 = 给他追加一
 | Founder KB / Portfolio KB（GS → 创始人） | Goldie、Founder KB 页 | Goldie、Portfolio KB 页 | Goldie、Portfolio KB 页 |
 | 1b / Portfolio KB（LP / 内部 / Partner） | — | Goldie、Portfolio KB 页 | Goldie、Portfolio KB 页 |
 | Cross-Company | Goldie | Goldie、Goldie Base（只读） | Goldie、Goldie Base |
-| 专家证词 | Goldie（匿名版） | Goldie（署名版）、Goldie Base（不显示说话人与专长标签） | Goldie（署名版）、Goldie Base |
+| 专家证词 | Goldie（匿名版） | Goldie（署名版）、Goldie Base | Goldie（署名版）、Goldie Base |
 
-> Cross-Company 审核放行后全租户经 Goldie 召回，已确认（2026-10-10）。表中 Goldie Base 一项待确认：PM 在 Cross company content Tab 看得到跨公司内容，改变了 2026-10-10「管理端只有 PGM / SA 能看」的决定（#43）；PM 在 Expert Testimony Tab 看不到说话人与专长标签，与其在 Goldie 看署名版不一致（#44）。
+> Cross-Company 审核放行后全租户经 Goldie 召回，已确认（2026-10-10）。表中 Goldie Base 一项待确认：PM 在 Cross company content Tab 看得到跨公司内容，改变了 2026-10-10「管理端只有 PGM / SA 能看」的决定（#43）。Expert Testimony Tab 对 PM 也显示说话人与专长标签，与其在 Goldie 看署名版一致（#44 已关闭）。
 
 **摘要行与正文行是同一条条目的两半**：1a / 1b 的摘要与 Founder KB / Portfolio KB 的正文，落库时是同一条知识库条目的「摘要 + 正文」（1.1）。两行各自编辑，但**共用一个 Authorize 格**（跨两行合并），勾选即投影整条条目——不存在"摘要放行、正文扣留"的半条条目。
 
@@ -1758,7 +1760,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读（同意 = 给他追加一
 1. `Save` → 服务端对该行跑上述清洗，**不落库**，返回清洗后文本与命中明细（被剔除的片段、被剥离替换的实体）
 2. 无命中 → 直接落库；有命中 → 回显清洗结果，管理员确认后落库，或继续改
 
-落库后：该行属于**当前生效版本**且已授权 → 立即重投影（9.6.4）；属于**草稿**（Start Extraction 之后、Confirm 之前）→ 只改草稿，随 Confirm 一起生效；未授权 → 只改中间表。
+落库后：该行属于**当前生效版本**且已授权 → 立即重投影（9.6.4；会议处于 `Pending` 待确认专家时不投影，等应用时统一投影）；属于**草稿**（Start Extraction 之后、Confirm 之前）→ 只改草稿，随 Confirm 一起生效；未授权 → 只改中间表。
 
 证词行改正文时，两版共用的正文一起更新，各自的来源行由程序重新附加（6.11）。
 
@@ -1779,7 +1781,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读（同意 = 给他追加一
 
 中间表不只是"授权前的暂存区"——它是矩阵的**可编辑正本**，知识库条目由它派生。这样 `Content` 的编辑、授权的开关、以及重算，都只操作一份数据。Start Extraction 的产物在中间表里以**草稿**存在，与当前生效版本并存，`Confirm & Apply Routing` 时切换（9.6.5）。
 
-中间表行另带 `in_playbook` 标记（Play candidate，默认关，9.11.6）：Goldie Base 两个新 Tab 的开关写这里，Playbook 召回按它实时读；它不影响授权与投影。
+中间表行另带 `in_playbook` 标记（Play candidate，默认关，9.11.6）：Goldie Base 两个新 Tab 的开关写这里，只作 playbook 候选标记，不进 Playbook 召回，也不影响授权与投影。
 
 **证词行的结构化字段**（本方案）：中间表的证词行除正文外另存**发言人**（speaker_ref → 参会人、姓名、组织、角色）与**回溯后的专长标签**（按会议日期，3.4）；正文与来源行分开存——内容列只存正文（9.6.3 的文本字段），来源行由程序按这些字段生成，矩阵里只读显示、投影时拼进正文首行（3.4、6.11）。Goldie Base 的 Expert Testimony Tab 按这些字段显示说话人与专长标签（9.11.5）。
 
@@ -1787,13 +1789,15 @@ Name 是否可改沿用 9.5.5：已在册的人只读（同意 = 给他追加一
 
 | 场景 | 初始状态 |
 |---|---|
-| 识别齐全、自动提取完成 | **默认已勾选**，落中间表的同时投影——与需求「`Passed` = AI 已路由全部内容」一致。**四类例外**见下四行 |
+| 识别齐全、自动提取完成 | **默认已勾选**，落中间表的同时投影（有未处理的专家标记时先不投影，见表下）——与需求「`Passed` = AI 已路由全部内容」一致。例外见下四行 |
 | └ 所有类型的 **Cross-Company** 行 | **默认不勾**——Cross company 内容需管理员审核后发出（需求 I.2；用户决定 2026-10-10）；会议因此置 `Pending`（待审核，1.10） |
 | └ GS → Partner 的 **1b / Portfolio KB** 行 | **默认不勾**——「敏感，默认保留，进入待分配」（《会议内容提取规则》路由表；Portfolio KB 随 1b 一并扣留为本方案）；会议因此置 `Pending`（待审核，1.10） |
-| └ 按 P7 建议标签抽出的**专家证词**行（两版，GS → 创始人，2.5） | **默认不勾**——专家身份是 AI 推测的；管理员勾选并应用即视为同意放行，之后拒绝该标签则这些行作废、已投影的一并软删（用户决定 2026-10-14）；会议因此置 `Pending`（待审核，1.10） |
+| └ 按 P7 建议标签抽出的**专家证词**行（两版，GS → 创始人，2.5） | **随标签处理**：标签未处理时不勾；通过 → 自动勾选，驳回 → 作废（用户决定 2026-10-16）；有未处理的标签时会议置 `Pending`（待确认专家，1.10） |
 | └ 发言人身份来自 6.13（P8）推断、尚未入册的**专家证词**行（两版） | **默认不勾**——身份是 AI 判的，判错（如把创始人判成 LP）会让他的发言不经审核成为全租户证词，管理员核对身份后放行（用户决定 2026-10-14）；会议因此置 `Pending`（待审核，1.10）。身份来自名册的证词照旧默认勾选 |
-| `Pending` 会议人工指定后首次提取 | **全部默认不勾**，只落中间表（本方案：首次提取 Authorize 默认不勾 → Confirm & Apply Routing） |
+| `Pending` 会议人工指定后首次提取 | **全部默认不勾**，只落中间表（本方案：首次提取 Authorize 默认不勾 → Confirm & Apply Routing）；例外：同意标签联动的证词自动勾选（见表下） |
 | 已提取过的会议再次 Start Extraction | 见 9.9.5 |
+
+**有未处理的专家标记时整场先不投影**（用户决定 2026-10-16）：上表「默认已勾选」的行也只落中间表，会议置 `Pending`（待确认专家，1.10）；每个建议标签都通过或驳回、管理员 `Confirm & Apply Routing` 后，再按勾选投影。**专家标记属于产生它的提取版本**：重新提取的草稿里有未处理标记时，会议状态不变、当前生效版本照旧在线，草稿要先处理完标记才能应用；草稿被丢弃，或类型改为 `Unknown` 并应用后，被替换版本上未处理的标记一并撤下，不写拒绝名单。**同意标签联动的自动勾选优先于本表其他初值**：首次提取「全部默认不勾」、P8 推断身份的证词「默认不勾」都让位——确认框已核对身份并入册；通过登记弹框入册的 P8 发言人，其证词不自动勾选。
 
 "经 Pending Assignment 放行"落到页面上，就是管理员在本矩阵勾选 `Authorize` 并 `Confirm & Apply Routing`——与 Pending 会议人工处理走同一个页面、同一套按钮，不另建审核队列。
 
@@ -1803,7 +1807,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读（同意 = 给他追加一
 
 | 操作 | 中间表 | 知识库条目 |
 |---|---|---|
-| 编辑 `Content`（`Save`） | 更新 | 该行已授权且已生效 → 软删旧条目 + 写新条目；未授权或属草稿 → 不动 |
+| 编辑 `Content`（`Save`） | 更新 | 该行已授权且已生效 → 软删旧条目 + 写新条目（会议处于待确认专家时不投影）；未授权或属草稿 → 不动 |
 | 勾选 `Authorize`（应用后） | 置为已授权 | 按中间表当前内容写入 |
 | 取消勾选（应用后） | 置为未授权，**内容保留** | 软删（幂等规则同 1.6），Goldie 立即召不回 |
 
@@ -1824,9 +1828,9 @@ Name 是否可改沿用 9.5.5：已在册的人只读（同意 = 给他追加一
 | **Content 编辑** | 行内 `Save` / `Cancel`，只作用于该行 | 内容是逐行审的，保存时还要逐行回显清洗结果（9.6.3），放到整页一起交会让回显无从对应 |
 | **路由级改动**：类型 / 公司 / 参会人改动后的草稿、`Authorize` 勾选、Portfolio 标记 | 页面级 `Confirm & Apply Routing` / `Discard Changes` | 授权与改判往往要一起判断（看完新提取的内容才决定放不放行），按行提交会让管理员在部分授权、部分未授权的中间态里来回切换，也更难写一条完整的审计记录 |
 
-**`Confirm & Apply Routing`**：把本页所有路由级改动一次性应用——有草稿则用草稿替换当前生效版本（旧版本的条目软删，草稿中已授权的行投影），再应用授权勾选与 Portfolio 标记。`Pending` 会议应用后转 `Passed`。
+**`Confirm & Apply Routing`**：把本页所有路由级改动一次性应用——有草稿则用草稿替换当前生效版本（旧版本的条目软删，草稿中已授权的行投影），再应用授权勾选与 Portfolio 标记。`Pending` 会议应用后转 `Passed`（待确认专家的会议同样：一次应用同时完成待审核内容的审核）。
 
-**`Discard Changes`**：还原到上次应用后的状态——丢弃草稿（含草稿行上已 Save 的内容）、还原页头的类型与公司、还原未应用的勾选与标记。**不撤销**：当前生效行上已 Save 的内容（已落库并投影）、注册表写入与专家确认 / 拒绝（9.5.7）。
+**`Discard Changes`**：还原到上次应用后的状态——丢弃草稿（含草稿行上已 Save 的内容）、还原页头的类型与公司、还原未应用的勾选与标记。**不撤销**：当前生效行上已 Save 的内容（已落库并投影）、注册表写入与专家确认 / 拒绝（9.5.7），以及确认 / 拒绝联动的证词行自动勾选与作废（2.5）。
 
 **按钮状态**：
 
@@ -1837,6 +1841,10 @@ Name 是否可改沿用 9.5.5：已在册的人只读（同意 = 给他追加一
 | 改了类型、公司（不含 GS → LP：其 Company 不参与路由，9.5.3）或参会人，但还没跑 Start Extraction，或提取进行中 | **置灰**——页头与矩阵内容不一致时不能应用 | 激活 |
 | 草稿已生成 | 激活 | 激活 |
 | 类型改为 `Unknown` | 激活——无需提取，应用即打回 Pending（9.9.2） | 激活 |
+| 有「可能为专家」的建议标签未处理（按应用后将生效的那一版算：有草稿看草稿，无草稿看当前版本） | **置灰**——每个建议标签都通过或驳回后才激活；类型改为 `Unknown` 不受此限（1.10，用户决定 2026-10-16） | 激活 |
+| `Pending`（待确认专家 / 待审核），标签已全部处理，矩阵没有其他改动 | **激活**——点击即视为审核完成（未勾选的不放行），会议转 `Passed`（1.10） | 置灰 |
+
+上表自下而上优先：后面的行命中即按后面的行。按钮置灰时提示原因（如「还有 N 个建议标签未处理」）。
 
 有行处于编辑未保存状态时点 `Confirm & Apply Routing`，先提示该行 `Save` 或 `Cancel`。
 
@@ -2024,7 +2032,7 @@ Multiples、Buyer behavior、Exit trends、Software usage、Commercial buying be
 | 已被使用过的标签 | **不可删** | 《Cheat Sheet》「已被使用过的标签不允许删除」 |
 | 新增后从未被使用的标签 | 可删 | 加错了的补救 |
 
-**"被使用过"** = 出现在 `ff_registry_party` 的**任一版本**中（含历史版本），不只看当前版本——历史版本照样被按会议日期回溯、照样出现在证词来源行里。
+**"被使用过"** = 出现在 `ff_registry_party` 的**任一版本**中（含历史版本），不只看当前版本——历史版本照样被按会议日期回溯、照样出现在证词来源行里。正被未处理的「可能为专家」标记引用的标签也算「被使用过」——否则标签删了，标记无法同意，会议会卡住。
 
 **不提供改名**，这是有意的：
 
@@ -2063,7 +2071,7 @@ Review 页上能改的三样东西，改完点 Start Extraction 触发重算，�
 |---|---|
 | `Pending` → 指定类型 | **首次提取**，按新类型跑完整流程；授权全部默认不勾（9.6.4） |
 | 任意类型之间 | **整场重跑**——产物形态完全不同，无法增量 |
-| 任意类型 → `Unknown` | 无需提取。`Confirm & Apply Routing` 后打回 `Pending`：软删全部产物（中间表与知识库条目均软删，保留可追溯），停止路由 |
+| 任意类型 → `Unknown` | 无需提取。`Confirm & Apply Routing` 后打回 `Pending`：软删全部产物（中间表与知识库条目均软删，保留可追溯），停止路由；本场未处理的「可能为专家」标记随之撤下，不写拒绝名单 |
 
 原「GS → 创始人 ⇄ Board Call 只补跑 1b」一行随 Board Call 类型取消删除。
 
@@ -2107,11 +2115,11 @@ Review 页上能改的三样东西，改完点 Start Extraction 触发重算，�
 
 | 情形 | 授权初值 |
 |---|---|
-| 该去向重跑前已授权 | **沿用已授权**——**Cross-Company、GS → Partner 的 1b / Portfolio KB、发言人身份来自 P8 推断的证词、按 P7 建议标签抽的证词除外** |
-| Cross-Company、GS → Partner 的 1b / Portfolio KB、发言人身份来自 P8 推断（未入册）的证词、按 P7 建议标签抽的证词 | **一律不勾**——审核放行针对的是具体内容，内容换了就要重审 |
+| 该去向重跑前已授权 | **沿用已授权**——**Cross-Company、GS → Partner 的 1b / Portfolio KB、发言人身份来自 P8 推断的证词除外；按 P7 建议标签抽的证词随标签处理（2.5）** |
+| Cross-Company、GS → Partner 的 1b / Portfolio KB、发言人身份来自 P8 推断（未入册）的证词 | **一律不勾**——审核放行针对的是具体内容，内容换了就要重审 |
 | 该去向重跑前未授权 | 保持未授权 |
 | 重跑后**新出现**的去向 | 未授权，需人工放行 |
-| `Pending` 首次提取 | 全部不勾（9.6.4） |
+| `Pending` 首次提取 | 全部不勾（9.6.4）；同意标签联动的证词例外（2.5） |
 
 沿用而非清空，与 `Passed` 默认已勾选是同一条口径（9.6.4）——AI 产出默认可路由，人工审核只在需求要求或 AI 没把握的场合才是必经步骤。
 
@@ -2155,7 +2163,7 @@ Review 页上能改的三样东西，改完点 Start Extraction 触发重算，�
 | `AUTHORIZE_CHANGE` | 勾选 / 取消勾选应用 | 去向、新状态 |
 | `PLAYBOOK_TOGGLE` | Goldie Base 两个新 Tab 上的 Play candidate 开关变化（即时生效，不经 `Confirm & Apply Routing`，9.11.6） | 操作人、中间表行 id（及其去向、所属会议）、开 / 关 |
 | `REGISTRY_IMPORT` | 从 Review 页登记外部人 | party 姓名、来源会议 |
-| `EXPERT_CONFIRM` | 同意专家推测（按标签） | party 姓名、同意的专长标签、LLM 理由、来源会议 |
+| `EXPERT_CONFIRM` | 同意专家推测（按标签） | party 姓名、同意的专长标签、LLM 理由、来源会议、随之自动勾选的证词行 id |
 | `EXPERT_DECLINE` | 拒绝专家推测（按标签） | 邮箱、被拒的专长标签、LLM 理由、来源会议、随之作废的证词行 id |
 
 一次 `Confirm & Apply Routing` 可能同时产生 `TYPE_CHANGE` / `COMPANY_CHANGE` / `PORTFOLIO_MARK` / `AUTHORIZE_CHANGE` 多条。
@@ -2187,7 +2195,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | Knowledge Base（9.11.2） | ✅ | ✅ | ✅ | ✅ |
 | Memory Settings（9.11.3） | ✅ | ✅ | ✅ | — |
 | Cross company content（9.11.4） | ✅ 只读 | ✅ 只读 + Play candidate | — | — |
-| Expert Testimony（9.11.5） | ✅ 只读，不显示说话人与专长标签 | ✅ 只读 + Play candidate | — | — |
+| Expert Testimony（9.11.5） | ✅ 只读 | ✅ 只读 + Play candidate | — | — |
 
 - **两个新 Tab 只在管理端**（本方案）：需求这两节只写到 PM 与管理员，未提创始人；创始人照旧经 Goldie 召回审核放行的跨公司内容与匿名版证词（1.1）（待确认，第十章 #41）
 - **Memory Settings 在公司端仍只给 Company Admin**（现状，不变）
@@ -2202,8 +2210,8 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 路由 | 新增一个路由，当前 Tab 记在 URL 上，旧地址据此直达对应 Tab；路径与参数形式开发设计定。门户布局判定 `isChatPortal`（web `src/layouts/BasicLayout.tsx:147-150`）与顶栏 `askAI` 高亮（`:462-467`）按 `/askGoldie`、`/knowledgeBase`、`/memorySettings` 前缀判断：新路由放在 `/askGoldie` 下，否则同步改这两处。旧地址的 redirect 放在 404 兜底之前 |
 | 门户外壳 | 两页现各自渲染门户外壳（侧栏 + 标题 + 手机端底栏：`KnowledgeBasePage.tsx:489-496,641-647`、`MemorySettingsPage.tsx:98,224-227`），不能原样挂进 Tab：外壳上提到 Goldie Base 页，两页只保留内容区（本方案） |
 | 按端显示 | 按上表，没有权限的 Tab 不显示。公司端普通用户只剩 Knowledge Base 一个 Tab，是否仍显示 Tab 栏开发设计定 |
-| 管理端分角色 | 两个新 Tab 要区分 PM 与 PGM / SA（会议名称可否点击、说话人信息、开关可否改动）。判定按 9.1「权限」的口径：PGM / SA = 管理端，且 superAdmin 或角色菜单含 `seeAllPortfolio`；PM = 管理端其余用户（本方案）。Java 暴露判定结果，Python 接口据此裁字段 / 拒写（第八章 #22）；前端不自己判角色，按接口返回的标志位（如 `canManage`、按行的可点标志）显示 |
-| 接口鉴权 | 两个新 Tab 的接口对公司端一律拒绝；Expert Testimony 的接口对 PM 不返回说话人姓名、组织、角色与专长标签；Play candidate 的写接口只接受 PGM / SA。不靠前端隐藏（本方案，同 9.3.6）。本租户：两个新 Tab 的接口传 `organizationId` 并做授权校验（参照 `ErlAccessServiceImpl.java:88-100`），前端按组织树首叶取（web `src/pages/askGoldie/components/orgScope.ts` 的 `firstLeafOrgId`） |
+| 管理端分角色 | 两个新 Tab 要区分 PM 与 PGM / SA（会议名称可否点击、开关可否改动）。判定按 9.1「权限」的口径：PGM / SA = 管理端，且 superAdmin 或角色菜单含 `seeAllPortfolio`；PM = 管理端其余用户（本方案）。Java 暴露判定结果，Python 接口据此给出可点标志 / 拒写（第八章 #22）；前端不自己判角色，按接口返回的标志位（如 `canManage`、按行的可点标志）显示 |
+| 接口鉴权 | 两个新 Tab 的接口对公司端一律拒绝；Play candidate 的写接口只接受 PGM / SA。不靠前端隐藏（本方案，同 9.3.6）。本租户：两个新 Tab 的接口传 `organizationId` 并做授权校验（参照 `ErlAccessServiceImpl.java:88-100`），前端按组织树首叶取（web `src/pages/askGoldie/components/orgScope.ts` 的 `firstLeafOrgId`） |
 
 现状：`/askGoldie`、`/knowledgeBase`、`/memorySettings` 三个路由登录即可访问（web `config/routes.ts:193-212`）；知识库页与 Memory 页都是同一组件按端分叉，管理端判定为 `roleType===1`，PM / PGM / SA 在前端不区分；`src/pages/askGoldie/` 下没有现成的 Tab 容器。
 
@@ -2262,7 +2270,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 
 #### 9.11.4 Cross company content
 
-> 需求《Goldie Base》：「该tab显示已经归类为cross company的内容」「每条内容附带会议名称及元数据，点击会议名称链接可跳转至该会议的Fireflies Summary Records页面，无该页面权限的角色（PM）不可点击名称」「有Play candidate 开关，管理员可以打开使其进入playbook内容」「支持模糊查询会议内容、名称。」「时间过滤器可根据已选择时间段过滤」
+> 需求《Goldie Base》（10-16 版）：「该tab显示已经归类为cross company的内容」「每条内容附带会议名称及元数据，点击会议名称链接可跳转至该会议的Fireflies Summary Records页面，无该页面权限的角色（PM）不可点击名称」「有Play candidate 开关，管理员可以打开使其进入playbook candidate内容」「支持模糊查询会议内容、名称。」「时间过滤器可根据已选择时间段过滤」
 
 | 项 | 口径 |
 |---|---|
@@ -2290,11 +2298,11 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 
 #### 9.11.5 Expert Testimony
 
-> 需求《Goldie Base》：「该tab显示已经归类为专家证词的内容」「每条内容附带会议名称及元数据，点击会议名称链接可跳转至该会议的Fireflies Summary Records页面，无该页面权限的角色（PM）不可点击名称」「每条专家证词带有说话人姓名和专家标签，PM账户不显示。」「有Add to playbook 开关，管理员可以打开使其进入playbook内容」（10-13 版本节仍写 Add to playbook，与 Cross company 一节的 Play candidate 不一致，按 Play candidate 统一，#60）「支持模糊查询会议内容、名称。」「时间过滤器可根据已选择时间段过滤」
+> 需求《Goldie Base》（10-16 版）：「该tab显示已经归类为专家证词的内容」「每条内容附带会议名称及元数据，点击会议名称链接可跳转至该会议的Fireflies Summary Records页面，无该页面权限的角色（PM）不可点击名称」「每条专家证词带有说话人姓名和专家标签」「有Play candidate 开关，管理员可以打开使其进入playbook candidate内容」「支持模糊查询会议内容、名称。」「时间过滤器可根据已选择时间段过滤」
 
 | 项 | 口径 |
 |---|---|
-| 列什么 | 本租户已授权、属当前生效版本的证词，**一条证词一行**——匿名版与署名版正文相同、只差程序附加的首行（3.4），不分两行 |
+| 列什么 | 本租户已授权、**已投影**、属当前生效版本的证词（会议处于待确认专家时不列），**一条证词一行**——匿名版与署名版正文相同、只差程序附加的首行（3.4），不分两行 |
 | 两版的授权 | 矩阵里两版各占一行、各有一个 Authorize（9.6.2），以哪一版的授权为准列出，开发设计定 |
 | 只读、谁能看 | 同 9.11.4：管理端 PM / PGM / SA，全租户；编辑在矩阵，改一版另一版同步（9.6.2） |
 | 搜索、时间过滤、排序与分页 | 同 9.11.4，内容一侧匹配证词正文 |
@@ -2305,55 +2313,38 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 字段 | 内容 | 谁看得到 |
 |---|---|---|
 | 证词正文 | 证词内容，**不含程序附加的来源行**（署名版的 `Source: …`、匿名版的 `Expertise: …`） | PM、PGM / SA |
-| 证词类别 | `category`：LP 为 Fundraising / Market / Multiples，Partner 为五类，创始人为其专长标签名（6.8（P5））。它描述的是**证词主题**，不是说话人的标签，对 PM 照常显示——需求「PM 不显示」针对说话人姓名与其专家标签（本方案，待确认，第十章 #44） | PM、PGM / SA |
-| 说话人姓名 | 与署名版来源行的姓名同源 | **仅 PGM / SA** |
-| 组织、角色 | 说话人的组织与角色，与署名版来源行同源 | **仅 PGM / SA** |
-| 专长标签 | 会议当日生效的专长标签；当日没有的留空 | **仅 PGM / SA** |
+| 证词类别 | `category`：LP 为 Fundraising / Market / Multiples，Partner 为五类，创始人为其专长标签名（6.8（P5））；描述的是证词主题，不是说话人的标签 | PM、PGM / SA |
+| 说话人姓名 | 与署名版来源行的姓名同源 | PM、PGM / SA |
+| 组织、角色 | 说话人的组织与角色，与署名版来源行同源 | PM、PGM / SA |
+| 专长标签 | 会议当日生效的专长标签；当日没有的显示「—」 | PM、PGM / SA |
 | 会议名称、会议元数据 | 同 9.11.4：PGM / SA 可点进 Summary Records 详情（9.5），PM 为不可点的文字 | PM、PGM / SA |
 | Play candidate | 开关（9.11.6） | PM 只看状态；PGM / SA 可改 |
 
-- **PM 隐去说话人信息**：姓名、组织、角色与专长标签都不显示（需求「PM账户不显示」），接口对 PM 不返回（9.11.1）。PGM / SA 四项都显示：《Goldie Base》只写姓名与专家标签，《会议内容提取规则》证词权限要求「管理端可查看完整来源信息（提供者及其角色/组织）」，按后者补组织与角色（本方案）；两份需求在 PM 上的冲突见第十章 #44
-- **与 Goldie 口径不一致**：设计定的是 PM 经 Goldie 召回**署名版**（2.2 / 3.2 / 5.3；9.6.2「各角色在哪看到」；第十章 #7 ②），首行带组织、角色与姓名；本 Tab 却对 PM 隐去说话人姓名、组织、角色与标签，连匿名版首行的「专长领域」都不给。本方案按需求实现本 Tab，Goldie 侧暂不动，请需求方确认 PM 在 Goldie 里是否也改看匿名版（待确认，第十章 #44）
-- 会议名称可能带有对方机构或人名，PM 仍可能据此认出说话人；需求要求同时显示会议名称，按需求实现，风险与备选见第十章 #48
+- **说话人信息对管理端全显示**：PM / PGM / SA 都显示姓名、组织、角色与专长标签——《Goldie Base》10-16 版删去了「PM 账户不显示」；它只写姓名与专家标签，《会议内容提取规则》证词权限要求「管理端可查看完整来源信息（提供者及其角色/组织）」，按后者补组织与角色（本方案）。与 PM 在 Goldie 召回署名版一致（第十章 #44 关闭）
+- 会议名称可能带有对方机构或人名，PM 可据此获知非管辖公司 / LP 会议的存在；需求要求同时显示会议名称，按需求实现，风险与备选见第十章 #48
 
 #### 9.11.6 Play candidate
 
-> 需求《Goldie Base》10-13 版：Cross Company Content 一节写「有Play candidate 开关，管理员可以打开使其进入playbook内容」，Expert Testimony 一节仍写「有Add to playbook 开关」。两者含义相同，本方案统一用 Play candidate（中间表字段 `in_playbook`、审计事件 `PLAYBOOK_TOGGLE` 沿用），请需求方统一措辞（第十章 #60）
+> 需求《Goldie Base》10-16 版（Cross Company Content、Expert Testimony 两节同文）：「有Play candidate 开关，管理员可以打开使其进入playbook candidate内容」
 
 | 项 | 口径 |
 |---|---|
-| 含义 | 打开 → 该条内容在 Goldie 的 **Playbook 召回**里也能被找到；关闭 → 不再出现在 Playbook 召回里。不影响它在原空间的正常召回，不改内容、不改授权 |
-| 前提 | 只有用户在 Goldie 聊天中打开本轮的 Playbook 开关时才会召回。现状：`use_playbook` 默认关，关时不绑定 `search_playbooks` 工具（`ai/agent/chatbot_graph/nodes/retrieval_agent.py` 的 `_tools_for_turn`，`:324-347`，关键在 `:343-344`），开关在 web `src/pages/devSupport/chat/components/InputBox.tsx:486-510` |
-| 做法 | 给条目**打标记**，Playbook 召回时多走一路；**不把内容复制进 playbook**（理由见下） |
-| 存储 | 中间表行上的 `in_playbook`，默认关。前提：跨公司与证词在中间表须**逐条一行**（第十章 #38 须按此定），否则同一行下的多条内容只能共用一个开关。一条证词对应两版两行而开关只有一个，标记落在哪一行开发设计定（召回只用匿名版） |
-| 召回第二路 | **只放在工具层**：`search_playbooks` 工具在手册命中之外，对本组织已授权、`in_playbook = true` 的跨公司条目与证词匿名版条目调 `search_service.recall(space_ids=..., file_ids=..., empty_scope_ok=True)`（`rag/application/service/search_service.py:289-307`，`file_ids` 过滤 `:402-407`；文件 id 取自中间表，1.2）。不放进 `playbook_service.search`：它在库未发布 / 无 ACTIVE 版本 / 无命中 / 低置信时提前返回（`rag/application/service/playbook_service.py:1557-1600`），合并会被吞掉，且会让 rag 依赖 Fireflies 模块。本组织**没有打标条目时直接跳过第二路**——空 `file_ids` 会回退为不过滤、召回整个空间（`:404-407`），空作用域会抛 400（`:391-399`）或 401（`:231-235`） |
-| 合并 | 第二路命中放进 `PlaybookSearchResult`（`rag/application/dto/playbook_dto.py:55-77`，现有 `playbooks / coverage / note` 等）的**新增独立字段**，不混进 `playbooks`；`coverage` 只描述手册那一路——否则手册低置信（`coverage="low"`）时提示词会让模型说「方法论库没有这个主题」（`ai/prompts/chatbot/search_playbooks_prompt.py:64-66`），与第二路有命中矛盾。出参契约变了，提示词升版本号 |
-| 去重 | 第二路对管理端也返回匿名版，知识库那路对管理端返回署名版；公司端知识库那路本就召回跨公司与证词-匿名空间（第八章 #7 / #8）——同一条会以两种来源标注各出现一次。同一轮里，第二路命中与知识库检索命中**同一中间表行**的，丢弃第二路那条；去重键 = 中间表行，证词两版映射到同一行（本方案）；具体落点开发设计定 |
-| 圈定 | 第二路**按调用者的组织圈定**；手册那一路仍全平台一份，不受影响。公司端用户的组织 id 依赖第八章 #14 补齐 |
-| 证词只放匿名版 | Playbook 召回公司端也可用，署名版放进去会把姓名漏到公司端；第二路只取证词-匿名空间（`EXPERT_TESTIMONY` 的 APP 空间，1.1） |
-| 可见范围 | 跨公司内容与证词匿名版本就经知识库召回对本租户可见（1.1），第二路不扩大谁能看到什么；但 Playbook 原本全平台共享，接入会议内容后多出一路按组织圈定的内容（待确认，第十章 #45） |
-| 提示词 | 第二路命中在工具输出里另标来源，提示词写明它是「本机构会议沉淀的经验（已匿名）」——不能说成第三方方法论，也不能说成「贵公司资料」。要改的不止工具提示词，现状：① 工具提示词把 playbook 定性为「第三方通用方法论」、不得说成「贵公司资料」（`ai/prompts/chatbot/search_playbooks_prompt.py:18-19,71-73`）；② 主提示词的 `_PLAYBOOK_RULES` 同样定性为「第三方通用方法论、全平台同一份」（`ai/prompts/chatbot/retrieval_agent_prompt.py:304-318`）；③ 工具说明【何时用】（`search_playbooks_prompt.py:25-35`）只覆盖「怎么做」类问题，问市场趋势、估值倍数时不会触发，要补触发场景。出参契约变了，升版本号（见「合并」） |
-| 召回口径 | 手册一路的 0.50 覆盖阈值与 rerank 按手册的 profile / 问法分段校准，第二路单独定阈值与条数，实施期调 |
-| 谁能开关 | PGM / SA——「管理员」按本文档惯例指 PGM / SA（9.1），与矩阵编辑同一批人；PM 看得到开关状态、不能改（待确认，第十章 #45） |
-| 生效 | 开关只改中间表的标记，召回时实时读，立即生效；关闭不删向量 |
-| 审计 | 新增事件 `PLAYBOOK_TOGGLE`：操作人、目标中间表行 id、开 / 关，并入 9.10.2 |
-
-**为什么打标记而不复制**。现状：playbook 是 RAG 的第三种处理类型 `process_type='PLAYBOOK'`，全平台一份、不按租户 / 组织 / 公司区分（`rag/domain/process_type.py:111-126`；唯一索引 `uq_ai_rag_space_single_playbook`）。
-
-1. playbook 是按源站 HTML 整版重建的版本快照（crawl HTML → ingest → DRAFT → activate，`rag/application/service/playbook_service.py:396-858`），复制进去的内容下次 ingest 会被冲掉
-2. 只能改 DRAFT、改完要重新发布，开关做不到即时生效
-3. 没有新增单个节点的接口
-
-`search_playbooks` 现明确不按公司 / 端过滤、不按调用者圈定范围（`ai/tools/search_playbooks_tool.py:7-10`）；第二路按组织圈定是这条约定的例外，改动时同步该说明，以及 `ai/CLAUDE.md:127` 的「进程内直调」清单。
+| 含义 | 打开 → 该条标为 **playbook 候选**；**只是标记**：不进 Goldie 的 Playbook 召回，不影响它在原空间的正常召回，不改内容、不改授权（用户决定 2026-10-16） |
+| 用途 | 供日后把会议沉淀整理进 Playbook 手册时挑选；候选怎么进手册不在本期（第十章 #62） |
+| 存储 | 中间表行上的 `in_playbook`，默认关。前提：跨公司与证词在中间表须**逐条一行**（第十章 #38 须按此定），否则同一行下的多条内容只能共用一个开关；一条证词对应两版两行而开关只有一个，标记落在哪一行开发设计定 |
+| 谁能开关 | PGM / SA——「管理员」按本文档惯例指 PGM / SA（9.1），与矩阵编辑同一批人；PM 看得到开关状态、不能改（第十章 #45） |
+| 生效 | 开关只改中间表的标记，立即生效，不经 `Confirm & Apply Routing` |
+| 审计 | 事件 `PLAYBOOK_TOGGLE`：操作人、目标中间表行 id、开 / 关（9.10.2） |
 
 **随内容变化**
 
-| 情形 | 标记 | 召回 |
-|---|---|---|
-| 矩阵编辑后重投影（6.11） | 标记在中间表行上，跟着行走，不受影响 | 召回新条目 |
-| 取消授权 | 保留 | 条目软删，自然召不回；该行也从 Tab 消失 |
-| 再次授权 | 保留的标记恢复生效 | 召回重新投影的条目 |
-| 重新提取（9.9）产生新行 | 新行**重置为关** | 要管理员重新打开——同 9.9.5「内容换了就要重审」 |
+| 情形 | 标记 |
+|---|---|
+| 矩阵编辑后重投影（6.11） | 标记在中间表行上，跟着行走，不受影响 |
+| 取消授权 | 保留；该行从 Tab 消失，再次授权后恢复 |
+| 重新提取（9.9）产生新行 | 新行**重置为关**，要管理员重新打开——同 9.9.5「内容换了就要重审」 |
+
+> 原设计「打开即进入 Goldie 的 Playbook 召回」（`search_playbooks` 工具层多一路、按组织圈定、证词只放匿名版、去重与提示词改造）随需求 10-16「进入 playbook candidate 内容」取消（用户决定 2026-10-16）。Playbook 召回保持现状：全平台一份手册。
 
 ---
 
@@ -2382,7 +2373,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 《Fireflies Summary Records-需求文档》（10-13） | ✅ 状态 Passed / Pending、Start Extraction、Portfolio 标记、专家推测确认、保存时重跑清洗（9.4 ~ 9.6）；10-13 版：必填项（9.5.1）、类型下拉改为四类 + Unknown（#1 关闭）、Company / Portfolio 下拉只列有权限的（9.5.3、9.5.4）、专家推测按邮箱 + 标签确认 / 拒绝（9.5.6） |
 | 《Fireflies Raw Data-需求文档》 | ✅ 落入 9.3；权限按需求：PGM / Super Admin 可见全部，创始人只看本人参加的会议（9.3.6） |
 | 《Fireflies Configuration-需求文档》 | ✅ 落入 9.2；只做 API Key，MCP / OAuth 仅存调研结论 |
-| 《Goldie Base 需求文档》（10-13） | ✅ 落入 9.11（10-13 版：Cross company content 一节改名 Play candidate，Expert Testimony 一节未改，按 Play candidate 统一，#60；Source 列的 Goldie 指来自 Chat 的文件）：4 个 Tab、Knowledge Base 的 Source 列、Memory 的 Fireflies 标签、两个新 Tab 的搜索与时间过滤、Play candidate。PM 可见跨公司内容等口径变化与解读见 10.2 H 组（#41~#48） |
+| 《Goldie Base 需求文档》（10-16） | ✅ 落入 9.11（10-16 版：两个 Tab 的开关都叫 Play candidate，打开后进入「playbook candidate」——只作候选标记、不进 Playbook 召回，#62；Expert Testimony Tab 删去「PM 账户不显示」，#44 关闭；Source 列的 Goldie 指来自 Chat 的文件）：4 个 Tab、Knowledge Base 的 Source 列、Memory 的 Fireflies 标签、两个新 Tab 的搜索与时间过滤、Play candidate。PM 可见跨公司内容等口径变化与解读见 10.2 H 组（#41~#48） |
 | 《Fireflies会议提取规则与权限总表》（09-30，用户维护） | 已删除（2026-10-10，用户：梳理有误）；原从中沿用的规则已改挂需求或标本方案 |
 | 《创始人与管理端问答总结》（09-22） | 仅作历史参考 |
 | ~~《Fireflies_Integration过期》~~ | 已于 09-30 删除。原以它为出处的机密性规则改挂现行需求（1.7） |
@@ -2404,7 +2395,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 
 | # | 事项 | 当前处理 |
 |---|---|---|
-| 7 | 两处不一致：① 总表 GS 内部 1b 写了"PM、Company Admin 可见"，Company Admin 属公司端 ② 总表 LP 证词写 PM 看匿名版，Partner 证词写 PM 看署名版 | **已关闭**：总表已于 2026-10-10 删除。现行口径：① 1b 仅管理端 ② PM 看署名版（需求证词表"管理端可查看完整来源信息"）。原第③点（跨公司内容是否到达创始人）**已确认（2026-10-10）**：本租户所有人都能经 Goldie 召回，管理端页面上只有 PGM / Super Admin 能查看——《Goldie Base》让 PM 也能在 Cross company content Tab 只读查看，见 #43。另：Goldie Base 证词 Tab 对 PM 隐去姓名与标签，与 Goldie 侧 PM 看署名版（②）不一致，见 #44 |
+| 7 | 两处不一致：① 总表 GS 内部 1b 写了"PM、Company Admin 可见"，Company Admin 属公司端 ② 总表 LP 证词写 PM 看匿名版，Partner 证词写 PM 看署名版 | **已关闭**：总表已于 2026-10-10 删除。现行口径：① 1b 仅管理端 ② PM 看署名版（需求证词表"管理端可查看完整来源信息"）。原第③点（跨公司内容是否到达创始人）**已确认（2026-10-10）**：本租户所有人都能经 Goldie 召回，管理端页面上只有 PGM / Super Admin 能查看——《Goldie Base》让 PM 也能在 Cross company content Tab 只读查看，见 #43。另：Goldie Base 证词 Tab 对 PM 也显示说话人与专长标签，与 ② 一致（#44 已关闭） |
 | 8 | 创始人查看原始转录的入口：需求允许创始人看本人参加的会议，但 Raw Data 是管理端页面 | 入口未定；"本人参加"按账号邮箱 ∈ `participants` 判定，不认姓名匹配（9.3.6） |
 | 9 | PM 没有 Raw Data 权限，但 Portfolio KB 里的原始转录链接指向 Raw Data | 是否给 PM 开放相关会议的原文，请确认；若放开，Knowledge Base Tab 的 Source 列对 PM 随之可点（#47） |
 | 10 | Cross company 内容页：需求写"查看所有内容" | 需求 10-09 删除了单独页面，《Goldie Base》又以 Tab 形式恢复：管理端 PM / PGM / SA 只读查看审核放行后的内容，审核与编辑仍只在 Content Routing Matrix（9.11.4、9.6）；只列已放行内容见 #42，PM 可见见 #43 |
@@ -2417,7 +2408,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 |---|---|---|
 | 13 | "被标记为专家"的判定口径：需求没有专门字段 | 该人在 Cheat Sheet 中按会议日期生效的版本带至少一个专长标签（1.11）。另需求写"Cheat Sheet 的 Founder 指未使用 LG 平台的创始人"，而身为 LG 用户的专家创始人也要能登记：确认 LG 用户为专家时会建 Role = Founder 的条目，其参会人胶囊也例外地可弹确认框（9.5.6） |
 | 14 | 2.5 只对创始人开放：董事会并入 GS → 创始人后，同场其他已在册专家（外部董事、LP、Other）不产出证词 | 按需求原文只对创始人产出（2.5） |
-| 15 | 专家推测被同意后不回溯本场：原需管理员点 Start Extraction 才能补出本场证词，而重新提取会覆盖人工编辑（9.9.4）。写入 Cheat Sheet 的有效期 From 若取同意日，按会议日期回溯不到本场 | 不回溯（9.5.6）；From 默认带该场会议日期。GS → 创始人会上被推测为专家的创始人，本场已按建议标签抽过证词、默认不授权，管理员勾选并应用即放行，不必重新提取（2.5，用户决定 2026-10-14） |
+| 15 | 专家推测被同意后不回溯本场：原需管理员点 Start Extraction 才能补出本场证词，而重新提取会覆盖人工编辑（9.9.4）。写入 Cheat Sheet 的有效期 From 若取同意日，按会议日期回溯不到本场 | 不回溯（9.5.6）；From 默认带该场会议日期。GS → 创始人会上被推测为专家的创始人，本场已按建议标签抽过证词，标签通过即自动勾选、驳回即作废，不必重新提取（2.5，用户决定 2026-10-16） |
 | 16 | 匿名版证词首行只写专长、不写角色：需求证词表把"角色 / 组织"列为来源信息、不向 Founder 展示 | **已确认（2026-10-10）**：匿名版首行 `Expertise: <expertise tag>`（用户决定 2026-10-10改为英文），当日无专长标签时不附（3.4） |
 | 17 | GS → Partner 证词的保密过滤：需求 (4) 只对 LP 证词要求；旧设计曾比照 LP 加上 | **已确认（2026-10-10）**：加上，作为本方案加严（5.6、5.7、6.8（P5））。创始人证词同样加上（2.5、6.8（P5）） |
 | 18 | "剥掉其他被投公司标识"本方案只用在 GS → LP 的 1b：GS 内部、Partner 的公司层 1b 是否同样适用（PM 只看负责的公司，理由相同） | 目前只在 LP 基金层执行（1.4 注¹、6.7（P4）），进行中的交易照常写公司名（#57）；LP 原有的公司层已取消（#49），GS 内部、Partner 的公司层 1b 不剥 |
@@ -2471,8 +2462,8 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 41 | 两个新 Tab（Cross company content、Expert Testimony）是否只在管理端：需求只提到 PM 与管理员，未提创始人 | 只在管理端（PM / PGM / SA）；公司端 Goldie Base 只有 Knowledge Base 与 Memory Settings 两个 Tab，Memory Settings 仍只给 Company Admin。创始人照旧经 Goldie 召回跨公司内容与匿名证词（9.11.1） |
 | 42 | Cross company content Tab 列哪些：需求写"已经归类为 cross company 的内容"，未说待审核、被拒的列不列 | 只列已审核放行（已授权、已投影）的内容；本 Tab 只读（Play candidate 除外），审核与编辑仍只在 Content Routing Matrix（9.11.4、9.6） |
 | 43 | PM 能在 Cross company content Tab 看到跨公司内容（需求写 PM 只是会议名不可点），取代 2026-10-10「管理端页面上只有 PGM / Super Admin 能查看」的用户决定 | 按《Goldie Base》实现：PM / PGM / SA 全租户只读；编辑入口仍只有矩阵一处，这部分不变（9.1、9.11.4） |
-| 44 | PM 在 Expert Testimony Tab 看不到说话人与专长标签（需求「PM 账户不显示」），而 Goldie 里 PM 召回的是署名版（#7 ②）——本 Tab 连匿名版首行的「专长领域」都不给 PM | 本 Tab 按需求实现：PGM / SA 显示说话人姓名、组织、角色与专长标签，PM 都不显示；Goldie 侧暂不动；请确认 PM 在 Goldie 里是否也改看匿名版（9.11.5）。本质是两份需求的冲突：《Goldie Base》「PM 账户不显示」对《会议内容提取规则》证词权限「管理端可查看完整来源信息（提供者及其角色/组织）」。另：证词类别（`category`）描述的是证词主题、不是说话人的标签，对 PM 照常显示——需求「PM 不显示」针对的是说话人姓名与其专家标签；但创始人证词的类别取其专长标签名（6.8），Partner 五类与初始 5 个标签同名（5.6），是否等于向 PM 露了专长标签，一并确认 |
-| 45 | Play candidate 的可见范围与权限：① Playbook 原本全平台共享一份，会议内容按组织圈定 ② 谁能开关 ③ 须用户在 Goldie 打开本轮 Playbook 开关才召回得到 | ① 不把内容复制进 playbook，给中间表行打 `in_playbook` 标记，Playbook 召回时多走一路、按调用者组织圈定（手册那一路仍全局）；证词只放匿名版 ② PGM / SA 可开关，PM 只看状态 ③ 沿用现有 Playbook 开关，不另设入口（9.11.6） |
+| 44 | PM 在 Expert Testimony Tab 看不到说话人与专长标签（需求「PM 账户不显示」），而 Goldie 里 PM 召回的是署名版（#7 ②） | **已关闭**：《Goldie Base》10-16 版删去「PM 账户不显示」，PM 在本 Tab 也显示说话人姓名、组织、角色与专长标签，与 Goldie 侧署名版一致（9.11.5） |
+| 45 | Play candidate 的可见范围与权限：① Playbook 原本全平台共享一份，会议内容按组织圈定 ② 谁能开关 ③ 须用户在 Goldie 打开本轮 Playbook 开关才召回得到 | **已调整（用户决定 2026-10-16）**：Play candidate 只作候选标记、不进 Playbook 召回，①③ 不再适用；② PGM / SA 可开关，PM 只看状态（9.11.6） |
 | 46 | Memory 新标签：需求「添加了一个新标签，Fireflies Memory, Meeting Summary」 | 按读法 A 实现：来源标签 `Fireflies Memory` + 内容类型标签 `Meeting Summary`（替换「Document Summary」），层标签照旧；不新增记忆层、不改筛选（9.11.3）。另一读法 B：`Fireflies Memory` 占层标签位置（替换 Company / Portfolio Memory）、`Meeting Summary` 占内容类型位置——与现有徽标两段结构对应（`MemoryMetaRow.tsx:22-38`） |
 | 47 | Knowledge Base 的 Source 列点 `Fireflies` 跳 Raw Data：公司端 Raw Data 入口本身未决（9.3.6、#8） | 仅对有该会议 Raw Data 权限的查看者可点：PGM / SA 全部；创始人本人参加过的会议暂按"有权限即可点"预留；PM 与未参会的公司端用户显示为纯文字（9.11.2）；若 #9 放开 PM 看 Raw Data，PM 随之可点 |
 | 48 | PM 在两个新 Tab 看到全租户会议的名称与元数据（日期、类型）：会议标题常带公司名 / LP 名，而 PM 按 3.3 只看可访问公司、按 9.3.6 / 9.4 看不到 Raw Data 与 Summary Records 列表；会抵消 3.5 对 GS → LP「剥离 LP 身份」，也暴露非管辖公司的 Partner / 退出会的存在 | 按需求实现：需求写「每条内容附带会议名称及元数据」「PM 不可点击名称」，即 PM 看得到名称、只是不可点。备选：① PM 只看可访问公司相关会议的名称，其余显示 `—`；② PM 只显示会议日期与类型（9.11.4 / 9.11.5） |
@@ -2502,7 +2493,17 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 57 | GS → LP 跨公司列 10-13 版写明「所有进行中的交易信息永不放出，只放1b」 | **用户决定 2026-10-14**：进行中的交易写进基金层 1b 的 `## Live Deals`，照常写出公司名（3.3、6.7）。代价：基金层对全体管理端可见，PM 会看到非管辖公司的在途交易；其余涉及具体被投公司的内容照旧不写（#49） |
 | 58 | 《Cheat Sheet》10-13 版「除 Area of expertise 之外，其他字段均为必填」，字面含专长标签；而「带专长标签 = 专家」（1.11），标签必填等于在册的人都是专家 | **用户决定 2026-10-14**：专长标签仍选填，其余字段必填（9.7.4）；请需求方确认 |
 | 59 | Email 必填后，只有出席记录姓名、没有邮箱的参会人（电话拨入、访客）登记不了 | **用户决定 2026-10-14**：参会人以有邮箱为前提——没有邮箱的人不录入 Cheat Sheet，P8 推断出身份也不采纳，保持 `Unidentified`、会议 `Pending`，管理员补上邮箱登记后才能继续（1.9、6.13、9.7.4）。拒绝名单因此总能按邮箱记录 |
-| 60 | 《Goldie Base》10-13 版只把 Cross company content 一节的开关改名为 Play candidate，Expert Testimony 一节仍写 Add to playbook | 两者含义相同，统一用 Play candidate（9.11.6）；请需求方统一措辞 |
+| 60 | 《Goldie Base》10-13 版只把 Cross company content 一节的开关改名为 Play candidate，Expert Testimony 一节仍写 Add to playbook | **已关闭**：《Goldie Base》10-16 版两节都写 Play candidate |
+
+**L. 2026-10-16 跟进《Goldie Base》10-16 版与专家确认门禁后新增**
+
+| # | 事项 | 当前处理 |
+|---|---|---|
+| 61 | 有新识别出的「可能为专家」标记时，会议能否放行 | **用户决定 2026-10-16**：有建议标签未通过或驳回时，会议停在 `Pending`（待确认专家），整场不放行、`Confirm & Apply Routing` 置灰；全部处理后才能应用（1.10、9.4.2、9.6.4、9.6.5）。标签处理完后一次 `Confirm & Apply Routing` 同时完成待审核内容的审核，会议转 `Passed`。代价：P7 的一个标记会拖住整场会议的全部内容（含创始人的会议摘要），没人处理就一直不进 Goldie；P7 最终失败时没有标记，会议不经这道闸直接放行。与《Summary Records》Status 定义不一致：需求的 Pending 只指「AI 无法判定会议类型和参会人员」，Scrub Status 映射规则只有「人员 Unidentified / 会议类型未判断成功 → Pending」；本方案的待确认专家与待审核（#24）都是扩展，请需求方更新 Status 定义 |
+| 62 | 《Goldie Base》10-16 版：Play candidate 打开后「进入 playbook candidate 内容」 | **用户决定 2026-10-16**：只作 playbook 候选标记，不进 Goldie 的 Playbook 召回；原「Playbook 召回第二路」改造取消（9.11.6，第八章 #21）。候选怎么整理进手册不在本期，待需求方给出流程 |
+| 63 | 同一人在多场会议里被标了同一个专长标签 | **用户决定 2026-10-16：每场单独处理**，不跨会议联动；打开确认框时若该（邮箱，标签）已入册或已被拒绝，自动消解并提示（9.5.6）。代价：同一人同时卡在多场会议时要逐场打开处理；处理过一场后，以后的新会议不再就该标签标他（6.10） |
+| 64 | 待确认专家的会议长期没人处理 | **用户决定 2026-10-16**：只靠列表红点（按原因计数）与筛选，不发站内信 / 邮件、不设超时（9.4）。风险：创始人自己的会议摘要会一直进不了 Goldie，管理员不看列表就不知道 |
+| 65 | P1 把真实会议误判为 `Invalid` 后没有补救入口 | **用户决定 2026-10-16：维持现状**，不加「标为有效」。风险：误判的会议永远不会被提取，只留原始转录（9.3.4） |
 
 **本次重写关闭的旧条目**：Partner 判定"角色 + 标签"（改为只看角色，5.1）；机密性规则的出处（改挂现行需求，1.7）；Expertise Tags 取值清单（固定 5 项，9.8）；仅凭 Cheat Sheet Founder 判定时的 Flagged 兜底（改为进 Pending，2.1）；`ADMIN_PORTFOLIO` 设想（改为机构层归属，#21）；Board Call 的 care flag（Board 已取消）；管理端知识库是否展示会议条目（需求已要求 Portfolio KB，1.1）；公司结构化记忆分类清单（用户已取消按记忆分类筛选）。原 10.3「与 2026-09-28 需求方答复的冲突」已全部被现行需求吸收，整节删除。
 
@@ -2523,7 +2524,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 7 | 客户端回答 | 含公司端召回 Fireflies 条目、Memory 页 / 知识库页纳入 `FIREFLIES` | M | 1.1、3.4、3.5、第八章 |
 | 8 | 管理端回答 | 含机构层条目召回与 Memory 页展示、Portfolio KB 基金标签（9.11.2） | M | 1.1、2.2 / 3.2 / 4.2 / 5.3、第八章 |
 | 9 | 回答质量与 AI 提取调优 | 上线后持续进行 | L | 第六章、3.4 批注 |
-| 10 | Goldie Base（4 个 Tab、Play candidate） | 原知识库页 / Memory 页挪进 Tab 容器（旧地址保留跳转），加 Source 列与 Fireflies 标签；Cross company content、Expert Testimony 两个只读列表（搜索 + 时间过滤）；Play candidate 的标记、开关与 Playbook 召回第二路 | M | 9.11 |
+| 10 | Goldie Base（4 个 Tab、Play candidate） | 原知识库页 / Memory 页挪进 Tab 容器（旧地址保留跳转），加 Source 列与 Fireflies 标签；Cross company content、Expert Testimony 两个只读列表（搜索 + 时间过滤）；Play candidate 的候选标记与开关 | M | 9.11 |
 
 **拉取链路计入第 1 项**：Configuration 除了授权，还含 GraphQL 增量拉取、分页、幂等 upsert、定时调度与手动 Sync（9.3.1）。第 3 项因此只剩列表与详情两个展示页。
 

@@ -421,7 +421,7 @@ GS → Partner：
 
 | 会议类型 | 可抽的发言人 | 证词类别 |
 |---|---|---|
-| GS → 创始人 | 会上被标记为专家、或被 P7 推测为专家的创始人本人 | 该创始人当日生效的专长标签，加上 P7 为他建议的标签（按建议标签抽的证词默认扣留，管理员勾选并应用即放行；之后拒绝该标签则作废） |
+| GS → 创始人 | 会上被标记为专家、或被 P7 推测为专家的创始人本人 | 该创始人当日生效的专长标签，加上 P7 为他建议的标签（按建议标签抽的证词随标签处理：通过即自动勾选、随整场应用放行，驳回即作废） |
 | GS → LP | 全部发言人 | fundraising / market / multiples（定义见下） |
 | GS → Partner | 全部发言人 | 五类（定义见下） |
 
@@ -703,7 +703,7 @@ GS → Partner 的证词类别：
 | P2 会议摘要整理 | `summary`（1a + 1b）：公司端——Goldie、Memory 页（仅 Company Admin）；PM——Goldie、Memory 页（限可访问公司）；PGM / SA——Goldie、Memory 页、会议管理页<br>`kb_doc`（Founder KB + Portfolio KB）：公司端——Goldie、知识库页；PM——Goldie、管理端知识库页（限可访问公司）；PGM / SA——Goldie、管理端知识库页、会议管理页 |
 | P3 公司层 1b 抽取 | 公司端看不到<br>PM——Goldie、Memory 页、管理端知识库页（限可访问公司）<br>PGM / SA——Goldie、Memory 页、管理端知识库页、会议管理页<br>GS → Partner 的 1b 与 Portfolio KB 默认扣留：放行前只有 PGM / SA 在会议管理页看得到 |
 | P4 基金层 1b 抽取 | 公司端看不到<br>PM、PGM / SA——Goldie、Memory 页、管理端知识库页（全体管理端可见，不按公司限制；其中被投公司的进行中交易写出公司名，PM 也看得到非管辖公司的）；PGM / SA 另在会议管理页 |
-| P5 专家证词抽取 | 公司端——Goldie（匿名版）<br>PM——Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（不显示说话人与专长标签）<br>PGM / SA——Goldie（署名版）、Expert Testimony Tab、会议管理页（两版各一行）<br>打开 Play candidate 的条目，本组织用户在 Goldie 打开 Playbook 开关时也能召回（只用匿名版）<br>发言人身份来自 P8 推断、尚未入册的，以及创始人按 P7 建议标签抽的：默认扣留，放行前只有 PGM / SA 在会议管理页看得到 |
-| P6 跨公司抽取 | 审核放行前：只有 PGM / SA 在会议管理页看得到（审核与编辑的唯一入口）<br>审核放行后：公司端——Goldie；PM——Goldie、Goldie Base 的 Cross company content Tab（只读）；PGM / SA——Goldie、该 Tab、会议管理页<br>打开 Play candidate 的条目，本组织用户在 Goldie 打开 Playbook 开关时也能召回 |
-| P7 专家推测 | 不进 Goldie、不入知识库<br>PGM / SA 在会议管理页参会人标签上看到「可能为专家」及建议标签，点开可看主张与依据，逐个标签确认或拒绝 |
+| P5 专家证词抽取 | 公司端——Goldie（匿名版）<br>PM——Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（含说话人与专长标签）<br>PGM / SA——Goldie（署名版）、Expert Testimony Tab、会议管理页（两版各一行）<br>PGM / SA 可在 Tab 上打开 Play candidate，标为 playbook 候选（不进 Goldie 召回）<br>发言人身份来自 P8 推断、尚未入册的：默认扣留，放行前只有 PGM / SA 在会议管理页看得到；创始人按 P7 建议标签抽的：标签处理前只有 PGM / SA 在会议管理页看得到，通过即自动勾选、随整场应用放行，驳回即作废 |
+| P6 跨公司抽取 | 审核放行前：只有 PGM / SA 在会议管理页看得到（审核与编辑的唯一入口）<br>审核放行后：公司端——Goldie；PM——Goldie、Goldie Base 的 Cross company content Tab（只读）；PGM / SA——Goldie、该 Tab、会议管理页<br>PGM / SA 可在 Tab 上打开 Play candidate，标为 playbook 候选（不进 Goldie 召回） |
+| P7 专家推测 | 不进 Goldie、不入知识库<br>PGM / SA 在会议管理页参会人标签上看到「可能为专家」及建议标签，点开可看主张与依据，逐个标签确认或拒绝<br>有建议标签未处理时，整场会议不放行（Pending 待确认专家），所有内容都不进 Goldie |
 | P8 参会人推断 | 不进 Goldie、不入知识库<br>PGM / SA 在会议管理页参会人标签上看到推断出的身份，带 `AI inferred` 标记，悬停可看依据，点开可改；低置信的不采纳，参会人仍显示 Unidentified，推断值供登记弹框参考 |
