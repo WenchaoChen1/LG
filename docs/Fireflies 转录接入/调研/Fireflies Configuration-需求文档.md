@@ -1,9 +1,8 @@
 # Fireflies Configuration
 
-**说明：** 该页面是FF的配置页面，支持一种连接方法，API Key
+## Connection
 
-**Connection**
-
+**说明：** 该板块是FF的配置页面，支持一种连接方法，API Key
 - 显示连接状态：连接成功：绿点 "Connected"；未连接：灰点"Unconnected"；连接失败：红点"Failed"；断连："Disconnected"
 - 显示最近同步时间："Last sync — Jul 15, 2026 · 10:52 AM"
 - "Sync now" 按钮：手动触发同步
@@ -16,3 +15,7 @@
 **拉取**
 - 每日拉取数据
 
+
+## Email Domain
+- Email Domain,可添加多个，可编辑和删除
+- 作为该租户公司常用域名的记录，用于会议人员判断中公司内部人员的判断
