@@ -85,3 +85,7 @@
 - 每个版本保留**完整快照**：Name、Email(s)（可多个）、Role、Organization、Expertise tags、Area of expertise、有效期
 - 角色以蓝色标签展示，专长标签为灰色小标签
 - 按生效日期排序，可追溯每个人在每个时期的完整登记状态
+
+## Email Domain
+- Email Domain,可添加多个，可编辑和删除
+- 作为该租户公司常用域名的记录，用于会议人员判断中公司内部人员的判断
