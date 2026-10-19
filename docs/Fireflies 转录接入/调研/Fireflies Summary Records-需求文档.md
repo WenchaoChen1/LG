@@ -26,7 +26,8 @@
   - 映射规则: 人员 Unidentified/会议类型未判断成功→ Pending
 - AI Meeting Type：标签 + 下拉（GS → Founder、GS → LP、GS Internal、GS → Partner、Unknown），切换时标签实时更新；Unknown 灰色，其他蓝色
 - Company：展示已识别公司，可点 × 移除；可多选，可搜索下拉添加公司(仅可搜索该用户有权限的公司）
-- Portfolio（该账户下有权限的）：可多选，默认不选，非必选,管理员选择后激活下方Confirm按钮，仅为标记，不作为任何权限划分依据
+- Portfolio（该账户下有权限的）：可多选，默认不选，非必选,管理员选择后激活下方Confirm按钮，仅为标记，不作为任何权限划分依据；
+    - 针对GS-Founder的会议，默认实时获取这个公司关联的portfolio，但是这个字段仅是显示，不可手动更改，没有任何其他业务逻辑，也不会根据这个字段去决定任何访问权限
 - Participants：姓名标签，各角色不同颜色；未识别身份者（Unidentified）带红点，点击弹出 "Assign New External Party" 弹框（Name、Email、Organization、Role、Expertise Tags、Validity period）；其他LG外部人员点击也打开弹框，已识别者 Name 只读,可编辑，保存后回流到cheat sheet。LG平台内部人员点击无弹框
 - 外部参与者（非已标记为专家）在证词类别中提出实质性主张。姓名标签显示可能为专家，管理员点击姓名，弹出详细信息弹框，可同意或拒绝，同意则储存到cheat sheet。如果是专家的话,应该还携带Al推测的专家标签Expertise tags (Cheat Sheet库里面的标签。
 同意和拒绝是针对这个人的邮箱+标签Expertise tags
