@@ -716,7 +716,7 @@ GS → Partner 的证词类别：
 |---|---|
 | P1 识别前置 | 不进 Goldie、不入知识库<br>`quality`：PGM / SA 在 Raw Data 页看到 `Invalid` 标签<br>`company_mentions`：PGM / SA 在会议管理页的 Company 字段看到识别结果；低置信的留在识别记录里，可手动补 |
 | P2 会议摘要整理 | `summary`（1a + 1b）：公司端——Goldie、Memory 页（仅 Company Admin）；PM——Goldie、Memory 页（限可访问公司）；PGM / SA——Goldie、Memory 页、会议管理页<br>`kb_doc`（Founder KB + Portfolio KB）：公司端——Goldie、知识库页；PM——Goldie、管理端知识库页（限可访问公司）；PGM / SA——Goldie、管理端知识库页、会议管理页 |
-| P3 公司层 1b 抽取 | 公司端看不到<br>PM——Goldie、Memory 页、管理端知识库页（限可访问公司）<br>PGM / SA——Goldie、Memory 页、管理端知识库页、会议管理页<br>GS → Partner 的 1b 与 Portfolio KB 默认扣留：放行前只有 PGM / SA 在会议管理页看得到 |
+| P3 公司层 1b 抽取 | 公司端看不到<br>PM——Goldie、Memory 页、管理端知识库页（限可访问公司）<br>PGM / SA——Goldie、Memory 页、管理端知识库页、会议管理页 |
 | P4 基金层 1b 抽取 | 公司端看不到<br>PM、PGM / SA——Goldie、Memory 页、管理端知识库页（全体管理端可见，不按公司限制；其中被投公司的进行中交易写出公司名，PM 也看得到非管辖公司的）；PGM / SA 另在会议管理页 |
 | P5 专家证词抽取 | 公司端——Goldie（匿名版）<br>PM——Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（含说话人与专长标签）<br>PGM / SA——Goldie（署名版）、Expert Testimony Tab、会议管理页（两版各一行）<br>PGM / SA 可在 Tab 上打开 Play candidate，标为 playbook 候选（不进 Goldie 召回）<br>发言人经 P8 识别的（推断身份、对到名册或说话人映射）：默认扣留，放行前只有 PGM / SA 在会议管理页看得到；被推测为专家者：管理员确认后补抽，随整场应用放行 |
 | P6 跨公司抽取 | 审核放行前：只有 PGM / SA 在会议管理页看得到（审核与编辑的唯一入口）<br>审核放行后：公司端——Goldie；PM——Goldie、Goldie Base 的 Cross company content Tab（只读）；PGM / SA——Goldie、该 Tab、会议管理页<br>PGM / SA 可在 Tab 上打开 Play candidate，标为 playbook 候选（不进 Goldie 召回） |
