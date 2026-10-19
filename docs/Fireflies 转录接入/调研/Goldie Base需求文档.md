@@ -16,7 +16,7 @@
 
 - 原来的memory settings页面改为该页面的一个tab，原有业务要求不变
 - 添加了一个新标签，Fireflies Memory,Meeting Summary用来展示来自Fireflies的记忆。
-- 内容要求不变，1000字符以内的总结
+- 内容要求不变，1000字符以内（实际按不大于150词算）的总结
 - 如果不关联公司，则显示“—”
 
 ## Cross Company Content
