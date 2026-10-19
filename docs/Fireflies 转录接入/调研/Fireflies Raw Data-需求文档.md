@@ -17,6 +17,11 @@ Fireflies Raw Data
   - 会议元数据：Date、Time、Duration、Participants
   - 完整逐字转录（Full Transcript）
 
+**Search bar**
+
+- 支持模糊查询
+- 支持搜索Meeting ID, title和Participant
+
 **数据接入**
 
 - 按天定时拉取
