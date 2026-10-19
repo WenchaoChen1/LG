@@ -357,7 +357,7 @@ src/pages/financial/aiFinancialExtraction/components/
 
 **只读横幅直达按钮组（2026-07-28 终版）**：只读 mapping 页横幅（`Read-only view · Task {id}`）右侧两个**黄色按钮**（页面主按钮同款配色 `#F59F0A`/hover `#e3910d`，`gap: 24px`）：
 - `View conflicts` ⇄ `View data mapping` → §6.5 内嵌视图切换（组件切换，非路由跳转）
-- `Open Agent Trace` → 点击时经 `fetchTraceList({ taskId, limit: 1 })` 查该任务**最新一条** trace（`ai_trace.task_id` 软关联，后端 `ORDER BY started_at DESC`），直跳 `/devSupport/llm/agent-trace?traceId=`；查不到 trace 给 `message.info` 轻提示不跳、查询失败 `message.error`。初版跳 Trace Explorer 列表（`/devSupport/tracing?taskId=`），**已按用户指示改为直跳 agent-trace**——代价是多条 trace（重试）时只达最新一条，旧执行仍可从 Trace Explorer 手动按 taskId 筛。后端零改动（task_id 列/索引/接口筛选全现成）。
+- `Open Agent Trace` → 点击时经 `fetchTraceList({ taskId, name: 'financial_extract', limit: 20 })` 查该任务的**提取链路**（`ai_trace.task_id` 软关联，后端 `ORDER BY started_at DESC`）：只有一条直跳 `/devSupport/llm/agent-trace?traceId=`；多条（同一任务分批加文件，每批各解析一次、各一条 trace）在按钮下弹下拉逐次列出（开始时间 · 状态 · 耗时），点哪次进哪次；查不到给 `message.info` 轻提示不跳、查询失败 `message.error`。**必须限定 `name`**：提交后的学习链路 `training_feedback` 挂同一 task_id 且更晚，2026-10-19 前取「最新一条」会跳进这条没有调用的链路。初版跳 Trace Explorer 列表（`/devSupport/tracing?taskId=`），已按用户指示改为直跳 agent-trace。后端零改动（task_id / name 筛选全现成）。
 - 展示形态：**平铺表格**（每行一条冲突记录），不复刻 ConflictPanel 的指标×月份矩阵——那是为逐格解决冲突设计的交互 UI，排查场景平铺 + 排序更直接（YAGNI）
 - 列：Metric（lgCategory）、Period（`{year}-{month}` 补零）、Mapped Value（`mappedOriginalValue` + `mappedCurrency`；Tooltip 显示换算值 `mappedValue`、基准币种 `existingCurrency` 与 `exchangeRate`）、Existing (LG) Value（`existingValue` + `existingCurrency`）、Resolution（Tag：`PENDING` 橙 / `OVERWRITE` 蓝 / `SKIP` 灰 / 脏值灰）、Note（截断 + Tooltip 全文）、Resolved By（截断 id + Tooltip）、Resolved At、Created At
 - resolution 本地筛选下拉（前端过滤，数据量小不走服务端）+ 本地分页
