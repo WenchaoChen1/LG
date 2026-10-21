@@ -10,7 +10,7 @@
 > - Python 规范：[../../../CIOaas-python/standards/architecture.md](../../../CIOaas-python/standards/architecture.md) · [../../../CIOaas-python/standards/coding.md](../../../CIOaas-python/standards/coding.md)
 > - 前端规范：[../../../CIOaas-web/standards/architecture.md](../../../CIOaas-web/standards/architecture.md) · [../../../CIOaas-web/standards/coding.md](../../../CIOaas-web/standards/coding.md)
 >
-> 阶段：④ 设计 | 版本：**v4.82** | 日期：2026-10-15 | 范围：ERL Card（含 Gap 区块）/ 维度详情 / 全维 Score Details（**双端可达**）/ 双端填报（**Yes/No 逐级解锁 + 维度级提交**）/ 题库配置（**`Question Library` / `Dimension Configuration` 两个顶层 Tab + 题库版本历史页**）/ 基准 / Goldie 差距分析（**已回归 V1，含 Share**）/ 组合层 ERL Tab
+> 阶段：④ 设计 | 版本：**v4.83** | 日期：2026-10-21 | 范围：ERL Card（含 Gap 区块）/ 维度详情 / 全维 Score Details（**双端可达**）/ 双端填报（**Yes/No 逐级解锁 + 维度级提交**）/ 题库配置（**`Question Library` / `Dimension Configuration` 两个顶层 Tab + 题库版本历史页**）/ 基准 / Goldie 差距分析（**已回归 V1，含 Share**）/ 组合层 ERL Tab
 
 # Exit Readiness（ERL）设计文档 V1
 
@@ -108,7 +108,8 @@
 | v4.79 | **2026-10-13** | **实现一致性回写 + 待确认事项迁入**（前端台账清理时发现文档落后于实现；只改文档，代码零变更） | **① 回写 2026-09-07 ~ 09-24 已实现、文档未跟的口径**：C6 `Save` 不弹确认框；删除 / 停用改版（只有垃圾桶弹 `Modal.confirm`、电源按钮直接生效、tooltip 撤为原生 `title`）与停用行只放 `Name (ABBR)` + `INACTIVE` + `Activate`；C3 删题新文案；C1 维度 Tab 回跳定位；B 元信息栏，`Question set v{n}` 前端全部撤下；接口 28 无二次确认、连草稿行一起删（2026-09-24），找不到草稿幂等返回；ERL Card 撤整卡空态（2026-09-14）；0 分 Era 显示 `—`（2026-09-17）；题集不一致三处改版（2026-09-19：`New version pending` + 面板级告警 + 弹框整条告警）；`Perception Gap: -`（2026-09-23）；A3 页头只剩 `{n} questions`（2026-09-15 / 09-23）；基准入口改名 `View Top GSV Quartile & External Benchmarks`；B3 列表按原型（无 `Current` 徽章 / `Fund` 列 / 次级标注，提交时间到日）；PRD §四 附件改为题级（M13 两处均已回写）；§9 只有 Founder 提交的管理端行改为行内空态；§0.31-Z4 注 PRD 已改。**② 实现期发现的 10 个产品问题迁入 §13 Q26 ~ Q35**（原记前端 `docs/待优化项.md`）。版本表 v4.26 / v4.42 / v4.54 等历史版本行按惯例不改；§0.10 / §0.21 / §0.30 中仍被当作现行口径引用的条目及 v4.27-⑧ 已就地加删除线订正 |
 | v4.80 | **2026-10-14** | **§13-Q31 关闭：确认提交追溯信息不再显示**（Java + Web，无 DDL） | **只删出参，不改界面**：接口 7 `records[]` 删 `fund` / `answeredCount` / `totalCount` / `terminatedLevel` / `isLatest` / `questionVersionNo`，服务端不再为它们查答案行、题目与版本表（B3 历史列表只剩一条主查询）；接口 2 / 8 / 22 共用的 `submission` 节点删 `questionVersionNo`（不再查版本表）。前端这些字段本就不渲染，两端无上线顺序约束 |
 | v4.81 | **2026-10-14** | **接口 15 删无消费方的 `latest` 段**（Java + Web，无 DDL） | **只删出参，不改界面**：`latest { period, dimensions[] }` 恒等于 `records[]` 首条（不多查库），D1 卡一自 v4.40 起按 URL 期次从 `records[]` 挑记录、不再读它；为免有人误把卡一接回「最近一次提交」口径，前后端一并删除。两端无上线顺序约束 |
-| **v4.82（本版）** | **2026-10-15** | **§13 新增 Q36：基准分要不要从录入到存储全链路改成整数**（只改文档，代码零变更） | 前端台账「D2 新增基准记录的『最多一位小数』是前端单方面加的校验」（2026-09-06）已过时 —— v4.34 / v4.39 起 D2 只收整数 —— 但它指出的「前端比后端严」仍在：接口 16 只校验 1–9 范围、不校验整数，绕过页面仍写得进 `7.5`（服务端按一位小数 HALF_UP 落库）。v4.34 已写明「要彻底改成整数需另行裁决」，本版把这句挂成 §13-Q36、删除前端台账条目，代码维持现状 |
+| v4.82 | **2026-10-15** | **§13 新增 Q36：基准分要不要从录入到存储全链路改成整数**（只改文档，代码零变更） | 前端台账「D2 新增基准记录的『最多一位小数』是前端单方面加的校验」（2026-09-06）已过时 —— v4.34 / v4.39 起 D2 只收整数 —— 但它指出的「前端比后端严」仍在：接口 16 只校验 1–9 范围、不校验整数，绕过页面仍写得进 `7.5`（服务端按一位小数 HALF_UP 落库）。v4.34 已写明「要彻底改成整数需另行裁决」，本版把这句挂成 §13-Q36、删除前端台账条目，代码维持现状 |
+| **v4.83（本版）** | **2026-10-21** | **`erl_assessment.fund` 快照列停写并删列**（Java + DDL，前端 / Python 零改动） | 2026-10-14 接口 7 删 `fund`（§13-Q31）后这一列无读方：提交时不再落快照（每次提交少一次 `companies()` 调用），实体删字段，Java `deploy/upgrade_doc/sprint121/V1__erl_assessment_drop_fund.sql` 删列（**sprint121 Java 发版后执行**，已存快照随列删除、不可恢复）。填报页元信息栏 `FUND` 一格（接口 3 出参 `fund`）本就按当下归属现算，不受影响。PRD §3.3「提交记录含基金/组合」的快照至此不再保留 —— 日后若要显示「提交当时的归属」，只能从恢复落值之后的提交开始有数据。同批：接口 3 的 `fund` 改为**仅 GSV 卷计算**（Founder 卷 2026-09-16 起不显示 `FUND`，此前仍照算、白查一次 `companies()`），Founder 卷恒为 `null`。改动：§5.2 表结构 `fund` 行与快照说明、§0.8 修正清单第 10 行、§11 验证清单第 68 条、§6 接口 3 出参 `fund` |
 
 ---
 
@@ -284,7 +285,7 @@
 | # | 留白 | v3.6 定档 | 位置 |
 |---|------|-----------|------|
 | 9 | §8.6 新增全局配置项 `erl.enabled`，而 PRD §3.1 原文是「**使用现有** setting/toggle 能力」——属字面偏离，Q2 只提了公司级/系统级之争、没点这层 | 在 §8.6 与 §13-Q2 写明该偏离与理由 | §8.6 / §13-Q2 |
-| 10 | `erl_assessment.fund` 标「仅 GSV 端」，而 PRD §3.3 要求 Founder 提交记录也含「基金/组合」 | `fund` 改为**双端都存**（公司所属基金快照） | §5.2 |
+| 10 | `erl_assessment.fund` 标「仅 GSV 端」，而 PRD §3.3 要求 Founder 提交记录也含「基金/组合」 | `fund` 改为**双端都存**（公司所属基金快照）→ ❌ **2026-10-21 删列**（v4.83） | §5.2 |
 | 11 | PRD §3.2 的 `+ New` 是「发起**该维度**新一轮评估」，而设计的问卷是整卷 | ~~定档：问卷恒为整卷，`+ New` 带 `?anchor={dimension}` 锚定到该维度分组~~ → **v4.4 作废**：需求方 2026-09-06 裁决**提交粒度＝维度级**，PRD §3.2 的字面读法反而是对的；`+ New` 直接发起**该维度**的一次评估（§0.10-R1） | §8.4 |
 | 12 | A4 作为 F2 的落地页只有逐题明细，无综合分 / Stage / Perception Gap，且不提供跳 A3 的入口 —— PM 从组合表点进来拿不到 Scorecard 视角 | ~~A4 页头**补综合分 `X/9` + Stage 徽章**（仍不重复 E2 / Data Sources / 雷达图）~~ → ❌ **2026-09-09 整条撤销**（v4.20，§0.24-Z2）：需求方裁决「严格照原型」，原型页头只有 H1 `Score Details` —— 加权 `Overall Score` 与 Era（Stage）徽章**整块删除**。整体判断改由 ERL Card 与 F2 该行承载（这两处的口径与「三处一致」的要求不变）；**接口 22 的 `header` 出参保留不动**，只是 A4 不再渲染它 | §6.2.1 / §8.4 / §8.5 / §0.24-Z2 |
 | 13 | §5.1 `evidence_source` 示例写 `Founder / CFO`，PRD §3.3 原文是 `Founder/CTO` | ✅ **需求方 2026-08-28 裁决：`Founder / CFO` 正确，PRD 的 `Founder/CTO` 是输入错误** —— 设计**保持 `Founder / CFO` 不变**，反过来**回写 PRD**（§13-Q18） | §5.1 / §13-Q18 |
@@ -2009,7 +2010,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | `submitted_at` | timestamp | | `SUBMITTED` 才有值 |
 | `submitter_name` | varchar(128) | | 提交人姓名快照 |
 | `submitter_role` | varchar(128) | | 提交人角色快照，如 `Founder & CEO` |
-| `fund` | varchar(128) | | **双端均存**（v3.6）：提交时该公司所属基金 / 组合的名称快照。PRD §3.3「每次提交生成带日期的记录（提交日期、评估人、**基金/组合**）」与 §3.4 均要求 |
+| ~~`fund`~~ | ~~varchar(128)~~ | | ❌ **2026-10-21 删列（v4.83）**：2026-10-14 接口 7 删 `fund` 后无读方，提交时不再落值、整列删除。原口径 —— **双端均存**（v3.6）：提交时该公司所属基金 / 组合的名称快照。PRD §3.3「每次提交生成带日期的记录（提交日期、评估人、**基金/组合**）」与 §3.4 均要求 |
 | `assessment_team` | varchar(255) | | 仅 GSV 端（PRD §3.4 元数据） |
 | `version` | bigint | not null, default 0 | **2026-09-07 新增**：JPA `@Version` 乐观锁版本号。草稿行是**公司共享**的多人写入对象，存草稿事务读到 DRAFT 行后、若另一事务已把同一行提交成 SUBMITTED，落盘时会把 `status` / `submitted_at` / `submitter_*` 整行写回旧值（**2026-09-08**：`is_latest` 列已删，不再列举） —— 一次已完成的提交被静默抹掉。列由 `V4__erl_optimistic_lock.sql` 建，**必须部署前执行**（`ddl-auto: update` 加不上 NOT NULL 列）|
 
@@ -2022,7 +2023,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 
 > ⚠️ **删 `submission_seq` / `is_latest` 的后果（表外口径本次未同步修改）**：① **「最新一次提交」失去标记列** —— 由「命中 `is_latest = true`」改为「同 `(company_id, period, portal, dimension_code)` 内 `status = 'SUBMITTED'` 且 `submitted_at DESC, id DESC` 的第一条」，读侧每一处 SOT 取数（A1 卡片、A2 雷达图、A4、F2、Gap 输入、Share 门槛）都要改写，且**并发下没有索引兜底「至多一条 SOT」**；② `submitted_at` 相同（同秒两次提交）时靠 `id` 作次级排序键兜底，**读侧必须全部走同一个 Repository 方法**，否则不同页面会选出不同的一条；③ **提交序号 `Submission #n` 无处可取** —— A2 / A4 历史列表的序号改为按 `submitted_at` 倒排后的行号实时计算（翻页时会漂移）；④ §7.2 / §7.5-S1 / §9 / §11 / §12 相关口径待改。
 
-提交人姓名 / 角色 / Fund **存快照**：人员离职或改名后历史记录仍显示当时信息。即使草稿由他人保存，`submitter_name` / `submitter_role` 只记录**点提交的那个人**（D9）。
+提交人姓名 / 角色 **存快照**（Fund 快照已于 2026-10-21 删列，v4.83）：人员离职或改名后历史记录仍显示当时信息。即使草稿由他人保存，`submitter_name` / `submitter_role` 只记录**点提交的那个人**（D9）。
 
 > **`erl_question_config_version_id` 每维一份的后果（v4.4 定档，R1）**：维度 A 在 3 月创建草稿（绑 v5），维度 B 在 5 月才创建（此时最新已发布是 v7，绑 v7）—— **同一公司同一期次的各维度可能绑不同的题库版本**。**系统不阻止、不告警**，各维度按各自绑定的版本渲染题目、判定解锁与计分；历史详情同理按行上的版本还原。理由：题库版本本就是「按维度独立的作答依据」，强行对齐要么阻塞后开的维度（不能用新题）、要么重基已开的维度（v3.4 已否决重基，§7.9-⑤）。
 >
@@ -2351,7 +2352,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 
 | # | 方法 / 路径 | 用途 | 关键入参 | 关键出参 |
 |---|-------------|------|----------|----------|
-| 3 | `GET /erl/assessment` | B1 / B2 打开问卷（含回填草稿）；**恒按该评估绑定的题库版本渲染**（§7.9-⑤） | `companyId`、`period`、`portal`、**`dimension`**（v4.4 必填，R1） | `assessmentId`、`status`、`dimension`、`questionVersionNo`、`answeredCount`、`totalCount`、`levelScore`、`canSubmit`、`levels[]`、**`lastSavedAt`**、**`lastSavedBy`**、**`latestPublishedVersionNo`**、**`hasNewerQuestionSet`**、**`fund`**（2026-09-10 新增：该公司 Portfolio Name，按当下归属现算，取不到为 `null`） |
+| 3 | `GET /erl/assessment` | B1 / B2 打开问卷（含回填草稿）；**恒按该评估绑定的题库版本渲染**（§7.9-⑤） | `companyId`、`period`、`portal`、**`dimension`**（v4.4 必填，R1） | `assessmentId`、`status`、`dimension`、`questionVersionNo`、`answeredCount`、`totalCount`、`levelScore`、`canSubmit`、`levels[]`、**`lastSavedAt`**、**`lastSavedBy`**、**`latestPublishedVersionNo`**、**`hasNewerQuestionSet`**、**`fund`**（2026-09-10 新增：该公司 Portfolio Name，按当下归属现算，取不到为 `null`；**v4.83 起仅 GSV 卷计算**，Founder 卷不显示该格、恒为 `null`） |
 | 4 | `POST /erl/assessment/draft` | ~~自动存草稿~~ → **v4.30：手动存草稿**（幂等增量；**只由 `Save as draft` / `Submit` 两个按钮触发**）+ **回算解锁进度** | `companyId`、`period`、`portal`、**`dimension`**（v4.4 必填）、`answers[{questionId, yesNo, note?, attachments[{fileId}]}]`（**2026-09-09**：`fileName` / `fileSize` 入参删除，服务端按 `file_id` 查 `files`，§5.5）（**v4.6：顶层 `dimensionAttachments` 入参删除** —— 附件双端统一题级，只经 `answers[].attachments` 提交，§0.12） | `unlockedLevel`、`levelScore`、`terminated`、`answeredCount`、`canSubmit`、`savedAt`、**`lastSavedBy`** |
 | 5 | `POST /erl/assessment/submit` | 提交**本维度** | 同接口 4（**v4.0：`dimensionScores` / `divergenceAcks` 入参删除**，§0.9-3）+ **`autoAnswerNo`**（v4.41，缺省 `false`；**仅本接口读**，接口 4 / 29 忽略 —— 三个接口共用同一张入参） | `assessmentId`、`dimensionCode`（+ `dimensionName` / `dimensionAbbr` 快照）、~~`submissionSeq`~~（**2026-09-08 删除**，列已删）、`levelScore`、`terminatedLevel`、`era` |
 | 6 | `GET /erl/assessment/periods` | 期次下拉 | `companyId`、**可选 `dimension`**（v4.4） | `periods[]`（`period` + 各端 `latestStatus` + `submissionCount`，**v4.4：口径见下**） |
@@ -4406,7 +4407,7 @@ v4.0 从清单中删除：
 65. **附件随草稿保存**：`POST /erl/assessment/draft` 的请求体中 `answers[].attachments[]` 被服务端接收并落 `erl_answer_attachment`（抓包确认字段存在，不是靠另一个接口补登记）；**请求体里不再有 `dimensionAttachments[]`**（v4.6）。
 66. ~~状态摘要短路顺序~~ → ❌ **v4.0 作废**（状态摘要整块删除，§0.9-10）。
 67. **旧草稿换题集的路径**：同期次同端**同维度**（**v4.4** 补维度键位，R1）已有旧版本草稿时，直接 `Add New` **不会**产生第二份草稿（唯一约束生效）；按 §7.9-⑤ 先提交旧草稿再 `Add New`，新评估绑定的 `erl_question_config_version_id` 为**当时最新已发布版本**。~~⚠️ **v4.0 注意**：旧草稿要能提交，仍须先满足「五维全部终止」，若旧草稿离终止还差很远，这条补救路径实际走不通~~ → **v4.4 作废**（§13-Q23 已关闭）：① 提交门槛已降为**本维度终止**（R1）；② 还有 **`Reset` / 接口 28** 可直接丢弃草稿（D8）—— 两条路任选其一，不再存在「摆脱不掉旧草稿」的缺口。
-68. **`fund` 双端留档**：Founder 提交的记录同样落 `fund`（基金 / 组合名称快照）（PRD §3.3）；~~历史列表与详情页可见~~ → **2026-09-10 原型改版**：B3 列表无 `Fund` 列、详情页也不渲染，屏上只在 **GSV 填报页**元信息栏显示 `FUND`（Founder 卷不显示）（2026-10-14 起接口 7 不再下发，查库核 `erl_assessment.fund`）。
+68. ~~**`fund` 双端留档**~~ ❌ **2026-10-21 删列（v4.83）**，以下为原口径：Founder 提交的记录同样落 `fund`（基金 / 组合名称快照）（PRD §3.3）；~~历史列表与详情页可见~~ → **2026-09-10 原型改版**：B3 列表无 `Fund` 列、详情页也不渲染，屏上只在 **GSV 填报页**元信息栏显示 `FUND`（Founder 卷不显示）（2026-10-14 起接口 7 不再下发；2026-10-21 起列已删，填报页 `FUND` 一格仍由接口 3 现算）。
 
 **v4.0 新增校验（计分换底 / 加权 / 权限收紧 / 三卡布局）**
 
