@@ -2835,8 +2835,8 @@ levels 为空（该维 0 题）：
 
 **② 唯一实现，不做策略抽象**
 
-- 计分逻辑收在 **`application/scoring/ErlLevelScorer`** 一个类里（§10.1），对外只有两个方法：`computeDimension(orderedQuestions, answers)` → `{levelScore, terminatedLevel, unlockedLevel}`；`computeOverall(dimensionScores, weights)` → 加权综合分。
-  - **v4.4**：`computeOverall` 的 `weights` 入参**由调用方取自 `erl_dimension_config` 当前 `Active` 行**（**2026-09-08**：原「按期次取绑定版本」作废，§7.11），`ErlLevelScorer` 本身不查库、不感知「当前生效版本」；`dimensionScores` 是**变长**集合，方法内不得假设 5 项（§0.10-D1 / R2）。
+- 计分逻辑收在 **`application/scoring/ErlLevelScorer`** 一个类里（§10.1），对外只有两个方法：`computeDimension(orderedQuestions, answers)` → `{levelScore, terminatedLevel, unlockedLevel}`；~~`computeOverall(dimensionScores, weights)` → 加权综合分~~（**2026-10-21 删除**：它只是一行转发，综合分直接调 `ErlScoreCalculator.overallWeighted(levelScores, weights)`）。
+  - **v4.4**：`overallWeighted` 的 `weights` 入参**由调用方取自 `erl_dimension_config` 当前 `Active` 行**（**2026-09-08**：原「按期次取绑定版本」作废，§7.11），`ErlLevelScorer` 本身不查库、不感知「当前生效版本」；`dimensionScores` 是**变长**集合，方法内不得假设 5 项（§0.10-D1 / R2）。
 - ❌ **删除** `ErlScoringStrategy` / `Score1To9Strategy` / `ErlScoringStrategyFactory` / `ErlScoringModeEnum` / `erl_assessment.scoring_mode`（§0.9-1）：PRD 已把格式定档，「保证未来切换不用重构」的要求随之删除，为单一实现留一层策略工厂属违反根 `CLAUDE.md` 的 YAGNI。
 - 五处消费者（填报解锁、提交校验、展示计分、组合层、Goldie 输入组装）**一律调该类**，不得内联 level 判定。
 
@@ -3866,7 +3866,7 @@ gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web/erl/
 │                                    本 Service 只剩「落 erl_answer_attachment / 按作答批量取 / 删」
 ├── application/scoring/       ErlLevelScorer（v4.0：逐级解锁计分的唯一实现，§7.2-②）
 │                                computeDimension() → {levelScore, terminatedLevel, unlockedLevel}
-│                                computeOverall(dimensionScores, weights) → 加权综合分
+│                                ~~computeOverall~~（2026-10-21 删除，综合分改调 ErlScoreCalculator.overallWeighted）
 │                                **v4.4**（D1）：不再假设「五维」，null 维度分归一化的基数参数化
 │                                ~~R2：`weights` 来自该期次绑定的配置版本（versionOf）~~ →
 │                                **2026-09-08：一律来自当前生效的 `erl_dimension_config`
@@ -4394,7 +4394,7 @@ v4.0 从清单中删除：
 56. **版本入口唯一**：全仓检索确认 `ErlQuestionConfigRepository` 无「不带 `versionId`」的查询方法；且「取最新已发布版本」**只出现在创建评估记录这一处**（§7.9-①），填报 / 展示 / 计分 / 组合层 / Goldie 的取数一律来自 `erl_assessment.erl_question_config_version_id`。
 
 **全维 Score Details（A4，2026-08-28 裁决，v3.5 新增；**v4.4** 按 §0.10-D5 双端开放）**
-57. F2 `View ›` 进入的是 `/exitReadiness/scoreDetails?companyId=&period=`（**不带 dimension**），页面 H1 为 `Score Details`；~~H1 旁显示加权 `Overall Score` `X/9` 与 Stage 徽章，且与 ERL Card、F2 该行三处一致~~ → ❌ **v4.20 作废**（§0.24-Z2）：**A4 页头不得出现任何分数或 Era/Stage 徽章**（全页检索确认页头只有 H1）；「三处一致」的校验**改在 ERL Card 与 F2 两处做**（仍必须走同一个 `ErlLevelScorer.computeOverall`，§7.2-②）。**面包屑为两级** `Portfolio Companies › Score Details`（**不夹公司名**，§0.24-Z1），末级不可点、首级回组合公司列表。**v4.4 补（D5）**：A4 的第二个入口是 ERL Card 右上角 `Full View ›`，**公司端与管理端都有**（见 §11-79）。
+57. F2 `View ›` 进入的是 `/exitReadiness/scoreDetails?companyId=&period=`（**不带 dimension**），页面 H1 为 `Score Details`；~~H1 旁显示加权 `Overall Score` `X/9` 与 Stage 徽章，且与 ERL Card、F2 该行三处一致~~ → ❌ **v4.20 作废**（§0.24-Z2）：**A4 页头不得出现任何分数或 Era/Stage 徽章**（全页检索确认页头只有 H1）；「三处一致」的校验**改在 ERL Card 与 F2 两处做**（仍必须走同一个 `ErlScoreCalculator.overallWeighted`，§7.2-②）。**面包屑为两级** `Portfolio Companies › Score Details`（**不夹公司名**，§0.24-Z1），末级不可点、首级回组合公司列表。**v4.4 补（D5）**：A4 的第二个入口是 ERL Card 右上角 `Full View ›`，**公司端与管理端都有**（见 §11-79）。
 58. **一次取全维**：进页只发 **1 次**接口 22（**v4.70**：此后每切一次维度 Tab / 药丸再各发 1 次，每次仍一次取全维，见第 59 项）；**维度 Tab 数 = 当前 `status = 'Active'` 的维度集合的维度数**（D1 / R2，末位另有基准 Tab，**仅管理端**渲染；管理端该期次无基准记录时 Tab 照常在、卡内走空态），Tab 标签取 `abbr`、顺序按接口返回；~~默认只有 `sort_order` 最小的那张展开，其余收起~~ → **v4.20**：**默认选中第一个维度 Tab，一次只渲染一维**（§0.24-Z3）；卡头计数为 **`{总数} questions`**，**不含「已答数」、不含 `stopped at Level N`**（§0.24-Z8）；开 SQL 日志确认后端**无按维度循环**的 N+1 查询。
 59. ~~**切端不重新取数**~~ → **切换即重新取数**（**v4.20 改写**，§0.24-Z5；**v4.70 再改**，§0.43-Q1 ~ Q3）：组合端在维度 Tab 下有 **`GSV` / `Founder` 药丸**，**`GSV` 在前且默认选中**；点 `Founder` 后卡内四格元数据栏与逐题作答整体切换，~~**抓包确认不产生第二次接口 22 请求**（管理端首次即不传 `portal` 一次取回双端，切换只换本地 `dimensions[].portals` 切片）~~ → **v4.70**：**抓包确认每切一次药丸、每切一次维度 Tab（含末位基准 Tab）各发 1 次接口 22**，入参与进页那次完全相同（管理端仍不传 `portal`，公司端仍 `portal=FOUNDER`）；**点当前已选中的药丸 / Tab 不发**；请求期间卡内仍是旧内容加转圈、不闪白屏；用 DevTools 屏蔽接口 22 后再切一次 → 维度 Tab、药丸与旧内容都还在，页顶出错误提示，解除屏蔽再切一次即恢复；某端该期次无提交时卡内为空态文案而非报错、页面不空白。
 60. **公司端**：不渲染 `GSV` / `Founder` 药丸、不渲染末位基准 Tab；抓包确认服务端未下发 `benchmark`；**管理端另验一条**：换一家该期次**没有任何基准记录**的公司，末位基准 Tab **仍在**、卡内是空态 `No benchmark records yet.`、`+ Add New` 可点进 D2（Tab 的显隐判据是端类型，不是 `benchmark == null`，§0.24-Z4）；**有基准记录时另验表头表尾** —— 列头是 `EXTERNAL BENCHMARKS` / `TOP GSV QUARTILE`（**2026-09-10 起无 `(1-9)` 后缀**），~~`Average` 行等于 Σ(该列维度分 × 该维 `weightsApplied` 占比)、一位小数、无 `/9`~~ → **v4.22 改判**（§0.26-Z1）：**表尾不得出现 `AVERAGE` 行**，`weightsApplied` 非空时同样不出现；**D1 基准页同一张表列头一起改了、同样没有 `Average` 行**；直接构造 `?portal=gsv` 请求后端返回业务错误。~~**v4.4 补（D5）**：组合端 A4 需**同时**呈现 GSV 与 Founder 两侧记录~~ → **v4.20 改写**（§0.24-Z5）：组合端**两端数据一次取回**、以药丸切换查看（不再同屏并列）；公司端只有 Founder 侧。
