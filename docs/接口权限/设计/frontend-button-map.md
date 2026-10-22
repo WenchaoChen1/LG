@@ -14,7 +14,7 @@
 - 旧的 `pages/company/**`：路由已注释掉，也没有被引用。
 - **RAG 相关页面（`devSupport/rag/**`，约 16 处入口）**：调用的是 Python 接口 `/api/ai/*`，不在第一期的后端校验范围内。前端只隐藏、后端不拦不构成防护，所以第一期整块不纳入，见设计方案 §3。
 
-- **调用已不存在的后端接口的入口**：KPA 管理页（`settings/kpaAdmin/**`）上的文档上传 / 删除、KPA 工具选择和评论，调的是 `/document/multipleFilesUploadForKpaCategory`、`/document/deleteForKpaCategory`、`/tools/saveSingleKpaCategoryTool`、`/tools/saveKpaCategoryToolComment`。这四个后端接口已经不存在，代码里有 `TODO(dead-upload-cleanup)`，所以不纳入隐藏，见附录 A §4.7。
+- **调用已不存在的后端接口的入口**：KPA 管理页（`settings/kpaAdmin/**`）上的文档删除、KPA 工具选择和评论，调的是 `/document/deleteForKpaCategory`、`/tools/saveSingleKpaCategoryTool`、`/tools/saveKpaCategoryToolComment`。这三个后端接口已经不存在，调用会 404，所以不纳入隐藏，见附录 A §4.7。原来的文档上传入口（`/document/multipleFilesUploadForKpaCategory`）已于 2026-10-22 随死上传代码删除。
 - **重置密码按钮**：调的 `/users/sendEmailToReset` 是匿名接口，后端拦不住，前端也不隐藏，以免两边口径不一致。
 
 模块划分和附录 A 一致：**按钮归哪个模块，就看它调的接口在附录 A 里归哪个模块**。

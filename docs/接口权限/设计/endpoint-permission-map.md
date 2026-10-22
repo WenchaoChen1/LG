@@ -279,4 +279,4 @@
 4. **`PUT /users/{userId}`**：调用者改自己时直接放行；改别人才检查 `user:UPDATE`。
 5. **`PUT /users/profile`、`/users/checkPasswordByUserId`、`/users/changePasswordByUserId`**：目标用户 id 取自请求体、没和调用者绑定，属于越权问题，不在本方案范围内，另行处理。
 6. **`GET /erl/gapAnalysis`**：按读接口处理，没有列入上表。它在管理端遇到冷却窗口时会异步排队一次对账和 LLM 调用，属于系统行为，不是用户发起的写操作。
-7. **前端在调、但后端已经不存在的接口**：`/document/multipleFilesUploadForKpaCategory`、`/document/deleteForKpaCategory`、`/tools/saveSingleKpaCategoryTool`、`/tools/saveKpaCategoryToolComment`。这些调用会 404，不在本表里；对应的前端按钮也不纳入隐藏，见附录 B。
+7. **前端在调、但后端已经不存在的接口**：`/document/deleteForKpaCategory`、`/tools/saveSingleKpaCategoryTool`、`/tools/saveKpaCategoryToolComment`（`/document/multipleFilesUploadForKpaCategory` 的前端调用已于 2026-10-22 删除）。这些调用会 404，不在本表里；对应的前端按钮也不纳入隐藏，见附录 B。
