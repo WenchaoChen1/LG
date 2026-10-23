@@ -22,7 +22,7 @@
 
 | 事实 | 出处 |
 |---|---|
-| Memory **没有独立的表**，也没有写入接口与合并步骤。Memory 页列出的是**知识库条目的摘要**：登记表 `ai_file_registry`（`purpose='rag'`、`business_type='KNOWLEDGE_BASE'`、`deleted=false`、`ai_rag_entry_id` 非空）圈定范围，再取 `ai_rag_entry.summary` 非空的条目 | `source/lg/db/service/file_registry.py:240-278`、`source/rag/domain/repository/entry_repository.py:175-206` |
+| Memory **没有独立的表**，也没有写入接口与合并步骤。Memory 页列出的是**知识库条目的摘要**：登记表 `ai_file_registry`（`purpose='rag'`、`business_type='KNOWLEDGE_BASE'`、`deleted=false`、`ai_rag_entry_id` 非空）圈定范围，再取 `ai_rag_entry.summary` 非空的条目 | `source/lg/db/service/file_registry.py:232-272`、`source/rag/domain/repository/entry_repository.py:175-206` |
 | 分层按端：**Company Memory = end_type `APP` 的条目；Portfolio Memory = end_type `ADMIN` 的条目**，都按 `company_id` 列出 | `source/memory/application/memory_service.py:43-51` |
 | Memory 页只读；入口对管理端与 Company Admin 开放，公司端普通用户无入口 | web `src/pages/askGoldie/memorySettings/MemorySettingsPage.tsx:103` |
 | 知识库页列的是登记行对应的文件，可下载 | `source/file_registry/domain/repository/file_registry_repository.py:113-181` |
@@ -53,7 +53,7 @@
 
 **机构层**承接 LP 的基金层内容：需求路由表 GS → LP 的 1b 即「组合（基金）级别摘要」，故基金层摘要不丢弃；对全体管理端可见（可见范围为本方案），但**不建基金实体**——归属落在 organization 一层，条目 `company_id` 为空，配合 Summary Records 的 Portfolio 标记（仅为标记，不作权限依据，9.5）。本方案倾向**独立空间**而不是在 KB-ADMIN 里放 `company_id` 为空的条目：KB-ADMIN 里管理端会话文件的 `company_id` 也为空，两者在行级上无法干净区分（见下方「召回边界」）。组合键开发设计阶段定。
 
-**需新增两个业务类型**：`EXPERT_TESTIMONY` 与 `CROSS_COMPANY`，均按组织键控。关联业务类型有白名单——种子在 `source/rag/domain/enums.py:52-67`，`business_association_service.py:38,83` 校验，不在种子里的组合键建不出空间（第八章）。两者的份数不同：
+**需新增两个业务类型**：`EXPERT_TESTIMONY` 与 `CROSS_COMPANY`，均按组织键控。关联业务类型有白名单——种子在 `source/rag/domain/enums.py:52-61`，`business_association_service.py:38,76` 校验，不在种子里的组合键建不出空间（第八章）。两者的份数不同：
 
 - **`EXPERT_TESTIMONY` 两份**——管理端要在 Goldie 内看到署名、公司端永不看到（《会议内容提取规则》II 证词权限），而署名直接存正文、不做召回后处理，故按 `end_type` 分匿名版与署名版各存一版
 - **`CROSS_COMPANY` 一份**——两端在 Goldie 里看到的都是同一份匿名内容（需求路由表跨公司只有一列「Cross Company 跨公司抽取内容」，10-13 版前名为 Tenant-shared）；管理端回溯原会议有两处：Goldie Base 的 Cross company content Tab（审核放行后，每条带会议名称与元数据，PM / PGM / SA 只读，9.11.4），以及会议管理页（Summary Records 详情的 Content Routing Matrix，仅 PGM / Super Admin，9.6，审核与编辑的唯一入口），都不经 Goldie
@@ -121,14 +121,14 @@ GS 内部与 GS → Partner 没有基金层：绑不到公司的内容不写 1b�
 | # | 缺口 | 现状 | 受影响的产物 |
 |---|---|---|---|
 | 1 | 公司端普通用户只召回本人上传的 | 叠 `created_by == 本人`（`knowledge_base_tool.py:114`；`chunk_repository.py:85-90`），Company Admin 不叠 | 系统写入的 KB-APP 会议条目；需求路由表 1a / Founder KB 要求公司端可见 |
-| 2 | 管理端行级过滤对**整次召回的全部空间**生效 | 过滤 `company_id IN 可访问公司 OR thread_id`（`knowledge_base_tool.py:116-135`；`chunk_repository.py:66-83`），`filters` 对每个空间共用（`source/rag/infrastructure/processor/factory.py:270-276`） | `company_id` 为空的条目：机构层、证词署名版、跨公司——解出空间也会被整片滤掉 |
+| 2 | 管理端行级过滤对**整次召回的全部空间**生效 | 过滤 `company_id IN 可访问公司 OR thread_id`（`knowledge_base_tool.py:116-135`；`chunk_repository.py:66-83`），`filters` 对每个空间共用（`source/rag/infrastructure/processor/factory.py:223,258-260`） | `company_id` 为空的条目：机构层、证词署名版、跨公司——解出空间也会被整片滤掉 |
 | 3 | 公司端只解本公司 APP 空间 | `knowledge_base_tool.py:103-114` | 证词匿名版、跨公司 |
 
 > **不能用「放开 `company_id IS NULL`」解决第 2 条**：管理端会话文件的 `company_id` 同样为空、靠 `thread_id` 区分（`chunk_repository.py:66-83`），放开即把别人会话里的文件召回出来。正确做法是行级过滤**按空间施加**——只对 KB-ADMIN 叠公司 / 会话析取，其余空间靠空间层隔离已足够。
 
 ### 1.2 登记表业务类型
 
-会议派生的每条条目都写一行 `ai_file_registry`，`business_type = FIREFLIES`（该列为 `VARCHAR(40)` 自由文本，无 CHECK 约束，新增取值不需要 DDL 改动）。现有登记函数 `upsert_kb_registration` 把业务类型写死为 `KNOWLEDGE_BASE`（`file_registry.py:115,128`），需新增 Fireflies 的登记函数。
+会议派生的每条条目都写一行 `ai_file_registry`，`business_type = FIREFLIES`（该列为 `VARCHAR(40)` 自由文本，无 CHECK 约束，新增取值不需要 DDL 改动）。现有登记函数 `upsert_kb_registration` 把业务类型写死为 `KNOWLEDGE_BASE`（`file_registry.py:107,120`），需新增 Fireflies 的登记函数。
 
 | 条目 | `end_type` | `company_id` | 出现在 |
 |---|---|---|---|
@@ -141,9 +141,9 @@ GS 内部与 GS → Partner 没有基金层：绑不到公司的内容不写 1b�
 
 **对 Goldie 检索无影响**——召回按空间走，`recall` 使用的 `business_type` 取自 `ai_rag_space`（`search_service.py:222`），与登记表的同名字段无关。
 
-**对两个页面有影响**——Memory 页与知识库页现只取 `KNOWLEDGE_BASE`（`file_registry.py:271`；`file_registry_repository.py:137`），需把 `FIREFLIES` 纳入这两处查询（第八章）。
+**对两个页面有影响**——Memory 页与知识库页现只取 `KNOWLEDGE_BASE`（`file_registry.py:263`；`file_registry_repository.py:137`），需把 `FIREFLIES` 纳入这两处查询（第八章）。
 
-**按会议定位**：登记表不加会议列。中间表记录每个去向投影出的条目、登记行与文件 id（9.6.4），重投影时按它软删（1.6）。
+**按会议定位**：登记表不加会议列。中间表记录每个去向投影出的条目、登记行与文件 id（9.6.6），重投影时按它软删（1.6）。
 
 ### 1.3 产物形态
 
@@ -152,11 +152,11 @@ GS 内部与 GS → Partner 没有基金层：绑不到公司的内容不写 1b�
 | 层 | 存储位置 | 说明 |
 |---|---|---|
 | **原文** | `ff_meeting` / `ff_meeting_sentence`（新建） | 永久留存，审计源、重算依据与 n-gram 比对基准；不进向量库 |
-| **中间表** | 新建（9.6.4） | 每场会、每个去向一行，矩阵的可编辑正本；知识库条目由其中已授权的行投影而来 |
+| **中间表** | 新建（9.6.4、9.6.6） | 知识库条目每场会每个去向（与公司）一行，跨公司每条一行，证词每条两行；矩阵的可编辑正本；知识库条目由其中已授权的行投影而来 |
 | **正文** | markdown 文件（`files` 行 + S3）→ 按 800/100 切片（`chunk_kind=body`） | 知识库页（Goldie Base 的 Knowledge Base Tab，9.11.2）展示、可下载；Goldie 检索细节 |
 | **摘要** | `ai_rag_entry.summary` + 单片 `chunk_kind=summary` | Memory 页（Goldie Base 的 Memory Settings Tab，9.11.3）展示；Goldie 检索概览；**不超过 150 个英文单词**（用户决定 2026-10-10；需求原文「1,000 字以内」，产物为英文，按单词计更好执行；需求 2026-10-19 已注明「实际按不大于150词算」，#78） |
 
-文件、`ai_rag_entry` 与 `ai_file_registry` 三者一起写，走新增的「会议派生 markdown 入库」路径（第七、八章）。不能用 `ingest_text`：它不建登记行（`ingest_service.py:461`），条目进不了 Memory 页与知识库页。
+文件、`ai_rag_entry` 与 `ai_file_registry` 三者一起写，走新增的「会议派生 markdown 入库」路径（第七、八章）。不能用 `ingest_text`：它不建登记行（`ingest_service.py:457`），条目进不了 Memory 页与知识库页。
 
 **各条目的摘要与正文**
 
@@ -173,7 +173,7 @@ GS 内部与 GS → Partner 没有基金层：绑不到公司的内容不写 1b�
 - **产出一律 markdown，统一经大模型生成或整理**（markdown 为本方案）。Fireflies 自带的 overview 也要过一遍大模型，不原样入库（需求 I 10-13 版改为「直接使用 Fireflies 的 Summary」，本方案仍经大模型整理，用户决定 2026-10-14，第十章 #56）
 - **凡进 Memory 页的条目都必须写摘要**：Memory 页只列摘要非空的条目，摘要为空的会议条目会从 Memory 页消失。原「内容短于阈值时只存 body、不写 summary」作废。内容本身很短时摘要与正文接近，接受这一重复
 - 证词与 Cross-Company 不进 Memory 页，正文本身就是一条短洞察，不另写摘要
-- **摘要由我方传入，跳过系统的二次 `summarize`**——向量化链在 `factory.py:364` 无条件调用系统摘要器，不跳过会变成「摘要的摘要」；且系统摘要器产出的是纯文本英文摘要，≤150 词（`summarizer.py:59,96`），不是 markdown。超长压缩是写入前我方主动做的（6.5（P2）；`summary` 仍超过 150 个英文单词时，程序先走一次只压缩的修订调用，仍超长按该调用最终失败，6.11），不走系统 `summarize`
+- **摘要由我方传入，跳过系统的二次 `summarize`**——向量化链在 `factory.py:349` 无条件调用系统摘要器，不跳过会变成「摘要的摘要」；且系统摘要器产出的是纯文本英文摘要，≤150 词（`summarizer.py:59,96`），不是 markdown。超长压缩是写入前我方主动做的（6.5（P2）；`summary` 仍超过 150 个英文单词时，程序先走一次只压缩的修订调用，仍超长按该调用最终失败，6.11），不走系统 `summarize`
 - **GS → 创始人的摘要不做筛选**：撤销此前「按公司结构化记忆分类筛选」与「创始人安全版过滤」两条规则（用户决定 2026-09-30 删除），定稿只做整理与压缩
 - **overview 同样过 n-gram 近逐字剔除**：它是 Fireflies 的 LLM 摘要，不保证不照抄原句。比对基准仍是原始转录（6.11 机械清洗）；命中直接删去所在整行（`summary` 写成一段的按句删），删空的条目不产出（`summary` / `kb_doc` 删空按该调用最终失败，6.11）
 - Memory 页现按纯文本展示摘要，与 markdown 口径的衔接见第十章
@@ -241,7 +241,7 @@ GS 内部与 GS → Partner 没有基金层：绑不到公司的内容不写 1b�
 | 来源 | 内容 |
 |---|---|
 | 公司 | 本租户全部公司的名称（1.1 的候选公司全集，含不在营的） |
-| 人与机构 | 本租户 LG 用户（管理端、公司端）的姓名；Cheat Sheet 全部人员的姓名与 Organization（各版本都算）；本场参会人的出席记录姓名、说话人姓名，P8 推断出的姓名与机构 |
+| 人与机构 | 本租户 LG 用户（管理端、公司端）的姓名；Cheat Sheet 全部人员的姓名与 Organization（各版本都算）；本场出席记录与说话人的全部显示名，P8 推断出的姓名与机构 |
 | 本机构 | 机构名称与基金名称（本租户 Portfolio 名称列表，供基金层过滤兜底，用户决定 2026-10-10） |
 | 模式 | 邮箱、域名、URL；精确数值；绝对时点（年份、季度、月份；`May` 这类与常用词同形的月份名怎么认，开发设计定） |
 
@@ -275,7 +275,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 - **写入（上线）**：按中间表当前内容重新生成 markdown 文件，走会议派生入库路径写新条目与新登记行（1.2），重新向量化、摘要直传（1.3），中间表改为指向新条目
 - **软删（下线）**：软删旧条目及其登记行
 
-**按中间表行投影**（本方案）：投影以中间表一行为单位，不再按 `meeting_id` 整场删写。改内容（已生效且已授权的行 `Save`）时先写新条目、成功后再软删旧条目，失败时旧条目照常在线；应用草稿时先下线旧版本、再上线新版本（旧版本可能判错了类型或公司，短暂空窗可接受）。下线（取消勾选、改 `Unknown`、移除公司、证词作废）同步执行，上线与改内容异步执行；失败都自动重试、不回滚本次应用，用尽仍失败记 `PROJECTION_FAILED`（页面是否展示、能否手动重试以设计稿为准）。会议状态在应用时切换，不等投影结果（#67）。重新勾选已下线的行照常按当前内容写入。幂等、重试次数与状态字段开发设计定。
+**按中间表行投影**（本方案）：投影以中间表一行为单位，不再按 `meeting_id` 整场删写。改内容（已生效且已授权的行 `Save`）时先写新条目、成功后再软删旧条目，失败时旧条目照常在线；应用草稿时先下线旧版本、再上线新版本（旧版本可能判错了类型或公司，短暂空窗可接受；内容与授权都没变的行沿用原投影，`base_row_id`，9.6.6）。下线（取消勾选、改 `Unknown`、移除公司、证词作废）同步执行，上线与改内容异步执行；失败都自动重试、不回滚本次应用，用尽仍失败记 `PROJECTION_FAILED`（页面是否展示、能否手动重试以设计稿为准）。会议状态在应用时切换，不等投影结果（#67）。重新勾选已下线的行照常按当前内容写入。投影状态记在中间表行上（9.6.6）；幂等与重试次数开发设计定。
 
 - **已下载的副本不追**：用户此前从知识库页下载到本地的文件不随之更新
 - **已生成的 Goldie 回答不追**：撤回（取消勾选、改 `Unknown` 打回 Pending）只对之后的召回生效，此前已出现在 Goldie 回答里的内容仍留在各人的聊天记录里；只在设计里记录，页面不另作提示（用户决定 2026-10-19，第十章 #79）
@@ -317,10 +317,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 | **匹配方式** | **完全匹配**，不做模糊、不做近似 |
 | **命中后** | **不直接采纳**（用户决定 2026-10-19，第十章 #77）：名册 Email 必填，走到这一级的人邮箱都不在名册里，同名可能是同一人换了邮箱，也可能是另一个同名的人。命中的条目只作候选，交 ⑦ 的 6.13（P8）核对旁证——邮箱域名对得上该条目的机构，或会上说到的机构、角色与该条目一致——P8 给 `high` 才采纳；拿不准或两位以上都说得通 → Pending Assignment |
 
-**姓名取值来源**：Fireflies 的 `meeting_attendees` 中 `displayName` / `name` 实测**全为 null**，取不到「日历邀请中的姓名」。可用源为：
-
-1. `meeting_attendance[].name`——平台出席记录，最接近日历邀请，**首选**
-2. `speakers[].name`——ASR 说话人识别，**仅作兜底**（人名易被识别错，用于匹配注册表风险更高）
+**姓名取值来源**：Fireflies 的 `meeting_attendees` 中 `displayName` / `name` 实测**全为 null**，取不到「日历邀请中的姓名」。出席记录（`meeting_attendance[].name`）与发言人（`speakers[].name`）都只有名字、没有邮箱，实测都是 Teams 显示名：44 场会 180 个发言人里 178 个与出席名字完全相同（2026-10-23，第十章 #92）。参会人的姓名取程序对上的发言人名（对法见 1.9「三份名单怎么对上」）；没配上发言人的参会人没有可靠的姓名，这一级跳过，交 ⑦ 的 P8 结合出席名单判断。
 
 > 采用完全匹配而非模糊匹配，是因为姓名匹配的误判代价不对称：匹配不上只是进 Pending 等人工处理，匹配错则把外部人当成内部人（或相反），直接改变会议类型与整条路由。
 >
@@ -333,6 +330,13 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 **参会人来源**：会议在 **Microsoft Teams** 内召开、将 Fireflies 拉入，因此 Fireflies 返回的参会人即 Teams 会议的参会人。实测样本亦印证——`calendar_type = "outlook"`、`meeting_link` 指向 `teams.microsoft.com`。取值用 `participants`（邮箱数组）与 `meeting_attendance`（出席记录，含姓名与进出场时间）。
 
 **`participants` 是受邀名单**：实测详情样本 8 个邮箱只有 2 人留下出席记录与发言，含受邀未到的人。按「受邀即有权看」处理——受邀人照常算参会人，参与类型判定、公司归属与 Raw Data「本人参加」：在受邀名单里，说明这场会对他开放，他登录 Fireflies 也能看回放，不构成越权（用户决定 2026-10-16，第十章 #66）。反过来，转录里也会出现**不在受邀名单里的说话人**（拿链接进会、用别人的账号或会议室设备；本地 43 场样本中 2 场，各有一人发言近百句以上），处理见下方「关键规则」的发言人映射。
+
+**三份名单怎么对上**（用户决定 2026-10-23，第十章 #92）：Fireflies 的受邀名单只有邮箱，出席记录与发言人只有名字，三者之间没有任何关联字段（按接口内省列出的全部字段核对，没有设备或用户 id）。
+
+- **参会人以受邀邮箱为准**，一个邮箱一位；另加对上名册的非受邀说话人（见下方发言人映射）与管理员按 LG 账号登记的说话人（9.5.5）
+- **发言人由程序按「姓名对邮箱前缀」配到受邀邮箱**：先去掉 `(Unverified)` 后缀，名、姓、首字母的组合对邮箱 `@` 前的部分（如 Robert Bowdon 对 `rb@`）；只对上一个才采纳。对上多个、且这几个邮箱识别出的身份相同（同为 GS 人员、同一家公司或同一名册条目，常见于同一人用两个邮箱受邀）时，挂到其中任一个；身份不同的不采纳。实测 180 个发言人对上 177 个，对不上的 3 个（2 个拿链接进会、1 个用昵称）照发言人映射交 P8
+- **出席记录只作显示、线索与剥离**：Raw Data 照原样显示（9.3.3），出席名单原样传给 P8 作线索（6.13），并入实体剥离清单（1.5）；没发言、又对不上受邀邮箱的出席者（记录机器人、匿名访客、拿链接旁听的人）忽略，不算参会人、不卡会议。实测 44 场里这类记录 24 条，全是记录机器人（22）与匿名访客（2）；只配发言人也避开了 `Fireflies.ai Notetaker Jacobo` 这类机器人名被前缀错配到真人邮箱
+- **代价**：外部人拿链接进会、全程不发言时被当作不在场，会议可能因此判成 GS 内部——他没说话，产物都是 GS 人员的发言，可接受（用户确认 2026-10-23）
 
 识别要产出两样**互相独立**的东西：
 
@@ -384,14 +388,14 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 - 一场会议可关联**多个公司**（《Fireflies Summary Records》Company 可多选；《AI Meeting Type》10-13 版删去了「一场会议可关联多个公司」一句，未改变多选）；**GS → 创始人例外，只能一家**（2.3，#73）
 - **不在营的公司**（Exited / Shut down / Off journey，及状态为空的）：其公司端用户不判 Founder，顺着识别链往下识别——需求「客户端公司只查 Active、Thriving、Needs Intervention、Needs Guidance 状态的公司」只管识别人；这些公司仍在 P1 候选清单里，可作 GS 内部 / GS → Partner 会议的 1b 归属，内容只到管理端；GS → 创始人只认在营公司——仅凭 Cheat Sheet Founder 反推公司时，P1 命中不在营公司不采纳、整场 Pending（2.1）（用户决定 2026-10-19，第十章 #86）
 - GS 域名、管理端用户域名不参与公司归属；公司 Team 域名参与（③）
-- 需求要求管理端能追溯「这场会议为何关联到此公司」（原型已包含）：命中依据写入 `IDENTIFY` 审计（9.10.2），Summary Records 按公司展示依据文案（9.5.3）
+- 需求要求管理端能追溯「这场会议为何关联到此公司」（原型已包含）：命中依据存在识别结果里（9.5.9），另记 `IDENTIFY` 审计（9.10.2），Summary Records 按它展示依据文案（9.5.3）
 
 **关键规则**
 
 - **LLM 推断这一级人和公司分开做**：人由 6.13（P8）推断，只采纳 `high`，类型判定用采纳后的身份；`low` 或推断不出的人仍是 Unidentified，**会议照常进 Pending**——需求「通过以上规则以及 LLM inference 也无法判定」才进 Pending（《AI Meeting Type》10-13 版）。公司由 6.4（P1）的正文提及识别，人未识别时即便推断出了公司，类型仍判不出
 - **Pending 阻断的是内容提取，不是识别**。识别阶段照常跑完并留痕——参会人身份、公司归属（程序按邮箱 + 6.4（P1）的正文提及识别）都要产出，管理端 Summary Records 页要展示它们、人工审核也靠它们。被阻断的是**内容提取**：调用哪些提示词、P3 / P5 传入什么按类型参数都由会议类型决定（复用矩阵见 6.2），类型未定就无从选择，强行提取只会拿到质量不可控的结果。**等人工在 Summary Records 页补齐后再触发提取**（GS → 创始人只差公司的，另有公司增改后的自动路由，9.9.3）
-- **参会人以有邮箱为前提**（用户决定 2026-10-14，第十章 #59）：只有出席记录姓名、没有邮箱的参会人不能识别——6.13（P8）推断出身份也不采纳，保持 Unidentified，会议 Pending；管理员补上邮箱、登记进 Cheat Sheet 后才能继续。没有邮箱的人不录入 Cheat Sheet
-- **发言人映射也属识别阶段**：逐句的 `sentences[].speaker_id` 经 `speakers[].name` 映射到参会人。`speakers[].name` 来自 ASR / 会议显示名（昵称、听错拼写、名字带数字如 `Chunru Liang1`、`Speaker 2`、两人合并为一个 speaker 都会导致对不上）。对不上参会人的说话人，程序先按 Cheat Sheet 姓名完全匹配（会议日期生效的版本）找候选，命中也不直接采纳（同 1.8，#77）；连同仍对不上的一起交 6.13（P8）按称呼、自我介绍与旁证判断——可对到参会人，也可对到名册里的人（拿链接进会、不在受邀名单里的名册人员，用户决定 2026-10-16）；名字噪声等由 P8 对上，不另设归一化规则；一位参会人可对应多个说话人（中途重进会议、换设备，显示名带数字），映射是多对一，P5 / P7 按人汇总（6.3）。**P8 之后仍对不上的说话人 → 会议进 `Pending`（待识别）**：Summary Records 上显示为「未对上的说话人」，由管理员指定为某位参会人，或登记进 Cheat Sheet（9.5.5）；登记后，以后的会议里同名说话人会作为候选交 P8 核对（#77）（用户决定 2026-10-16，取代 10-14 的「不算任何人、不卡会议」——不卡的话，只有 GS 受邀、外部人拿链接进会的会议会被判成 GS 内部，外部人的话被当成内部讨论进入 1b 与跨公司内容）。这一步要在内容提取之前做完，证词的来源行与专家推测都依赖它。对上名册的非受邀说话人（经 P8，或由管理员在 9.5.5 登记 / 关联）并入本场参会人：参与类型判定、公司方判定、专家补充识别与专家推测；不算 Raw Data 的「本人参加」（9.3.6）
+- **参会人以有邮箱为前提**（用户决定 2026-10-14，第十章 #59；2026-10-23 按 #92 调整）：参会人只来自受邀邮箱、对上名册的说话人与按 LG 账号登记的说话人，都有邮箱；没发言、又对不上受邀邮箱的出席者不算参会人、不卡会议。没有邮箱、又发了言的人是未对上的说话人，由管理员指定为某位参会人或补上邮箱登记（9.5.5）。没有邮箱的人不录入 Cheat Sheet
+- **发言人映射也属识别阶段**：逐句的 `sentences[].speaker_id` 经 `speakers[].name` 按上面「三份名单怎么对上」的规则对到参会人。`speakers[].name` 是会议显示名（昵称、名字带数字如 `Chunru Liang1`、`Speaker 2`、两人合并为一个 speaker 都会导致对不上）。对不上参会人的说话人，程序先按 Cheat Sheet 姓名完全匹配（会议日期生效的版本）找候选，命中也不直接采纳（同 1.8，#77）；连同仍对不上的一起交 6.13（P8）按称呼、自我介绍与旁证判断——可对到参会人，也可对到名册里的人（拿链接进会、不在受邀名单里的名册人员，用户决定 2026-10-16）；名字噪声等由 P8 对上，不另设归一化规则；一位参会人可对应多个说话人（中途重进会议、换设备，显示名带数字），映射是多对一，P5 / P7 按人汇总（6.3）。**P8 之后仍对不上的说话人 → 会议进 `Pending`（待识别）**：Summary Records 上显示为「未对上的说话人」，由管理员指定为某位参会人，或登记进 Cheat Sheet（9.5.5）；登记后，以后的会议里同名说话人会作为候选交 P8 核对（#77）（用户决定 2026-10-16，取代 10-14 的「不算任何人、不卡会议」——不卡的话，只有 GS 受邀、外部人拿链接进会的会议会被判成 GS 内部，外部人的话被当成内部讨论进入 1b 与跨公司内容）。这一步要在内容提取之前做完，证词的来源行与专家推测都依赖它。对上名册的非受邀说话人（经 P8，或由管理员在 9.5.5 登记 / 关联）并入本场参会人：参与类型判定、公司方判定、专家补充识别与专家推测；不算 Raw Data 的「本人参加」（9.3.6）
 - 识别结果（公司、外部人员、角色、专家标志）传递给下游分类与提取步骤；专家标志的识别见 1.11
 
 ### 1.10 会议状态
@@ -402,7 +406,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 
 > 当会议没有实质内容时，判定为无效会议，显示灰色 "Invalid" 标签（《Fireflies Raw Data》10-16 版，删去了原来的「非常短」）
 
-复用 1.3 的「提取前质量判断」，**判定结果作为字段存在 `ff_meeting` 上**——页面要展示标签就必须持久化。两个判据、两个时机与优先级见 9.3.4。
+复用 1.3 的「提取前质量判断」，**判定结果持久化**——页面要展示标签就必须存下来：转录为空记在 Java 的 `ff_meeting.validity`，P1 判不可用记在 Python 的 `ff_meeting_summary.p1_status`（9.3.2、9.5.9）。两个判据、两个时机与优先级见 9.3.4。
 
 **Summary Records 页 · `Passed` / `Pending`**（《Fireflies Summary Records》）
 
@@ -430,7 +434,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 | 步骤 | 做什么 | 规则 |
 |---|---|---|
 | **分类** | 定每位参会人的身份，进而定会议类型 | 1.9 匹配链，命中即止 |
-| **补充**（enrichment） | 对**每位**参会人另查名册，识别专家身份 | 不论分类命中哪一级都查；按会议日期取 Cheat Sheet 当时生效的版本（9.7.2），先邮箱后姓名（1.8）；经 6.13（P8）对到名册的，直接取该条目 |
+| **补充**（enrichment） | 对**每位**参会人另查名册，识别专家身份 | 不论分类命中哪一级都查；按会议日期取 Cheat Sheet 当时生效的版本（9.7.2），先邮箱后姓名；按姓名完全匹配命中的直接采纳、不经 P8 核对，与分类链不同（1.8，用户决定 2026-10-23，第十章 #93）；经 6.13（P8）对到名册的，直接取该条目 |
 
 两步互不覆盖：补充查到的名册记录**不改变分类结果**——LG 平台用户在名册里另有登记时，身份仍以平台账号为准（1.9 ②），名册只贡献专家标志与专长标签。
 
@@ -512,7 +516,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 |---|---|---|
 | 会上有 LG 公司端用户，或有人邮箱域名命中公司 Team 域名（无论是否也有 Cheat Sheet Founder 或 P8 采纳的 Founder） | ✅ 本类型 | 按参会人**完整邮箱**匹配公司 Team 记录，或按**邮箱域名**匹配公司 Team 域名，取 `company_id`；多家公司的人同时到场 → 先全部列出，会议进 `Pending`（待识别），由管理员只保留一家（2.3，用户决定 2026-10-16）；同场的 Cheat Sheet / P8 Founder 机构对不上这家公司的，同样进 `Pending`（见表下） |
 | **无公司端用户、也没有域名命中，公司方有按邮箱命中（1.9 ④）的 Cheat Sheet Founder** | ✅ 本类型 | Cheat Sheet 条目只有 `Organization` 文本、**没有 `company_id`**，只能**由正文提及反推**（6.4（P1）） |
-| **公司方只来自 6.13（P8）**（推断出的 `Founder`，或经 P8 对到名册的 `Founder`，含按日历姓名命中、经 P8 核对的，#77） | ✅ 本类型 | **不自动关联**：P1 的正文提及同 `low` 一样只留在识别记录里、不采纳，整场 `Pending`，等管理员在 Company 字段指定（用户决定 2026-10-14；或公司增改后自动路由，9.9.3） |
+| **公司方只来自 6.13（P8）**（推断出的 `Founder`，或经 P8 对到名册的 `Founder`，含按日历姓名命中、经 P8 核对的，#77） | ✅ 本类型 | **不自动关联**：P1 的正文提及同 `low` 一样只留在识别结果里（9.5.9）、不采纳，整场 `Pending`，等管理员在 Company 字段指定（用户决定 2026-10-14；或公司增改后自动路由，9.9.3） |
 
 **每位到场 Founder 都要归属到关联的那家公司**（用户决定 2026-10-16，#73）：Cheat Sheet Founder 与 P8 推断的 Founder 没有 `company_id`，程序拿他的机构（名册 Organization，或 P8 推断的组织）与关联公司的名称比较——忽略大小写、首尾空白与 Inc. / Ltd. / LLC / Corp. 等后缀，对不上或机构为空 → 会议进 `Pending`（待识别），原因写「<姓名>（<机构>）对不上 <公司>」。管理员两种处理：
 
@@ -661,7 +665,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 
 **触发条件**
 
-- 会议已按 2.1 归入本类型；补充阶段查 Cheat Sheet（先邮箱、未命中再姓名，1.8），发现到场的某人**被标记为专家**（不管角色，用户决定 2026-10-16）——口径见 1.11：该人在 Cheat Sheet 中按会议日期生效的版本至少带一个专长标签
+- 会议已按 2.1 归入本类型；补充阶段查 Cheat Sheet（先邮箱、未命中再姓名，1.11、#93），发现到场的某人**被标记为专家**（不管角色，用户决定 2026-10-16）——口径见 1.11：该人在 Cheat Sheet 中按会议日期生效的版本至少带一个专长标签
 - **或被 AI 推测为专家**（需求 10-13 版「仅限于该创始人在注册信息中被标记为“专家”时或 AI 推测为专家时」）：6.10（P7）对该人达到「可能为专家」门槛（1.11）；首次提取先不抽，管理员在确认框处理后，按他名册里的标签补抽（见下「确认后重新产出证词」，用户决定 2026-10-16）
 - 一场会可同时产出 2.2 的全部去向与本节证词；多位专家各自抽取
 - **会上所有专家都抽**：除创始人外，同场其他专家（如列席的 LP、外部董事，不管角色）也抽，类别取其专长标签；「只讲市场、不涉及自己公司」只针对创始人（用户决定 2026-10-16，取代原「只开放给创始人」，#14、#72）
@@ -674,7 +678,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 | 写进哪一版 | 应用后将生效的那一版：有草稿写草稿，没有写当前版本 |
 | 进行中 | 此人胶囊与矩阵证词区显示「证词补抽中」；`Confirm & Apply Routing` 与 Start Extraction 置灰，返回后恢复 |
 | 失败 | 同一位置显示「证词补抽失败 · Retry」，点击重跑这次补抽 |
-| 替换后 | 新行 Play candidate 重置为关（9.11.6）；补抽结果不随 `Discard Changes` 丢弃（同名册写入，9.6.5） |
+| 替换后 | 新行 Play candidate 重置为关（9.11.6）；补抽结果不随 `Discard Changes` 丢弃（同名册写入；写在草稿里的，丢弃草稿时按 9.6.5 转到当前版本或随草稿丢弃） |
 | 类型参数 | GS → LP / Partner 补跑时不带专长标签，证词类别照该类型的固定取值，标签只决定补不补跑（6.8） |
 | 审计 | 记 `EXTRACT`，触发方式为补抽（9.10.2） |
 
@@ -706,7 +710,7 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 
 GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归 GS → Founder），**且**有参会人命中 Cheat Sheet **Role = LP**（或 6.13（P8）采纳为 `LP`）（《AI Meeting Type》）。同场还有 Strategic / Exit Partner 时仍判本类型——LP 优先于 Partner（用户决定 2026-10-19，#30）。
 
-- **匹配顺序**：先邮箱、未命中再姓名（《AI Meeting Type》参会人识别 ③）；姓名回退规则见 1.8（LG 系统内 → Cheat Sheet，完全匹配；姓名源首选 `meeting_attendance[].name`）。外部人员的完整识别链（Cheat Sheet → HubSpot → LLM 推断 → Pending）见 1.9
+- **匹配顺序**：先邮箱、未命中再姓名（《AI Meeting Type》参会人识别 ③）；姓名回退规则见 1.8（只对 Cheat Sheet，完全匹配后交 P8 核对；姓名取程序对上的发言人名，1.9）。外部人员的完整识别链（Cheat Sheet → HubSpot → LLM 推断 → Pending）见 1.9
 - **版本**：按会议日期取 Cheat Sheet 当时生效的版本；该日此人身份有重复时取最新一条
 - **姓名命中不直接采纳**，交 6.13（P8）核对旁证（1.8，#77）；P8 给不出 `high` 则进 Pending Assignment
 
@@ -821,7 +825,7 @@ GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归
 
 > 署名**不能放 `chunk.metadata`**：`SearchHitDTO` 只透出 `chunk_id / content / entry_id / entry_title / space_id / space_name / similarity / match_type / uploaded_at / chunk_kind / file_id`，**metadata 不在返回字段中**，管理端召回后拿不到。
 
-**创始人端可召回的前提**：证词空间按 `organization_id` 键控，而创始人登录时 `organizationId` 解析自 `r_organization_user`（`OrganizationRepository:47`），创始人不在该表中，**解出为 null**。需在 Java 登录处补兜底：查不到时用 `companyId` 走 `r_organization_company` 反查（`OrganizationRepository:50` 已有现成查询）。
+**创始人端可召回的前提**：证词空间按 `organization_id` 键控，而创始人登录时 `organizationId` 解析自 `r_organization_user`（`OrganizationRepository:47`），创始人不在该表中，**解出为 null**。需在 Java 补兜底：查不到时用 `companyId` 走 `r_organization_company` 反查；登录与切换、刷新 token、Redis 缓存重建三条路径都要补，存量会话另需回填（第八章 #14）。
 
 **检索侧**：`knowledge_base_tool` 公司端分支需多解一个证词空间；**调高 top_k**，具体召回效果在工具内优化。
 
@@ -905,7 +909,7 @@ GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归
 
 **归属方式**：本类型参会人全是 GS 人员、映射不到在营公司，公司归属只能靠**正文提及**识别（6.4（P1））→ 仅 `high` 采纳 → 一场会 N 家公司产出 N 条 → `company_id` 必填。**本类型没有基金层**（需求路由表本类型为「涉及具体公司的摘要」），绑不到任何公司的内容不入 1b——可迁移的部分按 4.4 进 Cross-Company。1b **默认放行**（自动提取默认已授权，9.6.4）——P1 只采 `high`；同名公司等误判时，内容会到无关公司的 PM，但只在管理端（用户决定 2026-10-19，第十章 #87）。
 
-**公司提及识别策略**（GS 内部与 GS → Partner 共用，5.4；原写在 3.3 的 LP 公司层下，GS → LP 不按公司拆分后移到此处）：由会议上下文推断，**仅 `high` 才采纳**；`low` 不采纳，连同 evidence 留在识别记录里，管理员可在 Company 字段手动补（9.5.3），不阻断本场其余内容的提取。别名表列为可选优化项。
+**公司提及识别策略**（GS 内部与 GS → Partner 共用，5.4；原写在 3.3 的 LP 公司层下，GS → LP 不按公司拆分后移到此处）：由会议上下文推断，**仅 `high` 才采纳**；`low` 不采纳，连同 evidence 留在识别结果里（9.5.9），管理员可在 Company 字段手动补（9.5.3），不阻断本场其余内容的提取。别名表列为可选优化项。
 
 > 错误代价不对称：漏识别只是该公司 1b 少一条内容（静默）；**错识别会让 A 公司的交易事实进入 B 公司的 1b**，而 Portfolio Manager 只能看自己管辖的公司，这构成跨边界泄漏。故宁可漏不可错。
 >
@@ -978,7 +982,7 @@ GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归
 
 **只看角色**。需求触发规则写作「参与人命中注册表中 Strategic 或 Exit Partner」；专长标签已改为 5 个证词领域（5.2），不再含 Strategic / Exit Partner，这句只能指角色。原「角色 + 专长标签都命中」的口径及其「已澄清」结论作废。
 
-**匹配顺序**：先邮箱、未命中再姓名，规则见 1.8（LG 系统内 → Cheat Sheet，完全匹配后交 P8 核对旁证，`high` 才采纳、否则进 Pending）；按会议日期取 Cheat Sheet 当时生效的版本。
+**匹配顺序**：先邮箱、未命中再姓名，规则见 1.8（只对 Cheat Sheet，完全匹配后交 P8 核对旁证，`high` 才采纳、否则进 Pending）；按会议日期取 Cheat Sheet 当时生效的版本。
 
 与 LP 一样**主要依赖 Cheat Sheet**：未收录的只能靠 6.13（P8）从转录推断，会上明确表明身份才采纳，推断不出进 Pending Assignment。
 
@@ -1125,35 +1129,64 @@ LP、Strategic Partner、Exit Partner、Founder、GS staff、Other
 |---|---|---|
 | **外部人员注册表（Cheat Sheet）** | 《Cheat Sheet》定义：角色 6 项、专长标签（受控字典，在 Cheat Sheet 内新增，已用不可删）、Area of expertise（仅描述）、有效期（按会议日期回溯版本）；数据模型见 9.7 / 9.8 | LP / Partner 判定、证词标签、专家补充识别与推测（1.11） |
 | **公司名 → company_id 匹配** | 系统现无此能力；需处理别名、缩写、ASR 错字（6.4（P1）） | GS 内部 / Partner 的公司层 1b；仅凭 Cheat Sheet Founder 判出的 GS → 创始人 |
-| **`ff_meeting` / `ff_meeting_sentence`** | 结构化原文留存：meeting_id、speaker、起止时间、参会人、会议类型；**会议状态字段**（`Invalid` 与 `Passed` / `Pending`，见 1.10）；**Portfolio 标记**（会议级多选，仅为标记，不作权限依据） | 全部 |
-| **路由中间表** | 每场会、每个去向一行：矩阵的可编辑正本与授权开关（9.6.4）；记录投影出的条目 / 登记行 / 文件 id，供重投影与重试（1.6） | 全部 |
-| **会议派生 markdown 入库路径** | 现有唯一写入路径是 Goldie 聊天附件（`chat_attachment_service.py:45-158`：`ensure_kb_space` → `ingest_kb_file` → 登记 → 向量化）；`ingest_text`（`ingest_service.py:461`）不建登记行，进不了 Memory 页。新路径：生成 markdown → 经 Java 预签名上传为 `files` 行 → 定位空间 → `ingest_kb_file` → 登记（`FIREFLIES`）→ 向量化（摘要直传）（1.2、1.3） | 全部入库产物 |
+| **`ff_meeting` / `ff_meeting_sentence`** | 结构化原文留存（Java）：meeting_id、speaker、起止时间、参会人、转录为空的 `Invalid`，字段见 9.3.2；会议类型、`Passed` / `Pending`（1.10）、P1 判不可用与 **Portfolio 标记**（会议级多选，仅为标记，不作权限依据）在 Python 的 `ff_meeting_summary`（9.5.9） | 全部 |
+| **路由中间表** | 知识库条目每场会每个去向（与公司）一行，跨公司与证词逐条一行：矩阵的可编辑正本与授权开关（9.6.4）；记录投影出的条目 / 登记行 / 文件 id 与投影状态，供重投影与重试（1.6）；字段见 9.6.6 | 全部 |
+| **会议派生 markdown 入库路径** | 现有唯一写入路径是 Goldie 聊天附件（`chat_attachment_service.py:45-158`：`ensure_kb_space` → `ingest_kb_file` → 登记 → 向量化）；`ingest_text`（`ingest_service.py:457`）不建登记行，进不了 Memory 页。新路径：生成 markdown → 经 Java 预签名上传为 `files` 行 → 定位空间 → `ingest_kb_file` → 登记（`FIREFLIES`）→ 向量化（摘要直传）（1.2、1.3） | 全部入库产物 |
 | **条目重投影** | 条目内容无更新接口（`rag/interfaces/routes.py` 只有 retry 与 DELETE），编辑、授权、重提取一律写新条目 + 软删旧条目（顺序、幂等与失败处理见 1.6） | 全部 |
 | **机构层条目的召回与展示** | `company_id` 为空的 ADMIN 条目，管理端召回、Memory 页、知识库页现都取不到（1.1 召回边界） | LP 基金层 |
-| **专家候选拒绝名单** | 按租户记被拒绝者本场所用的 email + 被拒的专长标签，查询时按人展开到他名册里的全部邮箱，推测前过滤（1.11、9.5.6） | 专家推测 |
+| **专家候选拒绝名单** | 按租户记被拒绝者本场所用的 email + 被拒的专长标签，查询时按人展开到他名册里的全部邮箱，推测前过滤（1.11、9.5.6，字段见 9.5.10） | 专家推测 |
 | **审计日志** | 《会议内容提取规则》III「所有路由决策与覆写操作都会写入审计日志」；现有 `LogAspect` 的 `@Component` 已被注释（`LogAspect.java:23`）、无任何写入，新建 `ff_audit_log`（9.10） | 全部 |
 
 ---
 
 ## 八、代码改造清单
 
-Python 路径相对 `python/CIOaas-python/source`，Java 路径相对 `java/CIOaas-api/gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web`。
+Python 路径相对 `python/CIOaas-python/source`，Java 路径相对 `java/CIOaas-api/gstdev-cioaas-web/src/main/java/com/gstdev/cioaas/web`。下文「新 Fireflies 模块」指 Python 侧，Java 侧写作「Java Fireflies 模块」。
+
+**Java / Python 分工**（用户决定 2026-10-23，第十章 #91）：
+
+| 端 | 负责 | 表 | 接口前缀 |
+|---|---|---|---|
+| Java | Configuration（9.2）、Cheat Sheet 维护（含 Email Domain、专长标签，9.7、9.8）、Raw Data 查看（含公司端，9.3、#90）、每日定时拉取与 Sync now（9.3.1） | `ff_connection`、`ff_meeting`、`ff_meeting_sentence`、`ff_registry_party`、`ff_expertise_tag`、`ff_email_domain` | `/api/web/fireflies/*` |
+| Python | 与大模型相关的功能：参会人识别与类型判定（含 P1 / P8）、内容提取与清洗（P2~P7）、中间表与投影入库、Summary Records 与 Content Routing Matrix（9.4~9.6）、专家确认、改判重算与自动路由（9.9）、Goldie Base 两个新 Tab 与 Play candidate（9.11） | `ff_meeting_summary`、`ff_meeting_participant`、`ff_meeting_speaker`、`ff_meeting_company`、`ff_expert_candidate`、`ff_expert_rejection`、`ff_routing_row`（物理表名按 Python 规范加 `ai_` 前缀） | `/api/ai/fireflies/*` |
+
+`ff_audit_log` 两端都有事件：Java 记 `CONNECTION_LINK`、`EMAIL_DOMAIN_CHANGE`、`TRANSCRIPT_CHANGED`，其余由 Python 记（9.10.2）；建一张表由一端跨写，还是两端各建一张，随数据权限一起定。
+
+**两端怎么衔接**：
+
+- 新会议入库：Java 拉取、写入原文后经 SQS 通知 Python 识别与提取，投递后即算「已进入识别」（9.3.1，#30）
+- 公司增改：Java 经 SQS 通知 Python 自动路由（#27）
+- Summary Records 上的名册写入（登记参会人、`Edit external party`、专家确认写标签、下拉里新增 / 删除专长标签，9.5.6、9.5.7、9.8.1）：Python 调 Java 的接口、透传用户 token（#31）；名册的写入与版本追加只在 Java，按会议日期回溯取版本（9.7.2）两端都要实现、须同一算法
+
+**跨端读的表**（数据权限等表定了再看，#91）：
+
+| 方向 | 表 | 用途 |
+|---|---|---|
+| Python 读 Java 的 Fireflies 表（5 张） | `ff_meeting`、`ff_meeting_sentence` | 识别与提取的输入；Summary Records 列表、Goldie Base 两个 Tab 的会议信息；知识库 Source 列判断能否看原文（9.11.2） |
+| | `ff_registry_party`、`ff_expertise_tag` | 识别 ④⑥、补充识别、P8 候选、P7 可推测的标签、证词的说话人信息、确认框自动消解 |
+| | `ff_email_domain` | 识别 ①（GS 域名） |
+| Python 读 LG 业务表（7 张） | `user`、`r_organization_user`、`company`、`r_organization_company` | 识别 ②③（管理端与公司端用户邮箱、公司与状态，Team 域名由邮箱派生）、P1 候选公司、自动路由 |
+| | `company_group`、`r_company_group`、`organization` | `firm_profile` 的基金清单（#23）、GS → 创始人会议的 Portfolio 显示（9.5.4） |
+| Java 读 Python 的表（2 张） | `ff_meeting_summary` | Raw Data 对 P1 判不可用的会议显示 `Invalid`（9.3.4） |
+| | `ff_expert_candidate` | 被未处理的「可能为专家」标记引用的标签不可删（9.8.3） |
+
+PM / PGM 的判定（#22）走 Java 现有接口、透传用户 token，不读表。定数据权限时一并考虑：Python 现行规范要求 LG 业务数据经 Java 网关取、不直连数据库，但已有只读映射先例（`lg/` 下的 `Company` 等）；SQS 触发的后台任务没有用户 token。
 
 **入库**
 
 | # | 改动 | 位置 |
 |---|---|---|
-| 1 | **会议派生 markdown 入库编排**：markdown 字节经 `upload_bytes_via_java` 上传为 `files` 行（`rag/infrastructure/files.py:64`，playbook 归档已在用；定时任务无用户会话时回退静态 service token，`lgpi_api/_http.py:44`）→ 定位空间 → `ingest_kb_file`（`ingest_service.py:277`）→ 写 `FIREFLIES` 登记行 → `start_vectorization`。登记需新函数：`upsert_kb_registration` 把业务类型写死为 `KNOWLEDGE_BASE`（`lg/db/service/file_registry.py:115,128`） | 新 Fireflies 模块 + `lg/db/service/file_registry.py` |
-| 2 | **向量化支持 `.md`**：`VectorizationEnum` 没有 md（`rag/infrastructure/processor/file_types.py:16-41`），`ingest_kb_file` 遇不支持的类型直接返回 None、不建条目（`ingest_service.py:298-299`）。加 md，映射到 `TextFileLoader`（`loaders/factory.py:40`） | `rag/infrastructure/processor/file_types.py`、`loaders/factory.py` |
+| 1 | **会议派生 markdown 入库编排**：markdown 字节经 `upload_bytes_via_java` 上传为 `files` 行（`rag/infrastructure/files.py:68`，playbook 归档已在用；定时任务无用户会话时回退静态 service token，`lgpi_api/_http.py:44`）→ 定位空间 → `ingest_kb_file`（`ingest_service.py:271`）→ 写 `FIREFLIES` 登记行 → `start_vectorization`。登记需新函数：`upsert_kb_registration` 把业务类型写死为 `KNOWLEDGE_BASE`（`lg/db/service/file_registry.py:107,120`） | 新 Fireflies 模块 + `lg/db/service/file_registry.py` |
+| 2 | **向量化支持 `.md`**：`VectorizationEnum` 没有 md（`rag/infrastructure/processor/file_types.py:16-41`），`ingest_kb_file` 遇不支持的类型直接返回 None、不建条目（`ingest_service.py:292-293`）。加 md，映射到 `TextFileLoader`（`loaders/factory.py:40`） | `rag/infrastructure/processor/file_types.py`、`loaders/factory.py` |
 | 3 | **Java 上传业务类型**：新增 Fireflies 的 `fileBusinessType`，扩展名白名单放行 `md`。`fileBusinessType` 决定 S3 目录段、扩展名白名单与大小上限，现有 `KNOWLEDGE_BASE` 的白名单不含 md（`lgpi_api/storage_upload_api.py:10-12`） | Java `FileBusinessTypeEnum` |
-| 4 | **跳过系统二次 `summarize`，改用我方传入的摘要**：向量化链在 `factory.py:364` 无条件调用 `processor.summarize`。改为：有传入摘要时直接用它建摘要分段（`factory.py:368-371`）并写 `entry.summary`（`ingest_service.py:902-903`）；证词与跨公司条目声明不要摘要时，同样不调 | `rag/infrastructure/processor/factory.py`、`rag/application/service/ingest_service.py`（`_run_vectorization` `:99`） |
-| 5 | **条目重投影**：按 #1 写新条目、中间表改指向新条目，软删旧条目与登记行（rag 条目删除链 + `soft_delete_by_entry`，`lg/db/service/file_registry.py:193`）；先后顺序（改内容先写后删，应用草稿先删后写）、失败与重试见 1.6 | 新 Fireflies 模块 |
+| 4 | **跳过系统二次 `summarize`，改用我方传入的摘要**：向量化链在 `factory.py:349` 无条件调用 `processor.summarize`。改为：有传入摘要时直接用它建摘要分段（`factory.py:353-356`）并写 `entry.summary`（`ingest_service.py:854-855`）；证词与跨公司条目声明不要摘要时，同样不调 | `rag/infrastructure/processor/factory.py`、`rag/application/service/ingest_service.py`（`_run_vectorization` `:94`） |
+| 5 | **条目重投影**：按 #1 写新条目、中间表改指向新条目，软删旧条目与登记行（rag 条目删除链 + `soft_delete_by_entry`，`lg/db/service/file_registry.py:185`）；先后顺序（改内容先写后删，应用草稿先删后写）、失败与重试见 1.6 | 新 Fireflies 模块 |
 
 **空间与业务类型**
 
 | # | 改动 | 位置 |
 |---|---|---|
-| 6 | **种子新增 `EXPERT_TESTIMONY`、`CROSS_COMPANY`**，以及机构层空间所用的组合键（种子已有 `ADMIN_ORGANIZATION`，键开发设计定）；仿 `ensure_erl_space`（`:116`；该方法已于 2026-10-14 删除，模板见开发设计 §3.2 注）为这些空间加 ensure / find 方法 | `rag/domain/enums.py:52-67`、`rag/application/service/business_association_service.py`（白名单校验 `:38,83`） |
+| 6 | **种子新增 `EXPERT_TESTIMONY`、`CROSS_COMPANY`**，以及机构层空间所用的组合键（种子已有 `ADMIN_ORGANIZATION`，键开发设计定）；仿 `ensure_erl_space`（`:116`；该方法已于 2026-10-14 删除，模板见开发设计 §3.2 注）为这些空间加 ensure / find 方法 | `rag/domain/enums.py:52-61`、`rag/application/service/business_association_service.py`（白名单校验 `:38,76`） |
 
 **召回**
 
@@ -1161,25 +1194,25 @@ Python 路径相对 `python/CIOaas-python/source`，Java 路径相对 `java/CIOa
 |---|---|---|
 | 7 | **公司端分支多解证词-匿名、跨公司两个空间**，调高 top_k | `ai/tools/knowledge_base_tool.py:103-114` |
 | 8 | **管理端分支多解证词-署名、跨公司、机构层三个空间** | `ai/tools/knowledge_base_tool.py:116-135` |
-| 9 | **行级过滤改为按空间施加**：KB-ADMIN 维持 `company_id IN 可访问公司 OR thread_id`；KB-APP 对公司端普通用户维持 `created_by` 收窄（例外见 #10）；证词、跨公司、机构层空间不叠行级过滤。现状是 `filters` 对一次召回的全部空间共用（`rag/infrastructure/processor/factory.py:270-276`、`rag/application/service/search_service.py:261-264`），不改则 #7 / #8 解出的空间会被整片滤掉。**不能改成放开 `company_id IS NULL`**——管理端会话文件的 `company_id` 同样为空（`rag/domain/repository/chunk_repository.py:66-83`） | `knowledge_base_tool.py`、`search_service.py`、`factory.py`、`chunk_repository.py` |
+| 9 | **行级过滤改为按空间施加**：KB-ADMIN 维持 `company_id IN 可访问公司 OR thread_id`；KB-APP 对公司端普通用户维持 `created_by` 收窄（例外见 #10）；证词、跨公司、机构层空间不叠行级过滤。现状是 `filters` 对一次召回的全部空间共用（`rag/infrastructure/processor/factory.py:223,258-260`、`rag/application/service/search_service.py:261-264`），不改则 #7 / #8 解出的空间会被整片滤掉。**不能改成放开 `company_id IS NULL`**——管理端会话文件的 `company_id` 同样为空（`rag/domain/repository/chunk_repository.py:66-83`） | `knowledge_base_tool.py`、`search_service.py`、`factory.py`、`chunk_repository.py` |
 | 10 | **公司端普通用户可召回 KB-APP 内的会议条目**：条目由系统写入，`created_by` 不是任何用户，现有 `created_by == 本人`（`knowledge_base_tool.py:114`；`chunk_repository.py:85-90`）会把它们滤掉。可选实现：会议条目统一以固定系统身份写 `created_by`，过滤改为 `created_by ∈ {本人, 系统身份}`；开发设计定 | `knowledge_base_tool.py`、`chunk_repository.py` |
 
 **页面数据源**
 
 | # | 改动 | 位置 |
 |---|---|---|
-| 11 | **Memory 页与知识库页纳入 `FIREFLIES`**：`list_kb_entry_scopes`（`lg/db/service/file_registry.py:271`）、知识库页列表 `_kb_documents_query`（`file_registry/domain/repository/file_registry_repository.py:137`）、上传者筛选项 `distinct_kb_uploaders`（`:311`）。按文件圈定召回的候选查询 `list_chat_scope_files`（`:240`）一并纳入——否则知识库页看得到的会议文件，Goldie 按文件名圈定时找不到 | `lg/db/service/file_registry.py`、`file_registry/domain/repository/file_registry_repository.py` |
-| 12 | **知识库页对公司端普通用户放开会议文件**：列表对 `FIREFLIES` 行不按 `created_by` 收窄（`file_registry_repository.py:142-143`）；下载现只放行 `KNOWLEDGE_BASE` 与 `SESSION_UPLOAD`、其余一律 404（`file_registry/application/service/file_registry_service.py:520-534`），需新增 `FIREFLIES` 分支：本公司 + APP 端（公司端）、可访问公司或本组织机构层（管理端）。**通用登记 CRUD 会绕开中间表正本**：`PUT` / `DELETE /api/ai/file-registry/records/{id}`（`file_registry/interfaces/routes.py:288,315`；service `update_record` / `delete_record`，`file_registry_service.py:618-665`）只校验 `company_id` 相同——管理端（company 为空）可改删任意行，公司端普通用户可删本公司的 `FIREFLIES` 行。本方案对 `FIREFLIES` 行**拒绝通用写操作**，改内容 / 撤下一律走矩阵（9.6.3、9.6.4）；基金标签走 #16 的专用接口，不受影响 | `file_registry_repository.py`、`file_registry_service.py`、`file_registry/interfaces/routes.py` |
-| 13 | **机构层条目的展示**：Memory 页与管理端知识库页现按 `company_id IN` 圈定（`memory/application/memory_service.py:107`、`lg/db/service/file_registry.py:240-278`、`file_registry_repository.py:136-145`），增加机构层作用域——按组织 + 机构层空间圈定，**不按 `company_id` 为空圈定**（证词、跨公司、会话文件同样为空）；web Memory 页增加机构层的展示 | 上述 Python 文件 + web `src/pages/askGoldie/memorySettings/` |
+| 11 | **Memory 页与知识库页纳入 `FIREFLIES`**：`list_kb_entry_scopes`（`lg/db/service/file_registry.py:263`）、知识库页列表 `_kb_documents_query`（`file_registry/domain/repository/file_registry_repository.py:137`）、上传者筛选项 `distinct_kb_uploaders`（`:311`）。按文件圈定召回的候选查询 `list_chat_scope_files`（`:240`）一并纳入——否则知识库页看得到的会议文件，Goldie 按文件名圈定时找不到 | `lg/db/service/file_registry.py`、`file_registry/domain/repository/file_registry_repository.py` |
+| 12 | **知识库页对公司端普通用户放开会议文件**：列表对 `FIREFLIES` 行不按 `created_by` 收窄（`file_registry_repository.py:142-143`）；下载现只放行 `KNOWLEDGE_BASE` 与 `SESSION_UPLOAD`、其余一律 404（`file_registry/application/service/file_registry_service.py:476-490`），需新增 `FIREFLIES` 分支：本公司 + APP 端（公司端）、可访问公司或本组织机构层（管理端）。**通用登记 CRUD 会绕开中间表正本**：`PUT` / `DELETE /api/ai/file-registry/records/{id}`（`file_registry/interfaces/routes.py:288,315`；service `update_record` / `delete_record`，`file_registry_service.py:574-619`）只校验 `company_id` 相同——管理端（company 为空）可改删任意行，公司端普通用户可删本公司的 `FIREFLIES` 行。本方案对 `FIREFLIES` 行**拒绝通用写操作**，改内容 / 撤下一律走矩阵（9.6.3、9.6.4）；基金标签走 #16 的专用接口，不受影响 | `file_registry_repository.py`、`file_registry_service.py`、`file_registry/interfaces/routes.py` |
+| 13 | **机构层条目的展示**：Memory 页与管理端知识库页现按 `company_id IN` 圈定（`memory/application/memory_service.py:107`、`lg/db/service/file_registry.py:232-272`、`file_registry_repository.py:136-145`），增加机构层作用域——按组织 + 机构层空间圈定，**不按 `company_id` 为空圈定**（证词、跨公司、会话文件同样为空）；web Memory 页增加机构层的展示 | 上述 Python 文件 + web `src/pages/askGoldie/memorySettings/` |
 
 **Java 与新建表**
 
 | # | 改动 | 位置 |
 |---|---|---|
-| 14 | **登录补创始人的 `organization_id`**：`UserDetailsServiceImpl.java:177-185` 只经 `r_organization_user` 解析组织（`OrganizationRepository.java:47`），创始人不在该表中，解出为 null；查不到时用 `companyId` 走 `r_organization_company` 反查（`OrganizationRepository.java:50` 已有现成查询） | `oauth/service/UserDetailsServiceImpl.java` |
-| 15 | **新建 Fireflies 域表与写入链路**：`ff_connection`（9.2.3）、`ff_email_domain`（9.7.7）、`ff_meeting` / `ff_meeting_sentence`（9.3.2，含会议状态与 Portfolio 标记）、路由中间表（9.6.4）、`ff_registry_party`（9.7.1，新增 Area of expertise）、专长标签字典（9.8）、专家候选拒绝名单（1.11）、`ff_audit_log`（9.10） | 新迁移脚本 + 新模块 |
+| 14 | **补创始人会话的 `organization_id`**：会话的组织只经 `r_organization_user` 解析（`OrganizationRepository.java:47`），创始人不在该表中，解出为 null。三条路径都要补：登录与 `/oauth/switch`（`UserDetailsServiceImpl.toAuthenticatedUser`，`:229-254`）、刷新 token（`OAuthTokenController` 的 refresh 分支经 `UserServiceImpl.getById` 取组织）、Redis 缓存重建（`UserInfoCache.java:82` 的 `findOrganizationIdByUserId`）；只改登录，刷新或缓存重建后又会变回空。查不到时用 `companyId` 走 `r_organization_company` 反查（已有现成查询），三处宜收成一个取会话组织的方法统一调用。另需回填存量会话：发版时已登录的创始人会话在有效期内仍为空，须把 Redis 中 `organizationId` 为空的会话按同一口径补齐，或让这些用户重新登录 | `oauth/service/UserDetailsServiceImpl.java`、`oauth/controller/OAuthTokenController.java`、`oauth/store/UserInfoCache.java`、`system/service/OrganizationServiceImpl.java`（统一取会话组织） |
+| 15 | **新建 Fireflies 域表与写入链路**（分工见本章开头）：Java——`ff_connection`（9.2.3）、`ff_meeting` / `ff_meeting_sentence`（9.3.2）、`ff_registry_party`（9.7.1，新增 Area of expertise）、专长标签字典 `ff_expertise_tag`（9.8）、`ff_email_domain`（9.7.7）；Python——`ff_meeting_summary` 与识别结果 `ff_meeting_participant` / `ff_meeting_speaker` / `ff_meeting_company`（9.5.9）、专家候选 `ff_expert_candidate` 与拒绝名单 `ff_expert_rejection`（9.5.10）、路由中间表 `ff_routing_row`（9.6.6）；`ff_audit_log`（9.10，归属随数据权限定）。表名为逻辑名，Python 表的物理名加 `ai_` 前缀 | Java 迁移脚本（`deploy/upgrade_doc/sprintNNN/`）与 Java Fireflies 模块；Python `sql/migrations/business/` 与新 Fireflies 模块 |
 
-改造 14 顺带修复一个现存问题：创始人会话中 `organizationId` 一直为空，证词匿名版与跨公司空间按组织键控，不修则 #7 在公司端解不出这两个空间；后续任何按组织圈定的功能也都会踩此坑。
+改造 14 顺带修复一个现存问题：创始人会话中 `organizationId` 一直为空，证词匿名版与跨公司空间按组织键控，不修则 #7 在公司端解不出这两个空间；后续任何按组织圈定的功能也都会踩此坑；公司端 Raw Data（#28）按会话租户圈定，同样依赖它。
 
 改造 9、10 合起来决定「谁能召回什么」，是本方案改动现有知识库召回语义的地方（Playbook 召回不改，#21），上线前需对公司端普通用户、Company Admin、PM、PGM 四种身份逐一回归。
 
@@ -1187,28 +1220,48 @@ Python 路径相对 `python/CIOaas-python/source`，Java 路径相对 `java/CIOa
 
 | # | 改动 | 位置 |
 |---|---|---|
-| 16 | **基金标签**（9.11.2）：登记行加多选字段；管理端知识库列表返回该字段，Portfolio 列按「手动标签 → 公司所属 Portfolio → 会议的 Portfolio 标记」取值；新增改标签接口（校验候选在本租户 `company_group` 内、调用者看得到该行）；Fireflies 条目重写时沿用旧行标签（#5）；web Portfolio 列改为可选 | 新迁移脚本、`lg/db/service/file_registry.py`、`file_registry/` 模块、web `src/pages/askGoldie/knowledgeBase/` |
+| 16 | **基金标签**（9.11.2）：登记行加多选字段；管理端知识库列表返回该字段，Portfolio 列按「手动标签 → 公司所属 Portfolio → 会议的 Portfolio 标记」取值；新增改标签接口（校验候选在本租户 `company_group` 内、调用者看得到该行）；Fireflies 条目重写时沿用旧行标签（#5）；web Portfolio 列改为可选 | Python 迁移脚本（`sql/migrations/business/`）、`lg/db/service/file_registry.py`、`file_registry/` 模块、web `src/pages/askGoldie/knowledgeBase/` |
 
 **Goldie Base**
 
 | # | 改动 | 位置 |
 |---|---|---|
-| 17 | **新页面与 Tab 容器**（9.11.1）：Ask Goldie 下新建 Goldie Base 页与路由，4 个 Tab，公司端只渲染 Knowledge Base 与 Memory Settings。**门户外壳上提**：两页现各自渲染门户外壳（侧栏 + 标题 + 手机端底栏：`KnowledgeBasePage.tsx:489-496,641-647`、`MemorySettingsPage.tsx:98,224-227`），「原样挂进 Tab」做不到——外壳上提到 Goldie Base 页，两页只保留内容区，业务原样搬入；`PortalTab` 类型（`PortalTabBar.tsx:21`）随之调整。**门户布局判定**：`src/layouts/BasicLayout.tsx` 的 `isChatPortal`（`:147-150`）与顶栏高亮 `askAI`（`:462-467`）按 `/askGoldie`、`/knowledgeBase`、`/memorySettings` 三个前缀判断，新路由放在 `/askGoldie` 下，或同步改这两处。`/knowledgeBase`、`/memorySettings` 保留为跳到对应 Tab 的地址（路由 `config/routes.ts:193-212`；`askGoldie/README.md:25` 规定线上 URL 不能改）：redirect 可行（先例 `config/routes.ts:903-906`），须放在 404 兜底之前。入口改指新页：聊天侧栏 `HistorySidebar.tsx:169-181`、手机端底部 Tab `PortalTabBar.tsx:56-66`、门户导航高亮 `PortalNavSidebar.tsx:25`；入口测试 `PortalNavSidebar.test.tsx:49-52`、`PortalTabBar.test.tsx:64-66` 断言旧 URL，一起改；README 同步 | web `config/routes.ts`、`src/layouts/BasicLayout.tsx`、`src/pages/askGoldie/`（新页面 + 两页去外壳 + `README.md`）、`src/pages/devSupport/chat/components/`（三个入口组件 + 两个入口测试） |
-| 18 | **Knowledge Base Tab 的 Source 列**（9.11.2）：列表接口的 `source` 现只取 'session' / 'company'（`_project_row`，`file_registry/application/service/file_registry_service.py:716`），改为 `GOLDIE` / `FIREFLIES`，同步改 DTO 默认值（`file_registry/application/dto/file_registry_dto.py:35`）、VO 默认值（`file_registry/interfaces/vo/response.py:41-44`）与路由映射（`file_registry/interfaces/routes.py:205`）；**不要动**同名的 `ChatScopeFileDTO.source`（`file_registry_service.py:365`，`find_files` 工具在用，`test_find_files_tool.py:63,86` 有断言）。Fireflies 行带会议 id，**只经中间表反查**（与 1.2「登记表不加会议列」一致）。Source 可否跳 Raw Data 由**后端按行算出**（仿现有 `canOpen`，`file_registry_dto.py:32`）：仅对有该会议 Raw Data 权限的查看者为真（9.3.6），前端不自行判断参会与角色，为假时显示纯文字。web `KbDocument` 加字段，页面加 Source 列。Portfolio / Company 列为空显示「—」在桌面表格已是现状（`KnowledgeBasePage.tsx:400-426`）；手机端折行 `renderMobileMeta`（`KnowledgeBasePage.tsx:326-347`）现对空 Portfolio / Company 整块不渲染，要改为同样显示 Source 与 `—` | `file_registry/application/service/file_registry_service.py`、`file_registry/application/dto/file_registry_dto.py`、`file_registry/interfaces/vo/response.py`、`file_registry/interfaces/routes.py`、新 Fireflies 模块（中间表反查）、web `src/services/api/fileRegistry/fileRegistryApi.ts`、`src/pages/askGoldie/knowledgeBase/KnowledgeBasePage.tsx` |
-| 19 | **Memory Settings Tab 的标签**（9.11.3）：业务类型从 `lg/db/service/file_registry.py` 的 `list_kb_entry_scopes` 带出（`:263-277`，现只 select `entry_id / end_type / company_id`；只取 `KNOWLEDGE_BASE` 的过滤在 `:271`），不在 `memory_service`；memory 列表（`memory/application/memory_service.py:86-127`）的 DTO 透传，`memory/interfaces/routes.py:88-94` 的 DTO→VO 逐字段映射加上，供前端区分 Fireflies 条目。web 逐层加字段：`src/services/api/memory/response.ts:14-21`、`dto.ts`、`src/services/service/memory/memoryService.ts:30-37`（逐字段映射），使用处 `MemoryList.tsx:47`、`MemoryDetailModal.tsx:34`。`MemoryMetaRow.tsx:22-38` 的内容类型标签由写死的「Document Summary」改为参数，Fireflies 条目另显示 `Fireflies Memory`、内容类型为 `Meeting Summary`；公司名为空时显示「—」（现状整块不渲染） | `lg/db/service/file_registry.py`、`memory/application/memory_service.py`、`memory/application/memory_dto.py`、`memory/interfaces/vo.py`、`memory/interfaces/routes.py`、web `src/services/api/memory/`（`response.ts`、`dto.ts`）、`src/services/service/memory/memoryService.ts`、`src/pages/askGoldie/memorySettings/components/`（`MemoryMetaRow.tsx`、`MemoryList.tsx`、`MemoryDetailModal.tsx`） |
-| 20 | **两个新 Tab 的列表接口**（9.11.4 / 9.11.5）：Cross company content、Expert Testimony 各一个，仅管理端；数据取中间表（9.6.4）里已授权的 Cross-Company / 证词行 + `ff_meeting`（会议名称与元数据），不从 RAG 条目反查；中间表证词行须带结构化字段——发言人（speaker_ref → 参会人、姓名、组织、角色）与回溯后的专长标签，正文与来源行分开存（9.6.4）。关键字模糊匹配内容与会议名称，日期区间按会议日期（业务日期，9.3.3，含边界），仿 devSupport 会话管理（后端 `chatbot/interfaces/routes.py:240-268`，前端 RangePicker `ChatManagePage.tsx:58,471`）；`escape_like` / `utc_day_start` / `utc_day_end_exclusive` 现为 chatbot 私有（`chatbot/domain/repository/_common.py:7-17`），先挪到 `common/`；`file_registry/domain/repository/file_registry_repository.py:177-179` 另有一份内联的同款转义，挪 `escape_like` 时一并收口 | 新 Fireflies 模块、`common/`、`chatbot/domain/repository/_common.py`（改为引用）、`file_registry/domain/repository/file_registry_repository.py`（改为引用）、web Goldie Base 页 |
-| 21 | **Play candidate**（9.11.6）：中间表加 `in_playbook`（默认关），只作 playbook 候选标记，不进 Playbook 召回；开关接口限 PGM / SA，写 `PLAYBOOK_TOGGLE` 审计（9.10.2）。原「Playbook 召回第二路」改造（`search_playbooks` 工具多一路、结果模型加字段、提示词改造）随需求 10-16「进入 playbook candidate」取消（用户决定 2026-10-16，第十章 #62） | 中间表迁移脚本、新 Fireflies 模块、web Goldie Base 页 |
-| 22 | **管理端角色判定**（9.1）：两个新 Tab 与 Fireflies Management 四页都要区分 PM 与 PGM / SA，现有字段区分不了——管理端用户 roleType 一律为 1（Java `RoleTypeEnum.java:4`，common 模块），Python `CurrentUser` 只有 `role_type / super_admin / roles`、没有权限码（`lgpi_api/current_user_api.py:52-64`），前端只认 `roleType===1`（`KnowledgeBasePage.tsx:118`）。本方案：**PGM / SA = 管理端，且（superAdmin 或角色菜单含 `seeAllPortfolio`）**，PM = 管理端其余用户，沿用现有菜单码口径（Java 组管理员判定 `CompanyGroupServiceImpl.java:501-518`；PM 名单取「没有该菜单」，`UserRepository.java:254-263`；web `PortfolioCompaniesPage.tsx:240`）。Java 把判定结果暴露给 Python（如 `GET /users/current` 的 `AuthenticatedUserDto` 加一个布尔字段，`system/controller/UserController.java:63`）；Python `CurrentUser` 加对应字段，接口据此给出可点标志 / 拒写；前端不自己判角色，用后端返回的标志位（如 `canManage`、按行的可点标志） | Java `system/contract/user/AuthenticatedUserDto.java`、`UserServiceImpl`（`current`）、`lgpi_api/current_user_api.py`、新 Fireflies 模块、web Goldie Base 页与 Fireflies Management 四页 |
+| 17 | **新页面与 Tab 容器**（9.11.1）：Ask Goldie 下新建 Goldie Base 页与路由，4 个 Tab，公司端只渲染 Knowledge Base 与 Memory Settings。**门户外壳上提**：两页现各自渲染门户外壳（侧栏 + 标题 + 手机端底栏：`KnowledgeBasePage.tsx:489-496,641-647`、`MemorySettingsPage.tsx:98,224-227`），「原样挂进 Tab」做不到——外壳上提到 Goldie Base 页，两页只保留内容区，业务原样搬入；`PortalTab` 类型（`PortalTabBar.tsx:21`）随之调整。**门户布局判定**：`src/layouts/BasicLayout.tsx` 的 `isChatPortal`（`:147-150`）与顶栏高亮 `askAI`（`:462-467`）按 `/askGoldie`、`/knowledgeBase`、`/memorySettings` 三个前缀判断，新路由放在 `/askGoldie` 下，或同步改这两处。`/knowledgeBase`、`/memorySettings` 保留为跳到对应 Tab 的地址（路由 `config/routes.ts:133-146`；`askGoldie/README.md:25` 规定 `/askGoldie`、`/knowledgeBase` 线上 URL 不能改，`/memorySettings` 同样保留、README 一并补上）：redirect 可行（先例 `config/routes.ts:757-760`），须放在 404 兜底之前。入口改指新页：聊天侧栏 `HistorySidebar.tsx:169-181`、手机端底部 Tab `PortalTabBar.tsx:56-66`、门户导航高亮 `PortalNavSidebar.tsx:25`；入口测试 `PortalNavSidebar.test.tsx:49-52`、`PortalTabBar.test.tsx:64-66` 断言旧 URL，一起改；README 同步 | web `config/routes.ts`、`src/layouts/BasicLayout.tsx`、`src/pages/askGoldie/`（新页面 + 两页去外壳 + `README.md`）、`src/pages/devSupport/chat/components/`（三个入口组件 + 两个入口测试） |
+| 18 | **Knowledge Base Tab 的 Source 列**（9.11.2）：列表接口的 `source` 现只取 'session' / 'company'（`_project_row`，`file_registry/application/service/file_registry_service.py:672`），改为 `GOLDIE` / `FIREFLIES`，同步改 DTO 默认值（`file_registry/application/dto/file_registry_dto.py:35`）、VO 默认值（`file_registry/interfaces/vo/response.py:41-44`）与路由映射（`file_registry/interfaces/routes.py:205`）；**不要动**同名的 `ChatScopeFileDTO.source`（`file_registry_service.py:321`，`find_files` 工具在用，`test_find_files_tool.py:63,86` 有断言）。Fireflies 行带会议 id，**只经中间表反查**（与 1.2「登记表不加会议列」一致）。Source 可否跳 Raw Data 由**后端按行算出**（仿现有 `canOpen`，`file_registry_dto.py:32`）：仅对有该会议 Raw Data 权限的查看者为真（9.3.6），前端不自行判断参会与角色，为假时显示纯文字。web `KbDocument` 加字段，页面加 Source 列。Portfolio / Company 列为空显示「—」在桌面表格已是现状（`KnowledgeBasePage.tsx:400-426`）；手机端折行 `renderMobileMeta`（`KnowledgeBasePage.tsx:326-347`）现对空 Portfolio / Company 整块不渲染，要改为同样显示 Source 与 `—` | `file_registry/application/service/file_registry_service.py`、`file_registry/application/dto/file_registry_dto.py`、`file_registry/interfaces/vo/response.py`、`file_registry/interfaces/routes.py`、新 Fireflies 模块（中间表反查）、web `src/services/api/fileRegistry/fileRegistryApi.ts`、`src/pages/askGoldie/knowledgeBase/KnowledgeBasePage.tsx` |
+| 19 | **Memory Settings Tab 的标签**（9.11.3）：业务类型从 `lg/db/service/file_registry.py` 的 `list_kb_entry_scopes` 带出（`:232-272`，现只 select `entry_id / end_type / company_id`；只取 `KNOWLEDGE_BASE` 的过滤在 `:263`），不在 `memory_service`；memory 列表（`memory/application/memory_service.py:86-127`）的 DTO 透传，`memory/interfaces/routes.py:88-94` 的 DTO→VO 逐字段映射加上，供前端区分 Fireflies 条目。web 逐层加字段：`src/services/api/memory/response.ts:14-21`、`dto.ts`、`src/services/service/memory/memoryService.ts:32-39`（逐字段映射），使用处 `MemoryList.tsx:47`、`MemoryDetailModal.tsx:34`。`MemoryMetaRow.tsx:22-38` 的内容类型标签由写死的「Document Summary」改为参数，Fireflies 条目另显示 `Fireflies Memory`、内容类型为 `Meeting Summary`；公司名为空时显示「—」（现状整块不渲染） | `lg/db/service/file_registry.py`、`memory/application/memory_service.py`、`memory/application/memory_dto.py`、`memory/interfaces/vo.py`、`memory/interfaces/routes.py`、web `src/services/api/memory/`（`response.ts`、`dto.ts`）、`src/services/service/memory/memoryService.ts`、`src/pages/askGoldie/memorySettings/components/`（`MemoryMetaRow.tsx`、`MemoryList.tsx`、`MemoryDetailModal.tsx`） |
+| 20 | **两个新 Tab 的列表接口**（9.11.4 / 9.11.5）：Cross company content、Expert Testimony 各一个，仅管理端；数据取中间表（9.6.4）里已授权的 Cross-Company / 证词行 + `ff_meeting`（会议名称与元数据），不从 RAG 条目反查；中间表证词行须带结构化字段——发言人（speaker_ref → 参会人、姓名、组织、角色）与回溯后的专长标签，正文与来源行分开存（9.6.6）。关键字模糊匹配内容与会议名称，日期区间按会议日期（业务日期，9.3.3，含边界），仿 devSupport 会话管理（后端 `chatbot/interfaces/routes.py:246-286`，前端 RangePicker `ChatManagePage.tsx:58,471`）；`escape_like` / `utc_day_start` / `utc_day_end_exclusive` 现为 chatbot 私有（`chatbot/domain/repository/_common.py:7-17`），先挪到 `common/`；`file_registry/domain/repository/file_registry_repository.py:177-179`、`:304-306` 与 `rag/domain/repository/entry_repository.py:181-183` 另有三份内联的同款转义，挪 `escape_like` 时一并收口 | 新 Fireflies 模块、`common/`、`chatbot/domain/repository/_common.py`（改为引用）、`file_registry/domain/repository/file_registry_repository.py`、`rag/domain/repository/entry_repository.py`（改为引用）、web Goldie Base 页 |
+| 21 | **Play candidate**（9.11.6）：中间表加 `in_playbook`（默认关），只作 playbook 候选标记，不进 Playbook 召回；开关接口限 PGM / SA，写 `PLAYBOOK_TOGGLE` 审计（9.10.2）。原「Playbook 召回第二路」改造（`search_playbooks` 工具多一路、结果模型加字段、提示词改造）随需求 10-16「进入 playbook candidate」取消（用户决定 2026-10-16，第十章 #62） | Python 迁移脚本（中间表）、新 Fireflies 模块、web Goldie Base 页 |
+| 22 | **管理端角色判定**（9.1）：两个新 Tab 与 Fireflies Management 四页都要区分 PM 与 PGM / SA，现有字段区分不了——管理端用户 roleType 一律为 1（Java `RoleTypeEnum.java:4`，common 模块），Python `CurrentUser` 只有 `role_type / super_admin / roles`、没有权限码（`lgpi_api/current_user_api.py:52-64`），前端只认 `roleType===1`（`KnowledgeBasePage.tsx:118`）。本方案：**PGM / SA = 管理端，且（superAdmin 或角色菜单含 `seeAllPortfolio`）**，PM = 管理端其余用户，菜单码沿用现有口径（Java 组管理员判定 `CompanyGroupServiceImpl.getIsGroupManager`，`:105-120`；PM 名单取「没有该菜单」，`UserRepository.java:254-263`；web `PortfolioCompaniesPage.tsx:240`），「superAdmin 或」为本方案新加（现有判定只看菜单码，9.1）。Java 把判定收成一个方法：Java Fireflies 模块的接口（Configuration、Cheat Sheet、Raw Data）直接用它拒绝 PM，同时暴露给 Python（如 `GET /users/current` 的 `AuthenticatedUserDto` 加一个布尔字段，与已有的 `superAdmin` 字段分开，`system/controller/UserController.java:63`）；Python `CurrentUser` 加对应字段，接口据此给出可点标志 / 拒写；前端不自己判角色，用后端返回的标志位（如 `canManage`、按行的可点标志） | Java `system/contract/user/AuthenticatedUserDto.java`、`UserServiceImpl`（`current`）、Java Fireflies 模块、`lgpi_api/current_user_api.py`、新 Fireflies 模块、web Goldie Base 页与 Fireflies Management 四页 |
 
 **提取输入**
 
 | # | 改动 | 位置 |
 |---|---|---|
 | 23 | **`firm_profile` 组装**（1.7）：取组织名称 + 本租户 Portfolio 名称列表（`company_group`，按 `organization_id` 圈定）作为基金清单，传入 P5 / P6；同一份名单并入 Cross-Company 与证词的机械剥离清单（1.5） | 新 Fireflies 模块 |
-| 24 | **识别链按新需求调整**（1.9）：GS 域名（按租户配置，Cheat Sheet 页 Email Domain 维护，9.7.7；GS 租户预置三个）首位判定；LG 用户、公司、Team 域名索引都只取本租户的（#69）；新建 LG 用户域名索引——按公司汇总公司端用户的邮箱域名、另汇总本租户管理端用户的邮箱域名，排除公共邮箱域名与 GS 域名，一个域名只对应一方（一家公司，或管理端）才可用；完整邮箱未命中 LG 用户时按域名匹配；日历姓名匹配移到 HubSpot 之后，命中只出候选、交 P8 核对（1.8）；命中依据写入 `IDENTIFY` 审计 | 新 Fireflies 模块 |
-| 25 | **参会人 LLM 推断**（6.13（P8））：程序匹配链与发言人映射之后，有未识别的参会人或映射不上的发言人时调 P8；组装 `attendees` / `unmapped_speakers` / `registry_candidates`（名册按会议日期取生效版本、排除本场已识别的人）；校验 ref / id / 角色取值，采纳 `high`；公司方只来自 P8 时置 `Pending`、不走 P1 正文反推；发言人经 P8 识别的证词 Authorize 默认不勾；说话人对不上参会人时先按 Cheat Sheet 姓名完全匹配找候选，连同其余一起交 P8 核对（可对到参会人或名册），仍对不上的置 `Pending`（待识别）；推断结果写入 `IDENTIFY` 审计，`low` 的推断供 Summary Records 登记弹框预填 | 新 Fireflies 模块 + `source/ai/prompts/fireflies/` |
-| 26 | **专家推测按标签确认 / 拒绝**（1.11、9.5.6）：拒绝名单按 `(organization_id, email, 专长标签)` 记录，只记本场所用邮箱，查询时按人展开到名册里的全部邮箱；P7 的候选发言人附上各自不再推测的标签（已有的、已被拒绝的），程序校验时再挡一次；Summary Records 专家确认框逐个标签确认 / 拒绝；建议标签未处理时会议置 `Pending`（待确认专家）、整场不投影、`Confirm & Apply Routing` 置灰；确认框保存后按名册为此人补跑 P5、替换他本场的证词行（2.5）；打开确认框时按名册与拒绝名单自动消解；列表按 Pending 原因筛选 | 新 Fireflies 模块、Summary Records 页 |
-| 27 | **公司增改后自动路由**（9.9.3）：Java 端公司与公司端用户的写入口（新增、编辑，含状态变更）保存成功后通知 Python Fireflies 模块，带租户与操作人；入口不止一处（如 `CompanyServiceImpl` 的 `create` / `update` / `addWithoutEmail` / `addCompanyAndSetStage`，`UserController` 的 `POST /clientUser`、`POST /invite` 与 `PUT /{userId}`），开发设计列全，通知方式开发设计定。Fireflies 模块收到后，对范围内待识别会议里按名册或 P8 识别的 Founder 重跑 1.9 ②③，成功即关联公司、走自动提取 | Java `system/service/CompanyServiceImpl.java`、`system/controller/UserController.java`（`UserServiceImpl`）+ 新 Fireflies 模块 |
+| 24 | **识别链按新需求调整**（1.9）：GS 域名（按租户配置，Cheat Sheet 页 Email Domain 维护，9.7.7；GS 租户预置三个）首位判定；LG 用户、公司、Team 域名索引都只取本租户的（#69）；新建 LG 用户域名索引——按公司汇总公司端用户的邮箱域名、另汇总本租户管理端用户的邮箱域名，排除公共邮箱域名与 GS 域名，一个域名只对应一方（一家公司，或管理端）才可用；完整邮箱未命中 LG 用户时按域名匹配；日历姓名匹配移到 HubSpot 之后，命中只出候选、交 P8 核对（1.8）；命中步骤与依据写入识别结果（9.5.9），并记 `IDENTIFY` | 新 Fireflies 模块 |
+| 25 | **参会人 LLM 推断**（6.13（P8））：程序匹配链与发言人映射之后，有未识别的参会人或映射不上的发言人时调 P8；组装 `attendees` / `unmapped_speakers` / `registry_candidates`（名册按会议日期取生效版本、排除本场已识别的人）；校验 ref / id / 角色取值，采纳 `high`；公司方只来自 P8 时置 `Pending`、不走 P1 正文反推；发言人经 P8 识别的证词 Authorize 默认不勾；说话人对不上参会人时先按 Cheat Sheet 姓名完全匹配找候选，连同其余一起交 P8 核对（可对到参会人或名册），仍对不上的置 `Pending`（待识别）；推断结果写入识别结果（9.5.9）并记 `IDENTIFY`，`low` 的推断供 Summary Records 登记弹框预填 | 新 Fireflies 模块 + `source/ai/prompts/fireflies/` |
+| 26 | **专家推测按标签确认 / 拒绝**（1.11、9.5.6）：拒绝名单按 `(organization_id, email, 专长标签)` 记录，只记本场所用邮箱，查询时按人展开到名册里的全部邮箱；P7 的候选发言人附上各自不再推测的标签（已有的、已被拒绝的），程序校验时再挡一次；Summary Records 专家确认框逐个标签确认 / 拒绝；建议标签未处理时会议置 `Pending`（待确认专家）、整场不投影、`Confirm & Apply Routing` 置灰；确认框保存后按名册为此人补跑 P5、替换他本场的证词行（2.5）；打开确认框时按名册与拒绝名单自动消解；列表按 Pending 原因筛选；候选与拒绝名单的字段见 9.5.10 | 新 Fireflies 模块、Summary Records 页 |
+| 27 | **公司增改后自动路由**（9.9.3）：Java 端公司与公司端用户的写入口（新增、编辑，含状态变更）保存成功后通知 Python Fireflies 模块，带租户与操作人；入口不止一处（如 `CompanyServiceImpl` 的 `create` / `update` / `addWithoutEmail` / `addCompanyAndSetStage`，`UserController` 的 `POST /clientUser`、`POST /invite` 与 `PUT /{userId}`），开发设计列全；各入口发布变更事件，事务提交后统一投 SQS（先例 `CompanyDeletedEventListener` 的 `@TransactionalEventListener(AFTER_COMMIT)`），消息带租户、操作人与变更的公司或用户 id，Python 新增消费者。Fireflies 模块收到后，对范围内待识别会议里还没认出公司的 Founder 重跑 1.9 ②③，成功即关联公司、走自动提取 | Java `system/service/CompanyServiceImpl.java`、`system/controller/UserController.java`（`UserServiceImpl`）、SQS 队列定义 + Python `consumer/`、新 Fireflies 模块 |
+
+**公司端入口**
+
+| # | 改动 | 位置 |
+|---|---|---|
+| 28 | **公司端 Raw Data 入口**（9.3.6、第十章 #90）：公司端导航加入口（位置以设计稿为准）；Fireflies Management 页对公司端用户只渲染 Raw Data Tab，不显示租户切换下拉；Raw Data 列表与详情接口放行「会话租户内、账号邮箱在 `participants` 中」的公司端用户，详情按会议 id 校验，其余三页接口照样拒绝。依赖 #14 | web `src/layouts/BasicLayout.tsx`（公司端顶栏不经 `menuTop_User`：可仿 `askAI` 在 `gst_menu_horizontal` 按条件追加，或放进 `newUserAdminNav` 并改 `getVerifyRolesForApp` 与手机端抽屉的白名单；`menuRight_User` 受订阅状态 `menuBuyState` 限制）、Fireflies Management 页、Java Fireflies 模块 |
+
+**Java 与 Python 联动**
+
+| # | 改动 | 位置 |
+|---|---|---|
+| 29 | **每日拉取的固定计划**（9.2、9.3.1）：`FixedScheduleTypeEnum` 加一项，Java 收到后按已连接的租户拉取 Fireflies、写入原文；Sync now 走同一链路 | Java `scheduler/`（`FixedScheduleTypeEnum`、`ScheduleProcessor` 的分发）、Java Fireflies 模块 |
+| 30 | **新会议交给 Python**（9.3.1）：Java 写入原文后每场会投一条 SQS 消息（转录为空的不投，重拉到句子后再投），投递后记 `dispatched_at`、不再改原文；Python 按 `consumer/` 的长轮询模板新增消费者，收到后识别与提取。消息带租户、会议 id、触发方式（定时 / Sync now）与触发人（定时为空，9.10.1）。现有模板遇在途任务直接跳过并删消息（`consumer/handlers.py:75-76`），兜不住崩溃中断，不能照搬：重投时按 `processing_stage` 与 `heartbeat_at`（9.5.9）判断，超时未更新的在途会议按中断重跑并计入 `processing_attempts`，N 不大于队列的最大接收次数；另需后台清扫——`dispatched_at` 非空但超时仍没有处理状态行、或停在识别中 / 提取中的会议按中断处理，兜住进死信队列或过期的消息（1.10） | Java Fireflies 模块、SQS 队列定义（common 模块 `sqs/enums/InitSqsQueueEnum`）；Python `consumer/`（按 `learn/` 子包新建，在 `bootstrap/lifespan.py` 注册）、新 Fireflies 模块 |
+| 31 | **Summary Records 用的名册写接口**（9.5.6、9.5.7、9.8.1）：Python 透传用户 token 调用——带来源会议的新登记（记 `System (<会议 id> import)`、来源 `FF_SUMMARY_RECORDS`），重名时返回已有条目供关联；从会议日期起逐版本追加副本的编辑与加标签；专长标签的新增与删除 | Java Fireflies 模块 |
+
+**管理端入口**
+
+| # | 改动 | 位置 |
+|---|---|---|
+| 32 | **Fireflies Management 页与入口**（9.1）：web 新建页面与路由（四个 Tab）；管理端导航按后端角色菜单显示，PM 不出菜单要靠 Java 迁移加菜单行、只挂 PGM 与 SA 的角色，或仿 `askAI` 前端直管、按 #22 的标志显示 | web `config/routes.ts`、`src/layouts/BasicLayout.tsx`；Java 菜单种子迁移 |
 
 ---
 
@@ -1232,8 +1285,8 @@ Python 路径相对 `python/CIOaas-python/source`，Java 路径相对 `java/CIOa
 | 页面 | 位置 | 回答的问题 | 数据源 |
 |---|---|---|---|
 | **Configuration** | Fireflies Management | 连没连上、上次同步什么时候 | 租户级连接配置 |
-| **Raw Data** | Fireflies Management | 原文拉到了吗、能不能用 | `ff_meeting` / `ff_meeting_sentence` |
-| **Summary Records** | Fireflies Management | AI 判成了什么、路由对不对、要不要改 | `ff_meeting` + 中间表 |
+| **Raw Data** | Fireflies Management | 原文拉到了吗、能不能用 | `ff_meeting` / `ff_meeting_sentence`（P1 判不可用读 `ff_meeting_summary`） |
+| **Summary Records** | Fireflies Management | AI 判成了什么、路由对不对、要不要改 | `ff_meeting` + `ff_meeting_summary` 与识别结果（9.5.9）+ 中间表（9.6.6） |
 | **Cheat Sheet**（含专长标签维护） | Fireflies Management | 平台外的人是谁、谁是专家、哪些邮箱域名是本机构的 | 外部人员注册表 + 标签字典 + Email Domain（9.7、9.8） |
 | **Goldie Base** | Ask Goldie（不属于 Fireflies Management） | Goldie 的回答有哪些数据源：知识库文件、记忆、跨公司内容、专家证词 | `ai_file_registry` / `ai_rag_entry`（原知识库页 / Memory 页）；中间表 + `ff_meeting`（两个新 Tab）；见 9.11 |
 
@@ -1248,9 +1301,9 @@ Fireflies Management 下的四个页面以 Tab 组织，顺序按原型：Summar
 
 公司端与 PM 经 Goldie 召回审核放行后的跨公司内容（用户决定 2026-10-10）。PM 能在 Tab 里看到，改变了 2026-10-10「管理端只有 PGM / Super Admin 能查看」的用户决定，依据《Goldie Base》，待确认（第十章 #43）。
 
-**权限**：Fireflies Management 四页限本租户的 Portfolio Group Manager / Super Admin——Raw Data 与 Configuration 的依据见 9.3.6 / 9.2.7；Summary Records 即文中的「会议管理页」，按《会议内容提取规则》III「管理员干预」只列 PGM / Super Admin；Cheat Sheet 需求未写，按同一口径对齐：PM 看不到也改不了名册（整页限 PGM / SA）——名册直接影响全租户的会议分类和证词去向（用户决定 2026-10-19，第十章 #84，请需求方确认）。
+**权限**：Fireflies Management 四页限本租户的 Portfolio Group Manager / Super Admin（例外：Raw Data Tab 另对受邀的公司端用户开放，9.3.6，第十章 #90）——Raw Data 与 Configuration 的依据见 9.3.6 / 9.2.7；Summary Records 即文中的「会议管理页」，按《会议内容提取规则》III「管理员干预」只列 PGM / Super Admin；Cheat Sheet 需求未写，按同一口径对齐：PM 看不到也改不了名册（整页限 PGM / SA）——名册直接影响全租户的会议分类和证词去向（用户决定 2026-10-19，第十章 #84，请需求方确认）。
 
-**PM 与 PGM / SA 的判定**（本方案；Fireflies Management 四页与 Goldie Base 两个新 Tab 同用）：**PGM / SA = 管理端用户，且 superAdmin 或角色菜单含 `seeAllPortfolio`**；PM = 管理端其余用户。现状：管理端用户 roleType 一律为 1（Java `RoleTypeEnum.java:4`），按 roleType 区分不了 PM 与 PGM；已有的区分口径是菜单码 `seeAllPortfolio`——Java「组管理员」判定 `CompanyGroupServiceImpl.java:501-518`，PM 名单取「没有该菜单」的用户（`UserRepository.java:254-263`），web 同（`PortfolioCompaniesPage.tsx:240`）。Python `CurrentUser` 只有 `role_type / super_admin / roles`、没有权限码（`lgpi_api/current_user_api.py:52-64`），前端只认 `roleType===1`（`KnowledgeBasePage.tsx:118`）。做法：Java 把判定结果暴露给 Python（如 `/users/current` 加一个布尔字段），Python 接口据此给出可点标志 / 拒写；前端不自己判角色，用后端返回的标志位（如 `canManage`、按行的可点标志）。改动见第八章 #22。
+**PM 与 PGM / SA 的判定**（本方案；Fireflies Management 四页与 Goldie Base 两个新 Tab 同用）：**PGM / SA = 管理端用户，且 superAdmin 或角色菜单含 `seeAllPortfolio`**；PM = 管理端其余用户。现状：管理端用户 roleType 一律为 1（Java `RoleTypeEnum.java:4`），按 roleType 区分不了 PM 与 PGM；已有的区分口径是菜单码 `seeAllPortfolio`——Java「组管理员」判定 `CompanyGroupServiceImpl.getIsGroupManager`（`:105-120`），PM 名单取「没有该菜单」的用户（`UserRepository.java:254-263`），web 同（`PortfolioCompaniesPage.tsx:240`）。现有判定都只看菜单码，「superAdmin 或」是本方案加的：没挂该菜单的 Super Admin 在现有组管理员判定下不算组管理员，本功能里按 PGM / SA 处理。Python `CurrentUser` 只有 `role_type / super_admin / roles`、没有权限码（`lgpi_api/current_user_api.py:52-64`），前端只认 `roleType===1`（`KnowledgeBasePage.tsx:118`）。做法：Java 把判定收成一个方法，Java 侧三页（Configuration、Cheat Sheet、Raw Data）的接口直接用它，并暴露给 Python（如 `/users/current` 加一个布尔字段），Python 接口据此给出可点标志 / 拒写；前端不自己判角色，用后端返回的标志位（如 `canManage`、按行的可点标志）。改动见第八章 #22。
 
 职责不重叠：Raw Data 只对**原文**负责，Summary Records 只对**派生产物**负责（跨公司内容的审核、授权与措辞修订也都在这里）。同一场会在 Raw Data 与 Summary Records 各出现一次，互不替代。
 
@@ -1348,7 +1401,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 
 **Last sync 只记成功**：失败的那次不覆盖 `last_success_sync_at`，否则页面显示"刚刚同步过"而实际数据是旧的，比不显示更糟。失败信息进 `last_attempt_at` / `last_error`，需要时在状态区提示。
 
-**定时拉取**：每日一次，服务端排程，页面上没有频率配置项（需求与原型均未提供）；连接为 `Failed` 时暂停，转回 `Connected` 后恢复（9.2.4）。
+**定时拉取**：每日一次，由 Java 固定计划触发并执行（第八章开头分工、第八章 #29），页面上没有频率配置项（需求与原型均未提供）；连接为 `Failed` 时暂停，转回 `Connected` 后恢复（9.2.4）。
 
 #### 9.2.7 接口
 
@@ -1378,7 +1431,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | 限流 | 429 中止本次、不推进游标，不计入连续失败 |
 | 触发 | 每日定时 + 手动 Sync now，同一入口；`Failed` 期间暂停定时（9.2.4） |
 
-**幂等**：以 `(organization_id, Fireflies id)` 为业务唯一键——两个租户接了同一个 workspace 时各存一份，互不覆盖（用户决定 2026-10-16）。有回看，同一场会会被重复拉到：已进入识别的不改原文、不重跑识别与提取，内容有变时记 `TRANSCRIPT_CHANGED`；转录为空、尚未进入识别的（9.3.4）重拉到句子时整场重写（upsert 元信息、逐句先删后插），按首次入库走识别。
+**幂等**：以 `(organization_id, Fireflies id)` 为业务唯一键——两个租户接了同一个 workspace 时各存一份，互不覆盖（用户决定 2026-10-16）。有回看，同一场会会被重复拉到：已进入识别（Java 已投递给 Python，`dispatched_at` 非空，第八章 #30）的不改原文、不重跑识别与提取，内容有变时记 `TRANSCRIPT_CHANGED`；转录为空、尚未进入识别的（9.3.4）重拉到句子时整场重写（upsert 元信息、逐句先删后插），按首次入库走识别。
 
 #### 9.3.2 数据模型
 
@@ -1393,7 +1446,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | `started_at` | `dateString` | 存 UTC |
 | `duration_minutes` | `duration` | **单位是分钟**，实测 `39.06`；按秒理解会错 60 倍 |
 | `participants` | `participants` | 邮箱数组 |
-| `attendance` | `meeting_attendance` | `[{name, join_time, leave_time}]`，**姓名的首选来源**（1.8） |
+| `attendance` | `meeting_attendance` | `[{name, join_time, leave_time}]`；Raw Data 照原样显示，并作 P8 的出席名单线索，与邮箱没有对应、不作参会人姓名（1.9，#92） |
 | `speakers` | `speakers` | `[{id, name}]`，`speaker_id` 的解析依据 |
 | `host_email` / `organizer_email` | 同名字段 | |
 | `transcript_url` / `meeting_link` | 同名字段 | 只存、不外发：只在 PGM / SA 的 Raw Data 详情接口返回（页面是否展示以设计稿为准）；公司端接口、知识库文档、Goldie 一律不带——`transcript_url` 在 `privacy = link` 时可能不登录也能打开（未实测），`meeting_link` 可直接进同一系列的后续会议。知识库文档里的「原始转录链接」指 LG 的 Raw Data 详情页（1.3） |
@@ -1401,7 +1454,10 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | `overview` | `summary.overview` | GS → 创始人的摘要与 KB 正文的来源（1.3 / 2.3）。在同一个列表查询里加 `summary { overview }`，不增加调用次数；可能为空 |
 | `ingested_at` | 我方写入 | 列表的 `Ingested at` 列；详情页顶部的 `captured` 同源 |
 | `word_count` | 我方统计 | 详情页的 `9,420 words`，入库时按逐句文本算一次，不每次现算 |
-| `validity` | 我方判定 | `Invalid` 与否，见 9.3.4 |
+| `validity` | 我方判定 | `VALID` / `INVALID_EMPTY`（转录为空，程序检查判出；重拉到句子后按首次入库重新走识别，可回转，9.3.1）。P1 判不可用记在 Python 的 `ff_meeting_summary`（9.5.9），本页两种都显示灰色 `Invalid`（9.3.4） |
+| `dispatched_at` | 我方写入 | 交给 Python 识别的时间（经 SQS，第八章 #30）；非空即「已进入识别」，回看重拉不再改原文（9.3.1） |
+
+会议类型、Summary 状态、Portfolio 标记等处理状态归 Python，见 `ff_meeting_summary`（9.5.9）。
 
 **不存的字段**，各有理由：
 
@@ -1476,7 +1532,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 
 > 面包屑与页面命名原型尚未统一（列表 `Fireflies Raw Data`、详情 `Fireflies Meeting Data`），**待定，不在本轮范围**。
 
-**页头**：标题 + 一行元信息 `Raw verbatim transcript — 9,420 words · unclassified and unmodified · captured <ingested_at>`。「unclassified and unmodified」是固定文案，用于向管理员明示本页与其余界面的区别。
+**页头**：标题 + 一行元信息 `Raw verbatim transcript — 9,420 words · unclassified and unmodified · captured <ingested_at>`。「unclassified and unmodified」是固定文案，用于向管理员明示本页与其余界面的区别；公司端视图（9.3.6）是否照用这句与页尾文案，以设计稿为准。
 
 **信息卡**：Date / Time / Duration / Participants，与列表同源。
 
@@ -1484,7 +1540,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 
 - 用 `text`（清洗后）；`raw_text` 存着备查，页面不展示两版
 - 时间戳按 `start_time` 折算成 **`[hh:mm:ss]`**（原型为 `[00:00:04]`），不用 `mm:ss`——超过一小时的会议会歧义；传给大模型的转录与提示词输出的时间戳用同一格式（6.3）
-- 说话人用 `speaker_name`（ASR 识别值，可能与注册表姓名不一致，此处**照原样显示**，不做替换——这里是原文界面，替换会破坏可追溯性）
+- 说话人用 `speaker_name`（会议显示名，可能与注册表姓名不一致，此处**照原样显示**，不做替换——这里是原文界面，替换会破坏可追溯性）
 - 页尾 `End of transcript · N words total · stored in the admin library prior to any classification or routing.`
 
 > **长会议的渲染**：448 句/场是均值，长会议更多，一次性渲染会卡。**接口要支持按 `idx` 区间取**，不要做成只有全量一种取法。
@@ -1506,9 +1562,9 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | **创始人本人**（公司端） | 仅自己受邀（账号邮箱在 `participants` 内）的会议的列表项与逐字稿详情 |
 | 同公司未受邀的公司端用户（含 Company Admin） | 不可见（需求「未参加的本公司人员不可见」，按未受邀理解，#66） |
 
-**"本人参加过"的判定**（本方案口径）：该用户的账号邮箱出现在该场会的 `participants` 中——与 1.9 平台用户的完整邮箱匹配同口径。**姓名回退匹配（1.8）命中的不算**：姓名匹配的误判落在原文上，就是让一个人读到别人的完整转录，代价与收益不对称。Cheat Sheet 中的 `Founder`（未使用 LG 平台的人）没有账号，自然无从查看。
+**"本人参加过"的判定**（本方案口径）：该用户的账号邮箱出现在该场会的 `participants` 中（忽略大小写，Java 的 Raw Data 与 Python 的 Source 列同一口径）——与 1.9 平台用户的完整邮箱匹配同口径。**姓名回退匹配（1.8）命中的不算**：姓名匹配的误判落在原文上，就是让一个人读到别人的完整转录，代价与收益不对称。Cheat Sheet 中的 `Founder`（未使用 LG 平台的人）没有账号，自然无从查看。
 
-**公司端入口**：需求只给了权限，没给入口（页面放在公司端何处、以什么形态出现），未决，见第十章。本章只定鉴权口径，接口按上表预留。
+**公司端入口**（用户决定 2026-10-23，第十章 #90）：公司端也在 Fireflies Management 页查看，只显示 Raw Data 一个 Tab；其余三个 Tab 不显示，接口照样拒绝（9.1）。公司端导航上加入口，位置以设计稿为准；不显示 Super Admin 的租户切换下拉。列表只列会话租户内、账号邮箱在 `participants` 中的会议，搜索同此范围（9.3.3）；详情接口按会议 id 逐场校验，不靠列表不出。会话租户取创始人会话的 `organization_id`，现为空，依赖第八章 #14 先补齐。
 
 **留存**：
 
@@ -1547,7 +1603,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | 状态 | 含义 | 是否阻断 |
 |---|---|---|
 | `Passed` | 类型与参会人均判定成功、内容已路由，且没有待审核内容、没有未处理的专家标记；或 Pending 会议经管理员应用路由（9.6.5） | 否 |
-| `Pending`（待识别） | 参会人经 P8 推断后仍未识别（含没有邮箱的参会人，#59）；或有说话人对不上参会人与 Cheat Sheet（1.9）；或类型未判出；或 GS → 创始人关联了两家及以上公司，或有到场 Founder 归属不到关联的那家（2.1、2.3）；或 GS → 创始人定不出公司（仅凭 Cheat Sheet `Founder` 成立、正文反推不出恰好一家高置信且为到场者所在的公司，或公司方只来自 P8，2.1）；或管理员把类型改为 `Unknown` 并应用（9.9.2）；或自动提取作废、P1 / P8 最终失败（6.11） | **是**，路由未执行（可能已有未应用的草稿）；识别结果照常展示 |
+| `Pending`（待识别） | 参会人经 P8 推断后仍未识别；或有说话人对不上参会人与 Cheat Sheet（1.9）；或类型未判出；或 GS → 创始人关联了两家及以上公司，或有到场 Founder 归属不到关联的那家（2.1、2.3）；或 GS → 创始人定不出公司（仅凭 Cheat Sheet `Founder` 成立、正文反推不出恰好一家高置信且为到场者所在的公司，或公司方只来自 P8，2.1）；或管理员把类型改为 `Unknown` 并应用（9.9.2）；或自动提取作废、P1 / P8 最终失败（6.11） | **是**，路由未执行（可能已有未应用的草稿）；识别结果照常展示 |
 | `Pending`（待确认专家） | 提取已完成，但有「可能为专家」的建议标签未通过或驳回（1.10，用户决定 2026-10-16）；标签已全部处理、还没应用的仍属此原因（详情页要能看出只差应用，本方案） | **是**，整场产物不投影；`Confirm & Apply Routing` 置灰，标签全部处理完才可点 |
 | `Pending`（待审核） | 提取已完成，但有待审核内容：Cross-Company、发言人经 P8 识别的证词（1.10） | **否**，其余已授权内容照常路由；`Confirm & Apply Routing` 后转 `Passed` |
 
@@ -1626,7 +1682,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 >
 > 手动添加的公司也要写依据，否则时间一长分不清哪些是 AI 判的、哪些是人改的——而这两者的可信度不同。
 
-**未采纳的正文提及候选**（本方案）：P1 给出、裁决没采纳的公司——`low`，以及按类型规则没采纳的 `high`（如 GS → 创始人反推出多家、公司方只来自 P8，2.1）——连同依据留在 `IDENTIFY` 记录里，页面是否展示以设计稿为准；管理员要加时用右侧下拉添加，依据按人工指定写。GS → LP 不做公司识别，没有候选。
+**未采纳的正文提及候选**（本方案）：P1 给出、裁决没采纳的公司——`low`，以及按类型规则没采纳的 `high`（如 GS → 创始人反推出多家、公司方只来自 P8，2.1）——连同依据留在识别结果里（`adopted` 为否，9.5.9），页面是否展示以设计稿为准；管理员要加时用右侧下拉添加，依据按人工指定写。GS → LP 不做公司识别，没有候选。
 
 **下拉的候选范围**：当前用户**有权限的公司**，可搜索（《Summary Records》10-13 版「仅可搜索该用户有权限的公司」）——按平台现有的公司权限口径取（Super Admin 与带 `seeAllPortfolio` 的 PGM 为本租户全部公司，9.1），并且**只列本租户的公司**（1.1，用户决定 2026-10-16）。
 
@@ -1643,7 +1699,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | 候选 | GS → 创始人以外的类型：当前用户有权限的 Portfolio（《Summary Records》10-13 版「该账户下有权限的」），可搜索；Super Admin 为本租户全部 Portfolio（`company_group`，按 `organization_id` 圈定） |
 | 用途 | 给会议打"涉及哪个基金组合"的标记——即 GS → LP 基金层内容的**基金标签**。本租户的 Portfolio 名称列表同时作为本机构的基金清单，供基金层过滤识别 GS 自己的基金（1.7）；清单取调用当时现存的 Portfolio，已删除的不再参与识别与剥离（不另存名称快照）。基金层内容归属机构（租户）层面、不建基金实体（1.1 / 3.3），Portfolio 标记是它在会议级的基金维度；条目级另有管理端知识库页的基金标签（9.11.2） |
 | 不做什么 | **不参与检索过滤、不参与可见范围、不参与路由**。LG 里的 Portfolio 平时是权限单位（`r_portfolio_user`），需求特意写明此处"不作权限依据"，即不能拿它去收窄谁看得到这场会的内容 |
-| 存储 | 存在会议级，一场会一份，存 Portfolio id；机构层条目经会议溯源取得，**改标记不重提取、不重投影**。Portfolio 被删后（`company_group` 为硬删，`CompanyGroupServiceImpl.java:258-262`），接口只返回仍存在的 Portfolio，删掉的 id 不显示、不专门清理 |
+| 存储 | 存在会议上（`ff_meeting_summary.portfolio_ids`，9.5.9），一场会一份，存 Portfolio id；机构层条目经会议溯源取得，**改标记不重提取、不重投影**。Portfolio 被删后（`company_group` 为硬删，`CompanyGroupServiceImpl.java:258-262`），接口只返回仍存在的 Portfolio，删掉的 id 不显示、不专门清理 |
 | 生效 | GS → 创始人以外的类型：选择变动 → 激活 `Confirm & Apply Routing`；不激活 Start Extraction |
 
 GS → 创始人以外的类型都可手动打标记，但只有 LP 基金层内容会用到它——知识库页该行没手动选基金标签时，以它作显示回退（9.11.2）。
@@ -1666,7 +1722,7 @@ GS → 创始人以外的类型都可手动打标记，但只有 LP 基金层内
 |---|---|
 | `Expert` | 该人按会议日期生效的注册表版本带专长标签，即**已标记为专家**（1.11）。需求「补充识别以显示其专家标志」 |
 | `Possible expert` | 专家推测命中、尚未处理（9.5.6） |
-| `AI inferred` | 身份由 6.13（P8）推断并采纳（`high`），含经 P8 对到注册表已有条目的人——提醒管理员这是 AI 判的，悬停显示依据。点击：对到注册表的弹 `Edit external party`，推断出的弹 `Assign new external party` 并带入推断的姓名 / 组织 / 角色（姓名取 P8 从会上得到的全名，没有则取出席记录姓名）（本方案，用户决定 2026-10-14） |
+| `AI inferred` | 身份由 6.13（P8）推断并采纳（`high`），含经 P8 对到注册表已有条目的人——提醒管理员这是 AI 判的，悬停显示依据。点击：对到注册表的弹 `Edit external party`，推断出的弹 `Assign new external party` 并带入推断的姓名 / 组织 / 角色（姓名取 P8 从会上得到的全名，没有则取已对上的发言人名）（本方案，用户决定 2026-10-14） |
 
 **点击行为按来源分**：
 
@@ -1687,7 +1743,7 @@ GS → 创始人以外的类型都可手动打标记，但只有 LP 基金层内
 
 **Name 的可编辑性差异是有意的**：姓名是注册表的唯一识别符（《Cheat Sheet》明确，确认发布后不可改）。已在册的人改名等于换了一个人；而尚未入册的人此刻还没有姓名这个识别符，ASR 或推断给的姓名可能是昵称或听错的拼写（`Mike` / `Michael`、`Speaker 2`），**必须允许订正后再入册**。需求写的「已识别者 Name 只读」按"已在册"理解——HubSpot / LLM 推断得到的身份没进过注册表，同样适用订正逻辑。
 
-**弹框字段**：Name、Email(s)（可多个）、Organization、Role、Expertise tags、Area of expertise、Validity period（From 必填，从本页打开时默认带本场会议日期，同 9.5.6；To 留空表示 open-ended）——字段与 Cheat Sheet 页弹框一致（9.7.4），`Edit external party` 的 From～To 语义见 9.5.7。需求这里列的字段没有 Area of expertise，但两处写的是同一张表，用同一个表单，不为一个字段维护两套。必填项同 9.7.4：Email 必填，没有邮箱的参会人登记不了，会议保持 Pending（#59）。From 晚于本场会议日期时提示「本场将识别不到此人」，仍可提交。
+**弹框字段**：Name、Email(s)（可多个）、Organization、Role、Expertise tags、Area of expertise、Validity period（From 必填，从本页打开时默认带本场会议日期，同 9.5.6；To 留空表示 open-ended）——字段与 Cheat Sheet 页弹框一致（9.7.4），`Edit external party` 的 From～To 语义见 9.5.7。需求这里列的字段没有 Area of expertise，但两处写的是同一张表，用同一个表单，不为一个字段维护两套。必填项同 9.7.4：Email 必填；未对上的说话人查不到邮箱就登记不了，可改为指定给某位参会人（#59、#92）。From 晚于本场会议日期时提示「本场将识别不到此人」，仍可提交。
 
 > 原型在这两个弹框里多画了一个 `Company` 下拉，**是画错了**，不实现。外部人员的所属机构只有 `Organization` 一个自由文本字段，注册表不持有 `company_id`；最新设计稿也已改为文本字段（用户决定 2026-10-19，第十章 #83）。代价：没用 LG 平台的创始人每场仍靠 P1 正文反推公司，反推不出就 Pending、管理员手选。
 
@@ -1726,7 +1782,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 
 **LG 平台用户被确认为专家**：典型是 GS → 创始人会上的创始人。同意时同样在注册表建一条（角色 `Founder`，姓名取平台账号姓名），**只为承载专长标签**；他的身份分类仍以平台账号为准——识别链对平台用户命中即止（1.9），注册表这一条只在补充识别（1.11）时被查到。这改变了"平台用户在注册表里没有副本"的旧口径；与《Cheat Sheet》「Founder 指未使用 LG 平台的人」的口径如何对齐，未决，见第十章。
 
-**拒绝名单**：按 `(organization_id, email, 专长标签)` 记录，附操作人、时间、来源会议；只记本场所用邮箱 + 标签。查询（推测前排除、校验、自动消解）按人展开：本场邮箱或此人名册各版本的任一邮箱命中即算已拒绝（本方案）——需求说的是不再就同一标签询问「同一个人」，他换个邮箱来开会不该再被问。没有撤销入口——误拒的补救是直接在 Cheat Sheet 给此人加该专长标签，加了就是专家，不再需要推测。
+**拒绝名单**：按 `(organization_id, email, 专长标签)` 记录，附操作人、时间、来源会议；只记本场所用邮箱 + 标签。查询（推测前排除、校验、自动消解）按人展开：本场邮箱或此人名册各版本的任一邮箱命中即算已拒绝（本方案）——需求说的是不再就同一标签询问「同一个人」，他换个邮箱来开会不该再被问。没有撤销入口——误拒的补救是直接在 Cheat Sheet 给此人加该专长标签，加了就是专家，不再需要推测。字段见 9.5.10。
 
 **确认后只重新产出这个人的证词，不重新提取整场**：有建议标签未处理时会议停在 `Pending`（待确认专家），整场不放行；管理员把每个建议标签都通过或驳回后，`Confirm & Apply Routing` 才可点（1.10，用户决定 2026-10-16）。每次保存确认框（或在 `Edit external party` 里改了专长标签），程序按此人名册里会议当日生效的标签只为他补跑 P5，替换他本场的证词行（2.5）。From 默认带会议日期，以便补跑与日后重新提取都能取到新登记的标签。
 
@@ -1751,6 +1807,109 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 
 - 参会人登记影响注册表与**此后**会议的识别，**不自动回溯已提取的会议**（含本场，本场要管理员点 Start Extraction）；被推测者的单人补跑除外（2.5）
 - 所有动作写审计日志（9.10）
+
+#### 9.5.9 数据模型：会议处理状态与识别结果
+
+**`ff_meeting_summary`（会议处理状态）**：一场会一行，与 `ff_meeting`（9.3.2）一对一，Python 收到投递时建行（第八章 #30）。
+
+| 字段 | 说明 |
+|---|---|
+| `meeting_id` / `organization_id` | 所属会议与租户 |
+| `meeting_type` | 当前生效的类型：GS → 创始人 / GS → LP / GS 内部 / GS → Partner / `Unknown`（9.5.2）；判不出为 `Unknown`；改判在应用时写入（9.5.8） |
+| `summary_status` | `Passed` / `Pending`（1.10、9.4.2）；首轮加工未跑完或会议 `Invalid` 时为空，不进 Summary Records（9.4） |
+| `pending_reasons` | 待识别 / 待确认专家 / 待审核，可多个并存（9.4.2）；列表筛选与红点计数按它。待识别的子原因不存，现算（9.4.2） |
+| `portfolio_ids` | Portfolio 标记，多选，存 `company_group` id，应用时写入（9.5.4） |
+| `processing_stage` | 首轮自动加工的进度：识别中 / 提取中 / 完成；完成才进 Summary Records（9.4），之后不回退 |
+| `processing_attempts` | 首轮加工中断后的自动重跑次数，到 N 次按自动提取作废处理（1.10、6.11） |
+| `processing_started_at` / `extraction_started_at` / `heartbeat_at` | 首轮加工与最近一次提取任务的开始时间、最近心跳；中断与超时按它判（1.10、第八章 #30） |
+| `extraction_status` | 最近一次提取任务：进行中 / 完成 / 作废。任务含首轮自动提取（含中断重跑用尽）、Start Extraction、自动路由、改判前补跑的 P1；进行中时 Start Extraction 置灰，同场同时只有一个提取任务（9.5.1、9.6.5）；「提取失败」子原因取它（9.4.2） |
+| `p1_status` / `p8_status` | P1：只做质量判断 / 含公司识别 / 判不可用（会议 `Invalid`，不回转，#65）/ 最终失败；P8：未调用 / 完成 / 最终失败（6.4、6.13、6.11）。只做质量判断的会议改判为 GS 内部或 Partner 时提取前补跑 P1（9.9.2）；P1 最终失败的不参加自动路由（9.9.3）；「P1 / P8 失败」子原因取它们（9.4.2）。只记识别阶段那次 P1：改判前补跑的不写本字段——补跑判不可用或最终失败按该次提取作废（`extraction_status`），补跑出的公司写 `ff_meeting_company` |
+| `lock_version` | 乐观锁：本场任何写操作（应用、Start Extraction、行内 Save、草稿行勾选、登记或指定、专家确认、自动路由，以及提取完成写入草稿、补抽返回）都加一，提交时版本不一致按页面已过期拒绝（9.6.5、9.9.3） |
+| `draft_snapshot` | 生成草稿时的页头快照，为空即没有草稿（9.6.4）。判断有无草稿用它、不用草稿行——草稿可能一行也没有，9.9.3 的「没有草稿」即按此判。内容：类型、保留的公司、每位参会人的身份 / 组织 / 公司 / 专长标签、说话人绑定；不含 Portfolio（不影响提取，9.5.4） |
+| `draft_created_by` / `draft_created_at` | 发起这次 Start Extraction 的人和时间 |
+| `extraction_snapshot` | 进行中或最近一次作废的 Start Extraction 所用页头：完成时转为 `draft_snapshot`（旧草稿此时才被取代），作废时保留、供重跑同一组改动（9.5.1），应用或 Discard 时清空 |
+| `current_snapshot` | 当前生效版本提取时的页头快照，结构同上，应用草稿时由 `draft_snapshot` 转来；首轮自动提取与自动路由的提取完成时按当时的识别结果写入；改 `Unknown` 应用后清空。登记与指定说话人会立刻写进识别结果，「参会人有改动」只能拿它比（9.5.1、9.6.5） |
+
+快照比对的口径：GS → LP 不比公司；被推测者的专长标签不比；只补邮箱、改 Area of expertise 不在快照里；组织只比 Founder 与本场有证词行的人（9.5.1、9.6.5、9.9.1）。取值写法开发设计定。
+
+**识别结果**（下面三张表）是本场识别的**当前态**（本方案）：识别阶段写入；之后由本页的登记、关联、指定说话人、专家确认框 `Save` 与 `Edit external party`，公司增删的应用，以及自动路由（9.9.3）更新；Cheat Sheet 页的订正不回写（#75、9.9.3）。参会人胶囊、Company 的依据文案、待识别子原因、Start Extraction 的必填项都从这里读；`IDENTIFY` 审计（9.10.2）只记每次自动识别的决策与依据，作留痕，不当页面数据源。
+
+**`ff_meeting_participant`（参会人）**：一行一位参会人。受邀名单每个邮箱一行；对上名册的非受邀说话人、管理员按本租户 LG 平台用户邮箱登记的说话人（9.5.5），并入后每人一行（1.9）；`(meeting_id, email)` 唯一——登记或关联时填的邮箱已是本场参会人的，说话人直接绑到该行、不另建。出席记录不单独成行，只给 P8 作线索；发言人按 1.9「三份名单怎么对上」对到参会人（#92）。
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 主键；P8 的 `attendee_ref` 指向它（6.13） |
+| `organization_id` / `meeting_id` | 租户与所属会议 |
+| `email` | 本场所用的邮箱（小写）：受邀者为受邀邮箱；对上名册的非受邀说话人取名册会议日期那一版的第一个邮箱；按 LG 账号登记的取该账号邮箱。拒绝名单按它记（9.5.6、9.5.10） |
+| `matched_name` | 已对上的发言人名，作此人在本场的姓名（1.8、1.9）；多个说话人绑同一人时取句数最多的；没配上发言人的为空 |
+| `invited` | 是否在受邀名单里；非受邀者不算 Raw Data 的「本人参加」（9.3.6） |
+| `role` | 身份：GS 人员、名册的 6 项角色之一，或 `Unidentified`（1.9、5.2、9.5.5） |
+| `match_step` | 命中步骤：1.9 的 ①~⑦，或人工（本页登记、关联、指定）；`Unidentified` 时为空；`AI inferred` 徽标即 ⑦（9.5.5）。⑥ 姓名命中只出候选，经 P8 核对采纳的记 ⑦；⑤ MVP 不出现 |
+| `lg_user_id` | ② 命中的 LG 用户 |
+| `company_id` | 公司方参会人所属的公司（② 公司端用户的公司，或 ③ Team 域名对应的公司）；名册或 P8 识别的 Founder 为空（名册不存公司，9.5.5）；到场公司与 `other_companies` 按它算（2.1） |
+| `registry_name` / `registry_version_id` | 名册引用：以 `(organization_id, name)` 的姓名为引用键（9.7.1），另记识别时按会议日期取到的版本行 id，只作留痕（P8 的 `registry_id` 即它，6.13） |
+| `display_name` / `organization` | 胶囊上显示的姓名与组织：LG 用户取平台账号，名册人员取会议日期那一版，P8 推断采纳的取 P8 的值；姓名仍为空取 `matched_name`，再空显示邮箱（9.5.5、6.11 步骤 4） |
+| `expertise_tags` | 补充识别结果：名册中会议日期生效版本的专长标签，非空即 `Expert`（1.11） |
+| `p8_*` | P8 对此人的输出：置信度、依据、推断的姓名 / 角色 / 机构或对到的名册行；不采纳的（`low`）也保留，供悬停看依据与登记弹框预填（6.13、9.5.5） |
+| `testimony_backfill_status` | 被推测者的证词补抽状态：无 / 进行中 / 失败（2.5） |
+| `updated_by` / `updated_at` | 本页最近一次登记、关联或指定的操作人与时间；自动识别为 `System` |
+
+**`ff_meeting_speaker`（说话人绑定）**：一行一个 Fireflies 说话人（`speakers[].id`），`(meeting_id, speaker_id)` 唯一；多个说话人可绑同一位参会人（1.9）。
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 主键 |
+| `organization_id` / `meeting_id` | 租户与所属会议 |
+| `speaker_id` | Fireflies 说话人 id，与逐句表、P5 / P7 的 `speaker_ref` 同值，只在本场唯一（6.3） |
+| `speaker_name` | Fireflies 说话人名（会议显示名）；未对上时胶囊显示它，登记弹框的 Name 用它预填（9.5.5） |
+| `participant_id` | 绑定的参会人；为空即未对上的说话人，会议 `Pending`（待识别）（1.9）；句数按逐句表现算（9.5.5） |
+| `bind_source` | 姓名匹配 / P8（`speaker_map` 为 `high`）/ 人工指定 / 人工登记（1.9、6.13、9.5.5）；证词是否默认扣留按此人或其说话人是否经 P8 得出判（6.11 步骤 7） |
+| `p8_*` | P8 `speaker_map` 对这个说话人的输出，`low` 也保留（6.13） |
+| `bound_by` / `bound_at` | 人工绑定的操作人与时间 |
+
+**`ff_meeting_company`（公司关联）**：一行一家关联或候选的公司，`(meeting_id, company_id)` 唯一；`adopted` 为是的即 Company 字段的标签与列表的 Companies 列（9.4.1、9.5.3）。改判前补跑 P1 按公司更新 `p1_*`，已有邮箱或人工依据的不改 `basis`；补跑新出的 `high` 先以未采纳写入、计入草稿快照的保留公司，应用时置为采纳。
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 主键 |
+| `organization_id` / `meeting_id` | 租户与所属会议 |
+| `company_id` | 本租户的公司（1.1） |
+| `adopted` | 是否采纳（应用后的状态）。未采纳的：P1 的 `low`、按类型规则没采纳的 `high`（9.5.3），以及管理员移除并应用后的公司 |
+| `basis` | 依据：完整邮箱 / 邮箱域名 / 正文提及（P1）/ 人工指定；同一家有多条依据时只存命中的一条，完整邮箱优先；依据文案按 9.5.3 由它生成 |
+| `basis_participant_id` / `basis_value` | 依据为邮箱或域名时，命中的参会人与具体的邮箱或域名（9.5.3） |
+| `p1_*` | P1 对这家公司的原样输出：置信度、是否到场者所在公司、依据（6.4） |
+| `auto_routed` | 是否由公司增改后的自动路由关联（9.9.3） |
+| `assigned_by` / `assigned_at` | 人工指定的人与时间（9.5.3 的文案） |
+
+`other_companies` 不存，提取时现算（2.1、6.5）。
+
+#### 9.5.10 数据模型：专家候选与拒绝名单
+
+**`ff_expert_candidate`（专家候选）**：一行 = 某提取版本里一位被推测者的一个建议标签，写入 P7 经门槛与校验后的结果（6.11 步骤 5）；确认框里没有 `Save` 的选择不落库（9.5.6）。未软删行中 `(meeting_id, version, participant_id, tag)` 唯一。
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 主键 |
+| `organization_id` / `meeting_id` | 租户与所属会议 |
+| `version` | 所属版本：当前生效 / 草稿，同中间表（9.6.6）；标记属于产生它的版本（1.10、9.6.4） |
+| `participant_id` | 被推测者，由 P7 的 `speaker_ref` 经说话人绑定解析，一人多个 speaker_id 已合并（6.11 步骤 5） |
+| `tag` | 建议标签（存文本，同名册，9.7.1）；未处理的标记引用的标签不可删（9.8） |
+| `claims` | 该标签下的实质性主张：主张、依据、依据类型、时间点，时间戳已回查（6.10、6.11 步骤 5）；确认框按标签分组展示（9.5.6） |
+| `status` | 未处理 / 同意 / 拒绝 / 撤下（所属版本被替换或丢弃、改 `Unknown` 并应用时仍未处理的；不写拒绝名单，9.6.4、9.9.2）。**当前生效版本**里有未处理且未软删的行即 `Pending`（待确认专家）；草稿里的未处理行只挡该草稿的应用（9.6.5），不改会议状态（1.10） |
+| `auto_resolved` | 是否为打开确认框时按名册或拒绝名单自动消解的（9.5.6） |
+| `decided_by` / `decided_at` | 确认框 `Save` 的人和时间；自动消解记打开确认框的人 |
+| `deleted` | 所属版本被替换、被丢弃或改 `Unknown` 应用后软删，其中仍为未处理的同时置撤下 |
+
+**`ff_expert_rejection`（拒绝名单）**：一行 = 一个被拒绝的（邮箱，专长标签），`(organization_id, email, tag)` 唯一；没有撤销入口，不设软删（9.5.6）。
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 主键 |
+| `organization_id` | 租户 |
+| `email` | 被拒绝者在本场参会人行上的 `email`（9.5.9，小写）；查询时按人展开到名册各版本的全部邮箱（9.5.6） |
+| `tag` | 被拒绝的专长标签 |
+| `meeting_id` | 来源会议 |
+| `created_by` / `created_at` | 操作人与时间 |
 
 ### 9.6 Content Routing Matrix
 
@@ -1806,13 +1965,13 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 
 > Cross-Company 审核放行后全租户经 Goldie 召回，已确认（2026-10-10）。表中 Goldie Base 一项待确认：PM 在 Cross company content Tab 看得到跨公司内容，改变了 2026-10-10「管理端只有 PGM / SA 能看」的决定（#43）。Expert Testimony Tab 对 PM 也显示说话人与专长标签，与其在 Goldie 看署名版一致（#44 已关闭）。
 
-**摘要行与正文行是同一条条目的两半**：1a / 1b 的摘要与 Founder KB / Portfolio KB 的正文，落库时是同一条知识库条目的「摘要 + 正文」（1.1）。两行各自编辑，但**共用一个 Authorize 格**（跨两行合并），勾选即投影整条条目——不存在"摘要放行、正文扣留"的半条条目。
+**摘要行与正文行是同一条条目的两半**：1a / 1b 的摘要与 Founder KB / Portfolio KB 的正文，落库时是同一条知识库条目的「摘要 + 正文」（1.1）。两行各自编辑，但**共用一个 Authorize 格**（跨两行合并），勾选即投影整条条目——不存在"摘要放行、正文扣留"的半条条目。中间表里是同一行的两列（9.6.6）。
 
 **GS → 创始人只有一家公司**（2.3）：矩阵只展示**一组**摘要 / 正文行，行上标注这家公司。
 
 **GS 内部 / GS → Partner 按公司分行**：1b / Portfolio KB 是一家公司一条条目，矩阵里按公司分行展示，行标注公司名。公司被移除时，对应的行一并消失。GS → LP 不按公司拆分（3.3），只有基金层一组行，标注为机构层，不随公司增删变化。
 
-**证词两版各占一行**，因为受众不同——匿名版给全租户创始人，署名版给管理端（需求「Expert testimony 分别展示管理端和 Founder 端的措辞」）。两行的正文相同，差别只在程序附加的来源行（3.4）。来源行只读；正文改了一版，另一版同步。
+**证词两版各占一行**，因为受众不同——匿名版给全租户创始人，署名版给管理端（需求「Expert testimony 分别展示管理端和 Founder 端的措辞」）。两行的正文相同，差别只在程序附加的来源行（3.4）。来源行只读；正文改了一版，另一版同步。中间表里是两行，以 `testimony_group_id` 配对（9.6.6）。
 
 **没有 Board 行**：Board Call 类型取消后，原「退出准备 / 战略摘要」1b 行与带 care flag 的 Cross-Company 行一并删除。
 
@@ -1823,7 +1982,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 需求写的「每行一条 bullet」是**排版约定，不是数据结构**——系统不认识"条"这个概念，不做逐条的增删改与排序。据此：
 
 - 各提示词的文本输出**保持字符串**（6.5（P2）~ 6.9（P6）），提示词侧要求 LLM **一行一条**输出即可
-- 中间表该列是一个文本字段
+- 中间表的 `summary`、`content` 都是文本字段（9.6.6）
 - 审计的 `CONTENT_EDIT` 记改前改后的整段文本，不记"哪一条被改了"
 
 摘要行的上限与生成时一致：**≤150 个英文单词**（1.3），词数口径同提取时（6.11「修订调用」），超长不允许保存。
@@ -1856,7 +2015,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 **提取产物一律先落中间表**，知识库条目是其中已授权那部分的投影：
 
 ```
-提取完成 ──→ 中间表（每场会、每个去向一条，始终保留）
+提取完成 ──→ 中间表（行粒度见 9.6.6，始终保留）
               │
               ├─ 已授权 ──→ 投影：生成 markdown 文件 + 写知识库条目 + 登记（1.1 / 1.3），Goldie 可召回
               └─ 未授权 ──→ 只在中间表，管理端可见、Goldie 不可见
@@ -1864,11 +2023,11 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 
 中间表不只是"授权前的暂存区"——它是矩阵的**可编辑正本**，知识库条目由它派生。这样 `Content` 的编辑、授权的开关、以及重算，都只操作一份数据。Start Extraction 的产物在中间表里以**草稿**存在，与当前生效版本并存，`Confirm & Apply Routing` 时切换（9.6.5）。
 
-**一场会最多一份草稿**（本方案）：存服务端、离开页面不丢；再次 Start Extraction 取代旧草稿；页头与草稿生成时不一致不能应用（9.6.5），被推测者专长标签的改动不计（9.9.1）。
+**一场会最多一份草稿**（本方案）：存服务端、离开页面不丢；再次 Start Extraction 成功时取代旧草稿（进行中与作废时旧草稿不动）；页头与草稿生成时不一致不能应用（9.6.5），被推测者专长标签的改动不计（9.9.1）。草稿生成时的页头存为快照（`ff_meeting_summary.draft_snapshot`，9.5.9），有草稿时打开页面按快照显示类型与公司；草稿行上的勾选随草稿存服务端；没有生成草稿的页头改动、当前生效行上未应用的勾选与 Portfolio 标记只在页面上，离开不保存（本方案）。草稿是整套：未受影响的行原样带入（内容、授权、Play candidate、编辑痕迹），受影响的行按 9.9.4 的范围重写；应用时内容与授权都没变的行沿用原投影（本方案）。
 
 中间表行另带 `in_playbook` 标记（Play candidate，默认关，9.11.6）：Goldie Base 两个新 Tab 的开关写这里，只作 playbook 候选标记，不进 Playbook 召回，也不影响授权与投影。
 
-**证词行的结构化字段**（本方案）：中间表的证词行除正文外另存**发言人**（speaker_ref → 参会人、姓名、组织、角色）与**回溯后的专长标签**（按会议日期，3.4）；正文与来源行分开存——内容列只存正文（9.6.3 的文本字段），来源行由程序按这些字段生成，矩阵里只读显示、投影时拼进正文首行（3.4、6.11）。Goldie Base 的 Expert Testimony Tab 按这些字段显示说话人与专长标签（9.11.5）。
+**证词行的结构化字段**（本方案，字段见 9.6.6）：中间表的证词行除正文外另存**发言人**（speaker_ref → 参会人、姓名、组织、角色）与**回溯后的专长标签**（按会议日期，3.4）；正文与来源行分开存——内容列只存正文（9.6.3 的文本字段），来源行由程序按这些字段生成，矩阵里只读显示、投影时拼进正文首行（3.4、6.11）。Goldie Base 的 Expert Testimony Tab 按这些字段显示说话人与专长标签（9.11.5）。
 
 **初始授权状态**
 
@@ -1876,7 +2035,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 |---|---|
 | 识别齐全、自动提取完成（含公司增改后的自动路由，9.9.3） | **默认已勾选**，落中间表的同时投影（有未处理的专家标记时先不投影，见表下）——与需求「`Passed` = AI 已路由全部内容」一致。例外见下两行 |
 | └ 所有类型的 **Cross-Company** 行 | **默认不勾**——Cross company 内容需管理员审核后发出（需求 I.2；用户决定 2026-10-10）；会议因此置 `Pending`（待审核，1.10） |
-| └ 发言人经 6.13（P8）识别的**专家证词**行（两版）：P8 推断了他的身份、把他对到名册，或把他的说话人对到参会人 | **默认不勾**——身份是 AI 判的，判错（如把说话人对错了人）会让这段发言署着别人的名字、不经审核成为全租户证词，管理员核对身份后放行（用户决定 2026-10-14，2026-10-16 扩至对到名册与说话人映射）；会议因此置 `Pending`（待审核，1.10）。程序按邮箱、姓名完全匹配识别的照旧默认勾选 |
+| └ 发言人经 6.13（P8）识别的**专家证词**行（两版）：P8 推断了他的身份、把他对到名册，或把他的说话人对到参会人 | **默认不勾**——身份是 AI 判的，判错（如把说话人对错了人）会让这段发言署着别人的名字、不经审核成为全租户证词，管理员核对身份后放行（用户决定 2026-10-14，2026-10-16 扩至对到名册与说话人映射）；会议因此置 `Pending`（待审核，1.10）。程序按邮箱识别、按姓名对邮箱前缀配上说话人的照旧默认勾选 |
 | `Pending` 会议人工指定后首次提取 | **全部默认不勾**，只落中间表（本方案：首次提取 Authorize 默认不勾 → Confirm & Apply Routing）；例外：确认框保存后补抽的证词默认勾选（见表下） |
 | 已提取过的会议再次 Start Extraction | 见 9.9.5 |
 
@@ -1915,7 +2074,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 
 **`Confirm & Apply Routing`**：把本页所有路由级改动一次性应用——有草稿则用草稿替换当前生效版本（旧版本的条目同步下线，草稿中已授权的行异步投影，1.6；会议状态在应用时即切换，不等投影结果），再应用授权勾选与 Portfolio 标记。`Pending` 会议应用后转 `Passed`（待确认专家的会议同样：一次应用同时完成待审核内容的审核）。
 
-**`Discard Changes`**：还原到上次应用后的状态——丢弃草稿（含草稿行上已 Save 的内容）、还原页头的类型与公司、还原未应用的勾选与标记。**不撤销**：当前生效行上已 Save 的内容（已落库并投影）、注册表写入与专家确认 / 拒绝（9.5.7），以及被推测者补抽出的证词（2.5）。
+**`Discard Changes`**：还原到上次应用后的状态——丢弃草稿（含草稿行上已 Save 的内容）、还原页头的类型与公司、还原未应用的勾选与标记。**不撤销**：当前生效行上已 Save 的内容（已落库并投影）、注册表写入与专家确认 / 拒绝（9.5.7），以及被推测者补抽出的证词（2.5）——补抽写在草稿里的，丢弃草稿时：当前版本存在且类型与草稿相同的，转到当前版本（已 `Passed` 的作为待应用改动，未 `Passed` 的直接替换此人原有证词行）；否则随草稿丢弃，名册已更新，下次提取按在册专家抽出；补抽进行中丢弃的，返回结果按同一规则落位（本方案）。
 
 **按钮状态**：
 
@@ -1936,9 +2095,48 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 
 有行处于编辑未保存状态时点 `Confirm & Apply Routing`，先提示该行 `Save` 或 `Cancel`。
 
-**并发**（本方案）：两人同时操作同一场会时，后提交的一方若页面已过期即被拒绝、提示刷新；同一场会的写操作串行，同时只有一个提取任务（实现开发设计定）。
+**并发**（本方案）：两人同时操作同一场会时，后提交的一方若页面已过期即被拒绝、提示刷新；同一场会的写操作串行，同时只有一个提取任务（版本号见 `ff_meeting_summary.lock_version`，9.5.9；实现开发设计定）。
 
 每次应用写审计记录（9.10），含改了哪些行、授权了哪些去向；行内 `Save` 各写一条 `CONTENT_EDIT`。
+
+#### 9.6.6 数据模型：路由中间表
+
+**行粒度**（本方案，第十章 #38）：一行 = 一个 Authorize 格 = 投影后的一个知识库条目（1.6）。
+
+| 去向 | 一行是什么 | 每场行数 |
+|---|---|---|
+| APP 知识库 | GS → 创始人的摘要（1a + 1b）+ 正文（Founder KB + Portfolio KB） | 0~1（只能有一家公司，2.1） |
+| ADMIN 知识库 | GS 内部 / GS → Partner 一家公司的摘要（1b）+ 正文（Portfolio KB） | 每家采纳的公司一行 |
+| 机构层 | GS → LP 的基金层摘要（1b）+ 正文（Portfolio KB） | 0~1 |
+| Cross-Company | 一条跨公司内容 | 每条一行 |
+| 证词-匿名 / 证词-署名 | 一条证词的两版 | 每条证词两行 |
+
+摘要与正文在同一行的两列，矩阵里显示为两行、共用一个 Authorize（9.6.2）；证词两版各一行，以 `testimony_group_id` 配对，正文与发言人字段两行相同，改一行另一行同步（9.6.2）。未软删行中，知识库三类去向 `(meeting_id, version, destination, company_id)` 唯一；每个 `testimony_group_id` 恰好匿名、署名两行。
+
+**`ff_routing_row`**
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 主键；审计里的中间表行 id 即它（9.10.2） |
+| `organization_id` / `meeting_id` | 租户与所属会议 |
+| `destination` | 去向，取上表六种之一，对应 1.1 的空间；决定投影到哪个空间与 `Visible to`（9.6.2） |
+| `company_id` | APP / ADMIN 知识库行必填（6.11 步骤 7），其余为空（1.2） |
+| `version` | 当前生效 / 草稿（一场会最多一份草稿，9.6.4）；应用草稿时旧的当前行软删、草稿行转为当前（9.6.5） |
+| `base_row_id` | 草稿行对应的当前生效行：原样带入的指向原行；重写的知识库行按（去向, 公司）对到重跑前的行；跨公司与证词行重写后不对应（为空）。应用时内容与授权都与它相同的接过它的投影、不下线再上线（9.6.4）；`TYPE_CHANGE` 的被覆盖条数按它算（9.10.2） |
+| `pending_change` | 已 `Passed` 会议上待应用的补抽结果（含丢弃草稿时转来的）：新增 / 移除，应用时生效（2.5、9.6.5）；为空即无待应用改动。生成草稿时按应用后的样子带入——新增的行作为普通草稿行带入、移除的行不带；草稿被丢弃时原样保留 |
+| `testimony_group_id` | 证词两版共用；Expert Testimony Tab 按它一条一行（9.11.5） |
+| `summary` | 摘要，只用于三类知识库去向（不超过 150 词，1.3） |
+| `content` | 正文：知识库为 `kb_doc`（原始转录链接在投影时附加，不存，6.11 步骤 8）；跨公司为 `statement`；证词为正文，不含来源行（9.6.4） |
+| `category` / `tags` / `portable_reason` | 跨公司：类别、标签、可迁移理由（6.9）；证词的 `category` 为证词类别（6.8）。`portable_reason` 只存不投影，审核时是否展示以设计稿为准 |
+| `timestamp` | 出处时间点 `hh:mm:ss`，只存中间表、不随内容投影（9.6.2、6.11 步骤 7） |
+| `speaker_ref` / `speaker_participant_id` | 仅证词：P5 回填的说话人与解析到的参会人（9.5.9） |
+| `speaker_name` / `speaker_organization` / `speaker_role` / `speaker_expertise_tags` | 仅证词：提取时取的姓名、组织、角色与按会议日期回溯的专长标签（6.11 步骤 4）；来源行与 Expert Testimony Tab 由它生成（9.6.4、9.11.5） |
+| `authorized` | Authorize 勾选（初值见 9.6.4、9.9.5）；取消勾选只改它，内容保留 |
+| `in_playbook` | Play candidate，默认关（9.11.6） |
+| `rag_entry_id` / `file_registry_id` / `file_id` | 当前在线的投影；改内容时新条目写成功才换 id（1.6）；Source 列按 `file_registry_id` 反查会议，不过滤软删（同一登记行只属于一场会，9.11.2） |
+| `projection_status` / `projection_action` | 未投影或已下线 / 投影中（含重试）/ 已上线 / 失败，以及最近一次动作（上线 / 下线 / 改内容）；失败即记 `PROJECTION_FAILED`（1.6、9.10.2） |
+| `edited_by` / `edited_at` | 最近一次行内 `Save` 的人和时间；为空即 AI 原文（9.9.4、9.10.2） |
+| `deleted` / `deleted_at` / `created_at` | 软删与写入时间；软删发生在草稿替换、丢弃、移除公司、补抽替换、改 `Unknown` 应用等情形（9.6.5、9.9） |
 
 ### 9.7 Cheat Sheet
 
@@ -1981,7 +2179,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 
 > **为什么姓名能当唯一识别符**：原型的 History 里，同一个人换过邮箱（`m.whitfield@meridian-health.com` → `eleanor@northbridge-cap.com`）、换过机构（Meridian Health Group → Northbridge Capital）、换过角色（Strategic Partner → LP）。邮箱和机构都会变，能把这些版本串成一个人的只有姓名。
 
-> **被引用时也用姓名**：证词的发言人、参会人识别结果指向的都是 `(organization_id, name)`，不需要代理 id。
+> **被引用时也用姓名**：证词的发言人、参会人识别结果都以 `(organization_id, name)` 为引用键，不需要代理 id；识别结果另记当时取到的版本行 id，只作留痕（9.5.9）。
 
 **`Founder` / `GS staff` 角色**：指未使用 LG 平台的创始人与 GS 人员（《Cheat Sheet》「并不是所有的 GS 人员和 Founder 人员都有 LG 的账户」）。唯一的例外是专家确认：LG 平台用户被确认为专家时也会在这里建一条，只为承载专长标签（9.5.6）。
 
@@ -2041,7 +2239,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 | Area of expertise | 自由文本，选填；仅作描述，不参与路由 |
 | Validity period | 两个日历选择器，From 必填 / To 可空 |
 
-Name、Email(s)、Organization、Role、Validity period（From）为必填，带必填符号 `*`（《Cheat Sheet》10-13 版）。没有邮箱的人不录入 Cheat Sheet——参会人以有邮箱为前提，没有邮箱的参会人保持 `Unidentified`、会议 `Pending`，管理员须补上邮箱登记（用户决定 2026-10-14，第十章 #59）。
+Name、Email(s)、Organization、Role、Validity period（From）为必填，带必填符号 `*`（《Cheat Sheet》10-13 版）。没有邮箱的人不录入 Cheat Sheet——参会人以有邮箱为前提（用户决定 2026-10-14，第十章 #59）；没有邮箱、又发了言的人在 Summary Records 显示为未对上的说话人，管理员可指定为某位参会人，或补上邮箱登记（9.5.5，#92）。
 
 弹框内提示文案：`"From" is required. Leave "To" empty to show the period as open-ended.`
 
@@ -2138,7 +2336,7 @@ Multiples、Buyer behavior、Exit trends、Software usage、Commercial buying be
 | 已被使用过的标签 | **不可删** | 《Cheat Sheet》「已被使用过的标签不允许删除」 |
 | 新增后从未被使用的标签 | 可删 | 加错了的补救 |
 
-**"被使用过"** = 出现在 `ff_registry_party` 的**任一版本**中（含历史版本），不只看当前版本——历史版本照样被按会议日期回溯、照样出现在证词来源行里。正被未处理的「可能为专家」标记引用的标签也算「被使用过」——否则标签删了，标记无法同意，会议会卡住。
+**"被使用过"** = 出现在 `ff_registry_party` 的**任一版本**中（含历史版本），不只看当前版本——历史版本照样被按会议日期回溯、照样出现在证词来源行里。正被未处理的「可能为专家」标记（`ff_expert_candidate` 未软删、状态为未处理，含草稿里的，9.5.10）引用的标签也算「被使用过」——否则标签删了，标记无法同意，会议会卡住。
 
 **不提供改名**，这是有意的：
 
@@ -2208,9 +2406,9 @@ Review 页上能改的三样东西，改完点 Start Extraction 触发重算，�
 | 项 | 口径 |
 |---|---|
 | 触发 | 本租户任一公司的新增或编辑（含状态变化）、任一公司端用户的新增或编辑；Java 端保存成功后即时通知 Fireflies 模块（第八章 #27） |
-| 匹配哪些会议 | 本租户 `Pending`（待识别）、类型已判为 GS → 创始人、只因定不出公司而待识别的会议（Company 为空：仅凭 Cheat Sheet Founder 成立而正文反推不出，或公司方只来自 P8，2.1），且没有草稿——有草稿说明管理员已接手，不动；多家公司、到场 Founder 归属不到、P1 最终失败（没做过质量判断）的不在此列 |
-| 怎么匹配 | 只对按 Cheat Sheet（④）或 P8 识别为 Founder 的受邀参会人，用其邮箱按此刻的公司端用户与公司 Team 域名重跑 1.9 ②③；其余参会人身份不变，类型不重判；不调大模型，P1 / P8 不重跑 |
-| 匹配成功 | 恰好认出一家在营公司；认出的人在会议当日的名册机构或 P8 推断的机构（有的话），以及其余按 Cheat Sheet 或 P8 识别的 Founder，都对得上这家（同 2.1 的比较口径）——防止他后来换到别家公司、旧会议被送进新公司 |
+| 匹配哪些会议 | 本租户 `Pending`（待识别）、类型已判为 GS → 创始人、只因定不出公司而待识别的会议（Company 为空：仅凭 Cheat Sheet Founder 成立而正文反推不出，或公司方只来自 P8，2.1），且没有草稿、没有进行中的提取——有草稿说明管理员已接手，不动；多家公司、到场 Founder 归属不到、P1 最终失败（没做过质量判断）的不在此列 |
+| 怎么匹配 | 只对身份为 Founder、还没认出公司的受邀参会人（名册、P8 或本页登记识别的），用其邮箱按此刻的公司端用户与公司 Team 域名重跑 1.9 ②③；其余参会人身份不变，类型不重判；不调大模型，P1 / P8 不重跑 |
+| 匹配成功 | 恰好认出一家在营公司；认出的人在会议当日的名册机构或 P8 推断的机构（有的话），以及其余还没认出公司的 Founder，都对得上这家（同 2.1 的比较口径）——防止他后来换到别家公司、旧会议被送进新公司 |
 | 成功后 | 自动关联该公司（依据按 9.5.3 写），之后与首次拉取即认出公司的会议相同：自动提取，按自动提取的默认授权放行（6.11、9.6.4） |
 | 不成功 | 会议原样不动 |
 | 提醒与审计 | 不发提醒；成功的记 `IDENTIFY` / `EXTRACT`，`operator` 为 `System`，`triggered_by` 记做增改的人（9.10） |
@@ -2284,18 +2482,19 @@ Cheat Sheet 与 Email Domain 的增改不触发，打开会议时也不重新匹
 
 | 事件 | 触发时机 | 关键内容 |
 |---|---|---|
-| `IDENTIFY` | 识别阶段完成；公司增改后自动路由匹配成功（9.9.3） | 参会人识别结果（每人命中识别链的哪一步）、P8 的推断结果（每人 / 每个发言人的推断、置信度、依据、是否采纳；P8 最终失败则记失败并置 `Pending`，6.11）、补充识别查到的专家身份、公司归属与依据、质量判断（转录是否为空、P1 的 `quality.usable` 与 `reason`；P1 最终失败则记失败并置 `Pending`，6.11）、判定出的类型；P1、P8 各调用的提示词版本、模型、重试次数、丢弃条目；自动路由的另记触发它的公司或用户增改、新识别出的人与命中的匹配步骤、关联的公司 |
+| `IDENTIFY` | 识别阶段完成；公司增改后自动路由匹配成功（9.9.3） | 参会人识别结果（每人命中识别链的哪一步）、发言人配对（说话人配到谁、方式、未对上的）、P8 的推断结果（每人 / 每个发言人的推断、置信度、依据、是否采纳；P8 最终失败则记失败并置 `Pending`，6.11）、补充识别查到的专家身份、公司归属与依据、质量判断（P1 的 `quality.usable` 与 `reason`；P1 最终失败则记失败并置 `Pending`，6.11）、判定出的类型；P1、P8 各调用的提示词版本、模型、重试次数、丢弃条目；自动路由的另记触发它的公司或用户增改、新识别出的人与命中的匹配步骤、关联的公司 |
 | `EXTRACT` | 内容提取结束（含整场作废）；证词补抽结束 | 触发方式（自动 / 自动路由 / Start Extraction / 补抽 / 中断重跑）、会议类型、各提示词调用结果（成功 / 失败及原因）、各调用的提示词版本、模型、重试次数、丢弃条目（含按时间戳回查丢弃的 P5 证词与 P7 主张）、各去向产出条数、专家候选（人、建议标签）；内容类提示词（P2~P6）任一最终失败 → 记本次提取作废、不落任何条目（管理员可 Start Extraction 重跑）；P7 失败 → 记专家候选缺失 |
 | `TYPE_CHANGE` | 改判应用 | 原类型、新类型、重算范围、被覆盖的人工修改条数 |
 | `COMPANY_CHANGE` | 公司增删应用 | 公司、动作、依据文案 |
 | `PORTFOLIO_MARK` | Portfolio 标记应用 | 改前改后的 Portfolio |
-| `CONTENT_EDIT` | 矩阵行内 `Save` | 去向、改前、管理员提交稿、清洗后定稿、清洗命中（被删去的行及原因：n-gram / 精确数值 / 绝对时点；实体替换项） |
+| `CONTENT_EDIT` | 矩阵行内 `Save` | 去向与列（摘要 / 正文）、改前、管理员提交稿、清洗后定稿、清洗命中（被删去的行及原因：n-gram / 精确数值 / 绝对时点；实体替换项） |
 | `AUTHORIZE_CHANGE` | 勾选 / 取消勾选应用 | 去向、新状态 |
+| `DRAFT_DISCARD` | `Discard Changes` 丢弃草稿 | 草稿发起人与时间、撤下的建议标签、转到当前版本或随草稿丢弃的补抽行 id |
 | `PLAYBOOK_TOGGLE` | Goldie Base 两个新 Tab 上的 Play candidate 开关变化（即时生效，不经 `Confirm & Apply Routing`，9.11.6） | 操作人、中间表行 id（及其去向、所属会议）、开 / 关 |
 | `REGISTRY_IMPORT` | 从 Review 页登记外部人 | party 姓名、来源会议 |
 | `EMAIL_DOMAIN_CHANGE` | Cheat Sheet 页增、改、删 Email Domain（9.7.7） | 操作人、增 / 改 / 删、改前与改后的域名 |
 | `SPEAKER_ASSIGN` | 未对上的说话人指定为某位参会人（9.5.5） | 说话人姓名、指定到的参会人、操作人、会议 |
-| `EXPERT_CONFIRM` | 同意专家推测（按标签） | party 姓名、同意的专长标签、LLM 理由、来源会议、补抽的证词行 id 与补抽成败；打开确认框时自动消解的，`operator` 为 `System`、`triggered_by` 为打开确认框的管理员，注明自动消解 |
+| `EXPERT_CONFIRM` | 同意专家推测（按标签） | party 姓名、同意的专长标签、LLM 理由、来源会议、是否触发补抽（产出行 id 与成败记在补抽结束的 `EXTRACT`）；打开确认框时自动消解的，`operator` 为 `System`、`triggered_by` 为打开确认框的管理员，注明自动消解 |
 | `EXPERT_DECLINE` | 拒绝专家推测（按标签） | 邮箱、被拒的专长标签、LLM 理由、来源会议、随之软删或重新产出的证词行 id；自动消解同 `EXPERT_CONFIRM` |
 | `CONNECTION_LINK` | Configuration 页 Link 成功，含换 key（9.2.5） | 操作人、新旧 `account_email`（不记 key）、是否因换账号清空了同步游标（9.2.6） |
 | `TRANSCRIPT_CHANGED` | 已进入识别的会议被重新拉到，原文或元信息与库里不同（数据不改，9.3.1） | 会议；`operator` 为 `System` |
@@ -2303,7 +2502,7 @@ Cheat Sheet 与 Email Domain 的增改不触发，打开会议时也不重新匹
 
 一次 `Confirm & Apply Routing` 可能同时产生 `TYPE_CHANGE` / `COMPANY_CHANGE` / `PORTFOLIO_MARK` / `AUTHORIZE_CHANGE` 多条。
 
-**自动决策（`IDENTIFY` / `EXTRACT`）必须记**，不能只记人工动作——Pending 审核时管理员要回答"AI 当初为什么这么判"，靠的就是 `IDENTIFY` 里那条命中步骤记录。9.5.3 页面上展示的识别依据，取的也是它。
+**自动决策（`IDENTIFY` / `EXTRACT`）必须记**，不能只记人工动作——识别结果被人工改过以后，要回答"AI 当初为什么这么判"，靠的是 `IDENTIFY` 里那条命中步骤记录；页面展示的是识别结果的当前态（9.5.9）。
 
 **`CONTENT_EDIT` 记三段文本**：管理员提交的是一版、清洗后落库的可能是另一版。只记落库版，事后看不出清洗动过什么；只记提交版，又对不上 Goldie 实际召回的内容。
 
@@ -2334,7 +2533,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 
 - **两个新 Tab 只在管理端**（本方案）：需求这两节只写到 PM 与管理员，未提创始人；创始人照旧经 Goldie 召回审核放行的跨公司内容与匿名版证词（1.1）（待确认，第十章 #41）
 - **Memory Settings 在公司端仍只给 Company Admin**（现状，不变）
-- **旧地址保留**：`/knowledgeBase`、`/memorySettings` 打开即跳到 Goldie Base 的对应 Tab。现状：域内 README 规定 `/askGoldie`、`/knowledgeBase` 为既有线上地址、不得改动（web `src/pages/askGoldie/README.md:25`）。用 `redirect` 实现，有先例（web `config/routes.ts:903-906`），须放在 404 兜底路由之前
+- **旧地址保留**：`/knowledgeBase`、`/memorySettings` 打开即跳到 Goldie Base 的对应 Tab。现状：域内 README 规定 `/askGoldie`、`/knowledgeBase` 为既有线上地址、不得改动（web `src/pages/askGoldie/README.md:25`）。用 `redirect` 实现，有先例（web `config/routes.ts:757-760`），须放在 404 兜底路由之前
 - **入口改指新页**：聊天侧栏的知识库图标与 Memory 齿轮（现状：web `src/pages/devSupport/chat/components/HistorySidebar.tsx:169-181`）、手机端底部 Tab（`PortalTabBar.tsx:56-66`）改为打开 Goldie Base 的对应 Tab；门户导航的高亮键（`PortalNavSidebar.tsx:25`，现只有 `knowledge` / `memory`）与手机端底栏的 `PortalTab` 类型（`PortalTabBar.tsx:21`）随之调整；入口测试断言的是旧 URL（`PortalNavSidebar.test.tsx:49-52`、`PortalTabBar.test.tsx:64-66`），一起改。保留两个图标分别直达，还是合并为一个入口，开发设计定
 
 #### 9.11.1 页面与 Tab
@@ -2348,7 +2547,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 管理端分角色 | 两个新 Tab 要区分 PM 与 PGM / SA（会议名称可否点击、开关可否改动）。判定按 9.1「权限」的口径：PGM / SA = 管理端，且 superAdmin 或角色菜单含 `seeAllPortfolio`；PM = 管理端其余用户（本方案）。Java 暴露判定结果，Python 接口据此给出可点标志 / 拒写（第八章 #22）；前端不自己判角色，按接口返回的标志位（如 `canManage`、按行的可点标志）显示 |
 | 接口鉴权 | 两个新 Tab 的接口对公司端一律拒绝；Play candidate 的写接口只接受 PGM / SA。不靠前端隐藏（本方案，同 9.3.6）。本租户（9.1）：PM / PGM 为会话所在的租户；Super Admin 与现有知识库一致，默认取组织树第一个租户（web `src/pages/askGoldie/components/orgScope.ts` 的 `firstLeafOrgId`），不提供切换。后端按**等值**校验组织 id（非 Super Admin 只能是会话租户），不按子树放行——`ErlAccessServiceImpl.java:88-100` 的子树放行口径不适用（用户决定 2026-10-16） |
 
-现状：`/askGoldie`、`/knowledgeBase`、`/memorySettings` 三个路由登录即可访问（web `config/routes.ts:193-212`）；知识库页与 Memory 页都是同一组件按端分叉，管理端判定为 `roleType===1`，PM / PGM / SA 在前端不区分；`src/pages/askGoldie/` 下没有现成的 Tab 容器。
+现状：`/askGoldie`、`/knowledgeBase`、`/memorySettings` 三个路由登录即可访问（web `config/routes.ts:133-146`）；知识库页与 Memory 页都是同一组件按端分叉，管理端判定为 `roleType===1`，PM / PGM / SA 在前端不区分；`src/pages/askGoldie/` 下没有现成的 Tab 容器。
 
 #### 9.11.2 Knowledge Base
 
@@ -2358,14 +2557,14 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 |---|---|
 | 原有业务 | 原知识库页业务原样搬入（门户外壳上提到本页，9.11.1）：列、文件名搜索、上传者筛选、下载、按端分叉均不变；纳入 `FIREFLIES` 与对公司端普通用户放开会议文件照第八章 #11、#12 |
 | Source 列 | 两端都加。`Goldie`：来自 Chat 的文件（登记为 `KNOWLEDGE_BASE` / `SESSION_UPLOAD`）；`Fireflies`：会议派生条目（登记为 `FIREFLIES`，1.2） |
-| Fireflies 可点 | 跳到该文件所属会议的 Raw Data 详情（9.3.5），**仅当查看者有该会议的 Raw Data 权限**（9.3.6）：PGM / SA 全部可点；公司端只有本人参加过的会议可点——公司端 Raw Data 入口本身未决，此处按"有权限即可点"预留（待确认，第十章 #47）。可否点由**后端按行算出**、随列表返回（仿现有 `can_open`，`file_registry/application/dto/file_registry_dto.py:32`），前端不自行判断参会与角色（本方案） |
+| Fireflies 可点 | 跳到该文件所属会议的 Raw Data 详情（9.3.5），**仅当查看者有该会议的 Raw Data 权限**（9.3.6）：PGM / SA 全部可点；公司端只有本人参加过的会议可点，跳到公司端的 Raw Data Tab 详情（9.3.6，第十章 #90）。可否点由**后端按行算出**、随列表返回（仿现有 `can_open`，`file_registry/application/dto/file_registry_dto.py:32`），前端不自行判断参会与角色（本方案） |
 | 不可点 | PM（无 Raw Data 权限，9.3.6；另见第十章 #9）、未参加该会议的公司端用户：显示为普通文字。与两个新 Tab「无该页面权限的角色不可点击名称」同口径 |
 | Portfolio / Company 两列 | 不关联时显示 `—`（需求）。桌面表格现状已如此，两列只在管理端出现（web `src/pages/askGoldie/knowledgeBase/KnowledgeBasePage.tsx:400-426`）；手机端折行 `renderMobileMeta`（`:326-347`）现对空 Portfolio / Company 整块不渲染，要改为显示 `—`，并同样显示 Source。Portfolio 列取值见下方「Portfolio KB 的基金标签」 |
 | 进本 Tab 的 Fireflies 文件 | 只有知识库条目：GS → 创始人的 Founder KB / Portfolio KB 正文，GS 内部 / Partner 的公司层 Portfolio KB，LP 的基金层 Portfolio KB。证词与跨公司条目同样登记为 `FIREFLIES`，但不进本 Tab——它们 `company_id` 为空，而机构层按机构层空间圈定、不按 `company_id` 为空圈定（第八章 #13）；两者各有自己的 Tab（9.11.4、9.11.5） |
 | From Chat / Uploaded By | Fireflies 行没有来源会话，也不是用户上传，这两列显示什么开发设计定 |
-| 接口 | 列表项的 `source` 改为 `GOLDIE` / `FIREFLIES`；Fireflies 行带会议 id 与可点标志，供 Source 跳转。会议 id 只经中间表按登记行反查（1.2 定登记表不加会议列）。改动位置：DTO 默认值（`file_registry_dto.py:35`）、VO 默认值（`file_registry/interfaces/vo/response.py:41-44`）、路由映射（`file_registry/interfaces/routes.py:205`）；**不动**同名的 `ChatScopeFileDTO.source`（`file_registry_service.py:365`，`find_files` 工具在用，`test_find_files_tool.py:63,86` 有断言） |
+| 接口 | 列表项的 `source` 改为 `GOLDIE` / `FIREFLIES`；Fireflies 行带会议 id 与可点标志，供 Source 跳转。会议 id 只经中间表按登记行反查（1.2 定登记表不加会议列）。改动位置：DTO 默认值（`file_registry_dto.py:35`）、VO 默认值（`file_registry/interfaces/vo/response.py:41-44`）、路由映射（`file_registry/interfaces/routes.py:205`）；**不动**同名的 `ChatScopeFileDTO.source`（`file_registry_service.py:321`，`find_files` 工具在用，`test_find_files_tool.py:63,86` 有断言） |
 
-现状：列表接口已有 `source` 字段，只取 `session` / `company`（`file_registry/application/service/file_registry_service.py:716`），web 端未见引用；搜索只按文件名模糊匹配（`file_registry/domain/repository/file_registry_repository.py:176-180`）；登记行没有会议 id 列。
+现状：列表接口已有 `source` 字段，只取 `session` / `company`（`file_registry/application/service/file_registry_service.py:672`），web 端未见引用；搜索只按文件名模糊匹配（`file_registry/domain/repository/file_registry_repository.py:176-180`）；登记行没有会议 id 列。
 
 以下原在 9.1，迁入本节，内容不改；文中「管理端知识库页」即本 Tab 的管理端。
 
@@ -2401,7 +2600,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 证词 / 跨公司 | 不进本 Tab（1.1），见 9.11.4、9.11.5 |
 | 接口 | `GET /api/ai/memories` 的返回项加来源字段（取登记行 `business_type`），前端据此出标签；字段名开发设计定 |
 
-现状：Memory 接口的条目范围由 `lg/db/service/file_registry.py` 的 `list_kb_entry_scopes`（`:263-277`）圈定——只取 `KNOWLEDGE_BASE`（过滤在 `:271`）、按 `company_id IN`，只 select `entry_id / end_type / company_id`，`business_type` 要从这里带出；`memory/application/memory_service.py:86-127` 据此组装返回 entryId、fileName、summary、createdAt、endType、companyId；标签为层标签（仅管理端）+ 写死的 `Document Summary` + 时间 + 公司名，公司名为空时整块不渲染、不会显示 `—`，需改（web `src/pages/askGoldie/memorySettings/components/MemoryMetaRow.tsx:22-38`）。
+现状：Memory 接口的条目范围由 `lg/db/service/file_registry.py` 的 `list_kb_entry_scopes`（`:232-272`）圈定——只取 `KNOWLEDGE_BASE`（过滤在 `:263`）、按 `company_id IN`，只 select `entry_id / end_type / company_id`，`business_type` 要从这里带出；`memory/application/memory_service.py:86-127` 据此组装返回 entryId、fileName、summary、createdAt、endType、companyId；标签为层标签（仅管理端）+ 写死的 `Document Summary` + 时间 + 公司名，公司名为空时整块不渲染、不会显示 `—`，需改（web `src/pages/askGoldie/memorySettings/components/MemoryMetaRow.tsx:22-38`）。
 
 #### 9.11.4 Cross company content
 
@@ -2409,11 +2608,11 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 
 | 项 | 口径 |
 |---|---|
-| 列什么 | 本租户**已审核放行**的跨公司内容：中间表里已授权（已应用、已投影）、属当前生效版本的 Cross-Company 行。待审核（未勾选放行）与草稿都不列（本方案，待确认，第十章 #42） |
+| 列什么 | 本租户**已审核放行**的跨公司内容：中间表里已授权（已应用、已投影——`rag_entry_id` 非空，9.6.6）、属当前生效版本的 Cross-Company 行。待审核（未勾选放行）与草稿都不列（本方案，待确认，第十章 #42） |
 | 只读 | 审核与编辑仍只在 Summary Records 的 Content Routing Matrix（9.6.3、9.6.4，PGM / SA）；本 Tab 唯一可操作的是 Play candidate（9.11.6） |
 | 谁能看 | 管理端 PM / PGM / SA，全租户，不按 PM 的可访问公司收窄。跨公司**内容**本就对全租户可见（1.1）；会议**名称与元数据**对 PM 可见是按需求实现（「PM 不可点击名称」即看得到、只是不可点），有风险：会议标题常带公司名 / LP 名，会抵消 3.5 对 LP 身份的剥离，也暴露非管辖公司会议的存在（PM 本只看可访问公司，3.3；看不到 Raw Data 与 Summary Records 列表，9.3.6 / 9.4），见第十章 #48。**这改变了 2026-10-10 的用户决定「管理端只有 PGM / SA 能看」**——新需求明写 PM 在本 Tab 看得到内容、只是会议名称不可点；编辑入口仍只有矩阵一处，这部分不变（待确认，第十章 #43） |
 | 数据源 | 中间表的 Cross-Company 行（9.6.4）+ `ff_meeting`（会议名称与元数据）。不从 RAG 条目反查——中间表本就挂在会议下，且是正本 |
-| 行粒度 | 一条跨公司内容一行，与矩阵一致（9.6.2）；中间表须逐条一行，这是 Play candidate 的前提（9.11.6），第十章 #38 须按此定 |
+| 行粒度 | 一条跨公司内容一行，与矩阵一致（9.6.2）；中间表逐条一行（9.6.6，#38），这是 Play candidate 的前提（9.11.6） |
 | 搜索 | 一个关键词，模糊匹配内容（`statement`）与会议名称，按字面匹配（转义 LIKE 通配符） |
 | 时间过滤 | 按会议日期（业务日期，9.3.3）区间过滤，含两端；与关键词同时生效 |
 | 排序与分页 | 按会议时间倒序，每页 10 条，同系统内同类管理页（9.3.3） |
@@ -2429,7 +2628,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 会议元数据 | 会议日期、会议类型 | PM、PGM / SA |
 | Play candidate | 开关（9.11.6） | PM 只看状态；PGM / SA 可改 |
 
-现状：「模糊搜索 + 时间区间」的现成实现在 devSupport 会话管理——后端 `chatbot/interfaces/routes.py:240-268`（keyword + dateFrom / dateTo，UTC 自然日含边界），辅助函数 `escape_like` / `utc_day_start` / `utc_day_end_exclusive` 在 `chatbot/domain/repository/_common.py:7-17`，前端 RangePicker 在 web `src/pages/devSupport/chat/manage/ChatManagePage.tsx:58,471`。这些辅助函数是 chatbot 私有，复用前先挪到 `common/`。
+现状：「模糊搜索 + 时间区间」的现成实现在 devSupport 会话管理——后端 `chatbot/interfaces/routes.py:246-286`（keyword + dateFrom / dateTo，UTC 自然日含边界），辅助函数 `escape_like` / `utc_day_start` / `utc_day_end_exclusive` 在 `chatbot/domain/repository/_common.py:7-17`，前端 RangePicker 在 web `src/pages/devSupport/chat/manage/ChatManagePage.tsx:58,471`。这些辅助函数是 chatbot 私有，复用前先挪到 `common/`。
 
 #### 9.11.5 Expert Testimony
 
@@ -2437,7 +2636,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 
 | 项 | 口径 |
 |---|---|
-| 列什么 | 本租户已授权、**已投影**、属当前生效版本的证词（会议处于待确认专家时不列），**一条证词一行**——匿名版与署名版正文相同、只差程序附加的首行（3.4），不分两行 |
+| 列什么 | 本租户已授权、**已投影**（`rag_entry_id` 非空，9.6.6）、属当前生效版本的证词（会议处于待确认专家时不列），**一条证词一行**——匿名版与署名版正文相同、只差程序附加的首行（3.4），不分两行 |
 | 两版的授权 | 矩阵里两版各占一行、各有一个 Authorize（9.6.2），以哪一版的授权为准列出，开发设计定 |
 | 只读、谁能看 | 同 9.11.4：管理端 PM / PGM / SA，全租户；编辑在矩阵，改一版另一版同步（9.6.2） |
 | 搜索、时间过滤、排序与分页 | 同 9.11.4，内容一侧匹配证词正文 |
@@ -2466,7 +2665,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 |---|---|
 | 含义 | 打开 → 该条标为 **playbook 候选**；**只是标记**：不进 Goldie 的 Playbook 召回，不影响它在原空间的正常召回，不改内容、不改授权（用户决定 2026-10-16） |
 | 用途 | 供日后把会议沉淀整理进 Playbook 手册时挑选；候选怎么进手册不在本期（第十章 #62） |
-| 存储 | 中间表行上的 `in_playbook`，默认关。前提：跨公司与证词在中间表须**逐条一行**（第十章 #38 须按此定），否则同一行下的多条内容只能共用一个开关；一条证词对应两版两行而开关只有一个，标记落在哪一行开发设计定 |
+| 存储 | 中间表行上的 `in_playbook`，默认关。跨公司与证词在中间表**逐条一行**（9.6.6，#38）；一条证词对应两版两行而开关只有一个，标记落在哪一行开发设计定 |
 | 谁能开关 | PGM / SA——「管理员」按本文档惯例指 PGM / SA（9.1），与矩阵编辑同一批人；PM 看得到开关状态、不能改（第十章 #45） |
 | 生效 | 开关只改中间表的标记，立即生效，不经 `Confirm & Apply Routing` |
 | 审计 | 事件 `PLAYBOOK_TOGGLE`：操作人、目标中间表行 id、开 / 关（9.10.2） |
@@ -2476,6 +2675,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 情形 | 标记 |
 |---|---|
 | 矩阵编辑后重投影（6.11） | 标记在中间表行上，跟着行走，不受影响 |
+| 草稿生成后、应用前在 Goldie Base 改了开关 | 应用时原样带入的行以当前行此刻的标记为准（按 `base_row_id` 对，9.6.6） |
 | 取消授权 | 保留；该行从 Tab 消失，再次授权后恢复 |
 | 重新提取（9.9）产生新行 | 新行**重置为关**，要管理员重新打开——同 9.9.5「内容换了就要重审」 |
 | 被推测者补抽替换证词行（2.5） | 新行**重置为关** |
@@ -2532,7 +2732,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | # | 事项 | 当前处理 |
 |---|---|---|
 | 7 | 两处不一致：① 总表 GS 内部 1b 写了"PM、Company Admin 可见"，Company Admin 属公司端 ② 总表 LP 证词写 PM 看匿名版，Partner 证词写 PM 看署名版 | **已关闭**：总表已于 2026-10-10 删除。现行口径：① 1b 仅管理端 ② PM 看署名版（需求证词表"管理端可查看完整来源信息"）。原第③点（跨公司内容是否到达创始人）**已确认（2026-10-10）**：本租户所有人都能经 Goldie 召回，管理端页面上只有 PGM / Super Admin 能查看——《Goldie Base》让 PM 也能在 Cross company content Tab 只读查看，见 #43。另：Goldie Base 证词 Tab 对 PM 也显示说话人与专长标签，与 ② 一致（#44 已关闭） |
-| 8 | 创始人查看原始转录的入口：需求允许创始人看本人参加的会议，但 Raw Data 是管理端页面 | 入口未定；"本人参加"按账号邮箱 ∈ `participants` 判定，不认姓名匹配（9.3.6） |
+| 8 | 创始人查看原始转录的入口：需求允许创始人看本人参加的会议，但 Raw Data 是管理端页面 | **已关闭**（用户决定 2026-10-23，#90）：公司端也在 Fireflies Management 页的 Raw Data Tab 查看，其余 Tab 隐藏；"本人参加"按账号邮箱 ∈ `participants` 判定，不认姓名匹配（9.3.6） |
 | 9 | PM 没有 Raw Data 权限，但 Portfolio KB 里的原始转录链接指向 Raw Data | 是否给 PM 开放相关会议的原文，请确认；若放开，Knowledge Base Tab 的 Source 列对 PM 随之可点（#47） |
 | 10 | Cross company 内容页：需求写"查看所有内容" | 需求 10-09 删除了单独页面，《Goldie Base》又以 Tab 形式恢复：管理端 PM / PGM / SA 只读查看审核放行后的内容，审核与编辑仍只在 Content Routing Matrix（9.11.4、9.6）；只列已放行内容见 #42，PM 可见见 #43 |
 | 11 | 公司端谁能召回 GS → 创始人的摘要：现有规则下公司端普通用户只召回自己上传的文件 | 改造为该公司全体公司端用户可召回（第八章）；原始转录是仅参会人，摘要是否也收窄到参会人，需求未区分 |
@@ -2587,7 +2787,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 35 | GS 内部会加上 [LP 保密] 后，内部会谈到的 GS 自有基金信息与 LP 身份不进 Cross-Company，而本类型没有基金层 1b，这部分不落任何去向 | 按此实现（4.4），请需求方知悉 |
 | 36 | GS 内部跨公司内容原有的结构化字段（议题、决策、行动项、闭环状态）随统一输出格式取消，"议题 → 决策 → 结果"写进 statement | 若要按闭环状态检索或展示，需另定（6.9（P6）） |
 | 37 | 总表仍是旧口径：跨公司部分 GS → 创始人只列 [去身份]；GS 内部在途隔离标"设计有意加严"；Partner 写"每场按在途交易处理、匿名也不行"；LP / GS 内部 / Partner 三块未写"需管理员审核"。GS → LP 的 1b 仍写「公司层：按正文提到的被投公司拆分」与「是 [交易敏感] 的唯一去处」，本方案已取消公司层（#49） | **已关闭**：总表已于 2026-10-10 删除 |
-| 38 | 跨公司内容的行粒度：矩阵按"每条一行"展示（9.6.2），中间表写的是"每场会、每个去向一条"（9.6.4） | 开发设计阶段定；Play candidate 要求跨公司 / 证词在中间表逐条一行（`in_playbook` 按行打，9.11.6），须按此定 |
+| 38 | 跨公司内容的行粒度：矩阵按"每条一行"展示（9.6.2），中间表写的是"每场会、每个去向一条"（9.6.4） | **已定**（本方案，2026-10-23）：知识库条目每场会、每个去向（与公司）一行，摘要与正文同行两列；跨公司每条一行；证词每条两行（匿名、署名），以 `testimony_group_id` 配对（9.6.6）——Play candidate 按行打（9.11.6）的前提 |
 | 39 | GS → LP 跨公司附加剥离的边界：行业层面的 LP 行为趋势（如「LP 普遍在降低对早期基金的配置」）算不算要剥的「GS 自有基金的相关内容」 | 按不算处理：不指向 GS 的基金、也不指向某个 LP，剥掉身份后作为市场趋势保留（3.5）。若需求方认为 LP 会上谈到的基金话题一律不出，改提示词一行即可 |
 | 40 | Portfolio KB 基金标签的范围与展示：早先的需求写过「手动选择基金标签，只增加标签，无实质过滤性功能」，现行需求已找不到这句 | 按：管理端知识库页全部行都能打（含人工上传的文件）；用现有 Portfolio 列，没选过时沿用现状显示；列表不按它筛选；看得到该行的管理端用户都能改（9.11.2） |
 
@@ -2601,7 +2801,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 44 | PM 在 Expert Testimony Tab 看不到说话人与专长标签（需求「PM 账户不显示」），而 Goldie 里 PM 召回的是署名版（#7 ②） | **已关闭**：《Goldie Base》10-16 版删去「PM 账户不显示」，PM 在本 Tab 也显示说话人姓名、组织、角色与专长标签，与 Goldie 侧署名版一致（9.11.5） |
 | 45 | Play candidate 的可见范围与权限：① Playbook 原本全平台共享一份，会议内容按组织圈定 ② 谁能开关 ③ 须用户在 Goldie 打开本轮 Playbook 开关才召回得到 | **已调整（用户决定 2026-10-16）**：Play candidate 只作候选标记、不进 Playbook 召回，①③ 不再适用；② PGM / SA 可开关，PM 只看状态（9.11.6） |
 | 46 | Memory 新标签：需求「添加了一个新标签，Fireflies Memory, Meeting Summary」 | 按读法 A 实现：来源标签 `Fireflies Memory` + 内容类型标签 `Meeting Summary`（替换「Document Summary」），层标签照旧；不新增记忆层、不改筛选（9.11.3）。另一读法 B：`Fireflies Memory` 占层标签位置（替换 Company / Portfolio Memory）、`Meeting Summary` 占内容类型位置——与现有徽标两段结构对应（`MemoryMetaRow.tsx:22-38`） |
-| 47 | Knowledge Base 的 Source 列点 `Fireflies` 跳 Raw Data：公司端 Raw Data 入口本身未决（9.3.6、#8） | 仅对有该会议 Raw Data 权限的查看者可点：PGM / SA 全部；创始人本人参加过的会议暂按"有权限即可点"预留；PM 与未参会的公司端用户显示为纯文字（9.11.2）；若 #9 放开 PM 看 Raw Data，PM 随之可点 |
+| 47 | Knowledge Base 的 Source 列点 `Fireflies` 跳 Raw Data：公司端 Raw Data 入口原未决（9.3.6、#8） | 仅对有该会议 Raw Data 权限的查看者可点：PGM / SA 全部；创始人本人参加过的会议可点，跳公司端的 Raw Data Tab（入口已由 #90 定）；PM 与未参会的公司端用户显示为纯文字（9.11.2）；若 #9 放开 PM 看 Raw Data，PM 随之可点 |
 | 48 | PM 在两个新 Tab 看到全租户会议的名称与元数据（日期、类型）：会议标题常带公司名 / LP 名，而 PM 按 3.3 只看可访问公司、按 9.3.6 / 9.4 看不到 Raw Data 与 Summary Records 列表；会抵消 3.5 对 GS → LP「剥离 LP 身份」，也暴露非管辖公司的 Partner / 退出会的存在 | 按需求实现：需求写「每条内容附带会议名称及元数据」「PM 不可点击名称」，即 PM 看得到名称、只是不可点。备选：① PM 只看可访问公司相关会议的名称，其余显示 `—`；② PM 只显示会议日期与类型（9.11.4 / 9.11.5） |
 
 **I. 2026-10-10 梳理提示词后新增**
@@ -2611,7 +2811,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 49 | GS → LP 不按公司拆分（用户决定 2026-10-10）：不再按正文提到的被投公司拆分公司层 1b，不调 P3，P1 只做质量判断、不识别公司；只抽基金层（P4），基金层照旧不写具体被投公司 | **已定**（3.3）。依据：需求路由表 GS → LP 的 1b 与 Portfolio KB 两格都只写「组合（基金）级别摘要」，该文件历来没有按公司拆分；「公司层」源头是 09-21 版设计文档（依据已删除的旧版需求）。后果：LP 会上谈到具体被投公司的内容，除进行中的交易外（对该公司的评价与计划、已成交的交易等）不进任何知识库——基金层不写，Cross-Company 与证词不收交易事实——只留原始转录（`ff_meeting`，Raw Data 页），Goldie 召回不到。进行中的交易：需求 10-13 版写明「只放1b」，写进基金层 1b（用户决定 2026-10-14，#57）；原「按不放出理解」作废 |
 | 50 | 需求术语 (1) Exit-Readiness / Strategy 无处引用：09-21 版挂在「GS → 董事会 / 创始人」1b「退出准备 / 战略方面的摘要（1）」，董事会类型取消后现行路由表没有任何一格引用它；GS 内部、GS → Partner 两类 1b 也没有术语定义 | **已定（用户决定 2026-10-10）**：借用 (1) 作 GS → Partner「涉及具体公司退出的摘要」的定义——抽取项加入退出就绪度与与退出相关的中长期战略（5.4、6.6）。GS 内部仍按本方案展开。可请需求方在路由表 Partner 1b 一格补注 (1) |
 | 51 | 《AI Meeting Type》内部不一致：参会人识别首行把 GS 域名放在第一步；同文档「何为 GS 人员」仍把域名当最后的回退 | 按首行实现：GS 域名首位判定（1.9、2.1）。请需求方统一「何为 GS 人员」一段。原「两个域名 vs 三个域名」的不一致已由 10-13 版消除：两处都列 `whalesongproduct.com`、`goldensection.com`、`gst.com`；`gstdev.com` 不再在列，其账号若是管理端用户仍由完整邮箱识别为 GS |
-| 52 | LG 用户域名匹配的安全规则：需求只写了 company Team domain，10-13 版又改为「Email 域名匹配管理端和公司端用户」，都没说公共邮箱、一个域名对应多方怎么办 | 本方案：排除公共邮箱域名与 GS 域名；管理端用户域名只取本租户的；一个域名对应多家公司、或同时对应管理端与某家公司，不采纳；只在完整邮箱未命中 LG 用户时使用（1.9 ③）。另：日历姓名匹配的姓名源仍取 Fireflies `meeting_attendance[].name`（`meeting_attendees` 的姓名实测为空，1.8） |
+| 52 | LG 用户域名匹配的安全规则：需求只写了 company Team domain，10-13 版又改为「Email 域名匹配管理端和公司端用户」，都没说公共邮箱、一个域名对应多方怎么办 | 本方案：排除公共邮箱域名与 GS 域名；管理端用户域名只取本租户的；一个域名对应多家公司、或同时对应管理端与某家公司，不采纳；只在完整邮箱未命中 LG 用户时使用（1.9 ③）。另：日历姓名匹配的姓名取程序对上的发言人名（`meeting_attendees` 的姓名实测为空，1.8、#92） |
 
 **J. 2026-10-14 跟进《AI Meeting Type》10-13 / 10-14 版后新增**
 
@@ -2628,7 +2828,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 56 | 《会议内容提取规则》I「LLM 摘要层：直接使用 Fireflies 的 Summary」 | **用户决定 2026-10-14：保留 P2 整理**——GS → 创始人会议 overview 非空时仍由大模型整理成 markdown、摘要压到 150 个英文单词（6.5）；与需求字面不一致，请需求方知悉。其余类型要按公司 / 基金层拆分，本就无法直接用整场摘要 |
 | 57 | GS → LP 跨公司列 10-13 版写明「所有进行中的交易信息永不放出，只放1b」 | **用户决定 2026-10-14**：进行中的交易写进基金层 1b 的 `## Live Deals`，照常写出公司名（3.3、6.7）。代价：基金层对全体管理端可见，PM 会看到非管辖公司的在途交易；其余涉及具体被投公司的内容照旧不写（#49） |
 | 58 | 《Cheat Sheet》10-13 版「除 Area of expertise 之外，其他字段均为必填」，字面含专长标签；而「带专长标签 = 专家」（1.11），标签必填等于在册的人都是专家 | **用户决定 2026-10-14**：专长标签仍选填，其余字段必填（9.7.4）；请需求方确认 |
-| 59 | Email 必填后，只有出席记录姓名、没有邮箱的参会人（电话拨入、访客）登记不了 | **用户决定 2026-10-14**：参会人以有邮箱为前提——没有邮箱的人不录入 Cheat Sheet，P8 推断出身份也不采纳，保持 `Unidentified`、会议 `Pending`，管理员补上邮箱登记后才能继续（1.9、6.13、9.7.4）。拒绝名单因此总能按邮箱记录 |
+| 59 | Email 必填后，只有出席记录姓名、没有邮箱的参会人（电话拨入、访客）登记不了 | **用户决定 2026-10-14**：参会人以有邮箱为前提——没有邮箱的人不录入 Cheat Sheet，P8 推断出身份也不采纳，保持 `Unidentified`、会议 `Pending`，管理员补上邮箱登记后才能继续（1.9、6.13、9.7.4）。拒绝名单因此总能按邮箱记录。**2026-10-23 按 #92 调整**：参会人只来自受邀邮箱、对上名册的说话人与按 LG 账号登记的说话人；没发言、又对不上受邀邮箱的出席者不算参会人、不卡会议 |
 | 60 | 《Goldie Base》10-13 版只把 Cross company content 一节的开关改名为 Play candidate，Expert Testimony 一节仍写 Add to playbook | **已关闭**：《Goldie Base》10-16 版两节都写 Play candidate |
 
 **L. 2026-10-16 跟进《Goldie Base》10-16 版与专家确认门禁后新增**
@@ -2640,8 +2840,8 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 63 | 同一人在多场会议里被标了同一个专长标签 | **用户决定 2026-10-16：每场单独处理**，不跨会议联动；打开确认框时若该（邮箱，标签）已入册或已被拒绝，自动消解并提示（9.5.6）。代价：同一人同时卡在多场会议时要逐场打开处理；处理过一场后，以后的新会议不再就该标签标他（6.10） |
 | 64 | 待确认专家的会议长期没人处理 | **用户决定 2026-10-16**：只靠列表红点（按原因计数）与筛选，不发站内信 / 邮件、不设超时（9.4）。风险：创始人自己的会议摘要会一直进不了 Goldie，管理员不看列表就不知道 |
 | 65 | P1 把真实会议误判为 `Invalid` 后没有补救入口 | **用户决定 2026-10-16：维持现状**，不加「标为有效」。风险：误判的会议永远不会被提取，只留原始转录（9.3.4） |
-| 66 | Fireflies 的 `participants` 是受邀名单（含受邀未到的人），转录里还会有不在名单里的说话人 | **用户决定 2026-10-16**：受邀人照常算参会人——在受邀名单里即说明会议对他开放，登录 Fireflies 也能看回放，不算越权；说话人对不上参会人时先按 Cheat Sheet 姓名完全匹配、再交 P8，仍对不上的会议进 `Pending`（待识别），管理员指定为参会人或登记进 Cheat Sheet，登记后同名说话人作为候选交 P8 核对（1.9、9.5.5，#77）。名字带数字等噪声交 P8 对（P8 可对到参会人，也可对到名册），不另设归一化规则；邮箱与出席记录姓名的配对规则暂不补。与需求字面不同，请需求方知悉：《Raw Data》写「创始人本人可查看自己参加的会议」，本方案按受邀算；受邀未到的人也参与类型判定与多公司判定（#73）。未对上的说话人只有「指定为参会人」「登记进名册」两个出口，不加「不归属个人」（用户决定 2026-10-16）——代价：会议室设备、多人共用一个麦克风的说话人只能指给其中一人，他若是专家，这些话可能进他的证词 |
-| 67 | 没有出口的会议：四类类型都不合适（GS + Other、只有 1 个 GS、GS 本人没到）、参会人查不到邮箱登记不了、不想路由的会 | **用户决定 2026-10-16**：不新增状态——前两种一直停在 `Pending`，管理员要用这场会就线下找邮箱登记，客户真觉得碍眼再提需求加状态；不想路由的会，管理员取消授权，或把类型改为 `Unknown` 手动打回 Pending。两种操作都软删已投影的 Memory 摘要、知识库文档与登记行（9.6.4、9.9.2）；已 Passed 的会议在改回之前，内容可能已被看到；改回 Pending 时原始数据保留、中间表一并软删（选回类型须重新提取），见 9.9.2 表下说明。取消全部勾选后会议仍是 `Passed`，与《Summary Records》「Passed = 路由全部内容」字面不同，请需求方知悉 |
+| 66 | Fireflies 的 `participants` 是受邀名单（含受邀未到的人），转录里还会有不在名单里的说话人 | **用户决定 2026-10-16**：受邀人照常算参会人——在受邀名单里即说明会议对他开放，登录 Fireflies 也能看回放，不算越权；说话人对不上参会人时先按 Cheat Sheet 姓名完全匹配、再交 P8，仍对不上的会议进 `Pending`（待识别），管理员指定为参会人或登记进 Cheat Sheet，登记后同名说话人作为候选交 P8 核对（1.9、9.5.5，#77）。名字带数字等噪声交 P8 对（P8 可对到参会人，也可对到名册），不另设归一化规则；邮箱与出席记录姓名的配对规则暂不补（2026-10-23 由 #92 取代）。与需求字面不同，请需求方知悉：《Raw Data》写「创始人本人可查看自己参加的会议」，本方案按受邀算；受邀未到的人也参与类型判定与多公司判定（#73）。未对上的说话人只有「指定为参会人」「登记进名册」两个出口，不加「不归属个人」（用户决定 2026-10-16）——代价：会议室设备、多人共用一个麦克风的说话人只能指给其中一人，他若是专家，这些话可能进他的证词 |
+| 67 | 没有出口的会议：四类类型都不合适（GS + Other、只有 1 个 GS、GS 本人没到）、未对上的说话人查不到邮箱登记不了、不想路由的会 | **用户决定 2026-10-16**：不新增状态——前两种一直停在 `Pending`，管理员要用这场会就线下找邮箱登记，客户真觉得碍眼再提需求加状态；不想路由的会，管理员取消授权，或把类型改为 `Unknown` 手动打回 Pending。两种操作都软删已投影的 Memory 摘要、知识库文档与登记行（9.6.4、9.9.2）；已 Passed 的会议在改回之前，内容可能已被看到；改回 Pending 时原始数据保留、中间表一并软删（选回类型须重新提取），见 9.9.2 表下说明。取消全部勾选后会议仍是 `Passed`，与《Summary Records》「Passed = 路由全部内容」字面不同，请需求方知悉 |
 | 68 | Fireflies 侧的私密会议（`privacy = owner`）、别人共享进来的会议（`shared_with`）照样被拉进 LG；Fireflies 侧删除了会议，LG 察觉不到 | **用户决定 2026-10-16：维持现状**——不按 privacy / shared_with 过滤，不做删除对账。这类会议进来后，管理员可以撤掉：取消全部勾选，或改 `Unknown` 打回 Pending，已投影的产物随之软删（9.6.4、9.9.2）；原始数据保留（9.3.6）。privacy 各取值的含义、Admin key 能否看到他人私密会议未实测（本地 43 场样本只有 `link` 与 `teammatesandparticipants`） |
 | 69 | 组织树下「本租户」指哪一层；父、子租户能否互看；识别时本租户的人和公司是否含子树 | **用户决定 2026-10-16：只认连接所在的那一个组织节点**，不含父、子节点（1.1）。识别只认本租户的 LG 用户、公司与 Team 域名，P1 候选公司与 Company 下拉只列本租户公司，GS 域名按租户配置；数据以 `(organization_id, fireflies_id)` 为唯一键；组织 id 由后端推出或等值校验。Super Admin 在 Configuration / Raw Data / Summary Records / Cheat Sheet 用组织树下拉切换租户；GS 域名在 Cheat Sheet 页的 Email Domain 按租户维护（9.7.7，需求 10-16 把它放在 Cheat Sheet）；Goldie Base 两个新 Tab 与现有知识库一致，默认第一个租户、不切换（9.1）。部署前提：连接挂在被投公司所在的节点上，否则这些公司的人识别不成创始人。与《多租户与企业级安全》M-7「凭证租户及其子树」口径不同，Fireflies 按单节点。与需求字面不同，请需求方知悉：《AI Meeting Type》仍写死三个 GS 域名，本方案作为 GS 租户的初始值；需求写「匹配平台中管理端和公司端用户」，本方案限本租户；各页切换租户需求未写 |
 | 70 | 按单节点租户（#69）后的两个边角：① 公司从租户 X 挪到 Y，它在 X 开会产出的 APP / ADMIN 条目跟着公司走，Y 的 PM / PGM 能看到；X 的名册、拒绝名单、跨公司内容留在 X ② Super Admin 本人参会，邮箱不在 GS 域名内、也不属于该租户管理端用户，第 ①② 级识别不到 | **用户决定 2026-10-16：维持现状**。① 挪公司少见，挪了即归新租户管；② Super Admin 一般用 GS 域名邮箱，遇到时在 Cheat Sheet 登记为 GS staff |
@@ -2651,7 +2851,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 74 | 识别链的顺序让名册纠正不了误判：① 名册里是 LP / Partner、又有某家公司公司端账号的人，按 LG 账号判成 Founder，LP / Partner 会议进该公司空间 ② 域名匹配（③）排在 Cheat Sheet（④）之前，域名撞上某家公司 Team 域名或管理端用户域名的外部人，登记进名册也改不过来 | **用户决定 2026-10-16：维持现状**，按需求的识别顺序（LG 用户 / 域名优先、命中即止）。风险：两种情况都会把会议判错类型，内容可能进被投公司全员可见的空间；管理员发现后在 Summary Records 改类型或公司（1.9 ③、2.1） |
 | 75 | 已提取的会议在名册订正或规则调整后没法重跑：页面没有改动时 Start Extraction 置灰；Cheat Sheet 订正不回溯（#15）；改 Email Domain、提示词、质量门槛、基金清单只影响之后的会议 | **用户决定 2026-10-16：维持现状**，不加「按当前规则重跑」入口，也不做批量重跑；历史会议要改，只能在会议页手动改类型、公司或参会人触发重跑。风险：只错了角色或专长标签的证词改不了、一直在线；新租户先 Link 后配 Email Domain 时，首批会议只能逐场手动改（9.5.1） |
 | 76 | 两份需求对创始人看原文说法相反：《会议内容提取规则》「任何面向 Founder 的界面绝不呈现原始逐字表述」，《Raw Data》「创始人本人可查看自己参加的会议」 | **用户决定 2026-10-19**：创始人可以在 Raw Data 查看自己受邀会议的原始逐字稿——本人参加，或在 Fireflies 上本来就能看到，没必要在这里再限制；「绝不呈现原始逐字」只管 Goldie、知识库等派生产物。中途离场后的内容同样可见（同 #66）。请需求方在《会议内容提取规则》里注明这个例外（9.3.5、9.3.6） |
-| 77 | 同名不同人：名册姓名唯一，日历姓名、说话人姓名完全匹配命中即采纳，另一个同名的人会被认成名册里那位（类型、证词跟着错），他也登记不进名册 | **用户决定 2026-10-19**：姓名唯一不变。① 按姓名命中名册（日历姓名、说话人姓名）后不直接采纳，交 P8 核对旁证（邮箱域名对得上机构，或会上说到的机构、角色一致），`high` 才采纳，否则 Pending（1.8、6.13）；② 同名的第二人登记时加后缀区分，如 `David Lee (Bank)`（9.5.7、9.7.4）。连带：按姓名认出的人身份算经 P8 得出——证词默认扣留（6.11 步骤 7），名册 Founder 按姓名认出时算「公司方只来自 P8」、整场 Pending（2.1）；拿链接进会的名册人员没有邮箱旁证，会上也没说机构时每次都进 Pending。与需求「Email 未命中则用姓名匹配」不完全一致（多了旁证），请需求方知悉 |
+| 77 | 同名不同人：名册姓名唯一，日历姓名、说话人姓名完全匹配命中即采纳，另一个同名的人会被认成名册里那位（类型、证词跟着错），他也登记不进名册 | **用户决定 2026-10-19**：姓名唯一不变。① 按姓名命中名册（日历姓名、说话人姓名）后不直接采纳（补充识别除外，#93），交 P8 核对旁证（邮箱域名对得上机构，或会上说到的机构、角色一致），`high` 才采纳，否则 Pending（1.8、6.13）；② 同名的第二人登记时加后缀区分，如 `David Lee (Bank)`（9.5.7、9.7.4）。连带：按姓名认出的人身份算经 P8 得出——证词默认扣留（6.11 步骤 7），名册 Founder 按姓名认出时算「公司方只来自 P8」、整场 Pending（2.1）；拿链接进会的名册人员没有邮箱旁证，会上也没说机构时每次都进 Pending。与需求「Email 未命中则用姓名匹配」不完全一致（多了旁证），请需求方知悉 |
 | 78 | 摘要长度单位：《会议内容提取规则》写「1,000 字以内摘要」、《Goldie Base》写「1000字符以内」，设计按 150 个英文单词 | **用户决定 2026-10-19**：维持不超过 150 个英文单词；两份需求在原文后注明「（实际按不大于150词算）」（用户决定 2026-10-19）。150 个词约 900 字符，专业词多时可能略超 1000 字符，以词数为准（1.3、9.11） |
 | 79 | 撤回的内容已出现在 Goldie 回答里：取消勾选后 Goldie 不再召回，但此前生成的回答仍在聊天记录里，管理员可能以为撤干净了 | **用户决定 2026-10-19**：接受——撤回只对之后的召回生效，已生成的回答与已下载的文件都不追；只在设计里记录，确认框不新增提示，页面以设计稿为准（1.6） |
 | 80 | 五处需求原文与设计做法不一致，此前未记录 | **用户决定 2026-10-19：均维持设计**，请需求方知悉：① 《会议内容提取规则》III「Discard Changes → 点击后撤销所有变更」——名册写入、专家确认 / 拒绝、已 Save 并上线的行、被推测者补抽的证词不随 Discard 撤销，它们立即写库，名册还影响别的会议（9.6.5）；② 《Summary Records》「点击保存，应再次走去逐字化和脱敏流程」——只重跑机械清洗（n-gram 剔除、实体剥离），不重跑 LLM 改写，免得覆盖人工措辞（9.6.3）；③ 《Summary Records》「Expert testimony 分别展示管理端和 Founder 端的措辞」——两版正文相同，只差程序附加的首行来源行，改一版另一版同步（9.6.2、3.4）；④ 《Summary Records》「已识别者 Name 只读」——按「已在册」理解：P8 / HubSpot 推断出、尚未入册的人 Name 可订正后再入册（9.5.5）；⑤ 《AI Meeting Type》拒绝标签后「之后每周 Goldie 不会再就同一标签询问同一个人」——按永久不再推测处理，误拒的在 Cheat Sheet 直接加该标签（1.11、9.5.6） |
@@ -2663,7 +2863,11 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 86 | 不在营的公司：需求只查四种在营状态的公司，但 P1 候选清单是全部公司；退出公司的创始人往下怎么识别没写 | **用户决定 2026-10-19**：Exited / Shut down / Off journey 及状态为空的公司，其公司端用户不判 Founder，顺着识别链往下识别；这些公司仍可作 GS 内部 / Partner 会议的 1b 归属与 P1 候选，内容只到管理端；GS → 创始人只认在营公司，反推公司时 P1 命中不在营公司不采纳、整场 Pending，免得内容进不在营公司的公司端空间（1.9、2.1） |
 | 87 | GS 内部会议的公司只靠 P1 正文推断，1b 默认放行；同名公司等误判会让无关的 PM 看到内容 | **用户决定 2026-10-19：维持默认放行**——P1 只采 `high`；误判时内容会到无关公司的 PM，但只在管理端（第四章「归属方式」） |
 | 88 | 需求 10-19 版删去路由表 GS → Partner 行 1b 的「敏感，默认保留，进入待分配」 | **用户决定 2026-10-19：跟随需求**——GS → Partner 的 1b 与 Portfolio KB 改为和 GS 内部一样默认放行，会议不再因它们进 `Pending`（待审核）；原「Portfolio KB 随 1b 一并扣留」的本方案规则一并取消。代价：退出谈判这类敏感内容不经审核就到管这家公司的 PM（只到管理端）；P1 认错公司时（同 #87），会到无关公司的 PM（5.4、9.6.4、9.9.5） |
-| 89 | 需求 10-19 版新增「新增公司或公司人员有变更时（新增，edit）都应激活 Pending 列表中 GS-Founder 会议类型的匹配，若匹配成功，则自动路由到匹配公司」：什么变更触发、匹配哪些会议、「自动路由」做到哪一步、管理员已经动过的会议怎么办都没写 | **用户决定 2026-10-19**（均按推荐）：① 本租户任一公司、任一公司端用户的新增或编辑都触发，只跑程序匹配、不调大模型；② 只匹配类型已判为 GS → 创始人、只因定不出公司而待识别的会议，多家公司、到场 Founder 归属不到、P1 最终失败的不在此列；只对按名册或 P8 识别为 Founder 的人重跑匹配，认出的人当日的名册机构或 P8 推断机构也须对得上这家（本方案，防他换了公司后旧会议被送进新公司）；③ 匹配成功即自动关联公司、自动提取，按自动提取的默认授权放行，结果与首次拉取就认出公司相同；④ 有草稿的会议跳过；⑤ Cheat Sheet 与 Email Domain 的增改不触发重新匹配，打开会议时也不重新匹配；⑥ Java 端保存后即时通知。不发提醒，只记审计（9.9.3）。代价：名册或 Email Domain 补齐后，待识别会议仍要管理员逐场处理；P1 反推命中不在营公司而 Pending 的，公司改回在营也不自动路由；自动路由的内容不经人眼即进创始人可读的空间，与首次拉取就认出公司的会议相同 |
+| 89 | 需求 10-19 版新增「新增公司或公司人员有变更时（新增，edit）都应激活 Pending 列表中 GS-Founder 会议类型的匹配，若匹配成功，则自动路由到匹配公司」：什么变更触发、匹配哪些会议、「自动路由」做到哪一步、管理员已经动过的会议怎么办都没写 | **用户决定 2026-10-19**（均按推荐）：① 本租户任一公司、任一公司端用户的新增或编辑都触发，只跑程序匹配、不调大模型；② 只匹配类型已判为 GS → 创始人、只因定不出公司而待识别的会议，多家公司、到场 Founder 归属不到、P1 最终失败的不在此列；只对还没认出公司的 Founder（名册、P8 或本页登记识别的）重跑匹配，认出的人当日的名册机构或 P8 推断机构也须对得上这家（本方案，防他换了公司后旧会议被送进新公司）；③ 匹配成功即自动关联公司、自动提取，按自动提取的默认授权放行，结果与首次拉取就认出公司相同；④ 有草稿的会议跳过；⑤ Cheat Sheet 与 Email Domain 的增改不触发重新匹配，打开会议时也不重新匹配；⑥ Java 端保存后即时通知。不发提醒，只记审计（9.9.3）。代价：名册或 Email Domain 补齐后，待识别会议仍要管理员逐场处理；P1 反推命中不在营公司而 Pending 的，公司改回在营也不自动路由；自动路由的内容不经人眼即进创始人可读的空间，与首次拉取就认出公司的会议相同 |
+| 90 | 创始人看本人会议原文的入口（原 #8）：需求只给了权限，没给入口 | **用户决定 2026-10-23**：公司端也在 Fireflies Management 页查看，只显示 Raw Data Tab，其余 Tab 隐藏、接口照样拒绝；公司端导航加入口（位置以设计稿为准），不显示租户切换下拉；列表与搜索限会话租户内本人受邀的会议，详情按会议 id 校验；依赖第八章 #14 先补齐创始人会话的 `organization_id`；知识库 Source 列对创始人随之可点（#47）（9.3.6、第八章 #28） |
+| 91 | Java / Python 分工：设计原把 Fireflies 接口写成 Java 网关前缀，表、定时任务、后台取数方式都没写 | **用户决定 2026-10-23**：Java 负责 Configuration、Cheat Sheet 维护（含 Email Domain、专长标签）、Raw Data 查看（含公司端，#90）与定时拉取；Python 负责与大模型相关的功能——识别（含 P1 / P8）、提取与清洗、中间表与投影、Summary Records 与矩阵、改判重算与自动路由、Goldie Base 两个新 Tab。新会议与公司增改经 SQS 交给 Python；Summary Records 上的名册写入调 Java 接口。跨端读表（Python 读 Java 的 5 张 Fireflies 表与 7 张 LG 业务表，Java 读 Python 的 2 张）与数据权限等表定了再看（第八章开头） |
+| 92 | 出席记录姓名与受邀邮箱怎么配对：出席记录只有姓名、受邀名单只有邮箱，#66 定为暂不补；但 P8 的 `attendees`（每人带邮箱与出席记录姓名）与 #59「没有邮箱的参会人」都以配对为前提，不配对时每个出席姓名都会成为一位无邮箱的 `Unidentified`，几乎每场会进 `Pending` | **用户决定 2026-10-23**：参会人以受邀邮箱为准；程序只给发言人按「姓名对邮箱前缀」配邮箱（去掉 `(Unverified)` 后缀，唯一才采纳），对不上的交 P8；出席记录只作显示与 P8 线索，没发言、又对不上受邀邮箱的出席者忽略。实测 44 场（2026-10-23 重新拉取）：180 个发言人里 178 个与出席名字相同，177 个能配上邮箱；被忽略的 24 条全是记录机器人与匿名访客。代价：拿链接旁听、不发言的外部人被当作不在场，会议可能判成 GS 内部，可接受（1.8、1.9、6.13、9.5.9） |
+| 93 | 补充识别按姓名命中名册：1.11 写「先邮箱后姓名」，#77 只给分类链的姓名命中加了 P8 核对；补充识别按姓名直接采纳时，同名的另一个人会被标成 `Expert`、证词署上别人的名字 | **用户决定 2026-10-23：维持现状**——补充识别先邮箱、未命中再姓名，按姓名命中直接采纳（与 #77 分类链的姓名命中须经 P8 核对不同），同名不同人的概率小。代价：同名的人会被标成专家，他的话按证词抽出，匿名版进全租户创始人可见的空间、署名版写成名册里那位的机构（1.11、2.5） |
 
 **本次重写关闭的旧条目**：Partner 判定"角色 + 标签"（改为只看角色，5.1）；机密性规则的出处（改挂现行需求，1.7）；Expertise Tags 取值清单（固定 5 项，9.8）；仅凭 Cheat Sheet Founder 判定时的 Flagged 兜底（改为进 Pending，2.1）；`ADMIN_PORTFOLIO` 设想（改为机构层归属，#21）；Board Call 的 care flag（Board 已取消）；管理端知识库是否展示会议条目（需求已要求 Portfolio KB，1.1）；公司结构化记忆分类清单（用户已取消按记忆分类筛选）。原 10.3「与 2026-09-28 需求方答复的冲突」已全部被现行需求吸收，整节删除。
 
@@ -2677,7 +2881,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 |---|---|---|:-:|---|
 | 1 | Fireflies Configuration | 授权 + **全部数据拉取**，定时 / 手动拉取链路 | M | 9.2、9.3.1 |
 | 2 | Cheat Sheet（含专长标签维护） | 含 Area of expertise 字段、专长标签受控列表（已用不可删）、Email Domain（9.7.7） | M | 9.7、9.8 |
-| 3 | Fireflies Raw Data（列表 + 详情） | 列表（含搜索）+ 详情，仅数据展示 | S | 9.3 |
+| 3 | Fireflies Raw Data（列表 + 详情） | 列表（含搜索）+ 详情，仅数据展示；含公司端受邀用户的视图（#90） | S | 9.3 |
 | 4 | Fireflies Summary Records | **只做功能展示**，不含 AI 自动识别；含 Portfolio 标记、专家推测的确认 / 拒绝、行内保存时重跑清洗 | M | 9.4 ~ 9.6、9.9 |
 | 5 | AI Meeting Type 自动映射 | AI 自动识别 Meeting Type；含参会人 LLM 推断（6.13（P8））、公司增改后的自动路由（9.9.3） | S | 1.8、1.9、2.1 / 3.1 / 4.1 / 5.1、6.4（P1）、6.13（P8）、9.9.3 |
 | 6 | 自动提取内容 | 4 种摘要、GS → 创始人的 KB 文档、跨公司知识（市场 / 商业趋势、战略决议闭环、全公司视角，四类会议统一）、6 种证词（LP / Partner / 创始人专家 × 署名 / 匿名）、专家推测；P2~P7 按类型独立并行调用（每场 1~4 种，P3 按公司逐家调用；复用矩阵见 6.2） | L | 第六章 |
@@ -2691,3 +2895,5 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 **第 4 项与第 5 项的边界**：Summary Records 负责页面与人工操作（改判、公司增删、Portfolio 标记、参会人登记、专家推测确认、Matrix 编辑与授权），AI 识别会议类型属第 5 项，内容提取属第 6 项。三者都发生在同一个页面上，不写明容易重复计入。
 
 **第 7、8 项与第 10 项的边界**：第 7、8 项管 Memory / 知识库两页的数据纳入 `FIREFLIES`、机构层展示与基金标签；第 10 项管 Goldie Base 页面本身（Tab 容器、Source 列、Fireflies 标签、两个新 Tab）与 Play candidate。
+
+**分端**：第 1~3 项在 Java，第 4~10 项主体在 Python（页面在前端），见第八章开头分工（#91）；Java 配套改动计入对应项：#28 计入第 3 项，#31 计入第 4 项，#27 计入第 5 项，#3 计入第 6 项，#14、#22 计入第 7 / 8 / 10 项，#32 计入第 4 项。
