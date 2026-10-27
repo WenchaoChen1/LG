@@ -50,9 +50,9 @@ ERL 各维度问卷默认采用单向推进机制：已达成（Yes）项在下�
 
 3. **审核中状态条（页面顶部提示）**
 
-▎ Under Review — Your request to change a locked answer is pending approval.
-▎ Submitted by: {用户名} · On: {提交时间}
-▎ Question: {题目} · Change: Yes → No · Reason: {修改原因}
+▎ Under Review — Your request to change a locked answer is pending approval.  
+▎ Submitted by: {用户名} · On: {提交时间}  
+▎ Question: {题目} · Change: Yes → No · Reason: {修改原因}  
 
 4. **申请提交后的作答规则**
 
@@ -68,7 +68,7 @@ ERL 各维度问卷默认采用单向推进机制：已达成（Yes）项在下�
 
 审核人页面提示语（申请作废）：
 
-▎ This request has been automatically voided.
+▎ This request has been automatically voided.  
 ▎ The applicant has since submitted a later quarter's questionnaire for this dimension, which has advanced beyond the question in this request. The rollback is no longer applicable, and no action is required.
 
 ---
@@ -101,7 +101,7 @@ Click the button below to review the full questionnaire and approve or refuse th
 点击邮件链接进入待审核问卷页面（Founder问题详情页）：
 
 - 展示待审核状态条
-  - ▎ Submitted by: {用户名} · On: {提交时间}
+  - ▎ Submitted by: {用户名} · On: {提交时间}  
     ▎ Question: {题目} · Reason: {修改原因}
 
 - 展示问卷内容和所有答案（只读）
@@ -114,8 +114,8 @@ Click the button below to review the full questionnaire and approve or refuse th
 
 Approve 确认弹框提示语：
 
-▎ Approve this rollback request?
-▎ The locked answer for "{题目}" will be changed from Yes to No, and this quarter's questionnaire will be formally submitted on the applicant's behalf. Drafts for this and future quarters will be preserved.
+▎ Approve this rollback request?  
+▎ The locked answer for "{题目}" will be changed from Yes to No, and this quarter's questionnaire will be formally submitted on the applicant's behalf. Drafts for this and future quarters will be preserved.  
 ▎
 ▎ [Cancel] [Confirm Approval]
 
@@ -127,9 +127,9 @@ Approve 确认弹框提示语：
 
 通知提交人邮件（Approve）：
 
-▎ Your rollback request has been approved.
-▎ Question: {题目} · Change applied: Yes → No
-▎ Reviewed by: {审核人} · On: {审核时间}
+▎ Your rollback request has been approved.  
+▎ Question: {题目} · Change applied: Yes → No  
+▎ Reviewed by: {审核人} · On: {审核时间}  
 ▎ The questionnaire for {季度} · {维度} has been formally submitted. Your drafts for this and future quarters remain available for editing.
 
 3. **Refuse 流程**
@@ -144,19 +144,19 @@ Approve 确认弹框提示语：
 
 Refuse 弹框提示语：
 
-▎ Refuse this rollback request?
-▎ Please provide a reason. This will be sent to the applicant.
+▎ Refuse this rollback request?  
+▎ Please provide a reason. This will be sent to the applicant.  
 ▎
-▎ Reason (required): [________________]
+▎ Reason (required): [________________]  
 ▎
 ▎ [Cancel] [Send]
 
 通知提交人邮件（Refuse）：
 
-▎ Your rollback request has been declined.
-▎ Question: {题目} · Requested change: Yes → No (not applied)
-▎ Reviewed by: {审核人} · On: {审核时间}
-▎ Reason: {拒绝原因}
+▎ Your rollback request has been declined.  
+▎ Question: {题目} · Requested change: Yes → No (not applied)  
+▎ Reviewed by: {审核人} · On: {审核时间}  
+▎ Reason: {拒绝原因}  
 ▎ The locked answer remains unchanged. All submitted questionnaires and drafts are preserved. You may continue editing drafts or submit a new request if circumstances change.
 
 ---
