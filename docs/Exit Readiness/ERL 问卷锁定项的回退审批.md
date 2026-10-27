@@ -89,7 +89,6 @@ Applicant: {用户名} · Company: {公司名} · Dimension: {维度} · Quarter
 Question: {题目}
 Requested change: Yes → No
 Reason provided: {修改原因}
-
 Click the button below to review the full questionnaire and approve or refuse this request.
 [Review Request]
 
