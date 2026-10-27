@@ -162,6 +162,6 @@ Refuse 弹框提示语：
 
 ---
 
-四、状态流转一览
+
 <img width="833" height="243" alt="image" src="https://github.com/user-attachments/assets/34d96dad-531d-4aae-bdf3-8b12d79dce37" />
 
