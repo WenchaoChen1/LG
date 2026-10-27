@@ -371,8 +371,8 @@ COMMENT ON COLUMN ai_ff_expert_candidate.participant_id IS 'ai_ff_meeting_partic
 COMMENT ON COLUMN ai_ff_expert_candidate.tag            IS 'Suggested expertise tag text';
 COMMENT ON COLUMN ai_ff_expert_candidate.claims         IS 'Substantive claims: [{claim, basis, basis_type, timestamp}]';
 COMMENT ON COLUMN ai_ff_expert_candidate.status         IS 'PENDING / ACCEPTED / DECLINED / WITHDRAWN';
-COMMENT ON COLUMN ai_ff_expert_candidate.auto_resolved  IS 'Resolved automatically when the confirm dialog opened';
-COMMENT ON COLUMN ai_ff_expert_candidate.decided_by     IS 'Who decided (dialog save, or the opener for auto-resolve)';
+COMMENT ON COLUMN ai_ff_expert_candidate.auto_resolved  IS 'Tag already in the registry or the rejection list; flagged in the confirm dialog and saved with it';
+COMMENT ON COLUMN ai_ff_expert_candidate.decided_by     IS 'Who saved the confirm dialog (also for auto-resolved tags)';
 COMMENT ON COLUMN ai_ff_expert_candidate.decided_at     IS 'When it was decided';
 DROP TRIGGER IF EXISTS trg_ai_ff_expert_candidate_updated_at ON ai_ff_expert_candidate;
 CREATE TRIGGER trg_ai_ff_expert_candidate_updated_at BEFORE UPDATE ON ai_ff_expert_candidate
@@ -405,6 +405,8 @@ CREATE TABLE IF NOT EXISTS ai_ff_routing_row (
     id                      VARCHAR(36)   NOT NULL DEFAULT gen_random_uuid()::varchar(36),
     organization_id         VARCHAR(36)   NOT NULL,
     meeting_id              VARCHAR(36)   NOT NULL,
+    meeting_started_at      TIMESTAMPTZ   NOT NULL,
+    meeting_title           VARCHAR(512),
     destination             VARCHAR(24)   NOT NULL,
     output_type             VARCHAR(16)   NOT NULL,
     company_id              VARCHAR(36),
@@ -428,13 +430,15 @@ CREATE TABLE IF NOT EXISTS ai_ff_routing_row (
     CONSTRAINT pk_ai_ff_routing_row PRIMARY KEY (id)
 );
 CREATE INDEX IF NOT EXISTS idx_ai_ff_routing_row_meeting ON ai_ff_routing_row (meeting_id);
-CREATE INDEX IF NOT EXISTS idx_ai_ff_routing_row_tab ON ai_ff_routing_row (organization_id, destination, created_at DESC)
+CREATE INDEX IF NOT EXISTS idx_ai_ff_routing_row_tab ON ai_ff_routing_row (organization_id, destination, meeting_started_at DESC)
     WHERE deleted = FALSE AND authorized = TRUE AND file_id IS NOT NULL
       AND destination IN ('CROSS_COMPANY', 'TESTIMONY_SIGNED');
 CREATE INDEX IF NOT EXISTS idx_ai_ff_routing_row_file ON ai_ff_routing_row (file_id);
 CREATE INDEX IF NOT EXISTS idx_ai_ff_routing_row_projection ON ai_ff_routing_row (projection_status)
     WHERE projection_status IN ('PENDING', 'FAILED');
 COMMENT ON TABLE  ai_ff_routing_row IS 'Routing rows: one Authorize cell = one projected knowledge entry';
+COMMENT ON COLUMN ai_ff_routing_row.meeting_started_at     IS 'Copied from ai_ff_meeting_state.started_at; Goldie Base tabs order and filter by it';
+COMMENT ON COLUMN ai_ff_routing_row.meeting_title          IS 'Copied from ai_ff_meeting_state.title; Goldie Base tabs match keywords against it';
 COMMENT ON COLUMN ai_ff_routing_row.destination            IS 'KB_APP / KB_ADMIN / FUND_LEVEL / CROSS_COMPANY / TESTIMONY_ANON / TESTIMONY_SIGNED';
 COMMENT ON COLUMN ai_ff_routing_row.output_type            IS 'SUMMARY / KB / CROSS_COMPANY / TESTIMONY; summary and KB body are separate rows, each authorized and projected on its own';
 COMMENT ON COLUMN ai_ff_routing_row.company_id             IS 'Required for KB_APP / KB_ADMIN';
