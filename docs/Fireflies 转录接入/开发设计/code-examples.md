@@ -444,7 +444,7 @@ COMMENT ON COLUMN ai_ff_routing_row.output_type            IS 'SUMMARY / KB / CR
 COMMENT ON COLUMN ai_ff_routing_row.company_id             IS 'Required for KB_APP / KB_ADMIN';
 COMMENT ON COLUMN ai_ff_routing_row.content                IS 'Summary for SUMMARY rows, markdown body for KB rows, statement for cross-company, body without the source line for testimony';
 COMMENT ON COLUMN ai_ff_routing_row.category               IS 'Cross-company or testimony category; only used to build the entry title on projection';
-COMMENT ON COLUMN ai_ff_routing_row.source_timestamp       IS 'Cross-company and testimony only: time point hh:mm:ss in the meeting; used only to order rows in the matrix and Goldie Base cards; not shown, not projected';
+COMMENT ON COLUMN ai_ff_routing_row.source_timestamp       IS 'Cross-company and testimony only: time point hh:mm:ss in the meeting; orders rows in the matrix and Goldie Base cards; shown read-only in the matrix; not projected';
 COMMENT ON COLUMN ai_ff_routing_row.speaker_participant_id IS 'Testimony only: participant (ai_ff_meeting_participant.id) of the speaker, resolved from the prompt speaker_ref on write; name, organization, role and tags are read from that row';
 COMMENT ON COLUMN ai_ff_routing_row.authorized             IS 'Authorize checkbox';
 COMMENT ON COLUMN ai_ff_routing_row.in_playbook            IS 'Play candidate flag; for testimony only set on the signed row';
