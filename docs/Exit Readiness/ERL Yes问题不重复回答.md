@@ -137,7 +137,34 @@ ERL 的"历史 / 当前 / 未来季度"不看自然时间，也不看 Overview �
 
 在用户执行以下任一动作时，提交确认弹窗需加提示：
 
-- 有未来月草稿的情况下，对最后已提交季度做重复提交；
-- 对多个未来季度草稿中的一个中间季度做正式提交；
-- 有未来月草稿的情况下，对于最后提交季度已锁定的题目进行回退，提交审批。提示语与上面不同（应提示审批通过后草稿将作废）
+- **有未来月草稿的情况下，对最后已提交季度做重复提交；**
+Title: Re-submit current quarter?
+Body:
+▎ You're about to re-submit {current quarter, e.g., 2025 Q4}.  
+▎ You have {N} future-quarter draft(s) saved ({2026 Q1, 2026 Q2, ...}).  
+▎ Re-submitting will refresh the locked-question baseline. All future-quarter drafts above will be permanently discarded and must be re-entered against the new baseline.  
+▎ Continue?  
+
+Buttons: Cancel ｜ Submit and discard drafts
+
+- **对多个未来季度草稿中的一个中间季度做正式提交；**
+Title: Submit this quarter?
+Body: 
+▎   You're about to submit {selected quarter, e.g., 2026 Q2}.  
+▎ There are {N} future-quarter draft(s) scheduled after this quarter ({2026 Q3, 2026 Q4, ...}).  
+▎ Submitting will refresh the locked-question baseline. All drafts for quarters after the one being submitted will be permanently discarded.  
+▎ Continue?  
+
+Buttons: Cancel ｜ Submit and discard later drafts
+
+- **有未来月草稿的情况下，对于最后提交季度已锁定的题目进行回退，提交审批。提示语与上面不同（应提示审批通过后草稿将作废）**
+Title: Submit rollback request for approval?
+Body:
+▎ You're requesting a rollback on locked question(s) in {last submitted quarter, e.g., 2025 Q4}. This change takes effect only after approval.  
+▎ You have {N} future-quarter draft(s) saved.  
+▎ ⚠ If approved, the locked-question baseline will change, and all future-quarter drafts will be automatically discarded at the moment of approval and cannot be recovered.  
+▎ If the request is rejected, your drafts remain untouched.  
+▎ Submit this request?  
+
+Buttons: Cancel ｜ Submit for approval
 
