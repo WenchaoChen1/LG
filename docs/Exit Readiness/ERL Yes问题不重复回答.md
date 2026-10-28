@@ -157,14 +157,3 @@ Body:
 
 Buttons: Cancel ｜ Submit and discard later drafts
 
-- **有未来月草稿的情况下，对于最后提交季度已锁定的题目进行回退，提交审批。提示语与上面不同（应提示审批通过后草稿将作废）**  
-Title: Submit rollback request for approval?  
-Body:  
-▎ You're requesting a rollback on locked question(s) in {last submitted quarter, e.g., 2025 Q4}. This change takes effect only after approval.  
-▎ You have {N} future-quarter draft(s) saved.  
-▎ ⚠ If approved, the locked-question baseline will change, and all future-quarter drafts will be automatically discarded at the moment of approval and cannot be recovered.  
-▎ If the request is rejected, your drafts remain untouched.  
-▎ Submit this request?  
-
-Buttons: Cancel ｜ Submit for approval
-
