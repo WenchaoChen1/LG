@@ -166,5 +166,6 @@ Refuse 弹框提示语：
 ---
 
 
-<img width="833" height="243" alt="image" src="https://github.com/user-attachments/assets/34d96dad-531d-4aae-bdf3-8b12d79dce37" />
+<img width="828" height="236" alt="image" src="https://github.com/user-attachments/assets/fb2e7a02-a586-41d9-9e56-037261a7ced1" />
+
 
