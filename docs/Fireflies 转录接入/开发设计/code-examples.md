@@ -7,8 +7,8 @@
 ## 1. Java 迁移 `deploy/upgrade_doc/sprint122/V1__ff_init.sql`
 
 ```sql
--- sprint122 V1：Fireflies 域建表（ff_connection_configuration / ff_meeting_meta_info / ff_meeting_sentence / ff_cheat_sheet / ff_expertise_tag / ff_expert_rejection）
--- 先于 Java 发版执行（ddl-auto 只建表不建索引）；可重跑
+-- Fireflies 建表（sprint122 V1）：ff_connection_configuration / ff_meeting_meta_info / ff_meeting_sentence / ff_cheat_sheet / ff_expertise_tag / ff_expert_rejection，存量组织补 5 项预置专长标签。
+-- 先于 sprint122 Java 发版执行（ddl-auto 只建表、不建索引与表达式唯一索引）；可重跑，发版后再跑一次可补上发版间隙里新建组织的预置标签。
 -- psql -v ON_ERROR_STOP=1 --single-transaction -f V1__ff_init.sql
 
 CREATE TABLE IF NOT EXISTS ff_connection_configuration (
@@ -184,9 +184,8 @@ ON CONFLICT (organization_id, lower(name)) DO NOTHING;
 ## 2. Python 迁移 `sql/migrations/business/V034__sprint122_fireflies_init.sql`
 
 ```sql
--- V034：Fireflies 识别、提取与路由的表（ai_ff_*），以及 ai_file_registry.business_type 注释加 FIREFLIES / FIREFLIES_TESTIMONY / FIREFLIES_CROSS_COMPANY、ai_rag_business_association.business_type 注释加 EXPERT_TESTIMONY / CROSS_COMPANY
--- 先于本批 Python 发版执行；可重跑
--- 部署后把这些表的读写权限授给 Python 的数据库账号
+-- sprint122 · Fireflies 识别、提取与路由的表（ai_ff_*）；ai_file_registry / ai_rag_business_association 的 business_type 注释补新取值；ai_rag_entry 加 file_id 索引
+-- 执行时机：**先于本批 Python 与 Java 发版**人工执行（Java 的 Raw Data 列表、专长标签删除与专家确认保存会读 ai_ff_meeting_state / ai_ff_expert_candidate / ai_ff_meeting_participant）；可重跑。拒绝名单 ff_expert_rejection 建在 Java V1，Python 也读它，V1 同样要先于 Python 发版。
 
 BEGIN;
 
@@ -293,7 +292,7 @@ COMMENT ON COLUMN ai_ff_meeting_participant.organization              IS 'Organi
 COMMENT ON COLUMN ai_ff_meeting_participant.expertise_tags            IS 'Expertise tags effective on the meeting date';
 COMMENT ON COLUMN ai_ff_meeting_participant.ai_inferred_identity      IS 'Identity inferred by AI (P8): name, role, organization or Cheat Sheet version, confidence, evidence; kept even if not adopted';
 COMMENT ON COLUMN ai_ff_meeting_participant.testimony_backfill_status IS 'RUNNING / FAILED; null means none or succeeded';
-COMMENT ON COLUMN ai_ff_meeting_participant.testimony_tags            IS 'Expertise tags used the last time testimony was extracted for this person; [] after tags were cleared; null means never extracted. Compared with the current tags before a backfill';
+COMMENT ON COLUMN ai_ff_meeting_participant.testimony_tags            IS 'Expertise tags used the last time testimony was extracted for this person; [] once his tags were cleared and his testimony removed; null if never extracted';
 DROP TRIGGER IF EXISTS trg_ai_ff_meeting_participant_updated_at ON ai_ff_meeting_participant;
 CREATE TRIGGER trg_ai_ff_meeting_participant_updated_at BEFORE UPDATE ON ai_ff_meeting_participant
     FOR EACH ROW EXECUTE FUNCTION set_ai_ff_updated_at();
@@ -399,8 +398,6 @@ DROP TRIGGER IF EXISTS trg_ai_ff_expert_candidate_updated_at ON ai_ff_expert_can
 CREATE TRIGGER trg_ai_ff_expert_candidate_updated_at BEFORE UPDATE ON ai_ff_expert_candidate
     FOR EACH ROW EXECUTE FUNCTION set_ai_ff_updated_at();
 
--- P6 拒绝名单已改为 Java 表 ff_expert_rejection（建在 Java V1，开发设计 7 #Q45）
-
 -- P7 路由中间表
 CREATE TABLE IF NOT EXISTS ai_ff_routing_row (
     id                      VARCHAR(36)   NOT NULL DEFAULT gen_random_uuid()::varchar(36),
@@ -437,11 +434,11 @@ CREATE INDEX IF NOT EXISTS idx_ai_ff_routing_row_tab ON ai_ff_routing_row (organ
 CREATE INDEX IF NOT EXISTS idx_ai_ff_routing_row_file ON ai_ff_routing_row (file_id);
 CREATE INDEX IF NOT EXISTS idx_ai_ff_routing_row_projection ON ai_ff_routing_row (projection_status)
     WHERE projection_status IN ('PENDING', 'FAILED');
-COMMENT ON TABLE  ai_ff_routing_row IS 'Routing rows: one Authorize cell = one projected knowledge entry';
+COMMENT ON TABLE  ai_ff_routing_row IS 'Routing rows: one Authorize cell each; a KB destination''s summary and body rows (same destination and company) project into one knowledge entry, every other row into its own entry';
 COMMENT ON COLUMN ai_ff_routing_row.meeting_started_at     IS 'Copied from ai_ff_meeting_state.started_at; Goldie Base tabs order and filter by it';
 COMMENT ON COLUMN ai_ff_routing_row.meeting_title          IS 'Copied from ai_ff_meeting_state.title; Goldie Base tabs match keywords against it';
 COMMENT ON COLUMN ai_ff_routing_row.destination            IS 'KB_APP / KB_ADMIN / FUND_LEVEL / CROSS_COMPANY / TESTIMONY_ANON / TESTIMONY_SIGNED';
-COMMENT ON COLUMN ai_ff_routing_row.output_type            IS 'SUMMARY / KB / CROSS_COMPANY / TESTIMONY; summary and KB body are separate rows, each authorized on its own, projected into one entry (body as content, summary as entry summary; the summary only takes effect while the body is authorized)';
+COMMENT ON COLUMN ai_ff_routing_row.output_type            IS 'SUMMARY / KB / CROSS_COMPANY / TESTIMONY; summary and KB body are separate rows, each edited and authorized on its own, projected together as one entry (body as content, summary in ai_rag_entry.summary); the summary only takes effect while the body row is authorized';
 COMMENT ON COLUMN ai_ff_routing_row.company_id             IS 'Required for KB_APP / KB_ADMIN';
 COMMENT ON COLUMN ai_ff_routing_row.content                IS 'Summary for SUMMARY rows, markdown body for KB rows, statement for cross-company, body without the source line for testimony';
 COMMENT ON COLUMN ai_ff_routing_row.category               IS 'Cross-company or testimony category; only used to build the entry title on projection';
@@ -450,8 +447,8 @@ COMMENT ON COLUMN ai_ff_routing_row.speaker_participant_id IS 'Testimony only: p
 COMMENT ON COLUMN ai_ff_routing_row.authorized             IS 'Authorize checkbox';
 COMMENT ON COLUMN ai_ff_routing_row.in_playbook            IS 'Play candidate flag; for testimony only set on the signed row';
 COMMENT ON COLUMN ai_ff_routing_row.fund_tag_ids           IS 'Fund tags (company_group ids) picked manually on the admin knowledge base; KB rows only; null means never picked';
-COMMENT ON COLUMN ai_ff_routing_row.file_id                IS 'Synthetic id (= ai_file_registry.file_id) of the projection currently online, generated per projection; not a Java files row or S3 object; the RAG entry is reached via ai_file_registry.ai_rag_entry_id; SUMMARY and KB rows of the same destination and company share it';
-COMMENT ON COLUMN ai_ff_routing_row.projection_status      IS 'NONE / PENDING / ONLINE / FAILED';
+COMMENT ON COLUMN ai_ff_routing_row.file_id                IS 'Synthetic id generated when the entry is projected (not a Java files row or S3 object); written into ai_rag_entry, its chunks and ai_file_registry to scope recall by file and link them; the RAG entry is reached via ai_file_registry.ai_rag_entry_id. The summary and body rows of one KB entry share it';
+COMMENT ON COLUMN ai_ff_routing_row.projection_status      IS 'NONE / PENDING / ONLINE / FAILED; for a KB summary row ONLINE means the summary is in the online entry, PENDING / FAILED refer to replacing only the summary';
 COMMENT ON COLUMN ai_ff_routing_row.projection_attempts    IS 'Retries so far';
 COMMENT ON COLUMN ai_ff_routing_row.edited_by              IS 'Last inline save by';
 COMMENT ON COLUMN ai_ff_routing_row.edited_at              IS 'Last inline save at';
@@ -486,10 +483,13 @@ COMMENT ON COLUMN ai_ff_audit_log.operator     IS 'User id; "1" (system user) fo
 COMMENT ON COLUMN ai_ff_audit_log.triggered_by IS 'User who caused a System action, if any';
 
 -- X1 ai_file_registry：business_type 新取值 FIREFLIES / FIREFLIES_TESTIMONY / FIREFLIES_CROSS_COMPANY（只改注释）
-COMMENT ON COLUMN ai_file_registry.business_type IS 'Business-type enum. purpose = rag rows: APP_USER / ADMIN_USER / APP_COMPANY / ADMIN_COMPANY / ADMIN_ORGANIZATION / KNOWLEDGE_BASE / PLAYBOOK / PARSING_MEMORY / SESSION_UPLOAD / FIREFLIES (meeting-derived knowledge entries: body plus summary; on the knowledge-base panel, and on the Memory panel when the summary is set) / FIREFLIES_TESTIMONY (meeting-derived expert testimony entries) / FIREFLIES_CROSS_COMPANY (meeting-derived cross-company entries). purpose = financial_extract rows: EXTRACT_FI_ACTUALS / EXTRACT_FI_PROFORMA = the statement type (Actuals / Proforma) the user declared for the file at upload, written by Java; NULL for files uploaded before sprint121. The knowledge-base and Memory panels filter on this column, so EXTRACT_FI_* rows never show there (the chatbot retrieval scope is decided by ai_rag_business_association, not by this table).';
+COMMENT ON COLUMN ai_file_registry.business_type IS 'Business-type enum. purpose = rag rows: APP_USER / ADMIN_USER / APP_COMPANY / ADMIN_COMPANY / ADMIN_ORGANIZATION / KNOWLEDGE_BASE / PLAYBOOK / PARSING_MEMORY / SESSION_UPLOAD / FIREFLIES (meeting-derived knowledge-base entries: body with the summary in ai_rag_entry.summary; shown on the knowledge-base panel, and on the Memory panel when the summary is not empty) / FIREFLIES_TESTIMONY (meeting-derived expert testimony entries) / FIREFLIES_CROSS_COMPANY (meeting-derived cross-company entries). purpose = financial_extract rows: EXTRACT_FI_ACTUALS / EXTRACT_FI_PROFORMA = the statement type (Actuals / Proforma) the user declared for the file at upload, written by Java; NULL for files uploaded before sprint121. The knowledge-base and Memory panels filter on this column, so EXTRACT_FI_* rows never show there (the chatbot retrieval scope is decided by ai_rag_business_association, not by this table).';
 
 -- 新空间业务类型 EXPERT_TESTIMONY / CROSS_COMPANY（代码种子 rag/domain/enums.py，只改注释）
 COMMENT ON COLUMN ai_rag_business_association.business_type IS 'Business type code: APP_USER / ADMIN_USER / APP_COMPANY / ADMIN_COMPANY / ADMIN_ORGANIZATION / KNOWLEDGE_BASE / PLAYBOOK / PARSING_MEMORY / EXPERT_TESTIMONY / CROSS_COMPANY';
+
+-- ai_rag_entry 按 file_id 找条目（Fireflies 投影撤旧条目按合成 file_id 删）
+CREATE INDEX IF NOT EXISTS idx_rag_entry_file ON ai_rag_entry (file_id);
 
 COMMIT;
 ```
@@ -521,7 +521,7 @@ COMMIT;
 
 ## 4. 定时清扫要接手的会议（供清扫功能设计参考）
 
-开发设计 P1「卡死兜底」：这五类 Fireflies 本身不处理，交给定时清扫（单独设计，与本功能一起上线）。清扫没跑时也可人工用这几条查询应急。
+开发设计 P1「卡死兜底」：这六类 Fireflies 本身不处理，交给定时清扫（单独设计，与本功能一起上线）。清扫没跑时也可人工用这几条查询应急。
 
 ```sql
 -- 首轮停在识别中 / 提取中超过 1 小时：消息已进死信或过期，没人再处理
@@ -558,6 +558,22 @@ FROM ai_ff_routing_row
 WHERE projection_status = 'PENDING'
   AND updated_at < now() - interval '1 hour'
 ORDER BY updated_at;
+
+-- 应下线却没下成（一）：已删或已取消授权、仍挂着条目、下线重试用尽（API-23 只推未删行，已删的没人再推）
+SELECT id AS row_id, meeting_id, destination, file_id, authorized, deleted, updated_at
+FROM ai_ff_routing_row
+WHERE projection_status = 'FAILED'
+  AND file_id IS NOT NULL
+  AND (deleted OR NOT authorized);
+
+-- 应下线却没下成（二）：不被任何中间表行引用的 Fireflies 登记行——改正文后撤旧重试用尽的旧条目
+-- （审计 PROJECTION_FAILED 的 after_value ->> 'replacedFileId' 可对照），以及回写 file_id 前进程被杀留下的孤儿条目
+SELECT r.file_id, r.business_type, r.organization_id, r.created_at
+FROM ai_file_registry r
+WHERE r.business_type IN ('FIREFLIES', 'FIREFLIES_TESTIMONY', 'FIREFLIES_CROSS_COMPANY')
+  AND NOT r.deleted
+  AND r.created_at < now() - interval '1 hour'
+  AND NOT EXISTS (SELECT 1 FROM ai_ff_routing_row w WHERE w.file_id = r.file_id);
 ```
 
-人工应急的恢复办法：前两类删掉第一类的状态行（产出在下次开跑时会先删），都把 `dispatched_at` 置空，下一次拉取 Java 自动补投，Python 当新会议从头处理（J2「投递与补投」、P1 `processing_started_at`）；第三类按设计 6.11 的作废改状态表（`extraction_status = 'VOIDED'`，会议转 Pending 待识别）；第四类把 `testimony_backfill_status` 置为 `FAILED`；第五类把 `projection_status` 置为 `FAILED`，管理员在会议页点 Confirm & Apply 即按行当前状态重推（API-23 会重推 `NONE` / `FAILED` 的已授权行，开发设计 7 #Q30）。
+人工应急的恢复办法：前两类删掉第一类的状态行（产出在下次开跑时会先删），都把 `dispatched_at` 置空，下一次拉取 Java 自动补投，Python 当新会议从头处理（J2「投递与补投」、P1 `processing_started_at`）；第三类按设计 6.11 的作废改状态表（`extraction_status = 'VOIDED'`，会议转 Pending 待识别）；第四类把 `testimony_backfill_status` 置为 `FAILED`；第五类把 `projection_status` 置为 `FAILED`，管理员在会议页点 Confirm & Apply 即按行当前状态重推（API-23 会重推 `NONE` / `FAILED` 的已授权行，开发设计 7 #Q30）；第六类没有页面入口，按条目下线（删 RAG 条目与切片、软删登记行），第（一）种再把行的 `file_id` 置空、`projection_status` 置为 `NONE`。

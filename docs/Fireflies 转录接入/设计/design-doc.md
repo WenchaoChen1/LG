@@ -1228,7 +1228,7 @@ PM / PGM 的判定（#22）走 Java 现有接口、透传用户 token，不读�
 
 | # | 改动 | 位置 |
 |---|---|---|
-| 16 | **基金标签**（9.11.2）：只给会议解析产出的知识库条目打，存中间表的多选字段 `fund_tag_ids`，登记表不加列（用户决定 2026-10-26）；管理端知识库列表对 `FIREFLIES` 行按 `file_id`（合成 id，1.3）关联中间表取标签（与 #18 反查会议同一次关联），Portfolio 列按「手动标签 → 公司所属 Portfolio → 会议的 Portfolio 标记」取值；新增改标签接口（校验候选在本租户 `company_group` 内、调用者看得到该行）；改正文时中间表行不变、标签随行，重新提取时新行按（去向, 公司, 产出类型）沿用上一版（开发设计 P7）；web Portfolio 列对 Fireflies 行改为可选 | 新 Fireflies 模块（中间表）、`file_registry/` 模块（列表关联）、web `src/pages/askGoldie/knowledgeBase/` |
+| 16 | **基金标签**（9.11.2）：只给会议解析产出的知识库条目打，存中间表的多选字段 `fund_tag_ids`，登记表不加列（用户决定 2026-10-26）；管理端知识库列表对 `FIREFLIES` 行按 `file_id`（合成 id，1.3）关联中间表取标签（与 #18 反查会议同一次关联），Portfolio 列按「手动标签 → 公司所属 Portfolio（只认 Active 关联，与普通文件一致，开发设计 7 #Q50）→ 会议的 Portfolio 标记」取值；新增改标签接口（校验候选在本租户 `company_group` 内、调用者看得到该行）；改正文时中间表行不变、标签随行，重新提取时新行按（去向, 公司, 产出类型）沿用上一版（开发设计 P7）；web Portfolio 列对 Fireflies 行改为可选 | 新 Fireflies 模块（中间表）、`file_registry/` 模块（列表关联）、web `src/pages/askGoldie/knowledgeBase/` |
 
 **Goldie Base**
 
@@ -2493,7 +2493,7 @@ Cheat Sheet 与 Email Domain 的增改不触发，打开会议时也不重新匹
 
 #### 9.9.5 重跑后的授权状态
 
-点 Start Extraction 时旧产物整场下线（9.6.4）；提取成功后新行的勾选初值如下，按（去向, 公司, 产出类型）对上一版（开发设计 P7）：
+点 Start Extraction 时旧产物整场下线（9.6.4）；提取成功后新行的勾选初值如下，按（去向, 公司, 产出类型）对上一版（开发设计 P7）；**证词按（去向, 发言人）对上一版**——一场会有多位专家的证词，它们的（去向, 公司, 产出类型）相同、对不上各自的旧行（用户决定 2026-10-29，开发设计 7 #Q50）：
 
 | 情形 | 授权初值 |
 |---|---|
@@ -2501,6 +2501,7 @@ Cheat Sheet 与 Email Domain 的增改不触发，打开会议时也不重新匹
 | Cross-Company、发言人经 P8 识别的证词 | **一律不勾**——审核放行针对的是具体内容，内容换了就要重审 |
 | 该去向重跑前未授权 | 保持未授权 |
 | 重跑后**新出现**的去向 | 未授权，需人工放行 |
+| 证词（Cross-Company、发言人经 P8 识别的除外） | 该发言人在该去向的旧证词**全部已勾 → 勾**；**有任何一条被取消 → 不勾**（管理员取消过的人，重提后仍取消）；本场新出现的发言人同首次提取，**默认勾**。不因此进 `Pending`（待审核），管理员可在当前页直接勾选（#Q50） |
 | `Pending` 会议人工指定后首次提取 | 全部不勾（9.6.4）；被推测者补抽出的证词例外（2.5） |
 
 沿用而非清空，与 `Passed` 默认已勾选是同一条口径（9.6.4）——AI 产出默认可路由，人工审核只在需求要求或 AI 没把握的场合才是必经步骤。
@@ -2529,7 +2530,7 @@ Cheat Sheet 与 Email Domain 的增改不触发，打开会议时也不重新匹
 | `meeting_id` | 关联会议 |
 | `target_type` / `target_id` | 受影响对象的类型与 id（中间表行、公司、参会人；开发设计 P8） |
 | `before_value` / `after_value` | 变更前后的值，JSON |
-| `operator` | 操作人；自动决策记系统用户 `"1"`（同 Java `FinancialConstants.SYSTEM_USER_ID`），页面显示为 `System`（开发设计，用户决定 2026-10-26） |
+| `operator` | 操作人；自动决策记系统用户 `"1"`（同 Java `CommonConstants.SYSTEM_USER_ID`），页面显示为 `System`（开发设计，用户决定 2026-10-26） |
 | `triggered_by` | `operator` 为 `System`、但由人的操作引起时记触发人（如 Start Extraction、Sync now、确认框或 `Edit external party` 保存后同步引起的补抽、公司或公司端用户增改引起的自动路由，9.9.3）；定时任务触发的与 `PROJECTION_FAILED` 为空 |
 | `created_at` | 时间 |
 
