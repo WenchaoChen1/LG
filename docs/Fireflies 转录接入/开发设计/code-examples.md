@@ -7,7 +7,7 @@
 ## 1. Java 迁移 `deploy/upgrade_doc/sprint122/V1__ff_init.sql`
 
 ```sql
--- sprint122 V1：Fireflies 域建表（ff_connection_configuration / ff_meeting_meta_info / ff_meeting_sentence / ff_cheat_sheet / ff_expertise_tag）
+-- sprint122 V1：Fireflies 域建表（ff_connection_configuration / ff_meeting_meta_info / ff_meeting_sentence / ff_cheat_sheet / ff_expertise_tag / ff_expert_rejection）
 -- 先于 Java 发版执行（ddl-auto 只建表不建索引）；可重跑
 -- psql -v ON_ERROR_STOP=1 --single-transaction -f V1__ff_init.sql
 
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS ff_cheat_sheet (
 CREATE INDEX IF NOT EXISTS idx_ff_cheat_sheet_org_name ON ff_cheat_sheet (organization_id, name);
 CREATE INDEX IF NOT EXISTS idx_ff_cheat_sheet_emails_gin ON ff_cheat_sheet USING gin (emails jsonb_path_ops);
 COMMENT ON TABLE  ff_cheat_sheet IS 'Cheat Sheet (external parties); one row per version, append-only';
-COMMENT ON COLUMN ff_cheat_sheet.name              IS 'Unique identifier of a person within the tenant; shared by all versions';
+COMMENT ON COLUMN ff_cheat_sheet.name              IS 'Unique identifier of a person within the tenant (case-insensitive; a clashing new name gets a numeric suffix); shared by all versions';
 COMMENT ON COLUMN ff_cheat_sheet.emails            IS 'Emails (lower case), JSON array';
 COMMENT ON COLUMN ff_cheat_sheet.organization      IS 'External organization, free text';
 COMMENT ON COLUMN ff_cheat_sheet.role              IS 'LP / STRATEGIC_PARTNER / EXIT_PARTNER / FOUNDER / GS_STAFF / OTHER';
@@ -152,6 +152,25 @@ COMMENT ON TABLE  ff_expertise_tag IS 'Expertise tag dictionary per tenant; unus
 COMMENT ON COLUMN ff_expertise_tag.name    IS 'Tag text; unique per tenant, case-insensitive';
 COMMENT ON COLUMN ff_expertise_tag.preset  IS 'One of the 5 preset tags (cannot be deleted)';
 COMMENT ON COLUMN ff_expertise_tag.sort_no IS 'Display order; presets 1-5, new tags appended';
+
+CREATE TABLE IF NOT EXISTS ff_expert_rejection (
+    id               varchar(36)   NOT NULL,
+    organization_id  varchar(36)   NOT NULL,
+    email            varchar(255)  NOT NULL,
+    tag              varchar(64)   NOT NULL,
+    meeting_id       varchar(36)   NOT NULL,
+    created_by       varchar(36),
+    created_at       timestamptz,
+    updated_by       varchar(36),
+    updated_at       timestamptz,
+    CONSTRAINT pk_ff_expert_rejection PRIMARY KEY (id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_ff_expert_rejection_org_email_tag ON ff_expert_rejection (organization_id, email, tag);
+COMMENT ON TABLE  ff_expert_rejection IS 'Rejected (email, expertise tag) pairs of possible experts; written by Java when an expert confirmation is saved, read by Python to filter suggestions';
+COMMENT ON COLUMN ff_expert_rejection.organization_id IS 'Tenant; the rejection list applies per tenant';
+COMMENT ON COLUMN ff_expert_rejection.email           IS 'Email on the participant row (ai_ff_meeting_participant) of the source meeting, lower case';
+COMMENT ON COLUMN ff_expert_rejection.tag             IS 'Rejected expertise tag';
+COMMENT ON COLUMN ff_expert_rejection.meeting_id      IS 'Source meeting (ff_meeting_meta_info.id)';
 
 -- 存量组织补齐 5 项预置专长标签（新建组织由 OrganizationServiceImpl.save 写入）
 INSERT INTO ff_expertise_tag (id, organization_id, name, preset, sort_no, created_by, created_at, updated_by, updated_at)
@@ -373,34 +392,14 @@ COMMENT ON COLUMN ai_ff_expert_candidate.participant_id IS 'ai_ff_meeting_partic
 COMMENT ON COLUMN ai_ff_expert_candidate.tag            IS 'Suggested expertise tag text';
 COMMENT ON COLUMN ai_ff_expert_candidate.claims         IS 'Substantive claims: [{claim, basis, basis_type, timestamp}]';
 COMMENT ON COLUMN ai_ff_expert_candidate.status         IS 'PENDING / ACCEPTED / DECLINED / WITHDRAWN';
-COMMENT ON COLUMN ai_ff_expert_candidate.auto_resolved  IS 'Tag already in the registry or the rejection list; flagged in the confirm dialog and saved with it';
-COMMENT ON COLUMN ai_ff_expert_candidate.decided_by     IS 'Who saved the confirm dialog (also for auto-resolved tags)';
+COMMENT ON COLUMN ai_ff_expert_candidate.auto_resolved  IS 'Before the confirm dialog was opened, the tag was already in the person''s registry version on the meeting date or in the rejection list (ff_expert_rejection); written by the registry sync';
+COMMENT ON COLUMN ai_ff_expert_candidate.decided_by     IS 'Admin whose save triggered the registry sync (also for auto-resolved tags)';
 COMMENT ON COLUMN ai_ff_expert_candidate.decided_at     IS 'When it was decided';
 DROP TRIGGER IF EXISTS trg_ai_ff_expert_candidate_updated_at ON ai_ff_expert_candidate;
 CREATE TRIGGER trg_ai_ff_expert_candidate_updated_at BEFORE UPDATE ON ai_ff_expert_candidate
     FOR EACH ROW EXECUTE FUNCTION set_ai_ff_updated_at();
 
--- P6 拒绝名单
-CREATE TABLE IF NOT EXISTS ai_ff_expert_rejection (
-    id               VARCHAR(36)   NOT NULL DEFAULT gen_random_uuid()::varchar(36),
-    organization_id  VARCHAR(36)   NOT NULL,
-    email            VARCHAR(255)  NOT NULL,
-    tag              VARCHAR(64)   NOT NULL,
-    meeting_id       VARCHAR(36)   NOT NULL,
-    created_by       VARCHAR(36),
-    created_at       TIMESTAMPTZ   NOT NULL DEFAULT now(),
-    updated_by       VARCHAR(36),
-    updated_at       TIMESTAMPTZ   NOT NULL DEFAULT now(),
-    CONSTRAINT pk_ai_ff_expert_rejection PRIMARY KEY (id)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS uk_ai_ff_expert_rejection_org_email_tag ON ai_ff_expert_rejection (organization_id, email, tag);
-COMMENT ON TABLE  ai_ff_expert_rejection IS 'Rejected (email, expertise tag) pairs; filtered before expert inference';
-COMMENT ON COLUMN ai_ff_expert_rejection.email      IS 'Email on the participant row of the source meeting, lower case';
-COMMENT ON COLUMN ai_ff_expert_rejection.tag        IS 'Rejected expertise tag';
-COMMENT ON COLUMN ai_ff_expert_rejection.meeting_id IS 'Source meeting';
-DROP TRIGGER IF EXISTS trg_ai_ff_expert_rejection_updated_at ON ai_ff_expert_rejection;
-CREATE TRIGGER trg_ai_ff_expert_rejection_updated_at BEFORE UPDATE ON ai_ff_expert_rejection
-    FOR EACH ROW EXECUTE FUNCTION set_ai_ff_updated_at();
+-- P6 拒绝名单已改为 Java 表 ff_expert_rejection（建在 Java V1，开发设计 7 #Q45）
 
 -- P7 路由中间表
 CREATE TABLE IF NOT EXISTS ai_ff_routing_row (
@@ -495,7 +494,7 @@ COMMENT ON COLUMN ai_rag_business_association.business_type IS 'Business type co
 COMMIT;
 ```
 
-> 注：Python 侧所有 `ai_ff_*` 表共用一个触发器函数 `set_ai_ff_updated_at()`，不按表各建一个（现有 V028 是按表建的，功能相同，只是少写 6 个同样的函数）。`ai_file_registry.business_type` 的注释沿用 V030 的原文，只在 rag 取值里追加 `FIREFLIES` / `FIREFLIES_TESTIMONY` / `FIREFLIES_CROSS_COMPANY`（开发设计 7 #Q42）；`ai_rag_business_association.business_type` 同样沿用 V030 原文、追加 `EXPERT_TESTIMONY` / `CROSS_COMPANY`（空间业务类型的代码种子在 `rag/domain/enums.py`）。
+> 注：Python 侧所有 `ai_ff_*` 表共用一个触发器函数 `set_ai_ff_updated_at()`，不按表各建一个（现有 V028 是按表建的，功能相同，只是少写 5 个同样的函数）。拒绝名单原为 P6 `ai_ff_expert_rejection`，已改为 Java 表 `ff_expert_rejection`、建在 Java V1（开发设计 7 #Q45），V034 不再建它。`ai_file_registry.business_type` 的注释沿用 V030 的原文，只在 rag 取值里追加 `FIREFLIES` / `FIREFLIES_TESTIMONY` / `FIREFLIES_CROSS_COMPANY`（开发设计 7 #Q42）；`ai_rag_business_association.business_type` 同样沿用 V030 原文、追加 `EXPERT_TESTIMONY` / `CROSS_COMPANY`（空间业务类型的代码种子在 `rag/domain/enums.py`）。
 
 ## 3. 提取输入（`current_extraction_input`）示例
 
