@@ -8,7 +8,7 @@
 
 ```sql
 -- Fireflies 建表（sprint122 V1）：ff_connection_configuration / ff_meeting_meta_info / ff_meeting_sentence / ff_cheat_sheet / ff_expertise_tag / ff_expert_rejection，存量组织补 5 项预置专长标签。
--- 先于 sprint122 Java 发版执行（ddl-auto 只建表、不建索引与表达式唯一索引）；可重跑，发版后再跑一次可补上发版间隙里新建组织的预置标签。
+-- 先于 sprint122 Java 与 Python 发版执行（Python 读 ff_expert_rejection / ff_cheat_sheet；ddl-auto 只建表、不建索引与表达式唯一索引）；可重跑，发版后再跑一次可补上发版间隙里新建组织的预置标签。
 -- psql -v ON_ERROR_STOP=1 --single-transaction -f V1__ff_init.sql
 
 CREATE TABLE IF NOT EXISTS ff_connection_configuration (
