@@ -113,7 +113,7 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
 
 ## 4. Fireflies
 
-所有清扫写入 `updated_by` / `operator` 用 `SYSTEM_USER_ID`。每处理一项写一条 P8 审计 `SWEEP`（`after_value`：`category`、扫到的时间戳、动作结果）；复用函数自带的审计照写。
+所有清扫写入 `updated_by` / `operator` 用 `SYSTEM_USER_ID`。每处理一项写一条 P8 审计 `SWEEP`（`after_value`：`category`、扫到的时间戳、动作结果）；复用函数自带的审计照写。`category` 取值：`EXTRACTION_STUCK`（F3 与 F1 卡在提取中，按 `trigger` 区分）、`BACKFILL_STUCK`（F4）、`PROJECTION_STUCK`（F5，每会议一条）、`OFFLINE_FAILED`（F6(一)）、`ORPHAN_ENTRY`（F6(二)(三)，审计 `meeting_id` 为空）；F1 卡在识别中记 IDENTIFY 审计（`after_value.sweep = INTERRUPTED_FIRST_RUN`）。
 
 ### 4.1 F1 首轮卡在处理中
 
@@ -127,25 +127,26 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
 - **卡在 `IDENTIFYING`**：识别结果在最后一个事务里一次写入，卡住时 P2 / P3 / P4 都还没有。清扫**不调大模型补完识别**：
   1. 用 `claim_processing` 把凭证条件更新为本次时间。老进程若还活着，落库时凭证不符、结果被丢弃。
   2. 只跑识别的规则部分：参会人匹配链 ①~④、说话人按姓名绑定、名册姓名匹配、专家补充、类型判定、公司归属裁决。P8 / P1 不调用，按调用失败计。
-  3. 一个事务完成：核对新凭证、`_delete_outputs` 清残留、写 P2 / P3 / P4 与识别结论、置 `DONE`、记 IDENTIFY 审计（`after_value` 注明由清扫收尾）。
+  3. 分两个事务：抢凭证的事务里同时重置 P1、`_delete_outputs` 清残留并提交（同 `_claim_meeting` 接手）；抢到后若阶段已不是 `IDENTIFYING`（扫描后老进程已进入提取）则放弃，留给下一轮按「卡在提取中」作废。最终事务核对新凭证，写 P2 / P3 / P4 与识别结论、置 `DONE`、记 IDENTIFY 审计（`after_value` 注明由清扫收尾）。两事务之间若规则识别抛异常，会议停在 `IDENTIFYING`、凭证为新值、不进列表，过时限后再被扫到。
   - 结论沿用现有 `_decide`：P1 失败 → `QUALITY_CHECK_FAILED` → Pending + TO_IDENTIFY。转录为空仍判 `NO_SUBSTANCE`（Invalid，不进列表）。
   - 页面显示 Pending（待识别 · 识别失败）：规则认得出的参会人照常显示，认不出的标为未识别。管理员补齐后点 Start Extraction。
   - `QUALITY_CHECK_FAILED` 会让提取前补跑 P1（Fireflies 开发设计 7 #Q50），自动路由也不碰它（`auto_route_service` 排除该结果）。
 - **规则部分本身出错**（代码缺陷）：清扫每轮同样失败、记 ERROR，靠修代码解决。
 - **与 Q13 的关系**：这是 Q13「首轮跑完才进列表」的例外：连续 3 次没跑完由清扫按失败收尾，与大模型最终失败一样进 Pending。需回写 Fireflies 开发设计 7 #Q13。
-- **新增**：
-  - `identification_service.finish_interrupted_identification(meeting_id, processing_started_at) -> bool`：把 `identify_meeting` 的规则步骤抽出来两处共用；最终事务带 `_delete_outputs` 与置 `DONE`。
-  - `extraction_service.void_stuck_extraction(...)`：与 F3 共用（第 4.3 节）。
+- **实现**（开发中定，避免循环导入）：
+  - 入口 `meeting_pipeline_service.finish_interrupted_identification(meeting_id, processing_started_at) -> bool`：一个事务里抢凭证、`_reset_state`、`_delete_outputs` 并提交（同 `_claim_meeting` 接手），再调识别服务。
+  - `identification_service.finish_identification_by_rules(meeting_id, *, processing_started_at) -> bool`：与 `identify_meeting` 共用抽出的规则步骤；P8 / P1 以「未调用」的失败结果（`attempts = 0`）参与判定；`_persist_identification(..., finish_processing=True)` 在同一事务置 `DONE`。
+  - 卡在提取中用 `extraction_service.void_stuck_extraction(...)`，与 F3 共用（第 4.3 节）。
 
 ### 4.2 F2 已投递却没有 P1 行（Java）
 
 - **判定**：`dispatched_at < now() - 30 分钟 AND redispatched_at IS NULL AND NOT EXISTS ai_ff_meeting_state`，组织未删；且 `fireflies-meeting-queue` 的 `ApproximateNumberOfMessages + ApproximateNumberOfMessagesNotVisible = 0`，不为 0 时整类跳过本轮（积压中的消息还没轮到，不算丢）。
-- **动作**：先认领 `UPDATE ff_meeting_meta_info SET dispatched_at = now(), redispatched_at = now() WHERE id = ? AND dispatched_at = <扫到的值> AND redispatched_at IS NULL`，1 行才发送；发送复用 `toMessage` + `sendMessageReturningId`。发送失败只记 ERROR（已认领，不再补投；人工按 Fireflies code-examples 第 4 节应急，把 `redispatched_at`、`dispatched_at` 置空）。误报的补投由 Python 去重（唯一键 + `receive_count` 分支），无害。补投后首轮若又卡住，归 F1 按失败收尾。
-- **新增**：
-  - 表列 `ff_meeting_meta_info.redispatched_at`（第 6 节）。
-  - `FfSyncService.redispatchLostMeetings()`；`toMessage` 由 private 改为包内可用。
-  - `SQSService` 加取队列深度的方法（`GetQueueAttributes`）。
-  - 读 `ai_ff_meeting_state` 走已有的只读原生 SQL 仓储（`FfPythonTableReadRepositoryImpl` 先例）。
+- **动作**：先认领 `UPDATE ff_meeting_meta_info SET dispatched_at = now(), redispatched_at = now() WHERE id = ? AND dispatched_at = <扫到的值> AND redispatched_at IS NULL`，1 行才发送；发送复用 `toMessage` + `sendMessageReturningId`。发送失败只记 ERROR（已认领，不再补投；人工把 `redispatched_at` 置空，下一轮清扫再补投一次，见 Fireflies code-examples 第 4 节）。误报的补投由 Python 去重（唯一键 + `receive_count` 分支），无害。补投后首轮若又卡住，归 F1 按失败收尾。
+- **实现**：
+  - 表列 `ff_meeting_meta_info.redispatched_at`（第 6 节），实体 `redispatchedAt`。
+  - `FfSyncService.redispatchLostMeetings()`：自设系统用户；扫描 / 认领的数据库异常向外抛，由调用方（步骤 8）捕获。补投消息沿用 `toMessage`（同类内调用，保持 private），`trigger = DAILY`，靠 WARN 日志区分补投。时间取 Java `Instant.now()`，与原 `dispatched_at` 同口径。
+  - 扫描放 `FfMeetingMetaInfoRepository.findLostDispatches`（原生 SQL，`NOT EXISTS ai_ff_meeting_state`；组织为硬删，「组织未删」写作 `EXISTS organization`——跨域直接读组织表是规范例外，用户 2026-10-30 确认：经组织 service 事后过滤会让已删组织的会议在 LIMIT 里每轮占位、挤掉正常会议）；认领 `claimRedispatch`。
+  - `SQSService.getApproximateMessageCount(queueName)`：可见 + 在途消息数，取不到返回 -1（视为不确定、本轮跳过）。
 
 ### 4.3 F3 非首轮提取卡在 RUNNING
 
@@ -158,7 +159,7 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
 ### 4.4 F4 证词补抽卡在 RUNNING
 
 - **判定**：P2 `testimony_backfill_status = 'RUNNING' AND updated_at < now() - 120 分钟`。
-- **动作**：一个事务，先锁 P1 行再处理参会人行（与正常流程锁顺序一致）：条件更新为 `FAILED`；`state_repo.touch` 刷新 P1；写 `SWEEP` 审计（target 为参会人）。页面出现 Retry（API-29 只接受 `FAILED`）。
+- **动作**：一个事务，先锁 P1 行再处理参会人行（与正常流程锁顺序一致）：核对仍是 `RUNNING` 且 `updated_at` 等于扫到的值后置 `FAILED`（所有改补抽状态的写入方都先锁或碰 P1，锁住 P1 后读到的即最新值，等价于条件更新）；`state_repo.touch` 刷新 P1；写 `SWEEP` 审计（target 为参会人）。页面出现 Retry（API-29 只接受 `FAILED`）。
 - **新增**：`extraction_service.fail_stuck_backfill(meeting_id, participant_id, updated_at) -> bool`。不复用 `_finish_backfill`：它要的 `_BackfillContext` 会读整场转录。
 - **并发**：老进程的补抽落库前核对 `RUNNING`（`_replace_testimony` / `_finish_backfill`），被置 `FAILED` 后结果丢弃；置 `FAILED` 后用户点 Retry 与老补抽并存时先提交者生效、后者看到状态已清空而丢弃。
 
@@ -191,7 +192,7 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
 | API-23 Confirm & Apply | 改 Unknown 整场软删、取消授权、授权上线 | `offline_meeting` / `project_rows_offline` / 后台 `project_rows_online` |
 | API-24 改内容 | 改 P7 行内容 | 后台 `project_rows_online` |
 
-- `mark_pending` 跳过摘要行、对无动作的行不改（已删且无 `file_id` 的行 `_derive_action` 为无动作），可直接用。
+- `mark_pending` 对无动作的行不改（已删且无 `file_id` 的行 `_derive_action` 为无动作）。知识库摘要行：正文条目已在线（摘要行带 `file_id`）时也置 `PENDING`，使只改摘要的保存（API-23 只勾 / 取消摘要、API-24 改摘要）被打断后同样交 F5（用户决定 2026-10-30）；正文没上线的摘要行不动。配套：撤摘要不因正文 `PENDING` 而推迟；正文推送用尽置 `FAILED` 时，仍是 `PENDING` 的配对摘要行一并置 `FAILED`，不让 F5 无限重推。
 - API-23 的上线列表按 `NONE` / `FAILED` 选，必须在 `mark_pending` 之前算出。
 - `_list_rows_to_offline` 若按状态过滤，要把 `PENDING` 算进去（开发时核对）。
 
@@ -208,10 +209,10 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
    - 未删的 `UPLOADED` 文件置 `FILE_FAILED`。
    - 文案用现成的 `_ERR_INTERRUPTED`。
 3. 任务一律置 `FAILED`（用户决定 2026-10-30）：增量上传第二批时卡住，第一批已解析的数据也随任务失败不再可用，用户整体重新上传；不按「有 `REVIEW_READY` 文件回 `REVIEWING`」区分。已是 `REVIEW_READY` 的文件不动。
-4. 写 state_log：`event_type = 'ERROR'`，`triggered_by = 'scheduler'`，`error_detail` = "PROCESSING since <时间>, swept after <N> min"。
+4. 写 state_log：`event_type = 'EXTRACTION_FAILED'`（表上 CHECK 约束只允许 Java sprint110 建表时的 12 个值、不含 `ERROR`；用户决定 2026-10-30 不改表，存量「还回认领」与第 3 次放弃同样改记此值），`triggered_by = 'scheduler'`，`error_detail` = "PROCESSING since <时间>, swept after <N> min"。
 5. WARNING 日志。
 
-**新增**：`extract_financial.sweep_stuck_task(task_id, expected_updated_at) -> bool`。单事务，内部复用上述函数的条件更新，不调它们各自的提交；第 2、3 步抽成一个函数，与第 5.4 节共用。
+**实现**：`extract_financial.find_stuck_processing_tasks()` 扫描；`sweep_stuck_task(task_id, expected_updated_at) -> bool` 单事务收尾；第 2、3 步抽成 `_fail_task_and_files(session, task)`（先 `FOR UPDATE` 锁文件行再改，防迟到 worker 在扫描与软删之间提交），与第 5.4 节的 `fail_claimed_task` 共用。
 
 **不重投（第 7 节 #3）**，理由：
 - 硬崩多源于发版或 OOM，OOM 类「毒文件」重投会再次打死进程、连带同进程的其他任务；
@@ -227,10 +228,11 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
 - `mark_task_processing`：只在 `status = 'UPLOAD_COMPLETE'` 时写（条件 UPDATE），0 行即退出。顺带修掉心跳失败时两个消费者并发领取同一任务、重复插入解析行。
 - `finalize_task`：只在 `status = 'PROCESSING'` 时写。
 - save_to_db 写文件结果：明细行插入与 `update_file_status` 同一事务，文件状态更新加 `WHERE status = 'PROCESSING'`，0 行整体回滚。否则被清扫置 `FILE_FAILED` 的文件会被改回 `REVIEW_READY`，而它的残留行已被软删，数据静默缺行。
+- **不修（用户决定 2026-10-30，概率太低）**：`mark_file_processing`（每个文件开始处理时置 `PROCESSING`）仍是无条件写。误判一个还活着的进程时，它处理下一个文件会把清扫置为 `FILE_FAILED` 的文件改回 `PROCESSING`、再写成 `REVIEW_READY`（白花一轮大模型调用）；任务仍是 `FAILED`（`finalize_task` 被拒），用户看到的仍是失败、需重传。
 
 ### 5.3 存活信号：心跳刷新任务（第 7 节 #4）
 
-在现有消息心跳里（每 120 秒续可见性），提取任务额外执行 `UPDATE ai_financial_extraction_task SET updated_at = now() WHERE id = ? AND status = 'PROCESSING'`。
+在现有消息心跳里（每 120 秒续可见性；间隔写死为 `consumer/heartbeat.py` 的 `HEARTBEAT_INTERVAL_SECONDS`，不再读 `SQS_HEARTBEAT_INTERVAL`，Fireflies 消费者共用，用户决定 2026-10-30），提取任务额外执行 `UPDATE ai_financial_extraction_task SET updated_at = now() WHERE id = ? AND status = 'PROCESSING'`。
 - 好处：时限 15 分钟（固定时限方案要 120 分钟），与任务大小无关；PDF 没有页数上限、进程级大模型闸门排队也不限时，固定时限总有误杀长任务的可能。
 - 代价：每 2 分钟每个在途任务多一次 UPDATE；心跳要加一个可选回调（只给提取消费者用）。
 - 与 Fireflies「不存心跳」（Fireflies 设计第八章 #30）口径不同：Fireflies 是管理员后台处理，AI 提取是用户在页面盯着转圈。

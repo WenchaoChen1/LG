@@ -532,7 +532,8 @@ WHERE processing_stage <> 'DONE'
 ORDER BY processing_started_at;
 
 -- 已投递超过 1 小时，Python 仍没有状态行（首次连接回溯 14 天、消息积压时可能误报，误报的重投 Python 按会议去重）
-SELECT m.id, m.organization_id, m.fireflies_id, m.dispatched_at
+-- redispatched_at 非空 = 定时清扫已补投过一次仍丢失，清扫不会再管
+SELECT m.id, m.organization_id, m.fireflies_id, m.dispatched_at, m.redispatched_at
 FROM ff_meeting_meta_info m
 LEFT JOIN ai_ff_meeting_state s ON s.meeting_id = m.id
 WHERE m.dispatched_at < now() - interval '1 hour'
@@ -576,4 +577,4 @@ WHERE r.business_type IN ('FIREFLIES', 'FIREFLIES_TESTIMONY', 'FIREFLIES_CROSS_C
   AND NOT EXISTS (SELECT 1 FROM ai_ff_routing_row w WHERE w.file_id = r.file_id);
 ```
 
-人工应急的恢复办法：前两类删掉第一类的状态行（产出在下次开跑时会先删），都把 `dispatched_at` 置空，下一次拉取 Java 自动补投，Python 当新会议从头处理（J2「投递与补投」、P1 `processing_started_at`）；第三类按设计 6.11 的作废改状态表（`extraction_status = 'VOIDED'`，会议转 Pending 待识别）；第四类把 `testimony_backfill_status` 置为 `FAILED`；第五类把 `projection_status` 置为 `FAILED`，管理员在会议页点 Confirm & Apply 即按行当前状态重推（API-23 会重推 `NONE` / `FAILED` 的已授权行，开发设计 7 #Q30）；第六类没有页面入口，按条目下线（删 RAG 条目与切片、软删登记行），第（一）种再把行的 `file_id` 置空、`projection_status` 置为 `NONE`。
+定时清扫上线后，前两类由清扫收尾：第一类转 Pending 交管理员，第二类补投一次（[定时清扫开发设计](../../卡死任务清扫/开发设计/dev-design-doc.md) 4.1、4.2）；补投过（`redispatched_at` 非空）仍丢失的，人工把 `redispatched_at` 置空，下一轮清扫再补投一次。清扫没跑时的人工应急：前两类删掉第一类的状态行（产出在下次开跑时会先删），都把 `dispatched_at` 置空，下一次拉取 Java 自动补投（只拉 CONNECTED / DISCONNECTED 的租户），Python 当新会议从头处理（J2「投递与补投」、P1 `processing_started_at`）；第三类按设计 6.11 的作废改状态表（`extraction_status = 'VOIDED'`，会议转 Pending 待识别）；第四类把 `testimony_backfill_status` 置为 `FAILED`；第五类把 `projection_status` 置为 `FAILED`，管理员在会议页点 Confirm & Apply 即按行当前状态重推（API-23 会重推 `NONE` / `FAILED` 的已授权行，开发设计 7 #Q30）；第六类没有页面入口，按条目下线（删 RAG 条目与切片、软删登记行），第（一）种再把行的 `file_id` 置空、`projection_status` 置为 `NONE`。

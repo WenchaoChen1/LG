@@ -503,7 +503,7 @@ Fireflies 只在 Python 侧记审计：需求要求记的是「路由决策与�
 | Java | 每日拉取 cron：写死在 `FixedScheduleTypeEnum.FirefliesDailyPull`（`cron(40 3 * * ? *)`，每日 03:40 UTC，7 #Q33），不可配，改时段要改枚举、随 Java 发版（7 #Q33） | 每日 03:40 UTC |
 | Java | Link 校验 key 的读超时：写死，不可配 | 15 秒 |
 | Python | `SQS_INFLIGHT_LIMIT_FIREFLIES`：每条 Fireflies 队列的在途消息上限（两条队列各自生效） | 2 |
-| Python | `SQS_HEARTBEAT_INTERVAL_FIREFLIES`：处理中延长消息不可见时间的间隔（秒） | 120 |
+| Python | 处理中延长消息不可见时间的间隔（秒）：与财务提取共用 `consumer/heartbeat.py` 的 `HEARTBEAT_INTERVAL_SECONDS`，写死、不作环境变量（用户决定 2026-10-30） | 120 |
 | Python | 卡死时限：首轮停在处理中、非首轮提取 / 证词补抽停在 `RUNNING`、中间表行投影停在 `PENDING` 超过即视为中断，交定时清扫。按类写死在清扫代码里、不作环境变量（用户决定 2026-10-30），数值见[定时清扫开发设计](../../卡死任务清扫/开发设计/dev-design-doc.md)第 3 节 | — |
 | Python | 提示词重试次数写死为 `common/config/fireflies.py` 的 `PROMPT_MAX_RETRIES`（每个提示词调用的最大重试次数，用尽即最终失败），不作环境变量（用户决定 2026-10-30） | 3 |
 | Python | `FIREFLIES_NGRAM_SIZE`：n-gram 近逐字的窗口（连续英文单词数，设计 1.5） | 8 |
