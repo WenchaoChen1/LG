@@ -505,10 +505,10 @@ Fireflies 只在 Python 侧记审计：需求要求记的是「路由决策与�
 | Python | `SQS_INFLIGHT_LIMIT_FIREFLIES`：每条 Fireflies 队列的在途消息上限（两条队列各自生效） | 2 |
 | Python | `SQS_HEARTBEAT_INTERVAL_FIREFLIES`：处理中延长消息不可见时间的间隔（秒） | 120 |
 | Python | `FIREFLIES_STUCK_TIMEOUT_MINUTES`：卡死时限（分钟），首轮停在处理中、非首轮提取 / 证词补抽停在 `RUNNING`、中间表行投影停在 `PENDING` 超过即视为中断，交定时清扫 | 60 |
-| Python | `FIREFLIES_PROMPT_MAX_RETRIES`：每个提示词调用的最大重试次数，用尽即最终失败 | 3 |
+| Python | 提示词重试次数写死为 `common/config/fireflies.py` 的 `PROMPT_MAX_RETRIES`（每个提示词调用的最大重试次数，用尽即最终失败），不作环境变量（用户决定 2026-10-30） | 3 |
 | Python | `FIREFLIES_NGRAM_SIZE`：n-gram 近逐字的窗口（连续英文单词数，设计 1.5） | 8 |
 | Python | `FIREFLIES_NGRAM_MATCH_RATIO`：一行的 n-gram 命中原文的比例达到即判近逐字、删整行（实施期按样本再调） | 0.5 |
-| Python | `FIREFLIES_PROJECTION_MAX_ATTEMPTS`：投影（写 / 删 RAG 条目）失败的最大重试次数，用尽即投影失败 | 3 |
+| Python | 投影重试次数写死为 `projection_service.py` 的 `_MAX_ATTEMPTS`（投影写 / 删 RAG 条目、撤旧条目失败的最大尝试次数，用尽即投影失败），不作环境变量（用户决定 2026-10-30） | 3 |
 
 Java 的 5 项 Nacos 配置漏配时用上表默认值。Python 的 7 项记 `sql/migrations/env-vars/env-update.txt` 的 sprint122 段与 `.env_example`；两条队列共用现有的 `SQS_NAME_PREFIX`、`CIO_AWS_REGION` 等 SQS 全局变量，不另配。
 
