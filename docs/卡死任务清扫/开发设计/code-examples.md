@@ -79,6 +79,7 @@ FROM ai_file_registry r
 WHERE r.business_type IN ('FIREFLIES', 'FIREFLIES_TESTIMONY', 'FIREFLIES_CROSS_COMPANY')
   AND NOT r.deleted
   AND r.created_at < now() - interval '60 minutes'
+  AND (r.status <> 'PROCESSING' OR r.created_at < now() - interval '24 hours')  -- 向量化还在排队的不算，满一天兜底
   AND NOT EXISTS (SELECT 1 FROM ai_ff_routing_row w WHERE w.file_id = r.file_id)
 ORDER BY r.created_at
 LIMIT 200;
@@ -173,8 +174,8 @@ CREATE INDEX IF NOT EXISTS idx_ai_file_registry_fireflies_created
 ## 3. 消息与手动触发
 
 ```jsonc
-// Java → Python，stuck-task-sweep-queue（无业务字段）
-{"messageType": "StuckTaskSweep", "queueName": "stuck-task-sweep-queue", "sendTime": "2026-10-30 08:15:00", "uuid": "…"}
+// Java → Python，<前缀>stuck-task-sweep-queue（无业务字段；queueName 不带前缀，发送时 Java 自己拼；sendTime 为 UTC ISO-8601；Python 只认 messageType）
+{"messageType": "StuckTaskSweep", "queueName": "stuck-task-sweep-queue", "sendTime": "2026-10-30T08:07:03Z", "uuid": "…"}
 ```
 
 ```bash
@@ -184,5 +185,5 @@ aws sqs send-message --queue-url <lg-non-prod-test-scheduler-queue 的 URL> \
 
 # 只测 Python（本地用自己的 SQS_NAME_PREFIX）
 aws sqs send-message --queue-url <前缀>stuck-task-sweep-queue 的 URL \
-  --message-body '{"messageType":"StuckTaskSweep","queueName":"stuck-task-sweep-queue","sendTime":"2026-10-30 08:15:00","uuid":"manual-1"}'
+  --message-body '{"messageType":"StuckTaskSweep"}'
 ```

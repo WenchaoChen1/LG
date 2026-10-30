@@ -48,7 +48,7 @@
 ### 2.2 链路（A1）
 
 ```
-EventBridge  StuckTaskSweep  cron(0/15 * * * ? *)
+EventBridge  StuckTaskSweep  cron(7/14 * * * ? *)
    │  {"messageType":"Scheduler","schedulerType":"StuckTaskSweep"}
    ▼
 scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskSweep
@@ -61,7 +61,7 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
                         E1 → F5 → F6(一) → F3 → F4 → F1 → F6(二)(三)
 ```
 
-- **频率**：每 15 分钟（写在枚举里）。
+- **频率**：每小时第 7、21、35、49 分（`cron(7/14 * * * ? *)`，间隔 14 / 14 / 14 / 18 分钟），避开整点与现有任务常用的 0、5、15、30、45 分（用户决定 2026-10-30；cron 做不到跨小时严格每 14 分钟，`*/14` 会落在整点）。写在枚举里。
 - **新队列** `stuck-task-sweep-queue`（Java `InitSqsQueueEnum` 建、Python 消费、Java 不监听，同 Fireflies 两条队列）：可见性超时 600 秒（= Python 心跳续期值）；**保留期 900 秒**——清扫消息过了一轮就没用，Python 停摆几天后恢复时不会一口气补跑几百轮；`maxReceiveCount` 3 沿用。
 - **消息体**：Java `SqsMessage` 公共字段（`messageType = StuckTaskSweep`、`queueName`、`sendTime`、`uuid`），无业务字段。
 - **Python handler 一律删消息**：某一类抛异常只记 ERROR、继续下一类；整轮失败不重投，等下一轮。
@@ -110,6 +110,8 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
 | E1 | 任务 `updated_at`（心跳每 120 秒刷新，第 5.3 节） | 与任务大小无关 | 15 分钟 |
 
 单次提示词最坏 ≈ 20 分钟（4 次尝试 × 300 秒 + 退避）。时限判错的后果都是「白跑一次」而不是数据错：老进程落库前都会核对凭证、核对不上即丢弃（E1 的核对在第 5.2 节补上）。
+
+**已接受的残余风险（用户决定 2026-10-30）**：F1 不看会议队列积压。首次连接回溯 14 天积压数小时期间撞上发版，被打断的首轮若重投消息 120 分钟后仍未排到，会被清扫按失败收尾转 Pending，重投到达时见 `DONE` 删掉。每次发版最多影响「在途数 × Pod 数」场，管理员可点 Start Extraction 补救；不照 F2 加队列深度判断。
 
 ## 4. Fireflies
 
@@ -179,6 +181,7 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
   - 摘要行 `FAILED`、正文行已删但仍挂 `file_id` 时，把正文行放进同一批，否则 `_begin_summary_sync` 返回 None、每轮空转。
   - 60 分钟节流：RAG 长期故障时每小时最多重试一轮。
 - **（二）（三）**：不被任何 P7 行引用的 Fireflies 登记行（`business_type IN ('FIREFLIES','FIREFLIES_TESTIMONY','FIREFLIES_CROSS_COMPANY')`、未删、`created_at < now() - 60 分钟`）→ `get_ingest_service().delete_entries_by_file_id(file_id=…, user_id=SYSTEM_USER_ID)`（幂等，连带删切片与登记行）。
+  - 登记行仍是 `PROCESSING`（向量化在排队或进行中）的不算孤儿，满 24 小时才兜底算：向量化闸门与知识库上传共用、可能排队超过 60 分钟，否则正在上线的条目会被撤掉（用户决定 2026-10-30）。
   - 返回 0（条目已不在、登记行还在）时兜底软删登记行，否则每轮重复命中。**新增** `file_registry.soft_delete_by_file_id(file_id)`。
   - 第四种孤儿（建了条目、还没写登记行就被杀）：没有向量化、召不回，只是垃圾行，查不到也不处理。
 
@@ -265,7 +268,7 @@ F5、F6(一) 用已有的 `idx_ai_ff_routing_row_projection`，反查中间表�
 | 1 | 调度方式 | **已定 A1**（用户决定 2026-10-30）：Java 定时 + 新队列 + Python 消费（第 2.1 节）。C（Python 进程内循环 + Redis 锁）不选：F2 补投仍要 Java 另起定时，变成两个闹钟 |
 | 2 | F1 首轮卡死怎么收尾 | **已定：按失败收尾、转 Pending 交管理员**（用户决定 2026-10-30：生产不频繁发版，一直处理不了的会议交管理员手动处理）。卡在识别中的不调大模型补完识别，走「识别失败」出口（第 4.1 节）。不选「删行交 Java 补投、从头重跑」 |
 | 3 | AI 提取卡死：收尾还是重投 | **已定：收尾不重投，任务一律置 `FAILED`**（用户决定 2026-10-30；不考虑「第一批已解析回 `REVIEWING`」）。不选重投：要 Java 发消息、持久化次数上限，且有毒文件会反复打死进程 |
-| 4 | AI 提取 `PROCESSING` 判卡死 | **已定：现有 SQS 心跳（`consumer/heartbeat.py`，默认每 120 秒）顺带刷新 `updated_at`，超过 15 分钟没刷新判卡死**（用户决定 2026-10-30，第 5.3 节）；进程死后约 15～30 分钟收尾。不选固定 120 分钟：最坏让用户盯着转圈 2 小时多，且会误杀跑得久的正常任务 |
+| 4 | AI 提取 `PROCESSING` 判卡死 | **已定：现有 SQS 心跳（`consumer/heartbeat.py`，默认每 120 秒）顺带刷新 `updated_at`，超过 15 分钟没刷新判卡死**（用户决定 2026-10-30，第 5.3 节）；进程死后约 15～33 分钟收尾（时限 15 分钟 + 最长 18 分钟的清扫间隔；用户 2026-10-30 决定维持、不收紧）。不选固定 120 分钟：最坏让用户盯着转圈 2 小时多，且会误杀跑得久的正常任务 |
 | 5 | `UPLOAD_COMPLETE` 卡死是否一起扫 | **已定：不扫**（用户决定 2026-10-30）。扫与不扫对用户没有实际区别，理由见第 1.2 节 |
 | 6 | F7 先提交后推送 | **已定：在 Fireflies API-22/23/24 事务里补 `mark_pending`，归入 F5**（用户决定 2026-10-30，第 4.7 节）。不选清扫增查：「内容改了没重推」从状态列看不出来，补不全 |
 | 7 | 卡死时限 | **已定：按类写死常量（第 3 节），删 `FIREFLIES_STUCK_TIMEOUT_MINUTES`**（用户决定 2026-10-30）。不选环境变量：上线后基本不调，多维护六七个变量 |
