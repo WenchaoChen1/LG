@@ -1099,7 +1099,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 区域 | 组件 | 说明 |
 |---|---|---|
 | 页头 | `breadCrumbs`、提示文案、`Button`（Start Extraction） | 提取进行中按钮显示进行中并置灰 |
-| 会议信息卡 | 描述列表 + `Select`（类型）+ `Tag`（公司 / Portfolio，可关闭）+ 可搜索 `Select`（公司、Portfolio 候选） | 每家公司下方一行识别依据（9.5.3 文案）；未采纳的候选是否展示以设计稿为准（设计稿未画，先不展示）；GS → 创始人的 Portfolio 只读 |
+| 会议信息卡 | 描述列表 + `Select`（类型）+ 可关闭的标签（公司 / Portfolio）+ `Select` 入口（下拉列全部候选，已选的浅黄底高亮、再点移除，悬停灰底，不显示滚动条；Company 下拉顶部带搜索框，设计稿） | 每家公司下方一行识别依据（9.5.3 文案）；未采纳的候选是否展示以设计稿为准（设计稿未画，先不展示）；GS → 创始人的 Portfolio 只读 |
 | 参会人 | 胶囊 `Tag` | 按身份着色（GS 蓝、Founder 橙、外部紫、未识别与未对上的说话人灰 + 红点）；徽标 Expert / Possible expert / AI inferred（悬停显示依据）；证词补抽中 / 失败 · Retry 显示在胶囊旁 |
 | Content Routing Matrix | 自写表格：每行 `TextArea` + Visible to 文本 + `Checkbox` | 改动行琥珀边框并出现 Save / Cancel；证词行的来源行只读显示在正文上方；跨公司与证词行另以灰色小字只读显示出处时间点 `[hh:mm:ss]`（`sourceTimestamp` 为空时不显示，7 #Q26）；GS 内部 / Partner 按公司分组、行标注公司名；GS → LP 标注机构层；Pending 会议首次提取前矩阵为空，显示「提取后在此显示」；提取进行中显示「提取中」占位，作废后显示「提取失败，补齐后点 Start Extraction」；`projectionStatus = FAILED` 的行显示红色标记，悬停说明投影失败；摘要行的 `Checkbox` 在同组正文行未勾选时置灰（4.6，7 #Q42）；证词区按 `speakerParticipantId` 显示该发言人的「证词补抽中」/「证词补抽失败 · Retry」。Visible to 文案：`KB_APP` → Founder, PM & PGM；`TESTIMONY_SIGNED` → Expert testimony (Portfolio)；`TESTIMONY_ANON` → Expert testimony (Founder)；`CROSS_COMPANY` → Cross company（以上同设计稿）；`KB_ADMIN` → PM & PGM、`FUND_LEVEL` → PM & PGM (fund level)（设计稿没有这两类，本方案） |
 | 底部按钮 | `Button` ×2 | 置灰时悬停显示原因；Confirm & Apply 成功后若有证词补抽，参会人胶囊与证词区显示「证词补抽中」（7 #Q51） |
