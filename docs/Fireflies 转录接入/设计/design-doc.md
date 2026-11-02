@@ -421,12 +421,12 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 |---|---|---|
 | **Passed** | AI 判出会议类型与参会人、内容已路由，且**没有待审核内容、没有未处理的专家标记**；或 Pending 会议经管理员应用路由（9.6.5） | 否 |
 | **Pending**（待识别） | 参会人经 LLM 推断（6.13（P8））后仍 Unidentified；或有说话人对不上参会人与 Cheat Sheet（1.9，用户决定 2026-10-16）；或会议类型未判定成功；或 GS → 创始人关联了两家及以上公司，或有到场 Founder 归属不到关联的那家（2.1、2.3，用户决定 2026-10-16）；或 GS → 创始人仅凭 Cheat Sheet Founder 判出、正文反推不出恰好一家高置信且为到场者所在的公司（本方案，2.1）；或 GS → 创始人的公司方只来自 P8 推断（用户决定 2026-10-14，2.1）；或管理员把类型改为 `Unknown` 并应用（9.9.2）；或提取作废（自动提取、自动路由、Start Extraction）、P1 / P8 最终失败（6.11） | **是**，**内容提取与路由阻断**；识别结果（参会人、公司归属）照常产出并展示，等人工补齐后再提取（GS → 创始人只差公司的另有自动路由，9.9.3） |
-| **Pending**（待确认专家） | 提取已完成，但 6.10（P7）给出了「可能为专家」标记，还有建议标签没被通过或驳回（用户决定 2026-10-16）；标签已全部处理、还没 `Confirm & Apply Routing` 的仍属此原因（详情页要能看出只差应用，本方案，9.4.2） | **是**：本场全部产物只落中间表、一律不投影（默认授权的也先不投影），Goldie 召不回；`Confirm & Apply Routing` 置灰，直到每个建议标签都通过或驳回；标签处理完即可点（矩阵没改动也可以），应用时按勾选投影，同时视为对待审核内容审核完成，会议转 `Passed`（用户决定 2026-10-16）。没人处理就一直停在这里（第十章 #61）。重新提取时旧版本整场下线、旧标记撤下；新提取出标记的同首次提取，置本原因、整场先不投影（9.6.4）（不设草稿，用户决定 2026-10-26） |
+| **Pending**（待确认专家） | 提取已完成，但 6.10（P7）给出了「可能为专家」标记，还有建议标签没被通过或驳回（用户决定 2026-10-16）；标签已全部处理、还没 `Confirm & Apply Routing` 的仍属此原因（只差应用时 `Confirm & Apply Routing` 由置灰转为可点，9.6.5） | **是**：本场全部产物只落中间表、一律不投影（默认授权的也先不投影），Goldie 召不回；`Confirm & Apply Routing` 置灰，直到每个建议标签都通过或驳回；标签处理完即可点（矩阵没改动也可以），应用时按勾选投影，同时视为对待审核内容审核完成，会议转 `Passed`（用户决定 2026-10-16）。没人处理就一直停在这里（第十章 #61）。重新提取时旧版本整场下线、旧标记撤下；新提取出标记的同首次提取，置本原因、整场先不投影（9.6.4）（不设草稿，用户决定 2026-10-26） |
 | **Pending**（待审核） | 提取已完成，但有待审核内容：Cross-Company 行、发言人经 6.13（P8）识别的证词行（推断身份、对到名册、说话人映射任一由 P8 得出；用户决定 2026-10-14，2026-10-16 扩至对到名册与说话人映射）。只要有待审核内容，状态就是 Pending（用户决定 2026-10-10）；`Pending` 会议人工指定类型后的首次提取全部默认不勾，同样置本原因（9.6.4） | **否**：已授权的其余内容照常路由，只有待审核行等管理员放行；管理员 `Confirm & Apply Routing` 即视为审核完成（勾选的放行、未勾选的不放行），会议转 `Passed` |
 
 > **`Flagged` 已取消**。它原有两个用途：提示人工判断 GS → Founder 是否应改判 Board Call，以及给「仅凭 Cheat Sheet Founder、公司靠正文反推」的路径做人工复核。Board Call 类型取消后前者已无意义；后者改为只采高置信度、低置信度一律 `Pending`——GS → 创始人的内容进创始人可读空间，错绑即客户侧泄漏，宁可阻断。
 >
-> **Pending 不以原因标签显示**：列表与详情页照设计稿都只显示 Pending（用户决定 2026-11-02）；详情页 Scrub Status 下方说明待识别卡在哪、待确认专家剩几个标签，管理员据此分清要补识别还是确认专家标签，待审核看矩阵里未勾选的行（9.4.2）。重新提取不设草稿、提取成功即按授权初值生效（9.9.5），会议状态与自动提取按同一规则判：仍有待审核内容的进「待审核」（用户决定 2026-10-26）。「待识别」的来源多，详情页另写明子原因与下一步（9.4.2）。
+> **Pending 不显示原因**：列表与详情页照设计稿都只显示 Pending，不标原因、不列子原因（用户决定 2026-11-02）；管理员按页面上各处的就地提示处理——参会人的未识别红点、未对上的说话人、`Please complete` 缺的必填项、矩阵里未勾选的行（9.4.2）；AI 识别失败、到场 Founder 归属不到这两类没有就地提示，只能看到 Start Extraction 可点（已接受的取舍）。重新提取不设草稿、提取成功即按授权初值生效（9.9.5），会议状态与自动提取按同一规则判：仍有待审核内容的进「待审核」（用户决定 2026-10-26）。「待识别」的来源多，但详情页不另列子原因（用户决定 2026-11-02，照设计稿）。
 
 **后台加工中不另设状态**（#67 不新增状态；本方案）：识别与自动提取跑完前会议不进 Summary Records（需求「拉取后分析完成后展示在此页」），Raw Data 照常可见；识别与自动提取中断（进程被杀、代码异常）由 SQS 重投接手、从头重跑，本次已写的产出全部作废，最多 N 次（N 即 SQS 队列的最大接收次数）；仍没跑完的停在处理中、不进 Summary Records，交给定时清扫（单独功能，Fireflies 开发完成后设计、与本功能一起上线，用户决定 2026-10-27）（开发设计 P1、7 #Q13）；不给 Pending 会议设超时（#64）。Start Extraction 超时同该次提取作废（6.11），由定时清扫判（开发设计 P1）；消息进了死信或过期、首轮停在半路的会议同样交给定时清扫（开发设计 7 #Q12）。
 
@@ -1248,7 +1248,7 @@ PM / PGM 的判定（#22）走 Java 现有接口、透传用户 token，不读�
 | 23 | **`firm_profile` 组装**（1.7）：取组织名称 + 本租户 Portfolio 名称列表（`company_group`，按 `organization_id` 圈定）作为基金清单，传入 P5 / P6；同一份名单并入 Cross-Company 与证词的机械剥离清单（1.5） | 新 Fireflies 模块 |
 | 24 | **识别链按新需求调整**（1.9）：GS 域名（按租户配置，Cheat Sheet 页 Email Domain 维护，9.7.7；GS 租户的三个由管理员上线时添加）首位判定；LG 用户、公司、Team 域名索引都只取本租户的（#69）；新建 LG 用户域名索引——按公司汇总公司端用户的邮箱域名、另汇总本租户管理端用户的邮箱域名，排除公共邮箱域名与 GS 域名，一个域名只对应一方（一家公司，或管理端）才可用；完整邮箱未命中 LG 用户时按域名匹配；日历姓名匹配移到 HubSpot 之后，命中只出候选、交 P8 核对（1.8）；命中步骤与依据写入识别结果（9.5.9），并记 `IDENTIFY` | 新 Fireflies 模块 |
 | 25 | **参会人 LLM 推断**（6.13（P8））：程序匹配链与发言人映射之后，有未识别的参会人或映射不上的发言人时调 P8；组装 `attendees` / `unmapped_speakers` / `registry_candidates`（名册按会议日期取生效版本、排除本场已识别的人）；校验 ref / id / 角色取值，采纳 `high`；公司方只来自 P8 时置 `Pending`、不走 P1 正文反推；发言人经 P8 识别的证词 Authorize 默认不勾；说话人对不上参会人时先按 Cheat Sheet 姓名完全匹配找候选，连同其余一起交 P8 核对（可对到参会人或名册），仍对不上的置 `Pending`（待识别）；推断结果写入识别结果（9.5.9）并记 `IDENTIFY`，`low` 的推断供 Summary Records 登记弹框预填 | 新 Fireflies 模块 + `source/ai/prompts/fireflies/` |
-| 26 | **专家推测的确认与驳回**（1.11、9.5.6）：拒绝名单按 `(organization_id, email, 专长标签)` 记录，只记本场所用邮箱，查询时按人展开到名册里的全部邮箱；P7 的候选发言人附上各自不再推测的标签（已有的、已被拒绝的），程序校验时再挡一次；Summary Records 专家确认框把建议标签预填进 Expertise tags，留下即同意、删掉即驳回，拒绝名单由 Java 在保存的同一事务里写（用户决定 2026-10-29，开发设计 7 #Q45，取代逐标签同意 / 拒绝）；确认框保存一律写名册，建议标签全删也照建 / 照追加（开发设计 7 #Q51）；建议标签未处理时会议置 `Pending`（待确认专家）、整场不投影、`Confirm & Apply Routing` 置灰；`Confirm & Apply Routing` 应用后按名册为专长标签变了的被推测者补跑 P5、替换他本场的证词行（2.5、9.6.5，开发设计 7 #Q51）；按名册与拒绝名单自动消解（同步时一并落库）；列表与详情页的状态都只分 Passed / Pending、不标原因（详情页 Scrub Status 下方的说明另有提示），状态筛选同样只分两态（开发设计 7 #Q25d；用户决定 2026-11-02）；候选与拒绝名单的字段见 9.5.10 | 新 Fireflies 模块、Java Fireflies 模块、Summary Records 页 |
+| 26 | **专家推测的确认与驳回**（1.11、9.5.6）：拒绝名单按 `(organization_id, email, 专长标签)` 记录，只记本场所用邮箱，查询时按人展开到名册里的全部邮箱；P7 的候选发言人附上各自不再推测的标签（已有的、已被拒绝的），程序校验时再挡一次；Summary Records 专家确认框把建议标签预填进 Expertise tags，留下即同意、删掉即驳回，拒绝名单由 Java 在保存的同一事务里写（用户决定 2026-10-29，开发设计 7 #Q45，取代逐标签同意 / 拒绝）；确认框保存一律写名册，建议标签全删也照建 / 照追加（开发设计 7 #Q51）；建议标签未处理时会议置 `Pending`（待确认专家）、整场不投影、`Confirm & Apply Routing` 置灰；`Confirm & Apply Routing` 应用后按名册为专长标签变了的被推测者补跑 P5、替换他本场的证词行（2.5、9.6.5，开发设计 7 #Q51）；按名册与拒绝名单自动消解（同步时一并落库）；列表与详情页的状态都只分 Passed / Pending、不标原因、不列子原因，状态筛选同样只分两态（开发设计 7 #Q25d；用户决定 2026-11-02）；候选与拒绝名单的字段见 9.5.10 | 新 Fireflies 模块、Java Fireflies 模块、Summary Records 页 |
 | 27 | **公司增改后自动路由**（9.9.3）：Java 端公司与公司端用户的写入口（新增、编辑，含状态变更）保存成功后通知 Python Fireflies 模块，带公司与操作人，租户由 Python 按 `r_organization_company` 查（开发设计 3.6）；入口不止一处（如 `CompanyServiceImpl` 的 `create` / `update` / `addWithoutEmail` / `addCompanyAndSetStage`，`UserController` 的 `POST /clientUser`、`POST /invite` 与 `PUT /{userId}`），开发设计列全；各入口发布变更事件，事务提交后统一投 SQS（先例 `CompanyDeletedEventListener` 的 `@TransactionalEventListener(AFTER_COMMIT)`），消息带变更的公司 id、变更类型（公司 / 公司端用户）与操作人，Python 新增消费者。Fireflies 模块收到后，对范围内待识别会议里还没认出公司的 Founder 重跑 1.9 ②③，成功即关联公司、走自动提取 | Java `system/service/CompanyServiceImpl.java`、`system/controller/UserController.java`（`UserServiceImpl`）、SQS 队列定义 + Python `consumer/`、新 Fireflies 模块 |
 
 **公司端入口**
@@ -1614,7 +1614,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 **会议名与 `Review` 链接均可点击**，都进该会议的详情页（9.5）。
 
 **搜索**：模糊匹配 Meeting 与 Companies。
-**筛选**：AI Meeting Type、Status、Period 三个下拉（`All meeting types` / `All statuses` / `All time`）。Status 下拉照设计稿只有 `Passed` / `Pending`，不按 Pending 原因筛，原因见详情页 Scrub Status 下方的说明（9.4.2；开发设计 7 #Q25d）。
+**筛选**：AI Meeting Type、Status、Period 三个下拉（`All meeting types` / `All statuses` / `All time`）。Status 下拉照设计稿只有 `Passed` / `Pending`，不按 Pending 原因筛，页面上也不显示原因（9.4.2；开发设计 7 #Q25d）。
 **分页**：每页 10 条，与 Raw Data 及系统内同类页面一致，默认按会议时间倒序；样式同 Raw Data，对齐 Knowledge Base Tab（可选 10 / 20 / 50，9.3.3，开发设计 7 #Q43）。
 
 #### 9.4.2 Status 与阻断关系
@@ -1625,14 +1625,14 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 |---|---|---|
 | `Passed` | 类型与参会人均判定成功、内容已路由，且没有待审核内容、没有未处理的专家标记；或 Pending 会议经管理员应用路由（9.6.5） | 否 |
 | `Pending`（待识别） | 参会人经 P8 推断后仍未识别；或有说话人对不上参会人与 Cheat Sheet（1.9）；或类型未判出；或 GS → 创始人关联了两家及以上公司，或有到场 Founder 归属不到关联的那家（2.1、2.3）；或 GS → 创始人定不出公司（仅凭 Cheat Sheet `Founder` 成立、正文反推不出恰好一家高置信且为到场者所在的公司，或公司方只来自 P8，2.1）；或管理员把类型改为 `Unknown` 并应用（9.9.2）；或提取作废（自动提取、自动路由、Start Extraction）、P1 / P8 最终失败（6.11） | **是**，路由未执行；识别结果照常展示 |
-| `Pending`（待确认专家） | 提取已完成，但有「可能为专家」的建议标签未通过或驳回（1.10，用户决定 2026-10-16）；标签已全部处理、还没应用的仍属此原因（详情页要能看出只差应用，本方案） | **是**，整场产物不投影；`Confirm & Apply Routing` 置灰，标签全部处理完才可点 |
+| `Pending`（待确认专家） | 提取已完成，但有「可能为专家」的建议标签未通过或驳回（1.10，用户决定 2026-10-16）；标签已全部处理、还没应用的仍属此原因（只差应用时 `Confirm & Apply Routing` 由置灰转为可点，9.6.5） | **是**，整场产物不投影；`Confirm & Apply Routing` 置灰，标签全部处理完才可点 |
 | `Pending`（待审核） | 提取已完成，但有待审核内容：Cross-Company、发言人经 P8 识别的证词（1.10） | **否**，其余已授权内容照常路由；`Confirm & Apply Routing` 后转 `Passed` |
 
 **`Flagged` 取消**的理由见 1.10；它原来兼做的「仅凭 Cheat Sheet Founder 的 GS → 创始人会议人工复核」由上表「待识别」的「GS → 创始人定不出公司」一条承接。
 
-**Pending 原因不以标签显示**：列表与详情页照设计稿只显示 Pending，也不按原因筛选（用户决定 2026-11-02；开发设计 7 #Q25d）；详情页 Scrub Status 下方的说明列出待识别的子原因与待确认专家的剩余标签数。三者处理方式不同——待识别补参会人、类型或公司后点 Start Extraction；待确认专家点参会人标签打开专家确认框，留下或删掉建议标签后保存（9.5.6），再点 Confirm & Apply Routing；待审核在矩阵勾选要放行的行后点 Confirm & Apply Routing。一场会可能同时有待确认专家与待审核内容，原因按此顺序显示。
+**Pending 原因不以标签显示**：列表与详情页照设计稿只显示 Pending，也不按原因筛选（用户决定 2026-11-02；开发设计 7 #Q25d），详情页 Scrub Status 下方也不列子原因与剩余标签数（`Confirm & Apply Routing` 置灰时的悬停提示仍写剩余标签数，9.6.5）。三者处理方式不同——待识别补参会人、类型或公司后点 Start Extraction；待确认专家点参会人标签打开专家确认框，留下或删掉建议标签后保存（9.5.6），再点 Confirm & Apply Routing；待审核在矩阵勾选要放行的行后点 Confirm & Apply Routing。一场会可能同时有待确认专家与待审核内容。
 
-**待识别的子原因与下一步**（本方案）：详情页要说明待识别卡在哪一步、去哪处理，由现有识别与提取结果算出、不另存：参会人或说话人未识别 → Participants（9.5.5）；类型未判出或被改为 `Unknown` → 类型下拉（9.5.2）；GS → 创始人关联多家或定不出公司 → Company（9.5.3）；到场 Founder 归属不到 → 确属别家直接点 Start Extraction，名册写法不同在 Participants 改其 Organization（2.1）；P1 / P8 / 提取失败 → 补齐后点 Start Extraction（6.11）。
+**待识别的子原因与下一步**（本方案；详情页不展示（用户决定 2026-11-02，照设计稿），API-21 仍按下列口径现算返回）：参会人或说话人未识别 → Participants（9.5.5）；类型未判出或被改为 `Unknown` → 类型下拉（9.5.2）；GS → 创始人关联多家或定不出公司 → Company（9.5.3）；到场 Founder 归属不到 → 确属别家直接点 Start Extraction，名册写法不同在 Participants 改其 Organization（2.1）；P1 / P8 / 提取失败 → 补齐后点 Start Extraction（6.11）。
 
 ---
 
@@ -1646,7 +1646,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | Date | `started_at`，日期 + 时间合并展示 |
 | Duration | 取整到分钟 |
 | Fireflies ID | `fireflies_id`，Fireflies 返回的原生 id |
-| Scrub Status | 两态徽章：✓ `Passed`（绿）/ ◷ `Pending`（红），不旁注原因（用户决定 2026-11-02），同列表 Status。徽章下方说明另需表达：待识别卡在哪一步、去哪处理，待确认专家是否只差应用（9.4.2） |
+| Scrub Status | 两态徽章：✓ `Passed`（绿）/ ◷ `Pending`（红），不旁注原因（用户决定 2026-11-02），同列表 Status；下方不列子原因与剩余标签数（用户决定 2026-11-02，照设计稿），靠参会人红点、`Please complete` 等就地提示（9.4.2）；状态旁另按 `extraction_status` 显示 `Extracting…` / `Extraction failed` |
 | AI Meeting Type | 当前值标签 + 下拉，切换时标签实时更新（9.5.2） |
 | Company | 已采纳公司的标签 + 识别依据（9.5.3） |
 | Portfolio | 多选标记；GS → 创始人只读显示公司所属 Portfolio（9.5.4） |
@@ -1694,11 +1694,14 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 
 | 命中方式 | 依据文案 |
 |---|---|
-| 参会人完整邮箱 → LG 公司端用户（该公司的 Team 记录） | `Matched via <email> (LG company user)` |
+| 参会人完整邮箱 → LG 公司端用户（该公司的 Team 记录） | `Matched via email domain <domain> (<email>)` |
 | 参会人邮箱域名 → 公司 Team 域名（1.9 ③） | `Matched via email domain <domain>` |
-| 正文提及（6.4（P1），仅高置信） | `Inferred from transcript — <evidence>` |
-| 人工指定 | `Assigned by <user> on <date>` |
+| 正文提及（6.4（P1），仅高置信） | `Inferred from meeting transcript`（设计稿没有这一类，本方案；不带模型写的依据） |
+| 人工指定 | `Manually assigned by admin`（不带操作人与日期，谁、何时改的查 `COMPANY_CHANGE` 审计） |
+| 无依据 | 不显示 |
 
+> **文案照设计稿固定为上表几句**（用户决定 2026-11-02）：设计稿的「Matched via participant name in meeting invite」没有对应的匹配方式，不用。
+>
 > 「邮箱域名」一条按新需求加回（《AI Meeting Type》参会人识别首行（2026-10-10 更新）：company Team domain）：完整邮箱未命中 LG 用户时，再按邮箱域名匹配公司 Team 域名；需求示例为「通过邮箱域名 acme.com 匹配至 Acme Inc」，英文文案按上表写（本方案）。
 >
 > 手动添加的公司也要写依据，否则时间一长分不清哪些是 AI 判的、哪些是人改的——而这两者的可信度不同。
@@ -1869,7 +1872,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 | `meeting_id` / `organization_id` | 所属会议与租户 |
 | `meeting_type` | 当前生效的类型：GS → 创始人 / GS → LP / GS 内部 / GS → Partner / `Unknown`（9.5.2）；判不出为 `Unknown`；改判在点 Start Extraction 时写入，改为 `Unknown` 的在 `Confirm & Apply Routing` 时写入（9.5.8） |
 | `meeting_status` | 会议状态 `Passed` / `Pending`（1.10、9.4.2；原名 `summary_status`——它是会议的状态，摘要只是会议的一项产出）；首轮加工未跑完或会议 `Invalid` 时为空，不进 Summary Records（9.4）；重新提取进行中保持开始前的值，提取结束再重判，详情页显示「提取中」（开发设计 P1） |
-| `pending_reasons` | 待识别 / 待确认专家 / 待审核，可多个并存（9.4.2）；详情页 Scrub Status 下方的说明按它；列表红点按 Pending 会议总数计、不看原因（列表不旁注原因、状态筛选不按原因，开发设计 7 #Q25d）。待识别的子原因不存，现算（9.4.2） |
+| `pending_reasons` | 待识别 / 待确认专家 / 待审核，可多个并存（9.4.2）；页面不显示原因；列表红点按 Pending 会议总数计、不看原因（列表不旁注原因、状态筛选不按原因，开发设计 7 #Q25d）。待识别的子原因不存，现算（9.4.2） |
 | `portfolio_ids` | Portfolio 标记，多选，存 `company_group` id，应用时写入（9.5.4） |
 | `processing_stage` | 首轮自动加工的进度：识别中 / 提取中 / 完成；完成且非 `Invalid` 才进 Summary Records（9.4），之后不回退；`Invalid` 与待识别的会议识别完即置完成（开发设计 P1） |
 | `processing_started_at` / `extraction_started_at` | 首轮本次处理与最近一次提取任务的开始时间。首轮被打断由 SQS 重投（接收次数 ≥ 2）直接接手、不看时间；卡死时限（按类写死，见[定时清扫开发设计](../../卡死任务清扫/开发设计/dev-design-doc.md)第 3 节）只供定时清扫判断（1.10、第八章 #30）。不存心跳；中断后的自动重跑次数也不存，取 SQS 消息的接收次数，收满队列上限的那次仍没跑完，停在处理中、交给定时清扫（1.10；开发设计 P1） |
@@ -1928,7 +1931,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 | `basis_participant_id` / `basis_value` | 依据为邮箱或域名时，命中的参会人与具体的邮箱或域名（9.5.3） |
 | `ai_transcript_mention` | AI（P1）从会议正文里找到的这家公司提及：置信度、是否到场者所在公司、依据（6.4）；P1 没提到这家时为空 |
 | `auto_routed` | 是否由公司增改后的自动路由关联（9.9.3） |
-| `assigned_by` / `assigned_at` | 人工指定的人与时间（9.5.3 的文案） |
+| `assigned_by` / `assigned_at` | 人工指定的人与时间，留痕用；9.5.3 的依据文案不再展示（用户决定 2026-11-02） |
 
 `other_companies` 不存，提取时现算（2.1、6.5）。
 

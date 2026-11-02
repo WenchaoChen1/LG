@@ -240,7 +240,7 @@ Python 表编号 P6 空出：拒绝名单改为 Java 表 J6（7 #Q45），P7、P
 | `duration_minutes` | NUMERIC(8,2) | 是 | — | 冗余：列表 `52 min` | 设计稿 1.1 |
 | `meeting_type` | VARCHAR(16) | 否 | `'UNKNOWN'` | 会议类型：`GS_FOUNDER`（GS → 创始人）/ `GS_LP`（GS → LP）/ `GS_INTERNAL`（GS 内部）/ `GS_PARTNER`（GS → Partner）/ `UNKNOWN`（判不出）；当前生效值 | 9.5.2 |
 | `meeting_status` | VARCHAR(16) | 是 | — | 会议状态：`PASSED`（已放行）/ `PENDING`（待处理）；首轮未完成或 `Invalid` 为空（不进列表）。重新提取（Start Extraction、自动路由）进行中保持开始前的值，`pending_reasons` 同，提取结束再按设计 6.11 重判；列表照旧显示，详情页按 `extraction_status = RUNNING` 显示「提取中」 | 1.10 |
-| `pending_reasons` | JSONB | 否 | `'[]'` | Pending 原因：`TO_IDENTIFY`（待识别）/ `TO_CONFIRM_EXPERT`（待确认专家）/ `TO_REVIEW`（待审核），可并存；详情页 Scrub Status 下方的说明按它（不显示原因标签）；列表不旁注原因，红点按 Pending 会议总数计、不看原因；状态筛选只分 Passed / Pending，不按原因筛（7 #Q25d） | 9.4.2 |
+| `pending_reasons` | JSONB | 否 | `'[]'` | Pending 原因：`TO_IDENTIFY`（待识别）/ `TO_CONFIRM_EXPERT`（待确认专家）/ `TO_REVIEW`（待审核），可并存；页面不显示原因（列表与详情页都只显示 Pending）；列表不旁注原因，红点按 Pending 会议总数计、不看原因；状态筛选只分 Passed / Pending，不按原因筛（7 #Q25d） | 9.4.2 |
 | `portfolio_ids` | JSONB | 否 | `'[]'` | Portfolio 标记，`company_group` id | 9.5.4 |
 | `processing_stage` | VARCHAR(16) | 否 | `'IDENTIFYING'` | 首轮自动加工进度：`IDENTIFYING`（识别中）/ `EXTRACTING`（提取中）/ `DONE`（完成）；`DONE` 且 `meeting_status` 非空才进列表，之后不回退。`Invalid` 与待识别的会议识别完即置 `DONE`、不经 `EXTRACTING`，`Invalid` 的 `meeting_status` 保持为空——停在 `IDENTIFYING` 会被当成卡死（下「卡死兜底」） | 1.10 |
 | `processing_started_at` | TIMESTAMPTZ | 否 | — | 首轮本次处理的开始时间（建行时写入），兼作「谁在处理」的凭证。首轮每次开跑（新建本行或接手重跑）先删本场全部产出（P2~P5、P7），从识别第一步跑起，不从中断处接着跑：首轮还没进列表、也没投影过，删了不影响任何人；产出只有跑完才算数（用户决定 2026-10-27，7 #Q13）。收到消息时按本行分三种（用户决定 2026-10-27）：① 没有本行 → 建行处理；② `DONE` → 重复消息，删掉；③ 仍在 `IDENTIFYING` / `EXTRACTING`：重投（`ApproximateReceiveCount` ≥ 2）说明上一个处理者已不在——它活着时会一直延长消息的不可见时间，消息不会重新出现——直接接手从头重跑、不看时间；首次收到（= 1）却已有本行，是 Java 重复发送（J2「发送成功，写 `dispatched_at` 失败」），原消息仍在队列里，删掉本条。接手时把本列条件更新为本次开始时间（`WHERE processing_started_at = <读到的值>`，0 行即已被别的实例接手，退出、**不删消息**）；每个阶段落库的事务先锁本行、核对本列仍是自己写的值，核对不上即丢弃结果退出、同样不删消息——延长调用连续失败、老进程其实还活着的少见情况。被接手时不删消息：用旧回执删可能删掉新持有者正在处理的那条，交它用自己的回执删（审核 PA3）。重跑次数不另存，看 `ApproximateReceiveCount`；收满队列上限（3）的那次仍没跑完（进程被杀或代码抛异常），消费者不做特殊处理：打 ERROR 日志、不删消息，消息进死信，本行停在处理中、不进列表，见下「卡死兜底」。大模型最终失败不在此列：那是跑完了、结果为失败，按设计 6.11 作废（设计 1.10、第八章 #30 的 `processing_attempts` / 心跳都不存） | 1.10、第八章 #30 |
@@ -325,8 +325,8 @@ Python 表编号 P6 空出：拒绝名单改为 Java 表 J6（7 #Q45），P7、P
 | `basis_value` | VARCHAR(255) | 是 | — | 命中的邮箱或域名 | 9.5.3 |
 | `ai_transcript_mention` | JSONB | 是 | — | AI（P1）从会议正文里找到的这家公司提及：`{confidence, attendee_company, evidence}`（把握、是否到场者所在公司、依据）；P1 没提到这家时为空 | 6.4 |
 | `auto_routed` | BOOLEAN | 否 | `false` | 是否由自动路由关联 | 9.9.3 |
-| `assigned_by` | VARCHAR(36) | 是 | — | 人工指定人 | 9.5.3 |
-| `assigned_at` | TIMESTAMPTZ | 是 | — | 人工指定时间 | 9.5.3 |
+| `assigned_by` | VARCHAR(36) | 是 | — | 人工指定人（留痕；依据文案不再展示，用户决定 2026-11-02） | 9.5.3 |
+| `assigned_at` | TIMESTAMPTZ | 是 | — | 人工指定时间（留痕；同上） | 9.5.3 |
 | `created_by` / `created_at` / `updated_by` / `updated_at` | — | — | — | 审计 | |
 
 - 主键 `pk_ai_ff_meeting_company (id)`
@@ -746,7 +746,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | API-21 `pendingBackfillCount` | `number`：本场被推测者（有专家候选的参会人）中，P2 专长标签与提取快照（P1 `current_extraction_input`）里他的标签不同的人数，打开详情页时现算；大于 0 时 Confirm & Apply 激活并旁注「N 人的标签待补抽，应用后补抽」（7 #Q51 ⑥） |
 | API-21 `participants[].registryForm.versionId` | T2（会议日期当天生效的那条记录）的 id；已在册时有值，PG-02b 作 API-07 的 `{id}`、PG-02c 作 API-08 的 `baseVersionId`（7 #Q44） |
 | API-21 `badges` / `clickAction` | `badges`：`EXPERT` \| `POSSIBLE_EXPERT` \| `AI_INFERRED`；`clickAction`：`EXPERT_CONFIRM` \| `ASSIGN` \| `EDIT` \| `NONE` |
-| API-21 `identifySubReasons` | 待识别子原因（设计 9.4.2），现算，会议不在待识别时为空数组；取值由前端提出、Python 对齐，不在下列的前端原样显示：`PARTICIPANT_UNIDENTIFIED`（有未识别的参会人）、`SPEAKER_UNMAPPED`（有未对上的说话人）、`TYPE_UNDETERMINED`（类型为 Unknown，含被改为 Unknown）、`COMPANY_MULTIPLE`（GS → 创始人关联了多家公司）、`COMPANY_UNDETERMINED`（GS → 创始人定不出公司，含公司方只来自 P8、名册反推不出）、`FOUNDER_COMPANY_MISMATCH`（有 Founder 归属不到关联的公司；近似，不区分是否到场）、`IDENTIFICATION_FAILED`（P1 / P8 最终失败，只在之后还没提取过时出现）、`EXTRACTION_FAILED`（最近一次提取作废） |
+| API-21 `identifySubReasons` | 待识别子原因（设计 9.4.2），现算，会议不在待识别时为空数组；前端已不展示、不再读取（用户决定 2026-11-02）；取值：`PARTICIPANT_UNIDENTIFIED`（有未识别的参会人）、`SPEAKER_UNMAPPED`（有未对上的说话人）、`TYPE_UNDETERMINED`（类型为 Unknown，含被改为 Unknown）、`COMPANY_MULTIPLE`（GS → 创始人关联了多家公司）、`COMPANY_UNDETERMINED`（GS → 创始人定不出公司，含公司方只来自 P8、名册反推不出）、`FOUNDER_COMPANY_MISMATCH`（有 Founder 归属不到关联的公司；近似，不区分是否到场）、`IDENTIFICATION_FAILED`（P1 / P8 最终失败，只在之后还没提取过时出现）、`EXTRACTION_FAILED`（最近一次提取作废） |
 | API-21 `participants[].email` | 本场邮箱（参会人行 `email`；名册可能有多个邮箱，前端据此锁定本场那一个，7 #Q44）。`registryForm` 的 T2 里没有本场邮箱时已补在末尾；会议当天没有生效版本（会后改了有效期）时按识别时记的 `cheat_sheet_id` 那一行预填并作 `versionId`，管理员须把有效期改到包含会议日期才能保存 |
 | API-21 `routingRows[].companyId` | 该行的公司 id（无公司的去向为空）；前端按（`destination`, `companyId`）配对摘要行与正文行、划分矩阵分区，不按公司名（同名或空名公司会串）。原 `companyPortfolios` 前端不读，已删 |
 | API-25 `platformUser` | `boolean`：按 LG 平台用户识别、不进名册时为 true；前端据此提示，不再从 `suggestedCompany` 推断 |
@@ -861,7 +861,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 操作 | 位置 | 显示 / 可用条件 | 行为 | 调用接口 | 二次确认 | 成功 / 失败反馈 |
 |---|---|---|---|---|---|---|
 | 加载 | — | — | 会议信息卡、参会人、矩阵一次取回 | API-21 | — | 会议不存在或无权：显示「Meeting not found」 |
-| 待识别子原因 | Scrub Status 下方 | `Pending` 待识别 | 显示卡在哪一步、去哪处理（9.4.2）；待确认专家显示剩余未处理标签数，或「只差应用」 | API-21 | — | — |
+| ~~待识别子原因~~ | — | — | 已取消：详情页 Scrub Status 下方照设计稿不列子原因与待确认专家剩余标签数（用户决定 2026-11-02）；Confirm & Apply 置灰时的悬停提示仍写剩余标签数 | — | — | — |
 | AI Meeting Type 下拉 | 信息卡 | — | 只改页面上的类型；选 `Unknown` 时 Start Extraction 置灰、Confirm & Apply 激活 | — | 否 | — |
 | Company：删除 chip / 下拉添加 | 信息卡 | 候选来自 API-32（不在营的公司带状态标注，GS → 创始人时置灰不可选）；GS → 创始人多于一家时提示「GS → 创始人会议只能保留一家公司」 | 只改页面上的公司；GS → LP 的增删只激活 Confirm & Apply，其余类型激活 Start Extraction | API-32 | 否 | — |
 | Portfolio 多选 | 信息卡 | GS → 创始人只读，显示公司所属 Portfolio；其他类型可选 | 只改页面上的标记，激活 Confirm & Apply | API-32 | 否 | — |
@@ -985,7 +985,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 筛选栏 | `Input.Search`、`Select` ×2、时间区间浮层（`DatePicker.RangePicker`，标签显示 All time / From X / X – Y） | 类型：All meeting types + 5 种；状态：All statuses / Passed / Pending（7 #Q25d） |
 | 表格 | antd `Table`（服务端分页） | Meeting（标题链接 + `#<fireflies_id> · <n> min`）、Time（单列合并）、AI Meeting Type（蓝标签，Unknown 灰）、Companies（逗号分隔，超宽省略号）、Status（✓ Passed 绿 / ◷ Pending 红，悬停显示两态说明）、Review 链接 |
 
-状态：空列表「No meetings match your search.」。与设计稿的差异：设计稿没有分页，分页对齐 Knowledge Base（见本节开头，7 #Q43）；GS → LP 没有公司时 Companies 列显示「Fund-level」（同设计稿）；Status 列与状态筛选都照设计稿只分 Passed / Pending：列表不旁注 Pending 原因，悬停说明只分两态、样式同设计稿（白底细边框、无箭头），详情页 Scrub Status 同样只显示状态，原因见其下方说明（用户决定 2026-11-02，取代原「旁注原因」，7 #Q25d 的筛选口径不变）。
+状态：空列表「No meetings match your search.」。与设计稿的差异：设计稿没有分页，分页对齐 Knowledge Base（见本节开头，7 #Q43）；GS → LP 没有公司时 Companies 列显示「Fund-level」（同设计稿）；Status 列与状态筛选都照设计稿只分 Passed / Pending：列表不旁注 Pending 原因，悬停说明只分两态、样式同设计稿（白底细边框、无箭头），详情页 Scrub Status 同样只显示状态、不列子原因（用户决定 2026-11-02，取代原「旁注原因」，7 #Q25d 的筛选口径不变）。
 
 ### 5.3 PG-01b Configuration 与 PG-01b1
 
@@ -1076,10 +1076,10 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 │ Fireflies Summary Records > Meeting Detail                    │
 ├──────────────────────────────────────────────────────────────┤
 │ 提示文案（待识别：补齐类型、公司、参会人后可提取）    [Start Extraction] │
-│ Date …  Duration …  Fireflies ID #…  Scrub Status ◷ Pending（下方列子原因）│
+│ Date …  Duration …  Fireflies ID #…  Scrub Status ◷ Pending              │
 │ AI Meeting Type* [GS → Founder ▾]                              │
 │ Company*  [TechVision ×]  [Company ▾ 可搜索]                    │
-│           Matched via jane@techvision.io (LG company user)     │
+│           Matched via email domain techvision.io (jane@techvision.io) │
 │ Portfolio [Fund I ×] [Portfolio ▾]                             │
 │ Participants  [Sarah · GS (PM)] [James · TechVision (Founder) Possible expert] │
 │               [Michael · — (Unidentified) ●] [David · 97 sentences (Unmapped speaker) ●] │
