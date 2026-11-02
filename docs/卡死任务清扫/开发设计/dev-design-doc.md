@@ -287,7 +287,7 @@ F5、F6(一) 用已有的 `idx_ai_ff_routing_row_projection`，反查中间表�
 - `lg/db/service/extract_financial.py`：`sweep_stuck_task` 与扫描查询；第 5.2 节的条件写；`consumer/handlers.py` 第 3 次放弃改调同一收尾；心跳回调（第 5.3 节）。
 - Fireflies 修复：F7 补 `mark_pending`；`_persist_rerun` 核对凭证。
 - 删 `FIREFLIES_STUCK_TIMEOUT_MINUTES`（配置、`.env_example`、`env-update.txt`）；迁移并入 `V034`（第 6 节）；P8 审计枚举加 `SWEEP`。
-- 每轮包一层 `start_trace(source=TraceSource.CRON)`，`finish_attributes` 记各类扫到 / 处理 / 跳过数。
+- 每轮结束打一条 INFO 汇总日志，记各类扫到 / 处理 / 跳过 / 失败数；不写 `ai_trace`（第 9 节）。
 
 **Web**：不改。
 
@@ -295,7 +295,7 @@ F5、F6(一) 用已有的 `idx_ai_ff_routing_row_projection`，反查中间表�
 
 ## 9. 可观测与告警
 
-- 每轮一行 `ai_trace`（`source = CRON`），各类计数在 `finish_attributes`。
+- 每轮结束一条 INFO 汇总日志，各类计数在日志里；只进日志文件，**不写 `ai_trace`**（它只记大模型调用链路，用户决定 2026-11-02）。
 - 逐项留痕：Fireflies P8 审计 `SWEEP`（加上复用函数自带的审计）；AI 提取 state_log `triggered_by = 'scheduler'`。
 - 日志：每处理一项 WARNING（已收尾，不打扰 Sentry）；某一类或某一项处理抛异常 ERROR（进 Sentry）；Java F2 发送失败 ERROR。
 - 「这轮到底跑没跑」：Java `schedule_config` 的 `last_execution_time` / `execution_count` 与 `queue_message_log`。整轮漏跑的监控（如 Sentry Crons）本期不做。
