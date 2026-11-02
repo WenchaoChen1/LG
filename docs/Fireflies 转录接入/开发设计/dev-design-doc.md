@@ -82,7 +82,7 @@ Python 表编号 P6 空出：拒绝名单改为 Java 表 J6（7 #Q45），P7、P
 |---|---|---|---|---|---|
 | `id` | varchar(36) | 否 | — | 主键 | |
 | `organization_id` | varchar(36) | 否 | — | 租户，一个租户一条 | 9.2.1 |
-| `api_key_cipher` | text | 是 | — | API key 密文（AES-GCM，密钥走环境变量）；未连接或已移除为空。设计稿的掩码（`••••a3f9`）由查询接口在服务端解密后拼好再返回，不另存后 4 位；原文与密文都不出接口 | 9.2.3、设计稿 1.2 |
+| `api_key_cipher` | text | 是 | — | API key 密文（AES-GCM，密钥取 Nacos `cio.fireflies.encryption`，1.4）；未连接或已移除为空。设计稿的掩码（`••••a3f9`）由查询接口在服务端解密后拼好再返回，不另存后 4 位；原文与密文都不出接口 | 9.2.3、设计稿 1.2 |
 | `account_email` | varchar(255) | 是 | — | key 持有者账号（Fireflies `user` 查询）：页面「connected as …」；重新 Link 时比对，换了账号按首次连接处理（9.2.6）；换账号写进 Java 应用日志。设计 9.2.3 的 `account_name` 不存——设计稿只显示邮箱，也没有逻辑用到 | 9.2.3、9.2.6 |
 | `connection_status` | varchar(16) | 否 | `'UNCONNECTED'` | 连接状态：`UNCONNECTED`（未连接）/ `CONNECTED`（已连接）/ `FAILED`（key 鉴权失败）/ `DISCONNECTED`（连续 N 次非鉴权失败而断开） | 9.2.4 |
 | `last_success_sync_at` | timestamptz | 是 | — | 最近一次成功完成的拉取；只记成功；换账号时清空 | 9.2.6 |
@@ -240,7 +240,7 @@ Python 表编号 P6 空出：拒绝名单改为 Java 表 J6（7 #Q45），P7、P
 | `duration_minutes` | NUMERIC(8,2) | 是 | — | 冗余：列表 `52 min` | 设计稿 1.1 |
 | `meeting_type` | VARCHAR(16) | 否 | `'UNKNOWN'` | 会议类型：`GS_FOUNDER`（GS → 创始人）/ `GS_LP`（GS → LP）/ `GS_INTERNAL`（GS 内部）/ `GS_PARTNER`（GS → Partner）/ `UNKNOWN`（判不出）；当前生效值 | 9.5.2 |
 | `meeting_status` | VARCHAR(16) | 是 | — | 会议状态：`PASSED`（已放行）/ `PENDING`（待处理）；首轮未完成或 `Invalid` 为空（不进列表）。重新提取（Start Extraction、自动路由）进行中保持开始前的值，`pending_reasons` 同，提取结束再按设计 6.11 重判；列表照旧显示，详情页按 `extraction_status = RUNNING` 显示「提取中」 | 1.10 |
-| `pending_reasons` | JSONB | 否 | `'[]'` | Pending 原因：`TO_IDENTIFY`（待识别）/ `TO_CONFIRM_EXPERT`（待确认专家）/ `TO_REVIEW`（待审核），可并存；列表的原因旁注、详情与红点计数用；状态筛选只分 Passed / Pending，不按原因筛（7 #Q25d） | 9.4.2 |
+| `pending_reasons` | JSONB | 否 | `'[]'` | Pending 原因：`TO_IDENTIFY`（待识别）/ `TO_CONFIRM_EXPERT`（待确认专家）/ `TO_REVIEW`（待审核），可并存；详情页 Scrub Status 下方的说明按它（不显示原因标签）；列表不旁注原因，红点按 Pending 会议总数计、不看原因；状态筛选只分 Passed / Pending，不按原因筛（7 #Q25d） | 9.4.2 |
 | `portfolio_ids` | JSONB | 否 | `'[]'` | Portfolio 标记，`company_group` id | 9.5.4 |
 | `processing_stage` | VARCHAR(16) | 否 | `'IDENTIFYING'` | 首轮自动加工进度：`IDENTIFYING`（识别中）/ `EXTRACTING`（提取中）/ `DONE`（完成）；`DONE` 且 `meeting_status` 非空才进列表，之后不回退。`Invalid` 与待识别的会议识别完即置 `DONE`、不经 `EXTRACTING`，`Invalid` 的 `meeting_status` 保持为空——停在 `IDENTIFYING` 会被当成卡死（下「卡死兜底」） | 1.10 |
 | `processing_started_at` | TIMESTAMPTZ | 否 | — | 首轮本次处理的开始时间（建行时写入），兼作「谁在处理」的凭证。首轮每次开跑（新建本行或接手重跑）先删本场全部产出（P2~P5、P7），从识别第一步跑起，不从中断处接着跑：首轮还没进列表、也没投影过，删了不影响任何人；产出只有跑完才算数（用户决定 2026-10-27，7 #Q13）。收到消息时按本行分三种（用户决定 2026-10-27）：① 没有本行 → 建行处理；② `DONE` → 重复消息，删掉；③ 仍在 `IDENTIFYING` / `EXTRACTING`：重投（`ApproximateReceiveCount` ≥ 2）说明上一个处理者已不在——它活着时会一直延长消息的不可见时间，消息不会重新出现——直接接手从头重跑、不看时间；首次收到（= 1）却已有本行，是 Java 重复发送（J2「发送成功，写 `dispatched_at` 失败」），原消息仍在队列里，删掉本条。接手时把本列条件更新为本次开始时间（`WHERE processing_started_at = <读到的值>`，0 行即已被别的实例接手，退出、**不删消息**）；每个阶段落库的事务先锁本行、核对本列仍是自己写的值，核对不上即丢弃结果退出、同样不删消息——延长调用连续失败、老进程其实还活着的少见情况。被接手时不删消息：用旧回执删可能删掉新持有者正在处理的那条，交它用自己的回执删（审核 PA3）。重跑次数不另存，看 `ApproximateReceiveCount`；收满队列上限（3）的那次仍没跑完（进程被杀或代码抛异常），消费者不做特殊处理：打 ERROR 日志、不删消息，消息进死信，本行停在处理中、不进列表，见下「卡死兜底」。大模型最终失败不在此列：那是跑完了、结果为失败，按设计 6.11 作废（设计 1.10、第八章 #30 的 `processing_attempts` / 心跳都不存） | 1.10、第八章 #30 |
@@ -494,7 +494,7 @@ Fireflies 只在 Python 侧记审计：需求要求记的是「路由决策与�
 
 | 端 | 配置 | 默认 |
 |---|---|---|
-| Java | 环境变量 `FIREFLIES_KEY_SECRET`：API key 加密密钥（AES-256-GCM），Base64 编码的 32 字节，可用 `openssl rand -base64 32` 生成；漏配不影响启动，Link 与拉取时报错 | 无，必配 |
+| Java | Nacos `cio.fireflies.encryption`：API key 加密密钥（AES-256-GCM），Base64 编码的 32 字节，可用 `openssl rand -base64 32` 生成；漏配不影响启动，Link 与拉取时报错；配上后不要再换，换了已存的 key 解不开、只能重新 Link | 无，必配 |
 | Java | Nacos `cio.fireflies.sync.first-lookback-days`：首次连接（含换账号）的回溯天数 | 14 |
 | Java | Nacos `cio.fireflies.sync.lookback-hours`：增量拉取从上次成功往前回看的小时数 | 72 |
 | Java | Nacos `cio.fireflies.sync.disconnect-threshold`：连续非鉴权失败达到即转 `Disconnected`（本方案，设计 9.12 #1 待确认） | 3 |
@@ -510,7 +510,7 @@ Fireflies 只在 Python 侧记审计：需求要求记的是「路由决策与�
 | Python | `FIREFLIES_NGRAM_MATCH_RATIO`：一行的 n-gram 命中原文的比例达到即判近逐字、删整行（实施期按样本再调） | 0.5 |
 | Python | 投影重试次数写死为 `projection_service.py` 的 `_MAX_ATTEMPTS`（投影写 / 删 RAG 条目、撤旧条目失败的最大尝试次数，用尽即投影失败），不作环境变量（用户决定 2026-10-30） | 3 |
 
-Java 的 5 项 Nacos 配置漏配时用上表默认值。Python 的 7 项记 `sql/migrations/env-vars/env-update.txt` 的 sprint122 段与 `.env_example`；两条队列共用现有的 `SQS_NAME_PREFIX`、`CIO_AWS_REGION` 等 SQS 全局变量，不另配。
+Java 的 5 项 Nacos 配置漏配时用上表默认值；它们与 `cio.fireflies.encryption` 同记在 `sql/migrations/env-vars/env-update.txt` 的 sprint122 段 `nacos` 下。Python 的 3 项记同一段与 `.env_example`；两条队列共用现有的 `SQS_NAME_PREFIX`、`CIO_AWS_REGION` 等 SQS 全局变量，不另配。
 
 ### 1.5 迁移文件与执行顺序
 
@@ -717,12 +717,12 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | `42200` | 前置条件不满足：必填项不齐、有未处理专家标记、GS → 创始人多于一家公司、摘要超 150 词、登记的有效期不含会议日期（API-25）、登记填的邮箱已在名册但会议当天生效的记录里没有它或分属两条记录（API-25，7 #Q49）等；`message` 写明原因 |
 | `50200` | 调用 Java 失败 |
 
-**SQS 消息体**（Java → Python）：JSON camelCase，带 `type` / `version`；值为 null 的字段不出现；另带 Java 消息基类的 `messageType` / `queueName` / `sendTime` / `uuid`，Python 忽略。
+**SQS 消息体**（Java → Python）：JSON camelCase，带 `type` / `version`；值为 null 的字段不出现；另带 Java 消息基类的 `messageType` / `queueName` / `sendTime` / `uuid`，Python 忽略。不带 `traceId`：一次拉取发出多条消息，请求的链路对不上单场会，Python 每收到一条消息新建一条链路（重投也各留一条）；两端日志靠会议 id 与 SQS messageId 对上（用户决定 2026-11-02）。
 
 | 队列 | 消息体 | 说明 |
 |---|---|---|
-| `fireflies-meeting-queue` | `{type: "FIREFLIES_MEETING", version: 1, organizationId, meetingId, trigger: "DAILY" \| "SYNC_NOW", triggeredBy?, traceId?}` | 定时拉取没有 `triggeredBy` |
-| `fireflies-company-change-queue` | `{type: "FIREFLIES_COMPANY_CHANGE", version: 1, companyId, changeType: "COMPANY" \| "CLIENT_USER", operatorId, traceId?}` | **不带租户**，Python 按 `r_organization_company` 查公司所属租户（设计第八章 #27 已回写）；`operatorId` 必有，取不到当前用户时 Java 填 `"1"` |
+| `fireflies-meeting-queue` | `{type: "FIREFLIES_MEETING", version: 1, organizationId, meetingId, trigger: "DAILY" \| "SYNC_NOW", triggeredBy?}` | 定时拉取没有 `triggeredBy` |
+| `fireflies-company-change-queue` | `{type: "FIREFLIES_COMPANY_CHANGE", version: 1, companyId, changeType: "COMPANY" \| "CLIENT_USER", operatorId}` | **不带租户**，Python 按 `r_organization_company` 查公司所属租户（设计第八章 #27 已回写）；`operatorId` 必有，取不到当前用户时 Java 填 `"1"` |
 
 **Java 接口**
 
@@ -861,7 +861,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 操作 | 位置 | 显示 / 可用条件 | 行为 | 调用接口 | 二次确认 | 成功 / 失败反馈 |
 |---|---|---|---|---|---|---|
 | 加载 | — | — | 会议信息卡、参会人、矩阵一次取回 | API-21 | — | 会议不存在或无权：显示「Meeting not found」 |
-| 待识别子原因 | Scrub Status 旁 | `Pending` 待识别 | 显示卡在哪一步、去哪处理（9.4.2）；待确认专家显示剩余未处理标签数，或「只差应用」 | API-21 | — | — |
+| 待识别子原因 | Scrub Status 下方 | `Pending` 待识别 | 显示卡在哪一步、去哪处理（9.4.2）；待确认专家显示剩余未处理标签数，或「只差应用」 | API-21 | — | — |
 | AI Meeting Type 下拉 | 信息卡 | — | 只改页面上的类型；选 `Unknown` 时 Start Extraction 置灰、Confirm & Apply 激活 | — | 否 | — |
 | Company：删除 chip / 下拉添加 | 信息卡 | 候选来自 API-32（不在营的公司带状态标注，GS → 创始人时置灰不可选）；GS → 创始人多于一家时提示「GS → 创始人会议只能保留一家公司」 | 只改页面上的公司；GS → LP 的增删只激活 Confirm & Apply，其余类型激活 Start Extraction | API-32 | 否 | — |
 | Portfolio 多选 | 信息卡 | GS → 创始人只读，显示公司所属 Portfolio；其他类型可选 | 只改页面上的标记，激活 Confirm & Apply | API-32 | 否 | — |
@@ -974,7 +974,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 ├──────────────────────────────────────────────────────────────┤
 │ Meeting           │ Time        │ AI Meeting Type │ Companies │ Status   │       │
 │ 标题（链接）       │ Jul 15, 2026│ [GS → Founder]  │ TechVision│ ◷ Pending│Review │
-│ #FF-xxx · 52 min  │ · 10:00 AM  │                 │           │ 待审核    │       │
+│ #FF-xxx · 52 min  │ · 10:00 AM  │                 │           │          │       │
 ├──────────────────────────────────────────────────────────────┤
 │                                          分页（10 / 页）       │
 └──────────────────────────────────────────────────────────────┘
@@ -983,9 +983,9 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 区域 | 组件 | 说明 |
 |---|---|---|
 | 筛选栏 | `Input.Search`、`Select` ×2、时间区间浮层（`DatePicker.RangePicker`，标签显示 All time / From X / X – Y） | 类型：All meeting types + 5 种；状态：All statuses / Passed / Pending（7 #Q25d） |
-| 表格 | antd `Table`（服务端分页） | Meeting（标题链接 + `#<fireflies_id> · <n> min`）、Time（单列合并）、AI Meeting Type（蓝标签，Unknown 灰）、Companies（逗号分隔，超宽省略号）、Status（✓ Passed 绿 / ◷ Pending 红，旁注原因，悬停显示状态说明）、Review 链接 |
+| 表格 | antd `Table`（服务端分页） | Meeting（标题链接 + `#<fireflies_id> · <n> min`）、Time（单列合并）、AI Meeting Type（蓝标签，Unknown 灰）、Companies（逗号分隔，超宽省略号）、Status（✓ Passed 绿 / ◷ Pending 红，悬停显示两态说明）、Review 链接 |
 
-状态：空列表「No meetings match your search.」。与设计稿的差异：设计稿没有分页，分页对齐 Knowledge Base（见本节开头，7 #Q43）；Status 的原因旁注与悬停说明按设计 9.4.2（设计稿只有两态说明）；GS → LP 没有公司时 Companies 列显示「Fund-level」（同设计稿）；状态筛选照设计稿只分 Passed / Pending，三种 Pending 原因只在 Status 列旁注（7 #Q25d）。
+状态：空列表「No meetings match your search.」。与设计稿的差异：设计稿没有分页，分页对齐 Knowledge Base（见本节开头，7 #Q43）；GS → LP 没有公司时 Companies 列显示「Fund-level」（同设计稿）；Status 列与状态筛选都照设计稿只分 Passed / Pending：列表不旁注 Pending 原因，悬停说明只分两态、样式同设计稿（白底细边框、无箭头），详情页 Scrub Status 同样只显示状态，原因见其下方说明（用户决定 2026-11-02，取代原「旁注原因」，7 #Q25d 的筛选口径不变）。
 
 ### 5.3 PG-01b Configuration 与 PG-01b1
 
@@ -1076,7 +1076,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 │ Fireflies Summary Records > Meeting Detail                    │
 ├──────────────────────────────────────────────────────────────┤
 │ 提示文案（待识别：补齐类型、公司、参会人后可提取）    [Start Extraction] │
-│ Date …  Duration …  Fireflies ID #…  Scrub Status ◷ Pending · 待识别（子原因）│
+│ Date …  Duration …  Fireflies ID #…  Scrub Status ◷ Pending（下方列子原因）│
 │ AI Meeting Type* [GS → Founder ▾]                              │
 │ Company*  [TechVision ×]  [Company ▾ 可搜索]                    │
 │           Matched via jane@techvision.io (LG company user)     │
@@ -1337,7 +1337,7 @@ PG-03                                           PG-04
 | Q22 | 前端两端都能直调，接口有没有可删减或复用的 | 合并 8 处，50 → 41 个（审核后新增 API-32、去掉两个 Java 复用，现 40 个）：会议详情一次取回弹框预填、专家建议标签与矩阵；Summary Records 列表顺带返回红点数；行内 Save 的清洗预览与落库合成一个接口；两个新 Tab 共用一个列表接口；Play candidate 与基金标签合成一个改标记接口；Email Domain 整份提交；专家确认框不再「打开即消解」，打开前已入册或已在拒绝名单的标签同步时落库。名册写入仍经 Python（规则留在后端）（名册写入部分已由 #Q44 调整） | 第 3 节；P5；code-examples 第 2 节；设计 9.5.6、9.5.10、9.7.7、第八章 #20、#26、第十章 #63、提示词 6.11 已回写 |
 | Q23 | Goldie Base 两个新 Tab 的排序与会议名称匹配（内容在 P7、会议时间与标题在 P1，Python 仓储不许跨表 JOIN） | P7 冗余 `meeting_started_at`、`meeting_title`（投递后不变，同 P1 冗余 J2），`idx_ai_ff_routing_row_tab` 改为按 `meeting_started_at DESC`；会议类型、`fireflies_id` 分页后批量查 P1。对已确认表结构的变更 | P7、1.1、code-examples 第 2 节、API-30；设计 1.4 跨端读表、第八章 #20、9.11.4、9.11.5 已回写 |
 | Q24 | 设计稿与设计文档不一致的 4 处（A1 要求列出） | a. Knowledge Base 保持现有功能：搜索只按文件名，不加 Source 筛选（Source 列照加）；b. Memory Settings：管理端 File Scope 加一项 Fireflies Memory（只看会议摘要），Document Summary 选项不加，公司端不加筛选；会议摘要标签并排：层徽标 + Fireflies Memory + Meeting Summary；c. 专家确认框按需求逐个标签同意 / 拒绝，不照设计稿的整人 Approve / Reject（已被 #Q45 推翻：改为标签栏增删）；d. Expertise tags 维持选填，不照设计稿的必填 | API-33、API-37、API-28；d 在第 4 步的表单校验落地；设计 9.5.6、9.7.4、9.11.2、9.11.3、第八章 #19、第十章 #46 已回写 |
-| Q25 | 补审与自检发现的 6 处设计稿与设计文档不一致 | a. Knowledge Base 的 Fireflies 行 From Chat 与 Uploaded By 都显示 `—`（设计稿 From Chat 一格写公司名，不照）；b. Expert Testimony 搜索按设计稿另匹配说话人姓名；c. Memory Settings 搜索保持现有（摘要全文与文件名），不加设计稿的公司匹配；d. Summary Records 状态筛选按设计稿只有 All statuses / Passed / Pending，不按三种 Pending 原因筛，原因只在 Status 列旁注；e. 改为 Unknown 后 Confirm & Apply 激活（这是把会议打回 Pending 的唯一入口），只在提取或证词补抽进行中置灰；f. 日期时间按设计稿格式固定 UTC 显示，会议日期按 UTC 自然日；现有的 Knowledge Base、Memory Settings 日期列保持原格式 | API-20、API-23、API-30、API-33、API-34、第 4、5 节；设计 9.3.3、9.4.1、9.5.9、9.11.2、9.11.5、9.12 #3 已回写 |
+| Q25 | 补审与自检发现的 6 处设计稿与设计文档不一致 | a. Knowledge Base 的 Fireflies 行 From Chat 与 Uploaded By 都显示 `—`（设计稿 From Chat 一格写公司名，不照）；b. Expert Testimony 搜索按设计稿另匹配说话人姓名；c. Memory Settings 搜索保持现有（摘要全文与文件名），不加设计稿的公司匹配；d. Summary Records 状态筛选按设计稿只有 All statuses / Passed / Pending，不按三种 Pending 原因筛，原因只在 Status 列旁注（列表与详情页的原因旁注都已取消，用户决定 2026-11-02，见 5.2）；e. 改为 Unknown 后 Confirm & Apply 激活（这是把会议打回 Pending 的唯一入口），只在提取或证词补抽进行中置灰；f. 日期时间按设计稿格式固定 UTC 显示，会议日期按 UTC 自然日；现有的 Knowledge Base、Memory Settings 日期列保持原格式 | API-20、API-23、API-30、API-33、API-34、第 4、5 节；设计 9.3.3、9.4.1、9.5.9、9.11.2、9.11.5、9.12 #3 已回写 |
 | Q26 | 跨公司与证词的出处时间点要不要显示（需求证词表要求带时间戳，原方案任何界面都看不到） | Content Routing Matrix 里跨公司与证词行只读显示时间点 `[hh:mm:ss]`，供管理员回查原文；不进投影，Goldie Base 两个新 Tab 不显示 | P7 说明、API-21（`routingRows.sourceTimestamp`）、5.6；设计 3.4、9.6.2、9.6.6、6.11 步骤 7 已回写 |
 | Q27 | 改判为 GS 内部 / GS → Partner 后，Start Extraction 前补跑 P1 新认出的公司要不要直接采纳（原实现只写提及、不改采纳，与设计 9.5.9 不一致） | 按设计 9.5.9：补跑新出现的 `high` 公司（本场 P4 原本没有的）直接置为采纳、计入本次提取的保留公司，本次即产出按公司分行的 1b；这些行属于重跑后新出现的去向，按设计 9.9.5 默认不勾，管理员在矩阵勾选、Confirm & Apply 后才上线（只到管理端）；已有行只更新提及、不改采纳与依据，管理员手动去掉过的不复活；非 `high` 只记候选。用户决定 2026-10-28 | 识别服务 `rerun_company_mentions` 与 Start Extraction（API-22）；P4；设计 9.5.9、提示词 6.11 |
 | Q28 | 在营公司的状态口径：需求写 Active、Thriving、Needs Intervention、Needs Guidance，页面公司状态下拉与 Java `CompanyStatusEnum` 没有 Active | 需求的 Active 即 Achieving（5）：在营 = Needs Intervention(2) / Needs Guidance(3) / Thriving(4) / Achieving(5)；Exited(1) / Shut down(6) / Off journey(7) 与状态为空的不在营。与现有实现一致，代码不改。用户决定 2026-10-28 | 识别 ② 判 Founder、GS → 创始人只认在营公司（P1 反推、API-22）、自动路由（9.9.3）、会议页 Company 下拉置灰（API-32）；设计 2.1 |
