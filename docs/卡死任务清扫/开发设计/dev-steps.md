@@ -14,7 +14,7 @@
 | 6 | 点 | Java：F2 补投丢失的会议 | Java：`FfSyncService.redispatchLostMeetings`、实体 `redispatchedAt`、`SQSService` 取队列深度、读 `ai_ff_meeting_state`（只读原生 SQL 仓储） | 4.2 | — | 单测：队列不空整类跳过；认领 1 行才发送；`redispatched_at` 非空不再补投 | 已完成 Java `35ec04c31` |
 | 7 | 线 | Fireflies 清扫编排 | Python：新建 `fireflies/application/service/stuck_sweep_service.py`（各类扫描、顺序、每类 200、逐项事务、`SWEEP` 审计、时限常量）。`FIREFLIES_STUCK_TIMEOUT_MINUTES` 已随第一轮删除 | 2.3、2.4、3、4 | 4、5 | 单测：每类扫描条件与时限；一项抛异常不影响同类其他项 | 已完成 Python `7f5ed527` |
 | 8 | 面 | Java：定时任务 + 新队列 + 发清扫消息 | Java：`FixedScheduleTypeEnum.StuckTaskSweep`、`ScheduleProcessor` 加 case（先 F2 再发消息）、`InitSqsQueueEnum.StuckTaskSweepQueue`（可见性 600、保留 900）、`SqsMessageType`、消息 DTO | 2.2 | 6 | 单测：case 平铺调用 F2 与发消息；F2 抛异常仍发清扫消息 | 已完成 Java `670899bda` |
-| 9 | 面 | Python：清扫消费者 | Python：新建 `consumer/sweep/`（messages / handlers / poller / lifecycle，在途 1、一律删消息；保留期 900 秒可能早于一轮结束，删消息失败记 WARNING）、`combined_lifespan` 接入、`tests/consumer/learn/test_main_wiring.py`、每轮 `start_trace(CRON)` | 2.2、2.3、9 | 2、7、8（消息契约） | 单测：handler 按 E1 → F5 → F6(一) → F3 → F4 → F1 → F6(二)(三) 调用、某类抛异常继续下一类；装配测试通过 | 待开发 |
+| 9 | 面 | Python：清扫消费者 | Python：新建 `consumer/sweep/`（messages / handlers / poller / lifecycle，在途 1、一律删消息；保留期 900 秒可能早于一轮结束，删消息失败记 WARNING）、`combined_lifespan` 接入、`tests/consumer/learn/test_main_wiring.py`、每轮 `start_trace(CRON)` | 2.2、2.3、9 | 2、7、8（消息契约） | 单测：handler 按 E1 → F5 → F6(一) → F3 → F4 → F1 → F6(二)(三) 调用、某类抛异常继续下一类；装配测试通过 | 已完成 Python `0f4a8d26` |
 | 10 | 面 | 本地联调 | 本地造各类卡死数据，按 code-examples 第 3 节手动投消息 | 2.5 | 1~9 | 每类收尾结果符合设计；trace / 审计 / 日志留痕 | 待开发 |
 
 ## 并行建议
