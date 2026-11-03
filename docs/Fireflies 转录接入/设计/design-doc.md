@@ -1514,7 +1514,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | Participants | 姓名逗号分隔，**全部展示不截断**（原型为换行铺开）；取 `attendance[].name`，无则回退邮箱 |
 | Ingested at | `created_at`（首次入库时间，9.3.2），日期 + 时间 |
 
-**行末**：`Raw transcript` 链接；判为无效的会议在链接右侧追加灰色 `Invalid` 徽章。
+**行末**：`Raw transcript` 链接；判为无效的会议在链接下方追加灰色 `Invalid` 徽章（设计稿在右侧，挪到下方免得把末列撑出可视区，用户决定 2026-11-03）。
 
 **搜索**（《Fireflies Raw Data》10-19 版「Search bar：支持模糊查询，支持搜索 Meeting ID、title 和 Participant」）：
 

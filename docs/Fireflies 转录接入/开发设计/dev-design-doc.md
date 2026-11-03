@@ -1061,7 +1061,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 区域 | 组件 | 说明 |
 |---|---|---|
 | 工具栏 | `Input.Search`、日期区间浮层、`MultiSelectDropdown`（参会人）、`Select`（All tags / Invalid only / Hide invalid）、Clear filters 链接 | 有筛选生效时才显示 Clear filters |
-| 表格 | antd `Table`（服务端分页、服务端排序） | 7 列可排序；Participants 全部展示不截断；Invalid 徽标灰色，悬停「Automatically filtered out: no substantive content. No action needed.」（设计稿原文含 too short，按设计 9.3.4「不看长短」不沿用） |
+| 表格 | antd `Table`（服务端分页、服务端排序） | 7 列可排序；Participants 全部展示不截断；Ingested at 日期、时刻分两行，单元格左右内边距 12px，徽章在链接下方——常见宽度下 8 列放得下，窗口更窄时横向滚动；Invalid 徽标灰色，悬停照设计稿原文「Automatically filtered out. The meeting was too short or had nothing worth routing. No action needed」、白底细边框无箭头、中灰字（用户决定 2026-11-03；判定本身仍不看长短，设计 9.3.4） |
 
 状态：空结果有筛选时「No meetings match your search and filters.」，只搜索时「No meetings match your search.」。公司端同一布局，没有租户下拉。设计稿没有分页，分页对齐 Knowledge Base（见本节开头，7 #Q43）。
 
