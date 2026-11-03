@@ -2300,7 +2300,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 
 Name、Email(s)、Organization、Role、Validity period（From）为必填，带必填符号 `*`（《Cheat Sheet》10-13 版）。没有邮箱的人不录入 Cheat Sheet——参会人以有邮箱为前提（用户决定 2026-10-14，第十章 #59）；没有邮箱、又发了言的人在 Summary Records 显示为未对上的说话人，管理员可指定为某位参会人，或补上邮箱登记（9.5.5，#92）。
 
-弹框内提示文案：`"From" is required. Leave "To" empty to show the period as open-ended.`
+弹框内提示文案：`"From" is required. Leave "To" empty to show the period as open-ended — e.g. "Aug 2, 2025 – present".`
 
 **Confirm 前弹二次确认**，告知姓名提交后不可编辑（需求明确）。
 
@@ -2327,7 +2327,7 @@ Name、Email(s)、Organization、Role、Validity period（From）为必填，带
 
 独立页面，不做行内展开。面包屑 `Fireflies / Cheat Sheet / Role History`，前两级可跳回。标题 `<姓名> — Role History`。
 
-**每行一个完整快照**（以《Cheat Sheet》为准）：Name、Email(s)、Role、Organization、Expertise tags、Area of expertise、Validity period，外加 Updated by（含更新日期）。角色为蓝色标签，专长标签为灰色小标签。
+**每行一个完整快照**（以《Cheat Sheet》为准）：Name、Email(s)、Role、Organization、Expertise tags、Area of expertise、Validity period，外加 Updated by（含更新日期）；设计稿没画 Area of expertise，按需求保留——Cheat Sheet 列表不显示它，这里是唯一能看到它各版取值的地方（用户决定 2026-11-03）。角色为蓝色标签，专长标签为灰色小标签。
 
 **排序**：按 `valid_from` 倒序（原型如此）。同一生效日期有多行时（订正场景），再按 `updated_at` 倒序（同一生效日期内与 9.7.2 的裁决口径一致）。排在最上的不一定是当前状态（有尚未开始的版本，或旧时段后来重写过时），当前状态以 9.7.1 为准。
 
