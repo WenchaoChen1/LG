@@ -15,7 +15,7 @@
 | 7 | 线 | Fireflies 清扫编排 | Python：新建 `fireflies/application/service/stuck_sweep_service.py`（各类扫描、顺序、每类 200、逐项事务、`SWEEP` 审计、时限常量）。`FIREFLIES_STUCK_TIMEOUT_MINUTES` 已随第一轮删除 | 2.3、2.4、3、4 | 4、5 | 单测：每类扫描条件与时限；一项抛异常不影响同类其他项 | 已完成 Python `7f5ed527` |
 | 8 | 面 | Java：定时任务 + 新队列 + 发清扫消息 | Java：`FixedScheduleTypeEnum.StuckTaskSweep`、`ScheduleProcessor` 加 case（先 F2 再发消息）、`InitSqsQueueEnum.StuckTaskSweepQueue`（可见性 600、保留 900）、`SqsMessageType`、消息 DTO | 2.2 | 6 | 单测：case 平铺调用 F2 与发消息；F2 抛异常仍发清扫消息 | 已完成 Java `670899bda` |
 | 9 | 面 | Python：清扫消费者 | Python：新建 `consumer/sweep/`（messages / handlers / poller / lifecycle，在途 1、一律删消息；保留期 900 秒可能早于一轮结束，删消息失败记 WARNING）、`combined_lifespan` 接入、`tests/consumer/learn/test_main_wiring.py`、每轮 INFO 汇总日志（不写 `ai_trace`，用户决定 2026-11-02） | 2.2、2.3、9 | 2、7、8（消息契约） | 单测：handler 按 E1 → F5 → F6(一) → F3 → F4 → F1 → F6(二)(三) 调用、某类抛异常继续下一类；装配测试通过 | 已完成 Python `0f4a8d26` |
-| 10 | 面 | 本地联调 | 本地造各类卡死数据，按 code-examples 第 3 节手动投消息 | 2.5 | 1~9 | 每类收尾结果符合设计；审计 / 日志留痕 | 已完成（2026-11-02 本地联调，只联调 Python；Java F2 / 定时留 test 环境验证） |
+| 10 | 面 | 本地联调 | 本地造各类卡死数据，按 code-examples 第 3 节手动投消息 | 2.5 | 1~9 | 每类收尾结果符合设计；审计 / 日志留痕 | 已完成（2026-11-02 本地联调 Python；2026-11-03 本地补验 Java F2 与发清扫消息；EventBridge 建定时、Java 建队列留 test 环境验证） |
 
 ## 并行建议
 
@@ -31,4 +31,11 @@
 - 环境：本地库 `127.0.0.1:5432/lg_test`；队列 `lg-jerry-dev-stuck-task-sweep-queue`（手动建，属性同 Java）。只起 tracing → llm_tracking → sweep 三层 lifespan，未起整个应用。
 - 结果：E1、F1（识别中 / 提取中）、F3、F4、F5、F6(一)、F6(二)(三) 全部按设计收尾；F1 识别收尾未调大模型（时间窗内只有 F5 的 2 条 embedding）；仍是 PROCESSING 的登记行未被当孤儿撤；各类计数与实际一致（联调时计数还写在 `ai_trace`，之后按用户决定改为只打 INFO 汇总日志）；消息已删；第二轮各类扫到 0。
 - 未覆盖（单测已覆盖）：心跳续期（一轮 8 秒，不到 120 秒）、多实例凭证不符跳过。
-- 待 test 环境验证：Java 定时 `StuckTaskSweep` 建出与触发、F2 补投、队列由 Java 建出（含死信转发）。
+- 待 test 环境验证：Java 定时 `StuckTaskSweep` 建出与触发、队列由 Java 建出（含死信转发）；F2 补投已于 2026-11-03 本地补验（见下节）。
+
+## 本地补验记录（2026-11-03，Java F2）
+
+- 做法：本地 Java 保持 `scheduler-enable = false`（不建定时），但照常监听 `lg-jerry-dev-scheduler-queue`。删掉一场已 `DONE` 会议（Tamar 会 `01M62AKNYSKS1FYR925QY5BRWR`）的 `ai_ff_meeting_state` 行，使它满足 F2 条件（投递早于 30 分钟、`redispatched_at` 为空、没有 P1 行、会议队列为 0），再往该队列手投与 EventBridge 同款的消息 `{"messageType":"Scheduler","schedulerType":"StuckTaskSweep","sendTime":…,"uuid":…}`。
+- Java：`queue_message_log` 依次为发 `FirefliesMeeting`（补投）→ 发 `StuckTaskSweep` → 消费 `Scheduler` 成功，先 F2 再发清扫消息，同 2.2；`dispatched_at` 与 `redispatched_at` 同写为补投时间。
+- Python：收到补投消息时没有 P1 行，按首轮建行并清掉旧的识别结果，按当前 Email Domain 与 Cheat Sheet 从头识别（2 人按 GS 域名、1 人按名册邮箱，未调 P8），判 GS → LP 后自动提取成功（`AUTO`），因 Cross-Company 行默认不放行转 Pending（待审核）。
+- 清扫消息被消费、队列清空；本地没有卡死项，未写 `SWEEP` 审计。
