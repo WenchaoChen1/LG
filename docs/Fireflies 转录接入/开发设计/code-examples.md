@@ -172,12 +172,13 @@ COMMENT ON COLUMN ff_expert_rejection.email           IS 'Email on the participa
 COMMENT ON COLUMN ff_expert_rejection.tag             IS 'Rejected expertise tag';
 COMMENT ON COLUMN ff_expert_rejection.meeting_id      IS 'Source meeting (ff_meeting_meta_info.id)';
 
--- 存量组织补齐 5 项预置专长标签（新建组织由 OrganizationServiceImpl.save 写入）
+-- 存量组织补齐 7 项预置专长标签（新建组织由 OrganizationServiceImpl.save 写入）
 INSERT INTO ff_expertise_tag (id, organization_id, name, preset, sort_no, created_by, created_at, updated_by, updated_at)
 SELECT gen_random_uuid()::varchar(36), o.id, t.name, true, t.sort_no, '1', now(), '1', now()
 FROM organization o
 CROSS JOIN (VALUES ('Multiples', 1), ('Buyer behavior', 2), ('Exit trends', 3),
-                   ('Software usage', 4), ('Commercial buying behavior', 5)) AS t (name, sort_no)
+                   ('Software usage', 4), ('Commercial buying behavior', 5),
+                   ('Fundraising', 6), ('Market', 7)) AS t (name, sort_no)
 ON CONFLICT (organization_id, lower(name)) DO NOTHING;
 ```
 

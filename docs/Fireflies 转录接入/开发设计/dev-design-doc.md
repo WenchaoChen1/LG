@@ -195,15 +195,15 @@ Python 表编号 P6 空出：拒绝名单改为 Java 表 J6（7 #Q45），P7、P
 | `id` | varchar(36) | 否 | — | 主键 | |
 | `organization_id` | varchar(36) | 否 | — | 租户 | 9.8.2 |
 | `name` | varchar(64) | 否 | — | 标签文本 | 9.8.2 |
-| `preset` | boolean | 否 | `false` | 是否预置的 5 项（预置的不可删）；原名 `is_seed`，按业务含义改名（用户决定 2026-10-26） | 9.8.3 |
-| `sort_no` | int | 否 | — | 展示顺序；种子 1~5，新增追加 | 9.8.1 |
+| `preset` | boolean | 否 | `false` | 是否预置的 7 项（预置的不可删）；原名 `is_seed`，按业务含义改名（用户决定 2026-10-26） | 9.8.3 |
+| `sort_no` | int | 否 | — | 展示顺序；预置 1~7（Fundraising 6、Market 7），新增追加 | 9.8.1 |
 | `created_by` / `created_at` / `updated_by` / `updated_at` | — | — | — | 审计 | |
 
 - 主键 `pk_ff_expertise_tag (id)`
 - 唯一 `uk_ff_expertise_tag_org_name (organization_id, lower(name))` —— 租户内不区分大小写重名
 - 索引 `idx_ff_expertise_tag_org_sort (organization_id, sort_no)` —— 下拉按顺序列出
 - 物理删除（只有从未被用过的标签能删，9.8.3）
-- 预置 5 项（用户决定 2026-10-27，7 #Q4，同设计 9.8.1）：新建组织时写入——`OrganizationServiceImpl.save` 建完组织后已依次初始化 KPA、Tech Stack，其后加一行调用；存量组织由 Java V1 迁移一条 `INSERT … SELECT … FROM organization` 补齐（`sort_no` 1~5，`ON CONFLICT DO NOTHING`，可重跑）。不做懒加载：Python 直读本表（P7 专家推测归类、GS → 创始人证词主题），Java 没读过标签的租户，Python 会读到空字典
+- 预置 7 项（用户决定 2026-10-27，7 #Q4；2026-11-03 补 Fundraising、Market，与证词类别同名一一对应，同设计 9.8.1）：新建组织时写入——`OrganizationServiceImpl.save` 建完组织后已依次初始化 KPA、Tech Stack，其后加一行调用；存量组织由 Java V1 迁移一条 `INSERT … SELECT … FROM organization` 补齐（`sort_no` 1~5，`ON CONFLICT DO NOTHING`，可重跑）。不做懒加载：Python 直读本表（P7 专家推测归类、GS → 创始人证词主题），Java 没读过标签的租户，Python 会读到空字典
 
 #### J6 `ff_expert_rejection`
 
@@ -283,7 +283,7 @@ Python 表编号 P6 空出：拒绝名单改为 Java 表 J6（7 #Q45），P7、P
 | `expertise_tags` | JSONB | 否 | `'[]'` | 补充识别：会议日期生效版本的专长标签；登记时由 API-25 就地刷新，Edit external party 与专家确认框保存后由名册同步（API-28）按名册当日生效版本刷新（徽标随之显示 `Expert`）；被推测者的新值不在同步时写进 P1 `current_extraction_input`，由 Confirm & Apply（API-23）应用后对本列与快照不同（T1 ≠ T2）的人同步进快照并补抽证词（7 #Q51）。提取时本列与 `cheat_sheet_id` 即建议标签的扣除基准 T1：建议标签 = 大模型标签 − T1 − 拒绝名单（J6），不另加字段（7 #Q44） | 1.11 |
 | `ai_inferred_identity` | JSONB | 是 | — | AI（P8）推断的此人身份：`{confidence, evidence, name, role, organization, registry_id}`（P8 原样输出，`registry_id` 即 `ff_cheat_sheet.id`），不采纳的也存 | 6.13 |
 | `testimony_backfill_status` | VARCHAR(16) | 是 | — | 被推测者的证词补抽状态：`RUNNING`（补抽中）/ `FAILED`（补抽失败，可重试）；空 = 没有补抽或已成功。Confirm & Apply（API-23）应用后需补抽的人在应用事务里置 `RUNNING`（7 #Q51），Retry（API-29）同样置 `RUNNING`。补抽在 Python 进程内执行，被打断后没有重投，靠定时清扫判超时：`RUNNING` 且本行 `updated_at` 距今超过卡死时限，置 `FAILED`（条件更新），页面出现 Retry。不另设开始时间列：置 `RUNNING` 时触发器刷新 `updated_at`，期间本行别的改动只会推迟判定（见 P1「卡死兜底」） | 2.5 |
-| `testimony_tags` | JSONB | 是 | — | 上次为此人抽证词时所用的专长标签集合（首次提取与每次补抽成功时写入；标签清空、证词行软删时写 `[]`；空 = 从没为他抽过证词）。补抽前与他名册里会议当日生效的标签比对（即名册同步带回的 P2 `expertise_tags`；应用后补抽不重读名册，7 #Q48、#Q51）：GS → 创始人相同即不补抽；GS → LP / Partner 的 P5 不带标签，只在从没抽过且现在有标签时补抽（7 #Q35） | 2.5 |
+| `testimony_tags` | JSONB | 是 | — | 上次为此人抽证词时所用的专长标签集合（首次提取与每次补抽成功时写入；标签清空、证词行软删时写 `[]`；空 = 从没为他抽过证词）。补抽前与他名册里会议当日生效的标签比对（即名册同步带回的 P2 `expertise_tags`；应用后补抽不重读名册，7 #Q48、#Q51）：三类会议的 P5 都不带标签，只在从没抽过且现在有标签时补抽（7 #Q35；创始人会议原为「相同即不补」，2026-11-03 统一） | 2.5 |
 | `created_by` / `created_at` / `updated_by` / `updated_at` | — | — | — | 审计；自动识别 `updated_by` 记 `"1"`（系统用户） | |
 
 - 主键 `pk_ai_ff_meeting_participant (id)`
@@ -473,7 +473,7 @@ Fireflies 只在 Python 侧记审计：需求要求记的是「路由决策与�
 
 | 数据 | 方式 |
 |---|---|
-| 专长标签 5 项 | 新建组织时写入（`OrganizationServiceImpl.save`），存量组织由 Java V1 迁移补齐（J5，7 #Q4） |
+| 专长标签 7 项 | 新建组织时写入（`OrganizationServiceImpl.save`），存量组织由 Java V1 迁移补齐（J5，7 #Q4） |
 | GS 租户 3 个邮箱域名 | 上线时管理员在 Cheat Sheet 页添加（用户决定 2026-10-27，7 #Q5） |
 | Fireflies Management 菜单 | 管理后台 Menu & Function Management 加一条顶层菜单（path `/fireflies`），在 Roles Management 只挂给 PGM / SA 的角色；菜单 `pid = '0'`；配置后删 Redis `menu::menu:user:*`，再等进程内一级缓存过期（Caffeine 10 分钟）或重启各实例，用户清浏览器 `localStorage.roles` 与同名 cookie 后重新登录（ERL 先例；用户决定 2026-10-27，7 #Q7） |
 | RAG 新空间业务类型 `EXPERT_TESTIMONY` / `CROSS_COMPANY` | Python 代码种子 `rag/domain/enums.py`，无建表 DDL，V034 更新 `ai_rag_business_association.business_type` 列注释；机构层复用已有种子 `ADMIN_ORGANIZATION`，不新增 |
@@ -516,7 +516,7 @@ Java 的 5 项 Nacos 配置漏配时用上表默认值；它们与 `cio.fireflie
 
 | 端 | 文件 | 内容 | 执行时机 |
 |---|---|---|---|
-| Java | `deploy/upgrade_doc/sprint122/V1__ff_init.sql` | J1~J6 建表、索引、注释；存量组织补齐 5 项预置专长标签 | **先于 Java 与 Python 发版**（ddl-auto 会自动建表但不建索引；Python 直读 J4 / J6） |
+| Java | `deploy/upgrade_doc/sprint122/V1__ff_init.sql` | J1~J6 建表、索引、注释；存量组织补齐 7 项预置专长标签 | **先于 Java 与 Python 发版**（ddl-auto 会自动建表但不建索引；Python 直读 J4 / J6） |
 | Python | `sql/migrations/business/V034__sprint122_fireflies_init.sql` | P1~P5、P7、P8 建表、索引、触发器、注释；X1 只改 `business_type` 注释，`ai_rag_business_association.business_type` 注释补两个新空间业务类型；`ai_rag_entry.file_id` 加索引（下线、撤旧按它找条目，审核 PB10） | **先于 Python 与 Java 发版** |
 
 两份迁移文件之间互不依赖，但 Java 发版依赖 V034：Java 的 Raw Data 列表（API-15 每页读 P1 `identification_result`）、标签删除校验（API-12 / 14 读 P5）与专家确认保存（API-08 读 P2）直读 Python 的 `ai_ff_meeting_state` / `ai_ff_expert_candidate` / `ai_ff_meeting_participant`，V034 没执行时直接报错，所以 V034 要先于 Java 发版执行；反过来 Python 直读 J1~J6（拒绝名单 J6 在识别前过滤与同步时都要读），V1 也要先于 Python 发版执行。不另做数据库授权：Python 与 Java 现用同一套数据库账号，单独授权方案一直没实行（7 #Q36）。DDL 见 [code-examples.md](./code-examples.md)。
@@ -1038,7 +1038,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 列表 | antd `Table`（服务端分页） | Name（审核会议时导入的下方加 `From FF Summary Records` 标签；`lgUser = true` 的在姓名旁加 `LG user` 标记，样式开发定，7 #Q51）、Email(s)（纵向全列，实在放不下时省略号、悬停看全）、Organization、Role（蓝标签）、Expertise tags（灰小标签，换行）、Validity period（`Aug. 2, 2026 – present`，逾期加琥珀 `Needs review`）、History / Edit |
 | Email Domain 块 | 列表 + 行内 `Input` + `Button` | 不分页；Edit 时该行变输入框 + Save / Cancel |
 | PG-01c1 | `Modal` + `Form` | 字段与校验见 4.4；Name 编辑时置灰，`lgUser = true` 的在 Name 旁同样显示 `LG user`（7 #Q51），新增时重名提示显示在 Name 下方（API-41，7 #Q46）；Email(s) 多行，`+ Add another email`；Role 为 6 项 `Select`；Expertise tags 用 PG-01c2；Area of expertise 为 `TextArea`；Validity period 为两个 `DatePicker`（To 可清空）；新增的 Confirm 前弹 `Modal.confirm`「Confirm submission」 |
-| PG-01c2 | 多选 `Select`（`mode="multiple"`，`dropdownRender` 底部加「Add a new tag…」输入框，可删的选项悬停显示删除，同设计稿 `expertise-select.tsx`） | 种子 5 项在前，新增的按添加顺序在后 |
+| PG-01c2 | 多选 `Select`（`mode="multiple"`，`dropdownRender` 底部加「Add a new tag…」输入框，可删的选项悬停显示删除，同设计稿 `expertise-select.tsx`） | 预置 7 项在前，新增的按添加顺序在后 |
 
 与设计稿的差异：设计稿 Expertise tags 必填，按设计维持选填（7 #Q24d）；新增时 Role 为空（设计稿默认 LP，不沿用：角色影响会议类型判定，设计 9.7.4）；逾期提示条设计稿只算了逾期数、没有渲染，按设计 9.7.3 显示；Needs review 按设计 9.7.5 为 90 天（设计稿常量 92）；搜索另匹配 Area of expertise（设计 9.7.3）；设计稿表格只显示固定 5 个标签，这里显示该人全部标签；设计稿没有分页，分页对齐 Knowledge Base（见本节开头，7 #Q43）；列表与编辑弹框姓名旁的 `LG user` 标记设计稿没有（7 #Q51）。
 
@@ -1367,7 +1367,7 @@ PG-03                                           PG-04
 
 | 波次 | 任务 | 负责范围 | 允许改动的路径（主要） | 依赖 |
 |---|---|---|---|---|
-| 0 | 0-J Java 数据层与共享 | J1~J6 迁移（含存量组织补 5 项预置标签；J6 由 7 #Q45 补）、实体 / 枚举 / Repository；PGM / SA 判定方法 + `AuthenticatedUserDto` 字段（API-19）；Fireflies 角色断言与租户解析；两条新队列、消息类型与消息体；`FileBusinessTypeEnum` 放行 md（已撤回，7 #Q41）；`FixedScheduleTypeEnum` 加一项；新建组织写预置标签 | `deploy/upgrade_doc/sprint122/V1__ff_init.sql`、`web/fireflies/domain/**`、`web/fireflies/application/dto/**`、`web/system/service/CompanyGroupService*`、`UserServiceImpl`（`current`）、`AuthenticatedUserDto`、`OrganizationServiceImpl`（`save`）、`common/sqs/enums/**`、`FileBusinessTypeEnum`（已撤回）、`FixedScheduleTypeEnum` | — |
+| 0 | 0-J Java 数据层与共享 | J1~J6 迁移（含存量组织补 7 项预置标签；J6 由 7 #Q45 补）、实体 / 枚举 / Repository；PGM / SA 判定方法 + `AuthenticatedUserDto` 字段（API-19）；Fireflies 角色断言与租户解析；两条新队列、消息类型与消息体；`FileBusinessTypeEnum` 放行 md（已撤回，7 #Q41）；`FixedScheduleTypeEnum` 加一项；新建组织写预置标签 | `deploy/upgrade_doc/sprint122/V1__ff_init.sql`、`web/fireflies/domain/**`、`web/fireflies/application/dto/**`、`web/system/service/CompanyGroupService*`、`UserServiceImpl`（`current`）、`AuthenticatedUserDto`、`OrganizationServiceImpl`（`save`）、`common/sqs/enums/**`、`FileBusinessTypeEnum`（已撤回）、`FixedScheduleTypeEnum` | — |
 | 0 | 0-P Python 数据层与共享 | P1~P5、P7、P8 迁移、触发器、X1 与关联表注释；ORM 模型、枚举、单表 Repository；Java 表只读映射（J1~J6）与 `Company` 补公司名；`current_user_api` 加字段；`escape_like` 等挪到 `common/`（#20）；空间种子（#6）；Fireflies 登记行的写入函数与 `_PROTECTED_BIZ_TYPES`；`source/fireflies/` 骨架与跨任务调用的服务接口（提取、投影、识别的函数签名） | `sql/migrations/business/V034__sprint122_fireflies_init.sql`、`fireflies/domain/**`、`fireflies/application/` 下的接口定义、`lg/db/models/**`、`lg/db/service/file_registry.py`（只加 Fireflies 登记函数与常量）、`lgpi_api/current_user_api.py`、`common/`、`chatbot/domain/repository/_common.py`、`rag/domain/enums.py` | — |
 | 0 | 0-W 前端共享 | `services/api/fireflies/`（Java、Python 两个 api 文件 + request / response / dto，照第 3 节契约）与 `services/service/fireflies/`；组织树下拉下沉到 `components/`（ERL 改用它）；名册表单组件（PG-01c1、PG-02a~c 共用）与专长标签下拉（PG-01c2） | `services/api/fireflies/**`、`services/service/fireflies/**`、`components/OrganizationSelect/**`、`pages/exitReadiness/`（只改引用）、`pages/fireflies/components/**` | — |
 | 1 | 1-J1 Configuration 与拉取 | API-01~04；Fireflies GraphQL 客户端；每日拉取与 Sync now 同一服务（抢占、补投、拉列表、写 J2 / J3、发 SQS、写 `dispatched_at`）；key 加解密；`ScheduleProcessor` 分发 | `web/fireflies/` 下 connection、sync 相关的 interfaces / application / infrastructure；`web/scheduler/service/ScheduleProcessor.java`（只加一个 case） | 0-J |
