@@ -741,7 +741,7 @@ GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归
 **基金层**
 
 - **内容**：组合（基金）级别的摘要——募资进度、基金整体回报、LP 结构与关切（组合级别摘要见需求路由表，细项为本方案）
-- **归属**：**不建基金实体**。归属 = 机构（租户 / organization）层面，每场会一条；配合 Summary Records 详情的 **Portfolio 标记**（多选、默认不选、非必选，仅为标记、**不作任何权限依据**，9.5），供管理员识别所属基金；管理端知识库页另可在该条目上手动选基金标签（9.11.2，同样仅为标签）
+- **归属**：**不建基金实体**。归属 = 机构（租户 / organization）层面，每场会一条；配合 Summary Records 详情的 **Portfolio 标记**（多选、默认不选、非必选，仅为标记、**不作任何权限依据**，9.5），供管理员识别所属基金（知识库页的手动基金标签已取消，2026-11-04，9.11.2）
 - **可见**：对全体管理端可见，不按公司隔离
 - **不写具体被投公司的事实**（本方案规则）：本类型不按公司拆分，涉及某家被投公司的内容不写，也不进任何知识库（进行中的交易除外，见下一条）；基金层确需提及时改为泛指、剥掉对方标识。理由：基金层对全体管理端可见，而 PM 只能看自己管辖的公司——写进基金层等于绕过公司隔离
 - **进行中的交易例外**（用户决定 2026-10-14）：会上谈到的进行中、尚未交割的交易（被投公司为一方的交易，以及 GS 正在谈的新投资：被兜售、报价、买方、谈判、竞标、时间表）写进基金层的 `## Live Deals` 一节，照常写出公司名。依据：需求路由表 GS → LP 跨公司列 10-13 版写明「所有进行中的交易信息永不放出，只放1b」，本类型的 1b 只有基金层。代价：PM 会看到非管辖公司的在途交易，绕过上一条的公司隔离（10.2 #57）
@@ -1211,7 +1211,7 @@ PM / PGM 的判定（#22）走 Java 现有接口、透传用户 token，不读�
 | # | 改动 | 位置 |
 |---|---|---|
 | 11 | **Memory 页与知识库页纳入 `FIREFLIES`**（开发设计 7 #Q42）：Memory 页 `list_kb_entry_scopes`（`lg/db/service/file_registry.py:263`）取 `KNOWLEDGE_BASE` 与 `FIREFLIES`，只列摘要非空的条目；知识库页列表 `_kb_documents_query`（`file_registry/domain/repository/file_registry_repository.py:137`）、上传者筛选项 `distinct_kb_uploaders`（`:311`）。按文件圈定召回的候选查询 `list_chat_scope_files`（`:240`）一并纳入——否则知识库页看得到的会议文件，Goldie 按文件名圈定时找不到；会议条目按合成 `file_id` 圈定，与普通文件同一用法（1.3） | `lg/db/service/file_registry.py`、`file_registry/domain/repository/file_registry_repository.py` |
-| 12 | **知识库页对公司端普通用户放开会议文件**：列表对 `FIREFLIES` 行不按 `created_by` 收窄（`file_registry_repository.py:142-143`）；下载现只放行 `KNOWLEDGE_BASE` 与 `SESSION_UPLOAD`、其余一律 404（`file_registry/application/service/file_registry_service.py:476-490`），需新增 `FIREFLIES` 分支：本公司 + APP 端（公司端）、可访问公司或本组织机构层（管理端）。Fireflies 行没有 S3 对象，下载由后端按条目的 markdown 现生成，返回 `data = {url: null, fileName, content}`（`fileName` 取登记行文件名、`.md`），前端见 `content` 用 Blob 下载；其他行仍只返回 `url`（用户决定 2026-10-28，开发设计 3.6、7 #Q41）。**通用登记 CRUD 会绕开中间表正本**：`PUT` / `DELETE /api/ai/file-registry/records/{id}`（`file_registry/interfaces/routes.py:288,315`；service `update_record` / `delete_record`，`file_registry_service.py:574-619`）只校验 `company_id` 相同——管理端（company 为空）可改删任意行，公司端普通用户可删本公司的 `FIREFLIES` 行。本方案对 `FIREFLIES` / `FIREFLIES_TESTIMONY` / `FIREFLIES_CROSS_COMPANY` 三类行**拒绝通用写操作**（开发设计 7 #Q42），改内容 / 撤下一律走矩阵（9.6.3、9.6.4）；基金标签走 #16 的专用接口，不受影响 | `file_registry_repository.py`、`file_registry_service.py`、`file_registry/interfaces/routes.py`；web 知识库页下载（`src/pages/askGoldie/knowledgeBase/`） |
+| 12 | **知识库页对公司端普通用户放开会议文件**：列表对 `FIREFLIES` 行不按 `created_by` 收窄（`file_registry_repository.py:142-143`）；下载现只放行 `KNOWLEDGE_BASE` 与 `SESSION_UPLOAD`、其余一律 404（`file_registry/application/service/file_registry_service.py:476-490`），需新增 `FIREFLIES` 分支：本公司 + APP 端（公司端）、可访问公司或本组织机构层（管理端）。Fireflies 行没有 S3 对象，下载由后端按条目的 markdown 现生成，返回 `data = {url: null, fileName, content}`（`fileName` 取登记行文件名、`.md`），前端见 `content` 用 Blob 下载；其他行仍只返回 `url`（用户决定 2026-10-28，开发设计 3.6、7 #Q41）。**通用登记 CRUD 会绕开中间表正本**：`PUT` / `DELETE /api/ai/file-registry/records/{id}`（`file_registry/interfaces/routes.py:288,315`；service `update_record` / `delete_record`，`file_registry_service.py:574-619`）只校验 `company_id` 相同——管理端（company 为空）可改删任意行，公司端普通用户可删本公司的 `FIREFLIES` 行。本方案对 `FIREFLIES` / `FIREFLIES_TESTIMONY` / `FIREFLIES_CROSS_COMPANY` 三类行**拒绝通用写操作**（开发设计 7 #Q42），改内容 / 撤下一律走矩阵（9.6.3、9.6.4）（基金标签 #16 已取消，2026-11-04） | `file_registry_repository.py`、`file_registry_service.py`、`file_registry/interfaces/routes.py`；web 知识库页下载（`src/pages/askGoldie/knowledgeBase/`） |
 | 13 | **机构层条目的展示**：Memory 页与管理端知识库页现按 `company_id IN` 圈定（`memory/application/memory_service.py:107`、`lg/db/service/file_registry.py:232-272`、`file_registry_repository.py:136-145`），增加机构层作用域——按组织 + 机构层空间圈定，**不按 `company_id` 为空圈定**（证词、跨公司、会话文件同样为空）；web Memory 页增加机构层的展示 | 上述 Python 文件 + web `src/pages/askGoldie/memorySettings/` |
 
 **Java 与新建表**
@@ -1229,7 +1229,7 @@ PM / PGM 的判定（#22）走 Java 现有接口、透传用户 token，不读�
 
 | # | 改动 | 位置 |
 |---|---|---|
-| 16 | **基金标签**（9.11.2）：只给会议解析产出的知识库条目打，存中间表的多选字段 `fund_tag_ids`，登记表不加列（用户决定 2026-10-26）；管理端知识库列表对 `FIREFLIES` 行按 `file_id`（合成 id，1.3）关联中间表取标签（与 #18 反查会议同一次关联），Portfolio 列按「手动标签 → 公司所属 Portfolio（只认 Active 关联，与普通文件一致，开发设计 7 #Q50）→ 会议的 Portfolio 标记」取值；新增改标签接口（校验候选在本租户 `company_group` 内、调用者看得到该行）；改正文时中间表行不变、标签随行，重新提取时新的知识库正文行按（去向, 公司, 产出类型）沿用上一版（开发设计 P7）；web Portfolio 列对 Fireflies 行改为可选 | 新 Fireflies 模块（中间表）、`file_registry/` 模块（列表关联）、web `src/pages/askGoldie/knowledgeBase/` |
+| 16 | **基金标签**（9.11.2）：**已取消**（用户决定 2026-11-04，基金标签取消：字段 `fund_tag_ids` 从 V034 去掉，改标签接口与重新提取沿用一并删除）。原定：只给会议解析产出的知识库条目打，存中间表的多选字段 `fund_tag_ids`，登记表不加列（用户决定 2026-10-26）；管理端知识库列表对 `FIREFLIES` 行按 `file_id`（合成 id，1.3）关联中间表取标签（与 #18 反查会议同一次关联），Portfolio 列按「手动标签 → 公司所属 Portfolio（只认 Active 关联，与普通文件一致，开发设计 7 #Q50）→ 会议的 Portfolio 标记」取值；新增改标签接口（校验候选在本租户 `company_group` 内、调用者看得到该行）；改正文时中间表行不变、标签随行，重新提取时新的知识库正文行按（去向, 公司, 产出类型）沿用上一版（开发设计 P7）；web Portfolio 列对 Fireflies 行改为可选 | 新 Fireflies 模块（中间表）、`file_registry/` 模块（列表关联）、web `src/pages/askGoldie/knowledgeBase/` |
 
 **Goldie Base**
 
@@ -1321,11 +1321,11 @@ Fireflies Management 下的四个页面以 Tab 组织，顺序按原型：Summar
 | 已有页面 | 展示什么 | 改造 |
 |---|---|---|
 | **Memory 页**（Goldie 内，Company Memory / Portfolio Memory 两层；现为 Goldie Base 的 Memory Settings Tab，9.11.3） | 各条目的摘要（1a / 1b）。GS → 创始人的条目是 APP 端条目，在 Company Memory 层；GS 内部 / Partner 的公司层条目是 ADMIN 端条目，在 Portfolio Memory 层（1.1） | 查询纳入 `ai_file_registry.business_type = FIREFLIES` 中摘要非空的条目（现只取 `KNOWLEDGE_BASE`；摘要并入知识库条目，开发设计 7 #Q42）；LP 基金层条目归属机构、`company_id` 为空，现按公司列的 Memory 页取不到，需增加机构层展示；Fireflies 条目另显示 `Fireflies Memory` + `Meeting Summary` 标签（9.11.3） |
-| **知识库页**（公司端 Founder KB / 管理端 Portfolio KB；现为 Goldie Base 的 Knowledge Base Tab，9.11.2） | 各条目的 markdown 正文，可下载（Fireflies 行由后端现生成 `.md`，9.11.2） | 查询纳入 `FIREFLIES`；公司端普通用户现只能看自己上传的文件，Fireflies 条目由系统写入，需对该公司公司端用户放开（与 Goldie 召回的口径一致，1.1）；管理端增加**基金标签**的手动选择（9.11.2）；新增 Source 列（9.11.2） |
+| **知识库页**（公司端 Founder KB / 管理端 Portfolio KB；现为 Goldie Base 的 Knowledge Base Tab，9.11.2） | 各条目的 markdown 正文，可下载（Fireflies 行由后端现生成 `.md`，9.11.2） | 查询纳入 `FIREFLIES`；公司端普通用户现只能看自己上传的文件，Fireflies 条目由系统写入，需对该公司公司端用户放开（与 Goldie 召回的口径一致，1.1）；~~管理端增加基金标签的手动选择~~（2026-11-04 取消，9.11.2）；新增 Source 列（9.11.2） |
 
 专家证词与 Cross-Company 不进 Memory 页（1.1），在管理端各有 Goldie Base 的独立 Tab（9.11.4 / 9.11.5）。
 
-**Portfolio KB 的基金标签**见 9.11.2。
+**Portfolio KB 的基金标签**已取消（2026-11-04），见 9.11.2。
 
 ### 9.2 Configuration
 
@@ -1727,7 +1727,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | 存储 | 存在会议上（`ff_meeting_state.portfolio_ids`，9.5.9），一场会一份，存 Portfolio id；机构层条目经会议溯源取得，**改标记不重提取、不重投影**。Portfolio 被删后（`company_group` 为硬删，`CompanyGroupServiceImpl.java:258-262`），接口只返回仍存在的 Portfolio，删掉的 id 不显示、不专门清理 |
 | 生效 | GS → 创始人以外的类型：选择变动 → 激活 `Confirm & Apply Routing`；不激活 Start Extraction |
 
-GS → 创始人以外的类型都可手动打标记，但只有 LP 基金层内容会用到它——知识库页该行没手动选基金标签时，以它作显示回退（9.11.2）。
+GS → 创始人以外的类型都可手动打标记，但只有 LP 基金层内容会用到它——知识库页基金层行（无公司）的 Portfolio 列显示它（9.11.2）。
 
 #### 9.5.5 参会人
 
@@ -2075,7 +2075,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 
 中间表不只是"授权前的暂存区"——它是矩阵的**可编辑正本**，知识库条目由它派生。这样 `Content` 的编辑、授权的开关、以及重算，都只操作一份数据。中间表只有一套行，不分当前版本与草稿：Start Extraction 时旧行整场软删，提取成功后写入新行（9.6.5）。
 
-**不设草稿**（用户决定 2026-10-26，取代原「一场会最多一份草稿」）：点 Start Extraction 即保存页头（类型、公司、参会人写进识别结果，9.5.9），本场全部旧产物下线——中间表行、专家候选与知识库条目软删，未处理的候选置撤下——然后整场重新提取；成功后新内容按授权初值直接上线（9.9.5；有未处理的专家标记时整场先不投影，同首次提取），会议状态按自动提取的规则判（1.10）；失败则会议转 `Pending`（待识别 · 提取失败），旧内容不恢复，可再点 Start Extraction 直到成功。提取期间 Goldie 召回不到这场会，短暂空窗可接受。行上的人工措辞、Play candidate 不保留（措辞可从 `CONTENT_EDIT` 审计找回，9.9.4），勾选与基金标签按（去向, 公司, 产出类型）沿用上一版，证词按（去向, 发言人）对上一版（9.9.5，开发设计 7 #Q50）。未应用的勾选与 Portfolio 标记只在页面上，离开不保存（本方案）。
+**不设草稿**（用户决定 2026-10-26，取代原「一场会最多一份草稿」）：点 Start Extraction 即保存页头（类型、公司、参会人写进识别结果，9.5.9），本场全部旧产物下线——中间表行、专家候选与知识库条目软删，未处理的候选置撤下——然后整场重新提取；成功后新内容按授权初值直接上线（9.9.5；有未处理的专家标记时整场先不投影，同首次提取），会议状态按自动提取的规则判（1.10）；失败则会议转 `Pending`（待识别 · 提取失败），旧内容不恢复，可再点 Start Extraction 直到成功。提取期间 Goldie 召回不到这场会，短暂空窗可接受。行上的人工措辞、Play candidate 不保留（措辞可从 `CONTENT_EDIT` 审计找回，9.9.4），勾选按（去向, 公司, 产出类型）沿用上一版，证词按（去向, 发言人）对上一版（9.9.5，开发设计 7 #Q50）。未应用的勾选与 Portfolio 标记只在页面上，离开不保存（本方案）。
 
 中间表行另带 `in_playbook` 标记（Play candidate，默认关，9.11.6）：Goldie Base 两个新 Tab 的开关写这里，只作 playbook 候选标记，不进 Playbook 召回，也不影响授权与投影。
 
@@ -2191,11 +2191,11 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 | `speaker_participant_id` | 仅证词：证词发言人对应的参会人，写入时由 P5 回填的 `speaker_ref` 经说话人绑定解析而来（9.5.9）。姓名、组织、角色与按会议日期回溯的专长标签不另存，来源行与 Expert Testimony Tab 都按它关联参会人表取（9.6.4、9.11.5；用户决定 2026-10-26）。参会人改动后、重新提取前，Tab 显示新值而已投影的来源行仍是旧值，重新提取成功后一致 |
 | `authorized` | Authorize 勾选（初值见 9.6.4、9.9.5）；取消勾选只改它，内容保留 |
 | `in_playbook` | Play candidate，默认关（9.11.6）；证词只打在署名行，匿名行恒为关（用户决定 2026-10-26） |
-| `fund_tag_ids` | 基金标签：管理端 Knowledge Base Tab 手动选的 Portfolio，只用于知识库正文行；为空即没选过（9.11.2，用户决定 2026-10-26） |
+| ~~`fund_tag_ids`~~ | 已删（用户决定 2026-11-04，基金标签取消：字段 `fund_tag_ids` 从 V034 去掉，改标签接口与重新提取沿用一并删除） |
 | `file_id` | 当前在线投影的合成 `file_id`（每次投影生成，不指向真实文件，1.3），即登记行的 `file_id`；RAG 条目经登记行的 `ai_rag_entry_id` 取，不另存条目 id 与登记行 id（用户决定 2026-10-26）。改内容时新条目写成功才换 id（1.6）；Source 列按它反查会议，不过滤软删（同一登记行只属于一场会，9.11.2）。知识库去向的摘要行与正文行共用一个：正文行上线时生成，摘要写进在线条目时摘要行记同一个值；按它反查时取正文行（开发设计 7 #Q42） |
 | `projection_status` | 未投影或已下线 / 投影中（含重试）/ 已上线 / 失败；失败即记 `PROJECTION_FAILED`，最后一次错误只记在审计里（1.6、9.10.2）。摘要行在摘要写进在线条目时为已上线，正文不在线时为未投影（开发设计 7 #Q42）。动作不落库，按行的当前状态推：在线但已软删或取消授权 → 下线；不在线、未软删且已授权 → 上线；在线、未软删且已授权 → 改内容（用户决定 2026-10-26）。按最新状态推，重试排队期间改了勾选也不会推错方向 |
 | `edited_by` / `edited_at` | 最近一次行内 `Save` 的人和时间；为空即 AI 原文（9.9.4、9.10.2） |
-| `deleted` / `created_at` | 软删标记与写入时间；软删发生在点 Start Extraction 整场下线、补抽替换此人的证词行、改 `Unknown` 应用等情形（9.9）。不存软删时间：重新提取沿用旧行的勾选与基金标签时，按同一（去向, 公司, 产出类型）已软删行里 `created_at` 最新的一条取上一版（开发设计 P7，用户决定 2026-10-27）；证词按（去向, 发言人）取最新一批（同一次写入的行共用 `created_at`，9.9.5，开发设计 7 #Q50） |
+| `deleted` / `created_at` | 软删标记与写入时间；软删发生在点 Start Extraction 整场下线、补抽替换此人的证词行、改 `Unknown` 应用等情形（9.9）。不存软删时间：重新提取沿用旧行的勾选时，按同一（去向, 公司, 产出类型）已软删行里 `created_at` 最新的一条取上一版（开发设计 P7，用户决定 2026-10-27）；证词按（去向, 发言人）取最新一批（同一次写入的行共用 `created_at`，9.9.5，开发设计 7 #Q50） |
 
 ### 9.7 Cheat Sheet
 
@@ -2624,7 +2624,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | Source 列 | 两端都加。`Goldie`：来自 Chat 的文件（登记为 `KNOWLEDGE_BASE` / `SESSION_UPLOAD`）；`Fireflies`：会议派生条目（登记为 `FIREFLIES`，1.2） |
 | Fireflies 可点 | 跳到该文件所属会议的 Raw Data 详情（9.3.5），**仅当查看者有该会议的 Raw Data 权限**（9.3.6）：PGM / SA 全部可点；公司端只有本人参加过的会议可点，跳到公司端的 Raw Data Tab 详情（9.3.6，第十章 #90）。可否点由**后端按行算出**、随列表返回（仿现有 `can_open`，`file_registry/application/dto/file_registry_dto.py:32`），前端不自行判断参会与角色（本方案） |
 | 不可点 | PM（无 Raw Data 权限，9.3.6；另见第十章 #9）、未参加该会议的公司端用户：显示为普通文字。与两个新 Tab「无该页面权限的角色不可点击名称」同口径 |
-| Portfolio / Company 两列 | 不关联时显示 `—`（需求）。桌面表格现状已如此，两列只在管理端出现（web `src/pages/askGoldie/knowledgeBase/KnowledgeBasePage.tsx:400-426`）；手机端折行 `renderMobileMeta`（`:326-347`）现对空 Portfolio / Company 整块不渲染，要改为显示 `—`，并同样显示 Source。Portfolio 列取值见下方「Portfolio KB 的基金标签」 |
+| Portfolio / Company 两列 | 不关联时显示 `—`（需求）。桌面表格现状已如此，两列只在管理端出现（web `src/pages/askGoldie/knowledgeBase/KnowledgeBasePage.tsx:400-426`）；手机端折行 `renderMobileMeta`（`:326-347`）现对空 Portfolio / Company 整块不渲染，要改为显示 `—`，并同样显示 Source。Portfolio 列取值见下方「Portfolio KB 的基金标签」开头的说明（基金标签已取消，2026-11-04） |
 | 进本 Tab 的 Fireflies 文件 | 只有知识库条目：GS → 创始人的 Founder KB / Portfolio KB 正文，GS 内部 / Partner 的公司层 Portfolio KB，LP 的基金层 Portfolio KB。证词与跨公司条目分别登记为 `FIREFLIES_TESTIMONY` / `FIREFLIES_CROSS_COMPANY`，本 Tab 只取 `FIREFLIES`，它们进不来（开发设计 7 #Q42）；两者各有自己的 Tab（9.11.4、9.11.5） |
 | From Chat / Uploaded By | Fireflies 行没有来源会话，也不是用户上传，两列都显示 `—`（开发设计 7 #Q25a） |
 | 下载 | Fireflies 行是纯文本条目、没有 S3 文件（1.3）：后端按条目的 markdown 现生成 `.md` 返回 `data = {url: null, fileName, content}`，前端见 `content` 用 Blob 下载；其他行仍返回 `url`，不变（用户决定 2026-10-28，开发设计 3.6、7 #Q41）。权限同列表（第八章 #12） |
@@ -2636,7 +2636,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 
 **Portfolio KB 的基金标签**（用户决定 2026-10-10）
 
-> **2026-11-04 用户决定：页面不提供编辑入口。** Portfolio 列与原知识库一致，一律纯文字，按下表「展示」的取值显示（没有手动标签时即回退值）；下表的「候选与选法」「谁能改」不再有页面入口，后端字段与改标签接口保留未用。
+> **2026-11-04 用户决定：取消基金标签。** Portfolio 列与原知识库一致，一律纯文字：有公司的显示该公司所属 Portfolio（只认 Active），无公司（LP 基金层）显示会议的 Portfolio 标记（9.5.4），都没有显示 `—`。页面入口、改标签接口、中间表字段 `fund_tag_ids` 与重新提取时的沿用一并删除。下文仅存档。
 
 管理端知识库页（Portfolio KB）每行可手动选择基金标签，候选与选法沿用 9.5.4 的 Portfolio 标记：
 
@@ -2854,7 +2854,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 37 | 总表仍是旧口径：跨公司部分 GS → 创始人只列 [去身份]；GS 内部在途隔离标"设计有意加严"；Partner 写"每场按在途交易处理、匿名也不行"；LP / GS 内部 / Partner 三块未写"需管理员审核"。GS → LP 的 1b 仍写「公司层：按正文提到的被投公司拆分」与「是 [交易敏感] 的唯一去处」，本方案已取消公司层（#49） | **已关闭**：总表已于 2026-10-10 删除 |
 | 38 | 跨公司内容的行粒度：矩阵按"每条一行"展示（9.6.2），中间表写的是"每场会、每个去向一条"（9.6.4） | **已定**（本方案，2026-10-23）：知识库产物每场会、每个去向（与公司）摘要、正文各一行（2026-10-27 由同行两列改为分行，开发设计 7 #Q9；两行合投一条条目，开发设计 7 #Q42）；跨公司每条一行；证词每条两行（匿名、署名），两行独立、不存配对关系（用户决定 2026-10-26，9.6.6）——Play candidate 按行打（9.11.6）的前提 |
 | 39 | GS → LP 跨公司附加剥离的边界：行业层面的 LP 行为趋势（如「LP 普遍在降低对早期基金的配置」）算不算要剥的「GS 自有基金的相关内容」 | 按不算处理：不指向 GS 的基金、也不指向某个 LP，剥掉身份后作为市场趋势保留（3.5）。若需求方认为 LP 会上谈到的基金话题一律不出，改提示词一行即可 |
-| 40 | Portfolio KB 基金标签的范围与展示：早先的需求写过「手动选择基金标签，只增加标签，无实质过滤性功能」，现行需求已找不到这句 | 按：只给会议解析产出的知识库条目打，只上传、不经会议解析的文件不打（2026-10-26 收窄，开发设计 P7）；用现有 Portfolio 列，没选过时沿用现状显示；列表不按它筛选；看得到该行的管理端用户都能改（9.11.2） |
+| 40 | Portfolio KB 基金标签的范围与展示：早先的需求写过「手动选择基金标签，只增加标签，无实质过滤性功能」，现行需求已找不到这句 | 按：只给会议解析产出的知识库条目打，只上传、不经会议解析的文件不打（2026-10-26 收窄，开发设计 P7）；用现有 Portfolio 列，没选过时沿用现状显示；列表不按它筛选；看得到该行的管理端用户都能改（9.11.2）。**2026-11-04 基金标签已取消** |
 
 **H. 2026-10-10 跟进《Goldie Base》后新增**
 
