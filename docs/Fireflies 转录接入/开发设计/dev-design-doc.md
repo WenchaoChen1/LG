@@ -1155,7 +1155,7 @@ PG-03                                           PG-04
 │ Base ● ├─────────────────────────────────────────────────────┤
 │        │ [Search …] [时间 ▾]                                  │
 │        │ ┌ Meeting source: <会议名>（PGM / SA 可点）          ┐ │
-│        │ │ #FF-xxx · Jul 15, 2026 · GS → Founder              │ │
+│        │ │ FF-xxx · Jul 15, 2026 at 10:00 a.m. UTC            │ │
 │        │ │ • 内容一                       Play candidate [○ ] │ │
 │        │ │ • 内容二                       Play candidate [● ] │ │
 │        │ │ （证词另显示 Expert <姓名> [专长标签]）              │ │
