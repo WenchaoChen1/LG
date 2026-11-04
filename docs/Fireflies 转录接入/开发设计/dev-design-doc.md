@@ -861,7 +861,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 操作 | 位置 | 显示 / 可用条件 | 行为 | 调用接口 | 二次确认 | 成功 / 失败反馈 |
 |---|---|---|---|---|---|---|
 | 加载 | — | — | 会议信息卡、参会人、矩阵一次取回 | API-21 | — | 会议不存在或无权：显示「Meeting not found」 |
-| ~~待识别子原因~~ | — | — | 已取消：详情页 Scrub Status 下方照设计稿不列子原因与待确认专家剩余标签数（用户决定 2026-11-02）；Confirm & Apply 置灰时的悬停提示仍写剩余标签数 | — | — | — |
+| ~~待识别子原因~~ | — | — | 已取消：详情页 Scrub Status 下方照设计稿不列子原因与待确认专家剩余标签数（用户决定 2026-11-02）；Confirm & Apply 置灰时也不弹悬停提示（用户决定 2026-11-03） | — | — | — |
 | AI Meeting Type 下拉 | 信息卡 | — | 只改页面上的类型；选 `Unknown` 时 Start Extraction 置灰、Confirm & Apply 激活 | — | 否 | — |
 | Company：删除 chip / 下拉添加 | 信息卡 | 候选来自 API-32（不在营的公司带状态标注，GS → 创始人时置灰不可选）；GS → 创始人多于一家时提示「GS → 创始人会议只能保留一家公司」 | 只改页面上的公司；GS → LP 的增删只激活 Confirm & Apply，其余类型激活 Start Extraction | API-32 | 否 | — |
 | Portfolio 多选 | 信息卡 | GS → 创始人只读，显示公司所属 Portfolio；其他类型可选 | 只改页面上的标记，激活 Confirm & Apply | API-32 | 否 | — |
@@ -1102,7 +1102,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 会议信息卡 | 描述列表 + `Select`（类型）+ 可关闭的标签（公司 / Portfolio）+ `Select` 入口（下拉列全部候选，已选的浅黄底高亮、再点移除，悬停灰底，不显示滚动条；Company 下拉顶部带搜索框，设计稿） | 每家公司下方一行识别依据（9.5.3 文案）；未采纳的候选是否展示以设计稿为准（设计稿未画，先不展示）；GS → 创始人的 Portfolio 只读 |
 | 参会人 | 胶囊 `Tag` | 按身份着色（GS 蓝、Founder 橙、外部紫、未识别与未对上的说话人灰 + 红点）；徽标 Expert / Possible expert / AI inferred（悬停显示依据）；证词补抽中 / 失败 · Retry 显示在胶囊旁 |
 | Content Routing Matrix | 自写表格：每行 `TextArea` + Visible to 文本 + `Checkbox` | 改动行琥珀边框并出现 Save / Cancel；证词行的来源行只读显示在正文上方；跨公司与证词行另以灰色小字只读显示出处时间点 `[hh:mm:ss]`（`sourceTimestamp` 为空时不显示，7 #Q26）；GS 内部 / Partner 按公司分组、行标注公司名；GS → LP 标注机构层；Pending 会议首次提取前矩阵为空，显示「提取后在此显示」；提取进行中显示「提取中」占位，作废后显示「提取失败，补齐后点 Start Extraction」；`projectionStatus = FAILED` 的行显示红色标记，悬停说明投影失败；摘要行的 `Checkbox` 在同组正文行未勾选时置灰（4.6，7 #Q42）；证词区按 `speakerParticipantId` 显示该发言人的「证词补抽中」/「证词补抽失败 · Retry」。Visible to 文案：`KB_APP` → Founder, PM & PGM；`TESTIMONY_SIGNED` → Expert testimony (Portfolio)；`TESTIMONY_ANON` → Expert testimony (Founder)；`CROSS_COMPANY` → Cross company（以上同设计稿）；`KB_ADMIN` → PM & PGM、`FUND_LEVEL` → PM & PGM (fund level)（设计稿没有这两类，本方案） |
-| 底部按钮 | `Button` ×2 | 置灰时悬停显示原因；Confirm & Apply 成功后若有证词补抽，参会人胶囊与证词区显示「证词补抽中」（7 #Q51） |
+| 底部按钮 | `Button` ×2 | 置灰时不弹悬停提示（用户决定 2026-11-03，原为悬停显示原因）；Confirm & Apply 成功后若有证词补抽，参会人胶囊与证词区显示「证词补抽中」（7 #Q51） |
 | PG-02e 行内 Save 的清洗回显 | `Modal` | 列出删去的行及原因、替换的实体，按钮「确认保存」/「继续修改」 |
 | PG-02a / PG-02b | `Modal` + `Form`（同 PG-01c1） | 标题 `Assign new external party — <name>` / `Edit external party — <name>`；PG-02b 的 Name 置灰，PG-02a 的 Name 下方显示重名提示（API-41）；本场邮箱那一行锁定（不可删改、不显示 ×），可加别的邮箱；设计稿这两个弹框没有 Area of expertise，按设计 9.5.5 加上（同 Cheat Sheet 弹框）；有效期不含会议日期时在字段下提示并不能提交（7 #Q44） |
 | PG-02c | `Modal`：上半为按标签分组的主张与依据（带时间点），下半为登记字段；不设逐标签按钮行，建议标签预填在 Expertise tags 标签栏里，区分显示为「建议」（样式开发定） | 标题 `Possible expert — <name>`；已驳回的建议标签不预填，已在 T2 里的按普通标签显示；登记字段与只读规则见 4.7，本场邮箱锁定同 PG-02a / PG-02b；设计稿是整人 Approve / Reject，改为标签栏增删：留下即同意、删掉即驳回（7 #Q45，推翻 #Q24c 的逐标签同意 / 拒绝）；Save 一律写名册、登记字段一律按名册必填项校验（不再因全删建议标签免校验，7 #Q51） |

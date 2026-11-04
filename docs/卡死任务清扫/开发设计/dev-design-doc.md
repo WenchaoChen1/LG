@@ -16,7 +16,7 @@
 | F2 | Fireflies | 已投递（`dispatched_at` 非空）但 Python 没有 P1 行 | 消息解析失败被删、建行失败 3 次进死信、消费者停摆超过 4 天 | 永久不处理；Java 只补投 `dispatched_at IS NULL` 的行 | Java 补投一次（`redispatched_at` 记一次上限）；没有 P1 行就没有可给管理员看的东西 |
 | F3 | Fireflies | 非首轮提取 `extraction_status = RUNNING` | Start Extraction / 自动路由提取被打断 | 整场写操作被挡、Start Extraction 不可点；自动路由重投因已有进行中的提取不再匹配 | 按设计 6.11 作废，会议转 Pending（待识别 · 提取失败），Start Extraction 恢复可点 |
 | F4 | Fireflies | P2 `testimony_backfill_status = RUNNING` | API-23 应用后补抽 / API-29 Retry 被打断 | 页面没有出口（能清空它的操作自己也被挡） | 置 `FAILED`，页面出现 Retry |
-| F5 | Fireflies | P7 `projection_status = PENDING` | 进程内的退避重试随进程消失；正文卡住时摘要行也一直 `PENDING` | API-23 跳过 `PENDING`，已授权内容一直不上线 / 应下线的一直在线 | 认领后按行当前状态重推（Fireflies 7 #Q30） |
+| F5 | Fireflies | P7 `projection_status = PENDING`；已授权、未删、上线 / 改内容重试用尽停在 `FAILED`（用户决定 2026-11-03） | 进程内的退避重试随进程消失；正文卡住时摘要行也一直 `PENDING` | API-23 跳过 `PENDING`，已授权内容一直不上线 / 应下线的一直在线 | 认领后按行当前状态重推（Fireflies 7 #Q30） |
 | F6 | Fireflies | 应下线却没下成的 RAG 条目 | （一）已删 / 未授权、下线重试用尽停在 `FAILED`；（二）改正文后撤旧条目重试用尽；（三）写了条目与登记行、回写 `file_id` 前被杀 | 已删、未授权内容继续被召回 | （一）按行下线；（二）（三）按 `file_id` 删条目、软删登记行 |
 | F7 | Fireflies | 先提交、后推送的写操作（**新发现**） | API-22 Start Extraction 软删、API-23 改 Unknown / 取消授权 / 上线、API-24 改内容：事务里没置 `PENDING`，提交后、推送前被杀 | 行停在 `ONLINE`（已删 / 未授权 / 内容已改）或 `NONE`（应上线），F5、F6 都捞不到 | 在 Fireflies 这几个事务里补 `mark_pending`，归入 F5（第 4.7 节） |
 | E1 | AI 财务提取 | 任务 `PROCESSING` | 进程被杀；恢复本身失败（`_recover_claimed_task` 写库失败只记日志） | 永久 `PROCESSING`；重投被 `_check_task_status` 判在途后删消息；前端每 5 秒轮询、无上限 | 未处理完的文件置 `FILE_FAILED`，任务一律置 `FAILED`；不重投 |
@@ -83,7 +83,7 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
 | F2 | `UPDATE … WHERE dispatched_at = <扫到的值> AND redispatched_at IS NULL`（先认领再发送） |
 | F3 | 复用 `_persist_void`：锁 P1 行 + `_holds_credential` 核对 `RUNNING` 与 `extraction_started_at` |
 | F4 | `UPDATE … WHERE testimony_backfill_status = 'RUNNING' AND updated_at = <扫到的值>` |
-| F5 | 认领 `UPDATE … SET updated_by = '1' WHERE projection_status = 'PENDING' AND updated_at = <扫到的值>`（触发器刷新 `updated_at`） |
+| F5 | 认领 `UPDATE … SET updated_by = '1' WHERE projection_status IN ('PENDING', 'FAILED') AND updated_at = <扫到的值>`（触发器刷新 `updated_at`） |
 | F6 | 下线 / 删条目本身幂等 |
 | E1 | 锁任务行 `FOR UPDATE`，核对 `status = PROCESSING` 与 `updated_at` 仍是扫到的值（进程还活着时心跳会刷新它，核对不上即跳过） |
 
@@ -165,9 +165,9 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
 - **新增**：`extraction_service.fail_stuck_backfill(meeting_id, participant_id, updated_at) -> bool`。不复用 `_finish_backfill`：它要的 `_BackfillContext` 会读整场转录。
 - **并发**：老进程的补抽落库前核对 `RUNNING`（`_replace_testimony` / `_finish_backfill`），被置 `FAILED` 后结果丢弃；置 `FAILED` 后用户点 Retry 与老补抽并存时先提交者生效、后者看到状态已清空而丢弃。
 
-### 4.5 F5 投影卡在 PENDING
+### 4.5 F5 投影卡在 PENDING 或上线失败
 
-- **判定**：P7 `projection_status = 'PENDING' AND updated_at < now() - 60 分钟`（走 `idx_ai_ff_routing_row_projection`）。
+- **判定**：P7 `(projection_status = 'PENDING' OR (projection_status = 'FAILED' AND authorized AND NOT deleted)) AND updated_at < now() - 60 分钟`（走 `idx_ai_ff_routing_row_projection`）。`FAILED` 一支是已授权的行上线 / 改内容重试用尽（如向量化服务临时连不上）：原先没有任何入口能再推，会议已 Passed 时 Confirm & Apply 也点不了，只能取消勾选再勾回、应用两次（用户决定 2026-11-03）；已删或未授权的 `FAILED` 是下线失败，归 F6（一）。重推失败会刷新 `updated_at`，持续故障时每行最多每 60 分钟重试一次、每次各记一条 `PROJECTION_FAILED`。
 - **动作**：
   1. 逐行认领（第 2.4 节）。**不认领不行**：`_begin_push` 对已是 `PENDING`、`updated_by` 已是系统用户的行是同值赋值，ORM 不发 UPDATE、`updated_at` 不刷新，下一轮会再次捡到正在推的同一行。
   2. 认领成功的行按会议分组，**同一（去向, 公司）的正文行与摘要行放进同一批**，调 `projection_service.project_rows_online(row_ids, triggered_by=None)`：它按行当前状态推（上线 / 改内容 / 下线 / 置 `NONE`，摘要行分流到「只替换摘要」），不只是上线。
