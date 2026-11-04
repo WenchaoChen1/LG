@@ -869,10 +869,10 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | AI inferred 悬停 | chip | 徽标含 AI inferred | 显示 `aiEvidence` | API-21 | — | — |
 | 证词补抽状态 / Retry | chip 与矩阵证词区 | `RUNNING` 显示「证词补抽中」；`FAILED` 显示「证词补抽失败 · Retry」 | Retry 重新补抽，之后每 5 秒轮询 API-21 | API-29 → API-21 | 否 | 被拒时提示原因 |
 | Start Extraction | 页头右上 | 按 9.5.1：必填齐（类型不是 `Unknown`；参会人里没有 Unidentified、没有未对上的说话人；GS → 创始人恰好一家公司），并且——已提取过的会议要页头有未提交的类型或公司改动（GS → LP 的公司改动与 Portfolio 改动不算）或 `participantsChanged`；待识别、提取作废、P1 / P8 失败的会议必填齐即可。提取或补抽进行中置灰 | 提交页头的类型与公司，整场下线并后台提取；按钮显示进行中，每 5 秒轮询 API-21 直到 `extractionStatus` 不是 `RUNNING`，再刷新整页；进页面时若已在提取或补抽，同样开始轮询，轮询拿到新 `updatedAt` 时保留页面上未提交的改动 | API-22 → API-21 | 否（设计 9.9.4：不弹确认框） | 成功 toast「Extraction started」；作废后页头显示「提取失败」，按钮恢复可点 |
-| 编辑 Content | 矩阵每行 | 来源行只读；该行发言人证词补抽中时不可编辑 | 编辑后该行琥珀高亮，出现 Save / Cancel | — | — | — |
-| 行内 Save | 矩阵行 | 该行有改动；摘要行不超过 150 个英文单词（前端计数，超长置灰并提示） | 调 API-24：返回已落库即完成；返回清洗结果则弹出 PG-02e 回显（删去的行及原因、替换的实体），管理员确认后带 `originalContent` 再调一次，或返回继续改 | API-24 | 有命中时回显确认 | 成功 toast「Content saved」；被拒提示原因 |
+| 编辑 Content | 矩阵每行 | 来源行只读；该行发言人证词补抽中时不可编辑；页头类型 / 公司或参会人有还没提取的改动（`participantsChanged`，GS → LP 的公司增删不算）或类型改为 `Unknown` 时整表不可编辑，表格上方提示先点 Start Extraction（改 `Unknown` 时提示应用后整场下线）（本方案，用户决定 2026-11-04：重提会整场重写，此时改的措辞与勾选都会作废） | 编辑后该行琥珀高亮，出现 Save / Cancel | — | — | — |
+| 行内 Save | 矩阵行 | 该行有改动；摘要行不超过 150 个英文单词（前端计数，超长置灰并提示）；整表不可编辑时置灰（Cancel 照常） | 调 API-24：返回已落库即完成；返回清洗结果则弹出 PG-02e 回显（删去的行及原因、替换的实体），管理员确认后带 `originalContent` 再调一次，或返回继续改 | API-24 | 有命中时回显确认 | 成功 toast「Content saved」；被拒提示原因 |
 | 行内 Cancel | 矩阵行 | 该行有改动 | 还原该行 | — | — | — |
-| Authorize 勾选 | 矩阵行 | 摘要行：同一（去向, 公司）的正文行未勾选时置灰，悬停说明摘要随正文生效（7 #Q42） | 只改页面上的勾选，激活 Confirm & Apply；取消勾选正文行时，同组摘要行随之取消 | — | — | — |
+| Authorize 勾选 | 矩阵行 | 摘要行：同一（去向, 公司）的正文行未勾选时置灰，悬停说明摘要随正文生效（7 #Q42）；整表不可编辑时置灰 | 只改页面上的勾选，激活 Confirm & Apply；取消勾选正文行时，同组摘要行随之取消 | — | — | — |
 | Discard Changes | 页面底部 | 有未提交的页头类型 / 公司、勾选或 Portfolio 改动 | 还原这些改动以及编辑中未保存的行（可用条件比 9.6.5 收窄：只在有未提交改动时激活）；不撤销已 Save 的内容、名册写入、补抽结果与已点过的 Start Extraction（9.6.5） | — | 否 | — |
 | Confirm & Apply Routing | 页面底部 | 按 9.6.5 按钮状态表（自下而上优先；改为 Unknown 即激活，只在提取或证词补抽进行中置灰，7 #Q25e；`pendingBackfillCount > 0` 时即使没有别的路由级改动也激活，旁注「N 人的标签待补抽，应用后补抽」，7 #Q51 ⑥），置灰时提示原因（如「还有 N 个建议标签未处理」）；有行在编辑未保存时先提示该行 Save 或 Cancel | 一次提交勾选、Portfolio、改 `Unknown`、GS → LP 的公司增删；返回 40903 时弹二次确认框逐条列出 `warnings`（按当前参会人判定的类型与当前类型不同，带建议类型；GS → 创始人会议有 Founder 的组织 / 所属公司与关联公司对不上），确认后带 `confirmWarnings=true` 重提，取消则不提交（7 #Q48）；不改 `Unknown` 的应用成功后，服务端为专长标签与提取快照不同的被推测者补抽证词（7 #Q51） | API-23 → API-21 | 类型改为 `Unknown` 时弹 PG-02f（本方案）；返回 40903 时弹上述二次确认 | 成功 toast「Routing applied」，刷新 API-21；有参会人 `testimonyBackfillStatus = RUNNING` 时显示「证词补抽中」并每 5 秒轮询 API-21 直到补抽结束（应用前看不到新证词，补出的直接上线）；被拒提示原因 |
 | 面包屑 | 页头 | — | 回 PG-01 Summary Records Tab，`org` 取该会议的租户 | — | — | — |
@@ -929,7 +929,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 
 - 每个按钮引用的接口都在第 3 节清单里；第 3 节对账表里属于各页面的接口，本节都有对应的加载时机或操作。
 - 没有按钮直接触发的接口：API-38（Ask Goldie 对话），见 3.5；API-08 改为 PG-02c Save 直调、API-26 已删除（7 #Q44）；API-40 已不再使用（7 #Q41）。
-- 本方案新增、设计没写的交互：类型改为 `Unknown` 并应用时二次确认（PG-02f）；原文页与会议详情对「无权」与「不存在」显示同一提示；PG-02c 新建名册时弹 Confirm submission；Discard 只在有未提交改动时激活（比 9.6.5 收窄）；证词补抽中该发言人的证词行不可编辑。
+- 本方案新增、设计没写的交互：类型改为 `Unknown` 并应用时二次确认（PG-02f）；原文页与会议详情对「无权」与「不存在」显示同一提示；PG-02c 新建名册时弹 Confirm submission；Discard 只在有未提交改动时激活（比 9.6.5 收窄）；证词补抽中该发言人的证词行不可编辑；有还没提取的页头 / 参会人改动或类型改为 `Unknown` 时矩阵整表不可编辑（2026-11-04）。
 
 ## 5. 页面布局
 
