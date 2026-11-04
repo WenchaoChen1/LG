@@ -546,7 +546,7 @@ Java 的 5 项 Nacos 配置漏配时用上表默认值；它们与 `cio.fireflie
 | PG-04 | 名册 Role History | `/fireflies/cheat-sheet/:id/history`（`:id` 为此人任一版本行的 id） | PG-01c 的 History | PGM / SA | 列表（只读） | 新增 | 9.7.6 |
 | PG-05 | Goldie Base（Tab 容器） | `/askGoldie/goldieBase?tab=knowledgeBase\|memorySettings\|crossCompany\|expertTestimony`（用户决定 2026-10-27，7 #Q16） | Ask Goldie 侧栏 / 手机端底栏的 Goldie Base 入口；旧地址 `/knowledgeBase`、`/memorySettings` 重定向到对应 Tab | 两端，按 Tab 区分 | 容器 | 新增（由两页合并） | 9.11.1、第八章 #17 |
 | PG-05a | └ Knowledge Base Tab | `?tab=knowledgeBase`（默认） | Tab 切换 | 两端（原业务不变） | 列表 | 改造（原 `KnowledgeBasePage`） | 9.11.2、第八章 #11、#12、#18 |
-| PG-05a1 | 　└ 基金标签选择（行内下拉） | — | 管理端 Fireflies 知识库正文行的 Portfolio 列 | 管理端 PM / PGM / SA（看得到该行即可改） | 行内下拉 | 新增 | 9.11.2、第八章 #16 |
+| PG-05a1 | 　└ ~~基金标签选择（行内下拉）~~ **已取消（用户决定 2026-11-04：Portfolio 列纯文字）** | — | 管理端 Fireflies 知识库正文行的 Portfolio 列 | — | — | 取消 | 9.11.2、第八章 #16 |
 | PG-05b | └ Memory Settings Tab | `?tab=memorySettings` | Tab 切换 | 管理端；公司端 Company Admin | 列表 | 改造（原 `MemorySettingsPage`） | 9.11.3、第八章 #13、#19 |
 | PG-05c | └ Cross company content Tab | `?tab=crossCompany` | Tab 切换 | 管理端 PM / PGM / SA | 卡片列表 | 新增 | 9.11.4、9.11.6 |
 | PG-05d | └ Expert Testimony Tab | `?tab=expertTestimony` | Tab 切换 | 管理端 PM / PGM / SA | 卡片列表 | 新增 | 9.11.5、9.11.6 |
@@ -657,7 +657,7 @@ API-26（Edit external party 经 Python 转调 API-07）已删除：改为前端
 | PG-04 | API-09 | — |
 | PG-05 | API-19、API-39 | — |
 | PG-05a | API-33、API-34 | 下载：API-35；删除：API-36；Source 链接跳 PG-03 |
-| PG-05a1 | API-32 | 选择：API-31（`fundTagIds`） |
+| PG-05a1 | —（已取消，2026-11-04） | — |
 | PG-05b | API-37 | — |
 | PG-05c | API-30（`type=CROSS_COMPANY`） | 搜索、时间筛选、分页：API-30；开关：API-31（`inPlaybook`）；会议名跳 PG-02（`canOpen`） |
 | PG-05d | API-30（`type=TESTIMONY`） | 同 PG-05c |
@@ -915,7 +915,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | KB：下载 | PG-05a 行内 | 现有规则；Fireflies 行按 API-35 新分支（响应带 `content` 时前端用 Blob 下载，3.6） | 下载 | API-35 | 否 | 失败提示 |
 | KB：删除 | PG-05a 行内 | Fireflies 行不显示 | 现有行为 | API-36 | 是（现有） | 现有 |
 | KB：Source 链接 | Source 列 | Fireflies 行，且后端返回可点 | 跳 PG-03；不可点时显示纯文字 | — | — | — |
-| KB：基金标签（PG-05a1） | Portfolio 列 | 管理端 Fireflies 知识库正文行；候选来自 API-32 | 多选，下拉只回显 `fundTagIds`（手动选过的），变化即提交 | API-31（`fundTagIds`） | 否 | 失败还原并提示 |
+| KB：基金标签（PG-05a1） | Portfolio 列 | **已取消（用户决定 2026-11-04）**：Portfolio 列纯文字，显示 `portfolioDisplay` | — | — | — | — |
 | Memory：File Scope | PG-05b 筛选栏 | 管理端；公司端不显示 | All Files / Company Memory / Portfolio Memory / Fireflies Memory（7 #Q24b） | API-37 | 否 | — |
 | Memory：搜索、公司筛选 | PG-05b 筛选栏 | 公司筛选只在管理端 | 现有行为：按摘要全文与文件名搜索，不加设计稿的公司匹配（7 #Q25c） | API-37 | 否 | — |
 | Memory：查看详情 | PG-05b 行 | — | 现有详情弹框；会议摘要的标签并排显示层徽标 + Fireflies Memory + Meeting Summary | — | — | — |
@@ -1168,7 +1168,7 @@ PG-03                                           PG-04
 |---|---|---|
 | 门户外壳 | 现有 `PortalNavSidebar` / `PortalTabBar`（上提到 Goldie Base 页） | 两个入口合并为一个 Goldie Base；两个旧页去掉自带外壳，只保留内容区 |
 | Tab 栏 | `Tabs.TabPane` | 顺序按需求：Knowledge Base · Memory Settings · Cross Company Content · Expert Testimony；只有一个 Tab 时不渲染 Tab 栏 |
-| Knowledge Base | 现有 `KnowledgeBasePage` 内容区 | 新增 Source 列（`Goldie` / `Fireflies`，Fireflies 可点时为链接）；管理端 Fireflies 正文行的 Portfolio 列变成多选 `Select`（PG-05a1）；Fireflies 行不显示删除；手机端折行同样显示 Source，空 Portfolio / Company 显示 `—`；Fireflies 行的 From Chat 与 Uploaded By 显示 `—`（7 #Q25a） |
+| Knowledge Base | 现有 `KnowledgeBasePage` 内容区 | 新增 Source 列（`Goldie` / `Fireflies`，Fireflies 可点时为链接）；Portfolio 列一律纯文字（PG-05a1 多选已取消，2026-11-04）；Fireflies 行不显示删除；手机端折行同样显示 Source，空 Portfolio / Company 显示 `—`；Fireflies 行的 From Chat 与 Uploaded By 显示 `—`（7 #Q25a） |
 | Memory Settings | 现有 `MemorySettingsPage` 内容区 | 摘要按 markdown 渲染：详情弹框渲染，列表两行预览去掉标记（设计第十章 #20 交开发设计定，本方案）；管理端 File Scope 加 Fireflies Memory；会议摘要的 `MemoryMetaRow` 并排显示层徽标 + Fireflies Memory（青色）+ Meeting Summary；公司位为空显示 `—` |
 | 两个新 Tab | 卡片列表：相邻的同场行归成一张卡片，`Switch`（Play candidate） | 工具栏：`Input.Search` + 时间区间浮层；证词卡片每条另显示 `Expert <姓名>` 与专长标签（取不到说话人姓名时显示 `Unassigned`，同设计稿；当日没有专长标签时标签区不显示）；会议名 PM 为纯文字；分页按行，同一场会跨页时拆成两张卡片 |
 
