@@ -177,7 +177,7 @@ Python 表编号 P6 空出：拒绝名单改为 Java 表 J6（7 #Q45），P7、P
 | `valid_from` | date | 否 | — | 有效期起始日（页面 Validity period 的 From），按会议日期回溯版本时用 | 9.7.2 |
 | `valid_to` | date | 是 | — | 有效期截止日；空 = 至今（页面显示 `present`） | 9.7.2 |
 | `source` | varchar(32) | 否 | `'MANUAL'` | 来源：`MANUAL`（Cheat Sheet 页手工新增）/ `FF_SUMMARY_RECORDS`（审核会议时登记，含专家确认） | 9.7.1 |
-| `source_meeting_id` | varchar(36) | 是 | — | 从会议页登记或专家确认时的来源会议（`ff_meeting_meta_info.id`）；页面把它拼成 `System (<fireflies_id> import)` 展示——不塞进 `updated_by`（36 位放不下，且基类会覆盖） | 9.7.1 |
+| `source_meeting_id` | varchar(36) | 是 | — | 从会议页登记或专家确认时的来源会议（`ff_meeting_meta_info.id`）；History 的 Updated by 仍显示实际操作人（`updated_by`，用户决定 2026-11-04，原为拼成 `System (<fireflies_id> import)`） | 9.7.1 |
 | `reviewed_by` | varchar(36) | 是 | — | 「看过无需修改」的复核人 | 9.7.5 |
 | `reviewed_at` | timestamptz | 是 | — | 复核时间；用 `@Modifying` 单独 UPDATE，不经实体保存（基类 `@PreUpdate` 会改写 `updated_at`，破坏版本裁决） | 9.7.5 |
 | `created_by` / `created_at` / `updated_by` / `updated_at` | — | — | — | 审计；`updated_at` = 写入时间，是重合裁决的依据（只追加，不改） | 9.7.2 |
@@ -589,7 +589,7 @@ Java 的 5 项 Nacos 配置漏配时用上表默认值；它们与 `cio.fireflie
 | API-06 | POST `/cheat-sheets` | 新建人员（第一版）；租户内重名（忽略大小写）不拒绝，姓名自动加数字后缀，返回最终姓名（7 #Q46）；填的邮箱已登记在名册别的条目里时拒绝（7 #Q49）；带 `sourceMeetingId` 时有效期必须包含会议日期（7 #Q44） | `name`、`emails`、`organization`、`role`、`expertiseTags`、`areaOfExpertise`、`validFrom`、`validTo`、`sourceMeetingId?`、`organizationId?` | 新行（含最终姓名与 `id`） | J4 写（有 `sourceMeetingId` 记 `FF_SUMMARY_RECORDS` 与 `source_meeting_id`、租户由该会议推出，否则 `MANUAL`）；J2 读（推租户、取会议日期） | PGM / SA | PG-01c1；Python 经 API-25 调用 | 新增，见 3.6 |
 | API-07 | PUT `/cheat-sheets/{id}` | 编辑：一律按弹框追加一条完整新版本（9.7.1），不改旧行（7 #Q44）。不带 `sourceMeetingId`（Cheat Sheet 页）：什么都没改时只在当前状态那一行记复核（`reviewed_*`，9.7.5）；带 `sourceMeetingId`（会议页 Edit external party，`{id}` 为 API-21 返回的 `versionId`）：新行记来源，有效期必须包含会议日期，与 `{id}` 那一版相比没有任何改动时不写、也不记复核。填的邮箱已登记在名册别的条目里时拒绝（本条目自己的各版本不算，7 #Q49） | 同 API-06（无 `name`、`organizationId`） | 新行 id；或 `reviewed: true` | J4 写（带 `sourceMeetingId` 的记 `FF_SUMMARY_RECORDS` 与 `source_meeting_id`）；J2 读（取会议日期） | PGM / SA | PG-01c1、PG-02b（前端直调） | 新增，见 3.6 |
 | API-08 | POST `/cheat-sheets/expert-confirmations` | 专家确认保存（7 #Q44、#Q45、#Q51），一个事务，一律写名册（维护名单，7 #Q51）：已在册的按 API-07 规则以 `baseVersionId` 为底追加一条完整新版本（与 T2 相比没有改动不写；邮箱查重同 API-07），未登记的按 API-06 规则新建（必填校验、重名加后缀，邮箱已登记在名册别的条目里时拒绝，7 #Q49；LG 平台用户同样新建，#Q47）；Expertise tags 为空也照建 / 照追加；写拒绝名单 J6：驳回 = `suggestedTags` − 保存后的 Expertise tags，邮箱取 P2 该参会人的本场邮箱；有效期必须包含会议日期；租户由 `sourceMeetingId` 推出。不再有「只写驳回、不建条目」的调用（原 #Q45，#Q51 改） | `sourceMeetingId`、`participantId`、`suggestedTags`（本次打开时的建议标签）、`entry`（登记字段同 API-06，必填，7 #Q51）、`baseVersionId?`（已在册时为预填的 T2 id，未登记为空） | 最终姓名、写入的版本 id | J4 写（新行记 `FF_SUMMARY_RECORDS` 与 `source_meeting_id`）；J6 写；J2 读（推租户、取会议日期）；P2 读（本场邮箱） | PGM / SA | PG-02c（前端直调） | 新增（7 #Q44 改造），见 3.6 |
-| API-09 | GET `/cheat-sheets/{id}/history` | 此人全部版本，按 `valid_from`、`updated_at` 倒序 | — | `name`、`organizationId`、`rows[{…快照字段, updatedBy, updatedAt}]`（系统写入的显示为 `System (<fireflies_id> import)`） | J4 读；J2 取 `fireflies_id` | PGM / SA | PG-04 | 新增，见 3.6 |
+| API-09 | GET `/cheat-sheets/{id}/history` | 此人全部版本，按 `valid_from`、`updated_at` 倒序 | — | `name`、`organizationId`、`rows[{…快照字段, updatedBy, updatedAt}]`（`updatedBy` 为操作人显示名，会议页登记的也是实际操作人；系统用户为 `System`） | J4 读 | PGM / SA | PG-04 | 新增，见 3.6 |
 | API-10 | GET `/email-domains` | 本租户邮箱域名 | `organizationId?` | `domains[]` | J1 读 | PGM / SA | PG-01c | 新增，见 3.6 |
 | API-11 | PUT `/email-domains` | 整份提交（增、改、删都走它）：逐个去 `@`、转小写，校验格式、公共邮箱域名与重复；没有连接行时先建一行（`UNCONNECTED`）；应用日志记改前、改后两份列表（用户决定 2026-10-27，7 #Q22） | `domains[]`、`organizationId?` | `domains[]` | J1 写 | PGM / SA | PG-01c | 新增，见 3.6 |
 | API-12 | GET `/expertise-tags` | 标签字典，按 `sort_no`；每项带能否删除 | `organizationId?` | `[{id, name, preset, deletable}]` | J5 读；J4（任一版本用过）、P5（未处理标记引用）读 | PGM / SA | PG-01c2 | 新增 |
@@ -1035,7 +1035,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 
 | 区域 | 组件 | 说明 |
 |---|---|---|
-| 列表 | antd `Table`（服务端分页） | Name（审核会议时导入的下方加 `From FF Summary Records` 标签；`lgUser = true` 的在姓名旁加 `LG user` 标记，样式开发定，7 #Q51）、Email(s)（纵向全列，实在放不下时省略号、悬停看全）、Organization、Role（蓝标签）、Expertise tags（灰小标签，换行）、Validity period（`Aug. 2, 2026 – present`，逾期加琥珀 `Needs review`）、History / Edit |
+| 列表 | antd `Table`（服务端分页） | Name（审核会议时导入的在姓名同一行加 `From FF Summary Records` 标签（不换行，姓名过长省略，2026-11-04）；`lgUser = true` 的在姓名旁加 `LG user` 标记，样式开发定，7 #Q51）、Email(s)（纵向全列，实在放不下时省略号、悬停看全）、Organization、Role（蓝标签）、Expertise tags（灰小标签，换行）、Validity period（`Aug. 2, 2026 – present`，逾期加琥珀 `Needs review`）、History / Edit |
 | Email Domain 块 | 列表 + 行内 `Input` + `Button` | 不分页；Edit 时该行变输入框 + Save / Cancel |
 | PG-01c1 | `Modal` + `Form` | 字段与校验见 4.4；Name 编辑时置灰，`lgUser = true` 的在 Name 旁同样显示 `LG user`（7 #Q51），新增时重名提示显示在 Name 下方（API-41，7 #Q46）；Email(s) 多行，`+ Add another email`；Role 为 6 项 `Select`；Expertise tags 用 PG-01c2；Area of expertise 为 `TextArea`；Validity period 为两个 `DatePicker`（To 可清空）；新增的 Confirm 前弹 `Modal.confirm`「Confirm submission」 |
 | PG-01c2 | 多选 `Select`（`mode="multiple"`，`dropdownRender` 底部加「Add a new tag…」输入框，可删的选项悬停显示删除，同设计稿 `expertise-select.tsx`） | 预置 7 项在前，新增的按添加顺序在后 |
@@ -1139,7 +1139,7 @@ PG-03                                           PG-04
 | PG-03 页头 | 文本 | 标题下一行「Raw verbatim transcript — unclassified and unmodified · captured <created_at>」（设计稿没画，按设计 9.3.5 补） |
 | PG-03 信息卡 | 描述列表 | Participants 用出席记录姓名，没有则回退受邀邮箱 |
 | PG-03 正文 | 逐行直接渲染（不用虚拟滚动，保证浏览器 Ctrl+F、复制、打印覆盖全篇，7 #Q29） | 每行 `[hh:mm:ss] speaker_name: text`，说话人照原样显示；首批到达即显示，其余批次在后台连续加载，期间底部显示 `Spin` 与「Loading the rest of the transcript…」（此时 Ctrl+F 只覆盖已加载部分）；某批失败即停并显示 Retry |
-| PG-04 表格 | antd `Table`（不分页） | 按 `valid_from`、`updated_at` 倒序；系统写入的 Updated by 显示 `System (<fireflies_id> import)` |
+| PG-04 表格 | antd `Table`（不分页） | 按 `valid_from`、`updated_at` 倒序；Updated by 显示操作人（会议页登记的也是实际操作人，系统用户为 `System`） |
 
 状态：PG-03 无权或不存在显示「Transcript not found」；PG-04 不存在显示「Registry entry not found」。与设计稿的差异：设计稿 PG-04 不显示 Area of expertise、只显示固定 5 个标签，按设计 9.7.6 显示完整快照与全部标签。
 

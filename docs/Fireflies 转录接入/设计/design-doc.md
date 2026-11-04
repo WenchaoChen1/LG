@@ -1264,7 +1264,7 @@ PM / PGM 的判定（#22）走 Java 现有接口、透传用户 token，不读�
 |---|---|---|
 | 29 | **每日拉取的固定计划**（9.2、9.3.1）：`FixedScheduleTypeEnum` 加一项，Java 收到后按已连接的租户拉取 Fireflies、写入原文；Sync now 走同一链路 | Java `scheduler/`（`FixedScheduleTypeEnum`、`ScheduleProcessor` 的分发）、Java Fireflies 模块 |
 | 30 | **新会议交给 Python**（9.3.1）：Java 写入原文后每场会投一条 SQS 消息（不论有没有句子都投，转录为空由 Python 判 Invalid，开发设计 J2），拿到发送成功结果才记 `dispatched_at`、之后不再改原文；发送失败的在下一次拉取（每日或 Sync now）开始时补投，不限回看窗口、不设次数上限，Python 按会议去重（开发设计 J2「投递与补投」，用户决定 2026-10-27）；Python 按 `consumer/` 的长轮询模板新增消费者，收到后识别与提取。消息带租户、会议 id、触发方式（定时 / Sync now）与触发人（定时为空，9.10.1）。现有模板遇在途任务直接跳过并删消息（`consumer/handlers.py:75-76`），兜不住崩溃中断，不能照搬：重投时（消息接收次数 ≥ 2）仍在识别中 / 提取中的会议直接接手重跑、不看开始时间——处理者活着时会一直延长消息的不可见时间，消息能重新出现即说明它已不在；接手凭 `processing_started_at` 条件更新，老进程万一还活着、落库时核对不上即放弃（开发设计 P1，用户决定 2026-10-27）；重跑次数取 SQS 消息的接收次数，N 即队列的最大接收次数（现有模板为 3），每次重跑先删本场产出、从头跑，收满那次仍没跑完不做特殊处理（开发设计，不存次数与心跳）；消息进了死信队列或过期的会议（`dispatched_at` 非空但超时仍没有处理状态行，或停在识别中 / 提取中）由定时清扫（单独功能，Fireflies 开发完成后设计、与本功能一起上线，用户决定 2026-10-27）按中断处理（开发设计 7 #Q12、#Q13） | Java Fireflies 模块、SQS 队列定义（common 模块 `sqs/enums/InitSqsQueueEnum`）；Python `consumer/`（按 `learn/` 子包新建，在 `bootstrap/lifespan.py` 注册）、新 Fireflies 模块 |
-| 31 | **Summary Records 用的名册写接口**（9.5.6、9.5.7、9.8.1）：带来源会议的新登记由 Python 透传用户 token 调用（记来源会议 `source_meeting_id`、来源 `FF_SUMMARY_RECORDS`，页面显示 `System (<会议 id> import)`），重名自动加后缀并返回最终姓名（开发设计 7 #Q46）；`Edit external party` 与专家确认的保存由前端直接调用，每次追加一条完整记录、校验有效期包含会议日期，专家确认每次保存都写名册、在同一事务写拒绝名单（开发设计 7 #Q44、#Q45、#Q51）；另有姓名查重接口，供三个新建入口在姓名失焦时提示（9.7.4）。专长标签的新增与删除不经 Python，前端直接调 Java 标签接口（用户决定 2026-10-27，开发设计 7 #Q19） | Java Fireflies 模块 |
+| 31 | **Summary Records 用的名册写接口**（9.5.6、9.5.7、9.8.1）：带来源会议的新登记由 Python 透传用户 token 调用（记来源会议 `source_meeting_id`、来源 `FF_SUMMARY_RECORDS`），重名自动加后缀并返回最终姓名（开发设计 7 #Q46）；`Edit external party` 与专家确认的保存由前端直接调用，每次追加一条完整记录、校验有效期包含会议日期，专家确认每次保存都写名册、在同一事务写拒绝名单（开发设计 7 #Q44、#Q45、#Q51）；另有姓名查重接口，供三个新建入口在姓名失焦时提示（9.7.4）。专长标签的新增与删除不经 Python，前端直接调 Java 标签接口（用户决定 2026-10-27，开发设计 7 #Q19） | Java Fireflies 模块 |
 
 **管理端入口**
 
@@ -2219,7 +2219,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 | `area_of_expertise` | 专业领域，自由文本，**仅作上下文描述，不参与路由**（《Cheat Sheet》）；不超过 2048 字（开发设计） |
 | `valid_from` / `valid_to` | From 必填，To 可空（空 = `present`） |
 | `source` | `MANUAL`（Cheat Sheet 页新增）/ `FF_SUMMARY_RECORDS`（审核会议时登记，含专家确认） |
-| `source_meeting_id` | 从会议页登记或专家确认时的来源会议；页面据此显示 `System (<会议 id> import)`，不写进 `updated_by`（开发设计） |
+| `source_meeting_id` | 从会议页登记或专家确认时的来源会议；History 的 Updated by 仍显示实际操作人（用户决定 2026-11-04，原为据此显示 `System (<会议 id> import)`） |
 | `updated_by` | 操作人 |
 | `updated_at` | 写入时间，**重合裁决的依据**；复核不改它（9.7.5） |
 | `reviewed_by` / `reviewed_at` | 最近一次「看过无需修改」的复核人与时间（9.7.5），可空；不参与裁决 |
@@ -2268,7 +2268,7 @@ Name 是否可改沿用 9.5.5：已在册的人只读，未在册的人可订正
 
 | 列 | 展示 |
 |---|---|
-| Name | 姓名；审核会议时导入的在下方加 `From FF Summary Records` 标签；LG 平台用户在姓名旁加 `LG user` 标记（样式开发定）：当前状态那一版（9.7.1）的任一邮箱命中本租户 LG 账号即显示，口径同 1.9 ②（本租户管理端用户、本租户公司的公司端用户，忽略大小写）；不存字段，取列表时现算（用户决定 2026-10-29，开发设计 7 #Q51） |
+| Name | 姓名；审核会议时导入的在姓名同一行加 `From FF Summary Records` 标签；LG 平台用户在姓名旁加 `LG user` 标记（样式开发定）：当前状态那一版（9.7.1）的任一邮箱命中本租户 LG 账号即显示，口径同 1.9 ②（本租户管理端用户、本租户公司的公司端用户，忽略大小写）；不存字段，取列表时现算（用户决定 2026-10-29，开发设计 7 #Q51） |
 | Email(s) | 多个**纵向堆叠全部展示**（原型如此），实在放不下再用省略号 |
 | Role | 蓝色标签 |
 | Expertise tags | 灰色小标签，多个换行展示 |
@@ -2332,7 +2332,7 @@ Name、Email(s)、Organization、Role、Validity period（From）为必填，带
 
 **排序**：按 `valid_from` 倒序（原型如此）。同一生效日期有多行时（订正场景），再按 `updated_at` 倒序（同一生效日期内与 9.7.2 的裁决口径一致）。排在最上的不一定是当前状态（有尚未开始的版本，或旧时段后来重写过时），当前状态以 9.7.1 为准。
 
-**`Updated by` 可以是系统**：由 Summary Records 审核时登记的版本（含专家确认），按 `source_meeting_id` 显示为 `System (<会议 id> import)`，与人工操作区分。
+**`Updated by` 显示实际操作人**：由 Summary Records 审核时登记的版本（含专家确认）同样显示操作人，来源看列表的 `From FF Summary Records` 标签（用户决定 2026-11-04，原为按 `source_meeting_id` 显示 `System (<会议 id> import)`）；系统用户写入的显示 `System`。
 
 #### 9.7.7 Email Domain
 
