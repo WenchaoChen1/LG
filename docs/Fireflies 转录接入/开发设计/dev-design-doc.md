@@ -494,7 +494,7 @@ Fireflies 只在 Python 侧记审计：需求要求记的是「路由决策与�
 
 | 端 | 配置 | 默认 |
 |---|---|---|
-| Java | Nacos `cio.fireflies.encryption`：API key 加密密钥（AES-256-GCM），Base64 编码的 32 字节，可用 `openssl rand -base64 32` 生成；漏配不影响启动，Link 与拉取时报错；配上后不要再换，换了已存的 key 解不开、只能重新 Link | 无，必配 |
+| Java | Nacos `cio.fireflies.encryption`：API key 加密密钥（AES-256-GCM），Base64 编码的 32 字节，可用 `openssl rand -base64 32` 生成；漏配不影响启动，Link 与拉取时报错；配上后不要再换，换了已存的 key 解不开、只能重新 Link。Nacos 登录不上的环境改配 Java 容器环境变量 `CIO_FIREFLIES_ENCRYPTION`（Spring 宽松绑定映射到同一个 key，代码不用改；test / uat 即此，2026-11-04），只配一处 | 无，必配 |
 | Java | Nacos `cio.fireflies.sync.first-lookback-days`：首次连接（含换账号）的回溯天数 | 14 |
 | Java | Nacos `cio.fireflies.sync.lookback-hours`：增量拉取从上次成功往前回看的小时数 | 72 |
 | Java | Nacos `cio.fireflies.sync.disconnect-threshold`：连续非鉴权失败达到即转 `Disconnected`（本方案，设计 9.12 #1 待确认） | 3 |
