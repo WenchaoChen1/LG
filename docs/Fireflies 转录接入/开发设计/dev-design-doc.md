@@ -234,7 +234,7 @@ Python 表编号 P6 空出：拒绝名单改为 Java 表 J6（7 #Q45），P7、P
 | `id` | VARCHAR(36) | 否 | — | 主键 | |
 | `meeting_id` | VARCHAR(36) | 否 | — | 所属会议（`ff_meeting_meta_info.id`） | 9.5.9 |
 | `organization_id` | VARCHAR(36) | 否 | — | 租户 | 1.1 |
-| `fireflies_id` | VARCHAR(64) | 否 | — | 冗余：列表显示 `#<id>`、按 id 搜索 | 设计稿 1.1 |
+| `fireflies_id` | VARCHAR(64) | 否 | — | 冗余：列表显示 id（原样，不加 `#`，用户决定 2026-11-04）、按 id 搜索 | 设计稿 1.1 |
 | `title` | VARCHAR(512) | 是 | — | 冗余：列表、搜索、Goldie Base 卡片标题 | 设计稿 1.1 |
 | `started_at` | TIMESTAMPTZ | 否 | — | 冗余：排序、时间筛选、会议日期（业务日期）、名册回溯 | 9.3.3 |
 | `duration_minutes` | NUMERIC(8,2) | 是 | — | 冗余：列表 `52 min` | 设计稿 1.1 |
@@ -983,7 +983,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 区域 | 组件 | 说明 |
 |---|---|---|
 | 筛选栏 | `Input.Search`、`Select` ×2、时间区间浮层（`DatePicker.RangePicker`，标签显示 All time / From X / X – Y） | 类型：All meeting types + 5 种；状态：All statuses / Passed / Pending（7 #Q25d） |
-| 表格 | antd `Table`（服务端分页） | Meeting（标题链接 + `#<fireflies_id> · <n> min`）、Time（单列合并）、AI Meeting Type（蓝标签，Unknown 灰）、Companies（逗号分隔，超宽省略号）、Status（✓ Passed 绿 / ◷ Pending 红，悬停显示两态说明）、Review 链接 |
+| 表格 | antd `Table`（服务端分页） | Meeting（标题链接 + `<fireflies_id> · <n> min`）、Time（单列合并）、AI Meeting Type（蓝标签，Unknown 灰）、Companies（逗号分隔，超宽省略号）、Status（✓ Passed 绿 / ◷ Pending 红，悬停显示两态说明）、Review 链接 |
 
 状态：空列表「No meetings match your search.」。与设计稿的差异：设计稿没有分页，分页对齐 Knowledge Base（见本节开头，7 #Q43）；GS → LP 没有公司时 Companies 列显示「Fund-level」（同设计稿）；Status 列与状态筛选都照设计稿只分 Passed / Pending：列表不旁注 Pending 原因，悬停说明只分两态、样式同设计稿（白底细边框、无箭头），详情页 Scrub Status 同样只显示状态、不列子原因（用户决定 2026-11-02，取代原「旁注原因」，7 #Q25d 的筛选口径不变）。
 
