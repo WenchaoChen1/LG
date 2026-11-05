@@ -776,7 +776,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 项 | 补定 |
 |---|---|
 | 名册版本平局 | 同一日期有多个生效版本时，按 `updated_at` 降序、再按 `id` 降序取第一个（设计 9.7.2）；Java 版本裁决与 Python 识别 ④ 一致 |
-| 公共邮箱域名清单 | Java `FfEmailDomainServiceImpl`（API-11 校验）与 Python `identification_service.PUBLIC_EMAIL_DOMAINS`（识别 ③ 排除）各写死一份、同为 23 个，改清单要两端同步改、同时发版；设计 1.9「清单可配」暂未做 |
+| 公共邮箱域名清单 | Java `FfConfigurationServiceImpl`（API-11 校验）与 Python `identification_service.PUBLIC_EMAIL_DOMAINS`（识别 ③ 排除）各写死一份、同为 23 个，改清单要两端同步改、同时发版；设计 1.9「清单可配」暂未做 |
 | 在营公司状态 | `{2, 3, 4, 5}`：Needs Intervention / Needs Guidance / Thriving / Achieving（需求原文的 Active 即 Achieving）；Exited / Shut down / Off journey 与状态为空的不在营（Python `IN_OPERATION_COMPANY_STATUSES`，7 #Q28） |
 | 每日拉取 | `FixedScheduleTypeEnum.FirefliesDailyPull`，每日 03:40 UTC，写死不可配（1.4、7 #Q33） |
 
