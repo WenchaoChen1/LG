@@ -6,6 +6,7 @@
 |---|---|---|
 | v1.0 | 2026-11-04 | 第一个需求（已答 Yes 的题结转锁定）规则定档（§3），附接口与页面草案（§7、§8，待评审）；第二个需求（回退审批）待讨论（§12） |
 | v1.1 | 2026-11-04 | CF7 改为「全 Yes 之后的季度全部锁定为 Yes、每季手动提交一次确认」，撤销「视为已提交」（`DEEMED_SUBMITTED`）与展示侧回退；开发中的评审结论写入 §8 / §9 / §11 |
+| v1.2 | 2026-11-05 | 第二个需求（回退审批）定档：16 条讨论结论（§12.10）整理成规则、数据、接口、页面、邮件（§12.1～§12.8），收录设计稿（§12.9）；§8.3 的提交确认弹窗改按设计稿 |
 
 ---
 
@@ -18,7 +19,7 @@ ERL 衡量公司离可退出还有多远，按维度（FRL / PRL / BERL / RRL / 
 | 需求 | 内容 | 本文状态 |
 |---|---|---|
 | 第一个：ERL Yes问题不重复回答 | 上一次提交的 Yes 结转并锁定；提交后封住更早的季度；全 Yes 的维度之后每季全部锁定、手动提交确认；基线变化时清理草稿 | **规则已定**（§3～§6），接口与页面为草案（§7、§8） |
-| 第二个：ERL 问卷锁定项的回退审批 | 锁定的 Yes 不再成立时，Founder 申请改成 No，GS 审批 | **待讨论**（§12） |
+| 第二个：ERL 问卷锁定项的回退审批 | 锁定的 Yes 不再成立时，Founder 申请改成 No，GS 审批；GSV 直接改 | **已定**（§12） |
 
 - 两个需求**同批上线**：只上第一个的话，锁定题几乎没有改回去的途径（见 CF11）。
 - 本文只写这两个需求带来的变化，ERL 其余机制以 [ERL 主设计](../../设计/design-doc.md) 为准，文中「接口 N」的编号与主设计一致。
@@ -48,7 +49,7 @@ ERL 衡量公司离可退出还有多远，按维度（FRL / PRL / BERL / RRL / 
 | **CF6** | **提交后封住过去** | 某端某维一旦有提交，早于其最后提交期次 L 的季度一律不可填（打开只读，存草稿 / 提交拒收），已提交的历史季度也不能再提交，**只有 L 能重复提交**。首次填写仍可从任意季度起步。「未来季度只能存草稿」不变 |
 | **CF7** | **全 Yes 之后每季手动确认** | 基线全 Yes（该维全部 level 通关）时，之后的季度照 CF3 **全部锁定为 Yes**（各 level 折叠、打绿勾），提交按钮直接可点，**每个季度仍要手动提交一次**作为确认；没提交的季度与现在一样显示未提交。卡片、A3 / A4、Portfolio、Gap 分析、Share 门槛**只认真实提交**，不回退到更早的期次。换版照 CF4：该维换版后一题不锁、从头作答。<br>⚠ **偏离需求原文**（第 87 行「之后也不需要再提交」、第 94 行「Overview 季度变化时显示绿点已提交」）。2026-11-04 决定：自动视为已提交要在所有展示处回退到更早的提交，并带来 Gap 不随基线刷新、已结束季度两端题集不一致无解等问题；改为每季点一次确认，只认真实提交 |
 | **CF8** | **提交即清理该端该维其它期次的草稿** | 某端某维提交期次 P（首次、重复、跳季、中间季度都算），在同一事务里删除该端该维**其它所有期次**的草稿：晚于 P 的锁定基线变了，早于 P 的已经成了历史季度（CF6）。有要删的草稿时，提交前弹窗告知 |
-| **CF9** | **GSV 改锁定的 Yes 不走审批** | 审批只针对 Founder；GSV 卷上怎么改，随第二个需求定 |
+| **CF9** | **GSV 改锁定的 Yes 不走审批** | 审批只针对 Founder；GSV 点 `Change to No` 直接回退提交（§12.1 RB3） |
 | **CF10** | **存量草稿上线时全部清理** | 用 SQL 删除全部 `DRAFT` 行（两端、所有期次）及其作答、附件关联；Java 发版后立即执行。已提交记录不动；存量里补录造成的乱序提交不处理，基线按 CF2 自然取 |
 | **CF11** | **与回退审批同批上线** | 单上本需求的话，锁定题除了「重复提交 L」之外没有任何改回途径 |
 
@@ -141,6 +142,8 @@ ERL 衡量公司离可退出还有多远，按维度（FRL / PRL / BERL / RRL / 
 
 需求文档写的是两套弹窗（重复提交当前季度 / 提交中间季度），都只提到晚于本期的草稿。按 CF8 早于本期的草稿也会删除，这里合成一段文案（待确认，§11-①）。
 
+> **v1.2 起本节作废**：改按设计稿的弹窗 1、2（§12.9），早于本期的草稿删除不提示（§12.10-11），有待审核申请时并入弹窗 3（§12.5.1）。第 7 步已按本节做的弹窗要返工。
+
 ### 8.4 展示页
 
 卡片、A3 / A4、Portfolio 不变：只认真实提交（CF7）。
@@ -168,24 +171,198 @@ ERL 衡量公司离可退出还有多远，按维度（FRL / PRL / BERL / RRL / 
 
 | # | 事项 | 现在的处理 |
 |---|---|---|
-| ① | 提交确认弹窗文案：需求文档两套弹窗只提到晚于本期的草稿 | §8.3 合成一段的草案，待确认 |
+| ① | ~~提交确认弹窗文案：需求文档两套弹窗只提到晚于本期的草稿~~ | **已定**（2026-11-05）：按设计稿弹窗 1、2，早于本期的草稿删除不提示（§12.10-11） |
 | ② | ~~两端在同一季度都只是视为已提交时，不会触发 Gap 对账~~ | **不再适用**（v1.1 CF7 改为每季手动确认）。原结论：（第 9 步核实）：管理员打开该公司 Company Overview 时，接口 17 的自愈对账（触发点 ②）按两端各自的全 Yes 提交规划，两端分相等 ⇒ 任务直接 SUCCESS + No Gap、不调 AI，约 5 秒后显示 No Gap。卡片两端分数、Era、`Information Last Submitted` 都取那次全 Yes 提交。Share 按钮来自接口 1，要刷新页面后才亮（现有行为） |
 | ③ | 锁定题、`CLOSED` 的页面形态与文案 | §8.1 草案，待确认 |
 | ④ | LG-1581 写的「GSV flow is unchanged」与 CF1 / CF9 冲突 | 票需改写 |
 | ⑤ | 存量里已提交的未来期次会让当前季度被封住 | 上线前查线上数据，有的话再定 |
 | ⑥ | ~~已结束季度可能永远生成不了 Gap、不能 Share~~（v1.1 CF7 改为每季手动确认后不再适用，原记录保留）：一端全 Yes 后该维换版，另一端再回头填那个已结束、被视为已提交的季度（新建行绑新版），两端题集不一致，要求视为已提交那端按新版重交，而它只读 | **接受**（2026-11-04）。只影响该已结束季度的该维；当前季度不会出现（换版后当前季度不再视为已提交）。后续题库版本需求会给题库加生效时间，届时可解决 |
 
-## 12. 第二个需求：锁定项回退审批（待讨论）
+## 12. 第二个需求：锁定项回退审批
 
-讨论时要先定的问题（来自 2026-11-04 需求审查）：
+规则、数据、接口、页面由 2026-11-05 的逐条讨论整理而成（§12.10）。设计稿见 §12.9。下文用 P 表示申请所在的季度，qk 表示申请回退的那道题。
 
-1. 审批通过后再重复提交同一季度，按 CF2 被回退的题会重新锁成 Yes。要不要保留已批准的回退？保留的话要调整 CF2。
-2. 审批通过后草稿怎么处理：需求文档《Yes 不重复回答》说作废（情形 C），《回退审批》说保留。
-3. GSV 改锁定题不走审批（CF9），具体怎么改。
-4. 全 Yes 之后的季度所有题都锁定（CF7），回退入口与普通锁定题相同即可，确认一下。
-5. 审批人与收件人：代码里没有 Portfolio Group Manager 这个角色，要定是哪些人；公司没有这类人时怎么办；两人同时审批以谁为准。
-6. 申请能否撤回、有没有超时或提醒、管理端有没有站内待办入口。
-7. 审批通过 = 替 Founder 提交：提交人和审批人存在哪里；Gap 分析用谁的 token 触发。
-8. 一次申请能回退几道题；「一个维度只能有一条待审核申请」是按维度算还是按「维度 × 季度」算。
-9. 点 Apply 时页面上还没保存的作答怎么处理。
-10. 回退一道题，会把它之后已锁定的进度一起清掉（逐题终止），弹窗是否要提示。
+### 12.1 规则
+
+| # | 规则 | 说明 |
+|---|---|---|
+| **RB1** | **入口：锁定题的 `Change to No`** | 两端填报页上，结转锁定的题（`carriedForward = true`）每题右侧有 `Change to No`，只在 `OPEN` 的季度出现。全 Yes 之后全部锁定的季度同样处理（§12.10-4） |
+| **RB2** | **Founder 申请，GS 审批** | 一次只回退一道题，原因必填。点 Apply 后建一条待审核申请；页面上还没保存的作答直接丢掉（§12.10-9）。找不到任何审批人时报错，不建申请（§12.10-5） |
+| **RB3** | **GSV 直接改，不走审批** | GSV 的弹框与 Founder 相同，按钮为 `Submit`，确认后直接按 RB4 回退提交；不建申请，不发邮件（§12.10-3，即 CF9） |
+| **RB4** | **回退提交**（Founder 获批与 GSV 共用） | • 新建一条提交记录，草稿不动：qk 之前的锁定作答（Yes、备注、附件关联）取自基线那次提交；qk 记 No，原因写进 qk 的备注；qk 之后按「遇 No 终止」不答。计分照现有逻辑。<br>• 绑定的题库版本：该季草稿绑定的版本，没有草稿时取当前最新已发布版本。审核期间换版会作废申请（RB7），所以两者一致。<br>• 草稿：本季和晚于本季的保留，早于本季的删除（§12.10-2）。<br>• 提交人：Founder 获批时记申请人，GSV 记当前用户（§12.10-7）。<br>• 提交后照接口 5 触发 Gap 对账；Founder 获批时用审批人的 token |
+| **RB5** | **一个维度最多一条待审核** | 范围是「公司 × 维度」（只有 Founder 端有申请）。<br>• 在同一季度或更晚的季度再申请：旧申请自动作废。<br>• 在比待审核更早的季度申请：不允许，`Change to No` 置灰（§12.10-8） |
+| **RB6** | **审核期间冻结 P** | P 这一季不能存草稿、提交、Reset、删附件。页面显示审核中提示条，非锁定题置灰。本季其他锁定题仍可再申请（RB5）。冻结保证审核期间草稿不变（§12.10-15） |
+| **RB7** | **自动作废** | 以下三种情况，申请自动作废，不发邮件：<br>① 提交该维度任何其他季度（更晚、重复提交 L、补交跳过的季度都算），提交前弹弹窗 3（§12.10-15）；<br>② 被新申请顶掉（RB5）；<br>③ 发布新版题库，且该维的题集版本号变了（§12.10-16）。<br>①③ 保证审核期间基线不变，所以申请不存作答快照 |
+| **RB8** | **审批人** | 管理端用户，且是 SA，或 `UserServiceImpl.canAccessCompany(userId, companyId)` 为真（PGM 看全组织、PM 看所属 Portfolio）。两人同时处理，先提交的算数（§12.10-5） |
+| **RB9** | **邮件** | • 申请时发邮件 01，收件人 = 公司所属那一级组织的 PGM（带 `seeAllPortfolio`、不是 SA）∪ 公司所属各 Portfolio 的 PM，按邮箱去重。<br>• 批准、拒绝时分别发邮件 02、03 给申请人（§12.10-5） |
+| **RB10** | **拒绝** | 原因必填。锁定题保持 Yes，提交记录和草稿都不动 |
+| **RB11** | **批准后重复提交 P** | 基线照 CF2 退回上一季，qk 重新锁成 Yes，要改得再申请一次（§12.10-1）。交 P 的旧草稿也是这个效果，等于放弃已批准的那份（§12.10-2） |
+| **RB12** | **不能撤回，不超时，不提醒** | Founder 只能等审批，或者提交其他季度让申请作废（§12.10-6） |
+
+### 12.2 数据
+
+新增一张表 `erl_rollback_request`。DDL 放 Java `deploy/upgrade_doc/sprint122/`，Java 发版前执行。现有表不改：批准生成的提交记录就是一条普通提交。
+
+| 列 | 说明 |
+|---|---|
+| `id` | 主键 |
+| `organization_id` | 申请时解析出的公司 ERL 组织。发布新版题库时按它找要作废的申请（RB7 ③） |
+| `company_id`、`dimension_code`、`period` | 申请所在的公司、维度、季度 P。没有端列，只有 Founder 端有申请 |
+| `question_id` | qk 的题目 id（`erl_question_config.id`）。题目行按版本不可变，邮件和页面据此取题面 |
+| `reason` | 申请原因 |
+| `applicant_user_id`、`applicant_name`、`applicant_role` | 申请人和姓名、角色快照。批准时写进提交记录的 `submitterName` / `submitterRole` |
+| `status` | `PENDING` / `APPROVED` / `DECLINED` / `VOIDED` |
+| `reviewer_user_id`、`reviewer_name`、`reviewed_at` | 审批人与审批时间，批准、拒绝时写入 |
+| `refuse_reason` | 拒绝原因 |
+| `submission_id` | 批准生成的提交记录 id |
+| 审计列 | 同其他 `erl_*` 表；`created_at` 就是申请时间 |
+
+- 部分唯一索引：`(company_id, dimension_code) WHERE status = 'PENDING'`，兜底 RB5。
+- 不存作答快照，不存作废原因（§12.10-8、§12.10-15）。
+
+### 12.3 状态流转
+
+| 从 | 到 | 触发 |
+|---|---|---|
+| — | `PENDING` | Founder 点 Apply（接口 30） |
+| `PENDING` | `APPROVED` | 审批人批准（接口 33） |
+| `PENDING` | `DECLINED` | 审批人拒绝（接口 34） |
+| `PENDING` | `VOIDED` | RB7 的三种情况 |
+
+所有流转都是条件更新（`WHERE id = ? AND status = 'PENDING'`）。更新了 0 行，说明已被别人处理，返回 `This request has already been processed.`（§12.10-13）。
+
+### 12.4 接口
+
+新增接口续用主设计的编号：
+
+| # | 接口 | 调用方 | 说明 |
+|---|---|---|---|
+| 30 | `POST /erl/assessment/rollback-request` | 公司端 | 入参 `period`、`dimension`、`questionId`、`reason`。<br>校验：P 为 `OPEN`；qk 在 P 是锁定题；P 不早于已有的待审核申请；找得到审批人。<br>同一事务里先作废同维已有的待审核申请，再插入 `PENDING`。事务提交后给每个收件人发一封邮件 01。<br>出参：申请 id |
+| 31 | `POST /erl/assessment/rollback` | 管理端（GSV） | 入参 `companyId`、`period`、`dimension`、`questionId`、`reason`。校验同接口 30，不查审批人。按 RB4 回退提交；出参同接口 5 |
+| 32 | `GET /erl/rollback-request/{id}` | 管理端 | 申请详情：状态、公司、维度、季度、题目、原因、申请人、申请时间。邮件链接落地时据此决定显示什么（§12.5.2）。按申请的公司做读权限校验 |
+| 33 | `POST /erl/rollback-request/{id}/approve` | 审批人（RB8） | 按 RB4 回退提交，同一事务里把申请改为 `APPROVED` 并写入 `submission_id`。<br>批准前重算一次 qk 是否仍是锁定题；不是就作废申请，返回已处理。<br>事务提交后发邮件 02，并用审批人 token 触发 Gap 对账 |
+| 34 | `POST /erl/rollback-request/{id}/refuse` | 审批人（RB8） | 入参 `reason`（必填）。把申请改为 `DECLINED`，事务提交后发邮件 03 |
+
+现有接口的变化：
+
+| 接口 | 变化 |
+|---|---|
+| 接口 3（打开问卷） | 出参加 `pendingRollbackRequest`：本公司 Founder 端本维当前的待审核申请（不限季度），没有为 null，GSV 卷恒为 null。字段：`id`、`period`、`questionId`、`reason`、`applicantName`、`appliedAt`。<br>再加 `canReviewRollback`：调用者是不是审批人，公司端恒为 false。<br>填报页用它显示提示条、置灰按钮、弹弹窗 3；审核页用它渲染卡片和按钮 |
+| 接口 4（存草稿）、接口 28（Reset）、删附件（`DELETE /erl/assessment/attachment/{id}`） | P 在审核中时拒收（RB6） |
+| 接口 5（提交） | P 在审核中时拒收；提交该维其他季度时，在同一事务里作废待审核申请（RB7 ①） |
+| 接口 22（A4） | 管理端调用时，Founder 端每个维度加 `pendingRollbackRequest`（结构同接口 3）。A4 据此在 Founder 药丸显示卡片，再用接口 3 读 P 的草稿 |
+| 题库发布（`ErlQuestionConfigVersionServiceImpl.publishDraft`） | 同一事务里作废该组织下题集版本号变了的维度的待审核申请（RB7 ③） |
+
+拒收文案（形态同现有业务校验：HTTP 200 + `Result.fail`，草案）：
+- 审核中：`A rollback request for {Q4 2026} is pending review.`
+- 找不到审批人：`No reviewer is available for this company. Please contact your GS team.`
+
+### 12.5 页面
+
+#### 12.5.1 填报页（两端）
+
+| 情况 | 页面 |
+|---|---|
+| `OPEN` 季度的锁定题 | 每题右侧 `Change to No`。点开后的弹框还没有设计稿，按需求做：题目原文只读，原因文本框必填，`Cancel` / `Apply`（GSV 为 `Submit`），填了原因才可点 |
+| Founder 点 Apply 后 | 页面按服务端状态刷新。P 进入审核中：顶部提示条用需求文档第 53～55 行的文案；非锁定题置灰；`Save as Draft` / `Submit` / Reset 置灰。本季锁定题的 `Change to No` 仍可点 |
+| Founder 打开比 P 更早的季度 | `Change to No` 置灰，悬停提示 `A rollback request for {Q4 2026} is pending review.` |
+| GSV 点 Submit 后 | 同普通提交成功 |
+| 提交确认弹窗 | 第 7 步做的合并弹窗按设计稿改成弹窗 1、2（§12.9）。<br>有待审核申请、又提交该维其他季度时弹弹窗 3；与弹窗 1 或 2 同时成立时合成一个：标题和按钮用 1 或 2 的，正文在 `Continue?` 前加弹窗 3 那句（§12.10-12、15）。<br>早于本季的草稿删除不提示（§12.10-11）。<br>题库更新弹窗里的 `Submit draft content` 也是提交，有待审核申请时同样加弹窗 3 那句 |
+
+#### 12.5.2 审核页（A4 的 Founder 药丸）
+
+- 版式见 §12.9 审核页。卡片、高亮来自 `pendingRollbackRequest`。问卷来自接口 3 读出的 Founder 在 P 的草稿，审核期间冻结；从没存过草稿时显示锁定题预览。这是新增的读取路径：A4 的 Founder 药丸原来只读已提交记录。
+- `Refuse` / `Approve` 只在 `canReviewRollback` 为 true 时显示。
+- Approve 弹框、Refuse 弹框还没有设计稿，按需求文档的文字做（需求文档第 121～124 行、第 151～156 行）。处理完刷新页面，恢复成正常的 Founder 药丸。
+- 邮件链接带 `rollbackRequestId`。页面先调接口 32，按状态显示（§12.10-13）：
+  - 待审核：如上；
+  - 已作废：作废整页；
+  - 已批准或已拒绝：正常的 Founder 药丸，顶部提示 `This request has already been processed.`，然后从 URL 去掉 `rollbackRequestId`。
+- 两人同时处理时，后点的那位收到「已处理」的拒收，同样提示并刷新。
+
+#### 12.5.3 作废页
+
+版式和文案见 §12.9。被新申请顶掉、因换版作废的申请也用这一页，说明文案对不上，可以接受（§12.10-8、16）。
+
+### 12.6 邮件
+
+- 走现有的 `EmailDispatcher.enqueue`，新增三种 `EmailComposer`，分别对应邮件 01、02、03。`bizKey` 为申请 id，每个收件人一封；都在事务提交后发。
+- 内容和版式见 §12.9。邮件 01 的按钮链接：`{管理端地址}/exitReadiness/scoreDetails?companyId={公司}&period={P}&dimension={维度}&portal=FOUNDER&rollbackRequestId={申请 id}`。
+- 申请人或收件人已经注销时，照 `EmailComposer` 约定抛 `NonRetryableEmailException`，不发。
+
+### 12.7 边界情况
+
+| 情况 | 处理 |
+|---|---|
+| Apply 与同维另一季度的提交同时发生 | 两条待审核由部分唯一索引兜底，撞上时返回一次 500（同 §9 的既有口径）。如果提交的作废先于申请插入，会留下一条基线已变的待审核申请；批准前会重算 qk 是否仍锁定（接口 33），不是就作废 |
+| 两人同时申请（同公司的两个公司端用户） | 部分唯一索引兜底，后到的返回一次 500，重试后按 RB5 顶掉前一条 |
+| 批准时维度已停用 | 照接口 5 拒收，申请保持待审核 |
+| 批准时 P 已被封住 | 不会发生：封住 P 需要提交更晚的季度，而那会先作废申请（RB7 ①） |
+| 申请时 P 还没有草稿 | 正常申请。审核页显示锁定题预览；批准时按 RB4 从基线取作答 |
+
+### 12.8 上线
+
+- 与第一个需求同批上线（CF11）。
+- 发版顺序：`erl_rollback_request` 的 DDL 先执行，再发 Java；Java 与 Web 同批。
+- Python 零改动：批准生成的提交记录和普通提交一样，Gap 分析读的是记录自带的作答。
+
+### 12.9 设计稿（2026-11-05 收到）
+
+**提交确认弹窗**：宽 568px，圆角 3px，字体 Jost / Futura。`{}` 是变量，设计稿里用浅蓝底高亮。
+
+| # | 场景 | 标题 | 正文 | 按钮 |
+|---|---|---|---|---|
+| 1 | 重复提交最后提交季度 L，且有晚于 L 的草稿 | `Re-submit current quarter?` | `You're about to re-submit {2025 Q4}.`<br>`You have {2} future-quarter draft(s) saved ({2026 Q1, 2026 Q2}).`<br>`Re-submitting will refresh the locked-question baseline. All future-quarter drafts above will be permanently discarded and must be re-entered against the new baseline.`<br>`Continue?` | `Cancel` / `Submit and discard drafts` |
+| 2 | 提交晚于 L 的季度，且有更晚季度的草稿 | `Submit this quarter?` | `You're about to submit {2026 Q2}.`<br>`There are {2} future-quarter draft(s) scheduled after this quarter ({2026 Q3, 2026 Q4}).`<br>`Submitting will refresh the locked-question baseline. All drafts for quarters after the one being submitted will be permanently discarded.`<br>`Continue?` | `Cancel` / `Submit and discard later drafts` |
+| 3 | 有待审核的回退申请时，提交该维度其他季度（更晚、重复提交 L、补交跳过的季度都算，第 15 条） | `Submit this form?` | `Upon submission of this form, your {2025 Q4} return application will be automatically withdrawn.` | `Cancel` / `Submit` |
+
+弹窗 1、2 取代 §8.3 合成一段的草案。第 7 步按草案做的弹窗要按设计稿返工。
+
+**邮件**：
+
+- 三封邮件共用 Looking Glass 页头 logo、分隔线、产品介绍和页脚，只换标题和正文。
+- 版式：宽 450px，内容区 420px。标题 Arial Bold 22/27 居中；正文 Arial 11/17，段距 14px；按钮通栏，30px 高，圆角 3px。
+- 色值：标题和正文藏青 #002B56，按钮和链接橙 #E1990F，分隔线 #C2C4C6，页脚 #AAAAAA。
+
+| # | 收件人 | 主题 = 标题 | 正文 |
+|---|---|---|---|
+| 01 | 审批人 | `A locked answer rollback request requires your review` | `Hello {收件人},`<br>`There is a locked answer rollback request requires your review.`<br>`Applicant` / `Company` / `Dimension` / `Quarter` / `Question` / `Requested change: Yes → No` / `Reason provided`<br>`Click the button below to review the full questionnaire and approve or refuse this request.`<br>按钮 `Review Request` |
+| 02 | 申请人 | `Your rollback request has been approved` | `Question` / `Change applied: Yes → No` / `Reviewed by` / `On`<br>`The questionnaire for {Quarter}{Dimension} has been formally submitted. Your drafts for this and future quarters remain available for editing.` |
+| 03 | 申请人 | `Your rollback request has been declined` | `Question` / `Requested change: Yes → No (not applied)` / `Reviewed by` / `On` / `Reason`<br>`The locked answer remains unchanged. All submitted questionnaires and drafts are preserved. You may continue editing drafts or submit a new request if circumstances change.` |
+
+**申请已作废页**：审批人从邮件打开一条已经自动作废的申请时显示，整页空态，宽 1200px。
+
+- 内容：一个图标，标题 `This request has been automatically voided.`，说明 `The applicant has since submitted a later quarter's questionnaire for this dimension, which has advanced beyond the question in this request. The rollback is no longer applicable, and no action is required.`
+- 场景：Founder 在 Q3 申请把一道题改成 No，GS 一直没审。Founder 提交 Q4 时，弹窗 3 提示后这条申请自动作废；之后 Founder 又发了第二条申请。审批人点第一封邮件进来，看到的就是这一页。
+
+**审核页（2026-11-05 收到）**：就是管理端 A4 Score Details 页的 `Founder` 药丸。有待审核申请时：
+
+- 药丸下方先显示一张浅橙色卡片：标题 `Pending review · Rollback request for {Q4 2026}`（带时钟图标）；下面是 `SUBMITTED BY` / `ON` / `QUESTION` 三列，再下面是 `REASON`。
+- 问卷整份只读。锁定题标 `Locked · "Yes" in {Q3 2026}`。申请的那道题整块浅橙高亮，题下多一个框：`CHANGE REQUEST · YES → NO · PENDING REVIEW`，下一行是 `{申请人}: {原因}`。
+- 问卷卡片下方右对齐两个按钮：`Refuse`（红框白底）、`Approve`（橙底）。
+- 有待审核申请时，`Founder` 药丸显示申请那一季 Founder 最后一次保存的草稿（审核期间冻结；从没存过就显示锁定题预览），不显示平时的最近一次提交。申请批准、拒绝或作废后恢复原样。
+- 卡片和高亮所有管理端用户都能看到；`Refuse` / `Approve` 只有审批人能看到（第 5 条）。
+- 数据来源（不存快照，2026-11-05 定）：卡片和高亮的题来自申请记录；问卷来自 Founder 该季的草稿，由管理端调接口 3 读 Founder 卷。锁定标记 `Locked · "Yes" in {期次}` 用接口 3 已有的结转标记和基线期次。现在 A4 的 Founder 药丸只读已提交记录，读草稿是新增的读取路径。
+
+**还没有设计稿的**：`Change to No` 申请弹窗、Founder 侧的审核中提示条、Approve 和 Refuse 两个弹窗。这些目前按需求文档的文字做。
+
+### 12.10 讨论记录（2026-11-05 全部已定）
+
+1～10 来自 2026-11-04 的需求审查，11～14 是对照设计稿后新增的，15～16 是讨论中发现的。§12.1～§12.8 由这些结论整理而成，引用时写作「§12.10-n」；本节和 §12.9 里的「第 n 条」也指这里的编号。
+
+1. 审批通过后再重复提交同一季度，按 CF2 被回退的题会重新锁成 Yes。要不要保留已批准的回退？保留的话要调整 CF2。<br>**定（2026-11-05）：不保留，CF2 不改。** 重复提交时基线退回上一季，被回退的题重新锁成 Yes，用户要改只能再申请一次。
+2. 审批通过后草稿怎么处理：需求文档《Yes 不重复回答》说作废（情形 C），《回退审批》说保留。<br>**定（2026-11-05）：本季和晚于本季的草稿都保留**，照《回退审批》，Approve 弹窗和批准邮件的文案不改。<br>• 批准时新建一条提交记录，Founder 的草稿不动。提交内容按基线现算：被回退那题之前的锁定作答（含备注、附件关联）取自基线那次提交，被回退的题记 No，原因写进它的备注，之后的题按「遇 No 终止」不答。申请不存作答快照，因为审核期间基线和草稿都不会变（第 15 条）。草稿唯一索引只约束 `DRAFT`，同一季度的提交记录和草稿本来就能共存。<br>• 只删早于本季的草稿：批准后本季成为最后提交季度，更早的季度封住，那些草稿已经用不上。<br>• 本季草稿仍按上一季的基线锁定，被回退的题还是 Yes。Founder 交这份草稿，就等于放弃已批准的那份；这和第 1 条一致，重复提交本季本来就会把这道题重新锁回 Yes。<br>• 晚于本季的草稿改按新基线锁定，被回退的题解锁，按旧基线复制进来的 Yes 留作可改的作答。<br>• 还有别的锁定题要改，就再申请一次。
+3. GSV 改锁定题不走审批（CF9），具体怎么改。<br>**定（2026-11-05）：GSV 点 `Change to No` 直接提交。**<br>• GSV 的锁定题也有 `Change to No`，弹框和 Founder 的一样（题目 + 必填原因），按钮改为 `Submit`。<br>• 确认后直接提交本季：这道题之前的锁定作答照旧，这道题改为 No，后面的题按「遇 No 终止」不用答。<br>• 和 Founder 获批走同一段回退提交，不建申请记录，不发邮件。<br>• 原因写进这次提交里该题的备注。Founder 获批时也写进该题备注，两端一致，B3 历史里能看到改 No 的原因。<br>• 草稿照第 2 条处理：本季和晚于本季的保留，早于本季的删除，弹框不提草稿。
+4. 全 Yes 之后的季度所有题都锁定（CF7），回退入口与普通锁定题相同即可，确认一下。<br>**定（2026-11-05）：与普通锁定题相同**，入口、审批、回退提交都不做特殊处理，提示条文案不改。
+5. 审批人与收件人：PGM 的判定与 Fireflies 相同，即管理端用户，且是 superAdmin 或角色菜单含 `seeAllPortfolio`。收件人取该公司所属组织的 PGM。要定的是：公司所属组织没有 PGM 时怎么办；PM 能不能审批；两人同时审批以谁为准。<br>**定（2026-11-05）：**<br>• 收件人是 PGM；审批人是该公司所在租户的 PGM 和 SA。<br>• 判定（2026-11-05 定）：<br>　- PGM = 角色菜单含 `seeAllPortfolio`（同 `CompanyGroupServiceImpl.getIsGroupManager`）。<br>　- SA = 任一角色 `role.is_super_admin`（同登录用户信息的 `superAdmin`）。<br>　- `RoleTypeEnum.SUPER_ADMIN`（`roleType = 1`）是全部管理端用户，不是 SA。<br>• 收件人·PGM = 公司所属那一级组织下、角色带 `seeAllPortfolio` 且不是 `is_super_admin` 的用户。显式排除 SA，不依赖库里 SA 角色有没有配 `seeAllPortfolio`。上级组织的 PGM 能审批，但不收邮件，与删除 Forecast 版本邮件（`UserRepository.findUserEmailForDeleteForecastVersion`）同口径。<br>• 审批人 = 管理端，且是 SA，或 `UserServiceImpl.canAccessCompany(userId, companyId)` 为真（已含 PGM 看全组织、PM 经所属 Portfolio）。<br>• 现有邮件都不发 PGM（Benchmark 邮件只发 PM 与 Company Admin），这是第一封发给 PGM 的邮件。<br>• 一个审批人都找不到时，点 Apply 报错，不建申请，提示 Founder 联系 GS。Founder 正常提交本季不受影响。<br>• 两人同时审批，先提交的算数。状态从待审核改为已批准或已拒绝时带条件更新；后到的人看到「已被某人处理」，页面刷新为处理后的样子（显示什么见第 13 条）。<br>• PM 能审批自己负责的公司，也收这些公司的邮件。负责的判断走 Portfolio：公司 → `r_company_group` 找所属 Portfolio（可能有多个）→ `r_portfolio_user` 找这些 Portfolio 的 PM。审批时反过来校验调用者负责的 Portfolio 里有这家公司。<br>• 收件人 = 公司所属组织的 PGM ∪ 公司所属各 Portfolio 的 PM，按邮箱去重，SA 不收。审批人 = PGM ∪ SA ∪ 这些 PM（判定见上）。
+6. 申请能否撤回、有没有超时或提醒、管理端有没有站内待办入口。<br>**定（2026-11-05）：**<br>• 不能撤回。Founder 只能等审批，或者提交更晚的季度让申请自动作废。<br>• 不做超时，也不做提醒，需要时再加。<br>• 做站内入口，就是审核页本身：管理端打开该公司该维度 Score Details 的 Founder 药丸，就能看到待审核申请并处理（设计稿见 §12.9）。邮件里的 `Review Request` 也跳到这里。
+7. 审批通过 = 替 Founder 提交：提交人和审批人存在哪里；Gap 分析用谁的 token 触发。<br>**定（2026-11-05）：**<br>• 提交记录上的提交人（`submitterName` / `submitterRole`）记申请人 Founder。审批人、审批时间和结果记在申请记录上。<br>• B3 历史先不标「Approved by」，改 No 的原因已写进该题备注（第 3 条）。<br>• Gap 分析用审批人的 token 触发，新建 Gap 记录的 `created_by` 记审批人。
+8. 一次申请能回退几道题；「一个维度只能有一条待审核申请」是按维度算还是按「维度 × 季度」算。<br>**定（2026-11-05）：**<br>• 一次申请只回退一道题。<br>• 同公司同维度只有一条待审核申请。<br>• 在更晚的季度申请，更早季度的申请自动作废；同一季度第二次申请，上一条自动作废。所以审核期间，本季和更晚季度的锁定题仍可点 `Change to No`。<br>• 在比待审核申请更早的季度不能申请：`Change to No` 置灰，提示 `A rollback request for {Q4 2026} is pending review.` 这种情况只在跳过一季、回头补填时出现。Founder 要等审完：被拒则更早的季度还能补、可再申请；获批则该季度算已提交，更早的季度按 CF6 封住。<br>• 文案不补：`Change to No` 弹窗不提示会顶掉旧申请；被新申请顶掉的申请，作废页沿用设计稿那段说明，申请记录不存作废原因。
+9. 点 Apply 时页面上还没保存的作答怎么处理。<br>**定（2026-11-05）：直接丢掉。** 已存进草稿的作答照常保留，只丢页面上没保存的部分。Apply 后页面按服务端状态刷新为审核中，审核页显示最后一次保存的草稿。没保存的作答只可能在锁定题之后：获批时这些题本来就不用答；被拒时 Founder 重新答即可。
+10. 回退一道题，会把它之后已锁定的进度一起清掉（逐题终止），弹窗是否要提示。<br>**定（2026-11-05）：不提示。** 答 No 后后面的题置灰，这条规则 Founder 平时就熟悉；Apply 后页面上后续题目置灰，本身已经说明了。
+11. 弹窗 1、2 只提到晚于本期的草稿。按 CF8，早于本期的草稿也会删掉：L 与本期之间的季度，以及首次提交时的任意季度。这部分怎么告知用户（即 §11-①）。<br>**定（2026-11-05）：不提示，直接删。** 提交后那些季度按 CF6 封住，草稿留着也交不了，是垃圾数据。封住更早季度本来就不提示，和第一个需求一致。弹窗 1、2 按设计稿原样做。弹窗 1 本来也碰不到这种情况：早于 L 的季度存不了草稿。
+12. 弹窗 3 和弹窗 1 或 2 的条件同时成立时显示哪个：有待审核的申请，又有要删的草稿。<br>**定（2026-11-05）：合成一个弹窗。** 例：2026 Q4 有待审核申请，2027 Q2 有草稿，Founder 提交 2027 Q1。标题和按钮用弹窗 2 的；正文在 `Continue?` 前加弹窗 3 那句。弹窗 1 与弹窗 3 同时成立的情况见第 15 条，合并方式相同。
+13. 审批人打开已批准、已拒绝或已撤回（如果加撤回）的申请时显示什么。设计稿只画了已作废这一种。<br>**定（2026-11-05）：进正常的 Founder 药丸，顶部提示一句。** 邮件链接带申请 id，页面按「URL 里的申请 id + 该申请当前状态」决定显示什么：<br>• 待审核：审核卡片 + 高亮 + 审批人可见的 Refuse / Approve；<br>• 已作废：设计稿的作废整页；<br>• 已批准、已拒绝：Founder 药丸恢复正常，顶部提示 `This request has already been processed.`，不显示谁处理的。显示后从 URL 去掉申请 id，刷新不再重复提示。<br>• URL 没带申请 id（站内点进来）时不提示，有待审核申请才显示卡片。<br>• 两人同时审批时，后点的那位 Approve / Refuse 被拒，也显示这句提示并刷新页面（第 5 条）。
+14. 批准邮件写的是「草稿保留」，和第 2 条的建议（作废）冲突，随第 2 条一起定。<br>**定（2026-11-05）：不冲突了**。第 2 条改为保留，设计稿和需求文档的文案照用。
+15. 有待审核申请时，提交比它**更早**的季度怎么办。需求只写了「提交更晚的季度 → 申请作废」。例：L = Q2，Q4 有待审核申请，Founder 补交了 Q3。Q4 的锁定基线由 Q2 变为 Q3，而且按 CF8 Q4 的草稿会被删掉。Q4 的申请要不要作废？（2026-11-05 讨论第 8 条时发现）<br>**定（2026-11-05）：作废。** 有待审核申请时，提交该维度任何其他季度，申请都作废，提交前弹弹窗 3。<br>• 包括两种情况：重复提交 L（例：L = Q3，Q4 待审核，Founder 改了 Q3 没锁定的题后重交），以及补交跳过的季度。<br>• 重复提交 L 时又有 Q4 草稿要删，弹窗 1 与弹窗 3 合成一个：标题和按钮用弹窗 1 的，正文加弹窗 3 那句（同第 12 条）。<br>• 由此审核期间基线不会变，草稿也不会变（另须在审核期间禁掉该季的 Reset 和删草稿附件）。申请不用自带作答快照：批准时按基线现算提交内容，审核页直接读草稿（第 2 条已改）。
+16. 审核期间 GS 发布了新版题库怎么办。按 CF4，换版后不锁定，被回退的题也随之解锁，申请就失去了意义；Founder 的草稿还绑定在旧版上。可选（推荐在前）：<br>• A：发布新版时，作废该组织下所有待审核申请。换版后 Founder 在新版里直接答 No 即可，不用再审批；审批人看到的是作废页。<br>• B：申请保留，批准时按草稿绑定的旧版提交。要先确认现有提交是否允许按旧版提交。<br>• C：批准时才检查，版本变了就不让批准，并把申请作废。<br>（2026-11-05 讨论快照时发现）<br>**定（2026-11-05）：A。** 发布新版题库时，作废该组织下该维题集版本号变了的维度的待审核申请。只改维度配置（权重、名称）不算换版，与 CF4 同口径。作废后 Founder 那边申请状态解除，在新版里照常填写。审批人从邮件进来看到作废页，说明文案对不上，与第 8 条一样接受。
