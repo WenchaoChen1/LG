@@ -55,7 +55,7 @@ Python 正常消费：识别 → 分类 → 提取（不改）
 
 | 编号 | 页面 | 路由 | 入口 | 访问 |
 |---|---|---|---|---|
-| PG-D1 | Fireflies Meeting Import | `/devSupport/firefliesImport` | devSupport 左侧导航新增 Fireflies 分组 → Meeting Import | 与其他 devSupport 页相同（菜单树包含 `/devSupport`）；接口另外要求 PGM / SA |
+| PG-D1 | Fireflies Meeting Import | `/devSupport/firefliesImport` | 不进 devSupport 左侧导航，直接访问地址（2026-11-05 用户定） | 与其他 devSupport 页相同（菜单树包含 `/devSupport`）；接口另外要求 PGM / SA |
 
 ## 3. 接口
 
@@ -213,7 +213,6 @@ Python 正常消费：识别 → 分类 → 提取（不改）
   - `utils/parseMeetingImport.ts` 及其 `.test.ts`。
 - 改动：
   - `config/routes.ts`：在 `/devSupport` 下加路由；
-  - `src/pages/devSupport/_shell/DevSupportShell.tsx`：`NAV_GROUPS` 新增 `fireflies` 分组；
   - `src/services/api/fireflies/` 的 `firefliesWebApi.ts`、`request.ts`、`response.ts`、`dto.ts`：加 API-D1 的方法和类型；
   - `src/services/service/fireflies/firefliesService.ts` 及其单测：页面只能经过 Service 层调接口；
   - `src/pages/devSupport/README.md`、`src/services/api/fireflies/README.md`：同步域文档。
@@ -222,13 +221,12 @@ Python 正常消费：识别 → 分类 → 提取（不改）
 
 ## 7. 上线前封掉
 
-要封的有三处，改动都很小：
+要封的有两处，改动都很小：
 
-- 前端 `NAV_GROUPS` 里的 Fireflies 分组；
 - `config/routes.ts` 里的 `/devSupport/firefliesImport` 路由；
 - Java `FfMeetingController` 里的 API-D1 方法。
 
-具体怎么封，由上线负责人决定。删除这三处，或给接口加环境判断，都可以。
+具体怎么封，由上线负责人决定。删除这两处，或给接口加环境判断，都可以。
 
 ## 8. 测试
 

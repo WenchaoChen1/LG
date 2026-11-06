@@ -2,7 +2,7 @@
 
 > 关联文档: [开发设计](../开发设计/meeting-import-dev-design.md) · [设计](../设计/design-doc.md)
 
-devSupport「Fireflies → Meeting Import」页导入的文件，按本文件的要求编写。
+devSupport 会议导入页（`/devSupport/firefliesImport`）导入的文件，按本文件的要求编写。
 
 - 只在本地和 test 环境使用，生产上线前会封掉。
 - 导入的会议和真实拉取的一样，会进入识别和提取流程。
@@ -28,7 +28,7 @@ devSupport「Fireflies → Meeting Import」页导入的文件，按本文件的
      参会人邮箱要自己给。AI 不知道租户里配了哪些域名和 Cheat Sheet，邮箱怎么选见附录 B。
 
    拿到结果后，看一遍文件开头的「转换说明」，补上 AI 标出的占位，再存成 `.md`。
-3. **导入。** 打开 devSupport → Fireflies → Meeting Import：
+3. **导入。** 打开 `<前端地址>/devSupport/firefliesImport`（不在左侧菜单里，直接输入地址），本地是 `http://localhost:8004/devSupport/firefliesImport`：
    1. 选租户；
    2. 拖入一个或多个 `.md` 文件；
    3. 预览里没有报错就点导入。
@@ -355,7 +355,7 @@ Mark confirmed the pilot kickoff date; the call was cut short due to a connectio
 
 | 想让此人被识别成 | 邮箱怎么写 | 系统里要先有 |
 |---|---|---|
-| GS staff | 本机构的域名 | 在 Configuration 页把这个域名加进本机构邮箱域名（最稳）；或者此人是本租户的管理端 LG 用户 |
+| GS staff | 本机构的域名 | 在 Configuration 页把这个域名加进本机构邮箱域名（最稳）；或者此人是本租户的管理端 LG 用户；或者在 Cheat Sheet 里把这个邮箱登记为 GS Staff（有效期要覆盖会议当天） |
 | Founder @某公司 | 这家公司的域名 | 公司在营（Active / Thriving / Needs Intervention / Needs Guidance），并且有公司端 LG 用户用这个邮箱，或用同一个域名。系统没有单独的「公司域名」字段，域名就取公司端用户的邮箱域名 |
 | LP / Strategic Partner / Exit Partner / Other | 不属于本机构、也不属于任何 LG 用户的域名 | Cheat Sheet 里登记这个邮箱，并且会议当天（UTC 日期）落在这一版的有效期内 |
 | 未识别 | 上面都对不上的邮箱 | 不用准备。会交给 P8 推断，会议多半进 Pending |
