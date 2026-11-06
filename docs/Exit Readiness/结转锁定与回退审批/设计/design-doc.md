@@ -201,7 +201,7 @@ ERL 衡量公司离可退出还有多远，按维度（FRL / PRL / BERL / RRL / 
 
 ### 12.2 数据
 
-新增一张表 `erl_assessment_rollback_application`（实体 `ErlAssessmentRollbackApplication`；不以 `Request` 结尾，免得和入参类的层后缀撞名）。DDL 为 Java `deploy/upgrade_doc/sprint122/V1__erl_assessment_rollback_application.sql`，Java 发版前执行。现有表不改：批准生成的提交记录就是一条普通提交。
+新增一张表 `erl_assessment_rollback_application`（实体 `ErlAssessmentRollbackApplication`；不以 `Request` 结尾，免得和入参类的层后缀撞名）。DDL 为 Java `deploy/upgrade_doc/sprint122/V2__erl_assessment_rollback_application.sql`，Java 发版前执行。现有表不改：批准生成的提交记录就是一条普通提交。
 
 | 列 | 说明 |
 |---|---|
@@ -309,7 +309,7 @@ ERL 衡量公司离可退出还有多远，按维度（FRL / PRL / BERL / RRL / 
 ### 12.8 上线
 
 - 与第一个需求同批上线（CF11）。
-- 发版顺序：先执行 `V1__erl_assessment_rollback_application.sql` 建表，再发 Java 与 Web（同批），发完立即执行 `V2__erl_draft_cleanup.sql` 清理草稿（CF10）。编号即执行顺序。
+- 发版顺序：先执行 `V1__ff_init.sql`（Fireflies）与 `V2__erl_assessment_rollback_application.sql` 建表，再发 Java 与 Web（同批），发完立即执行 `V3__erl_draft_cleanup.sql` 清理草稿（CF10）。编号即执行顺序（2026-11-06 合并进 sprint122 时 ERL 两个脚本顺延一号，给 Fireflies 的 V1 让位）。
 - Python 零改动：批准生成的提交记录和普通提交一样，Gap 分析读的是记录自带的作答。
 
 ### 12.9 设计稿（2026-11-05 收到）
