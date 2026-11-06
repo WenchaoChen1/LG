@@ -941,6 +941,8 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 
 分页（用户决定 2026-10-28，7 #Q43）：Summary Records、Cheat Sheet、Raw Data 与 Goldie Base 两个新 Tab 一律对齐现有 Knowledge Base 的分页样式（`KnowledgeBasePage.tsx` 的 `pagination`），不看设计稿——默认每页 10 条，可选 10 / 20 / 50；常显总数 `${start} - ${end} of ${total} items`，记录少时也不隐藏，不开跳页；手机端隐藏条数选择、用小号。下文线框里的「分页（10 / 页）」只示意位置。
 
+弹框（用户决定 2026-11-06）：所有 `Modal` 去掉 antd 默认的标题下、底部按钮上两条分割线（`Modal.confirm` / `warning` 本来就没有）；输入框、下拉、日期与按钮一律 4px 圆角，确认框按钮靠 `className: 'ffConfirmDialog'`（`global.less`，弹框挂在 body 上、页面样式管不到）；主按钮置灰时为淡化品牌色、不弹悬停提示。
+
 ### 5.1 PG-01 Fireflies Management
 
 参照设计稿：`routes/index.tsx:150-206`（Tab 容器）
