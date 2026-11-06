@@ -1037,8 +1037,8 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 |---|---|---|
 | 列表 | antd `Table`（服务端分页） | Name（审核会议时导入的加 `From FF Summary Records` 标签、`lgUser = true` 的加 `LG user` 标记，样式开发定，7 #Q51；标签放姓名下方、放不下换行，姓名单行过长省略、悬停看全，让表格总宽压到 1200 免出横向滚动条，2026-11-06）、Email(s)（纵向全列，实在放不下时省略号、悬停看全）、Organization、Role（蓝标签）、Expertise tags（灰标签，换行）、Validity period（`Aug. 2, 2026 – present`，逾期加黄 `Needs review`）、History / Edit。标签无边框、色块底、4px 圆角（形同系统已有的 Company Status 标签）；Role 与 `From FF Summary Records` 蓝、Expertise 灰，色值取自设计稿；设计稿没有的 `LG user` 用 Thriving 绿、`Needs review` 用 Needs Guidance 黄；History 页同（2026-11-06） |
 | Email Domain 块 | 列表 + 行内 `Input` + `Button` | 不分页；Edit 时该行变输入框 + Save / Cancel |
-| PG-01c1 | `Modal` + `Form` | 字段与校验见 4.4；Name 编辑时置灰，`lgUser = true` 的在 Name 旁同样显示 `LG user`（7 #Q51），新增时重名提示显示在 Name 下方（API-41，7 #Q46）；Email(s) 多行，`+ Add another email`；Role 为 6 项 `Select`；Expertise tags 用 PG-01c2；Area of expertise 为 `TextArea`；Validity period 为两个 `DatePicker`（To 可清空）；新增的 Confirm 前弹 `Modal.confirm`「Confirm submission」 |
-| PG-01c2 | 多选 `Select`（`mode="multiple"`，`dropdownRender` 底部加「Add a new tag…」输入框，可删的选项悬停显示删除，同设计稿 `expertise-select.tsx`） | 预置 7 项在前，新增的按添加顺序在后 |
+| PG-01c1 | `Modal` + `Form` | 字段与校验见 4.4；Name 编辑时置灰，`lgUser = true` 的在 Name 旁同样显示 `LG user`（7 #Q51），新增时重名提示显示在 Name 下方（API-41，7 #Q46）；Email(s) 多行，`+ Add another email`；Role 为 6 项 `Select`；Expertise tags 用 PG-01c2；Area of expertise 为 `TextArea`；Validity period 为两个 `DatePicker`（To 可清空）；新增的 Confirm 前弹 `Modal.confirm`「Confirm submission」；输入框与底部按钮（含 Confirm submission）4px 圆角；Confirm 置灰时为淡化品牌色、不弹悬停提示（用户决定 2026-11-06，PG-02a / PG-02b 共用此弹框，同） |
+| PG-01c2 | 多选 `Select`（`mode="multiple"`，带下拉箭头同 Role，`dropdownRender` 底部加「Add a new tag…」输入框，可删的选项悬停显示删除，同设计稿 `expertise-select.tsx`） | 预置 7 项在前，新增的按添加顺序在后 |
 
 与设计稿的差异：设计稿 Expertise tags 必填，按设计维持选填（7 #Q24d）；新增时 Role 为空（设计稿默认 LP，不沿用：角色影响会议类型判定，设计 9.7.4）；逾期提示条设计稿只算了逾期数、没有渲染，按设计 9.7.3 显示；Needs review 按设计 9.7.5 为 90 天（设计稿常量 92）；搜索另匹配 Area of expertise（设计 9.7.3）；设计稿表格只显示固定 5 个标签，这里显示该人全部标签；设计稿没有分页，分页对齐 Knowledge Base（见本节开头，7 #Q43）；列表与编辑弹框姓名旁的 `LG user` 标记设计稿没有（7 #Q51）。
 
@@ -1105,9 +1105,9 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 底部按钮 | `Button` ×2 | 置灰时不弹悬停提示（用户决定 2026-11-03，原为悬停显示原因）；Confirm & Apply 成功后若有证词补抽，参会人胶囊与证词区显示「证词补抽中」（7 #Q51） |
 | PG-02e 行内 Save 的清洗回显 | `Modal` | 列出删去的行及原因、替换的实体，按钮「确认保存」/「继续修改」 |
 | PG-02a / PG-02b | `Modal` + `Form`（同 PG-01c1） | 标题 `Assign new external party — <name>` / `Edit external party — <name>`；PG-02b 的 Name 置灰，PG-02a 的 Name 下方显示重名提示（API-41）；本场邮箱那一行锁定（不可删改、不显示 ×），可加别的邮箱；设计稿这两个弹框没有 Area of expertise，按设计 9.5.5 加上（同 Cheat Sheet 弹框）；有效期不含会议日期时在字段下提示并不能提交（7 #Q44） |
-| PG-02c | `Modal`：上半为按标签分组的主张与依据（带时间点），下半为登记字段；不设逐标签按钮行，建议标签预填在 Expertise tags 标签栏里，区分显示为「建议」（样式开发定） | 标题 `Possible expert — <name>`；已驳回的建议标签不预填，已在 T2 里的按普通标签显示；登记字段与只读规则见 4.7，本场邮箱锁定同 PG-02a / PG-02b；设计稿是整人 Approve / Reject，改为标签栏增删：留下即同意、删掉即驳回（7 #Q45，推翻 #Q24c 的逐标签同意 / 拒绝）；Save 一律写名册、登记字段一律按名册必填项校验（不再因全删建议标签免校验，7 #Q51） |
+| PG-02c | `Modal`：上半为按标签分组的主张与依据（带时间点），下半为登记字段；不设逐标签按钮行，建议标签预填在 Expertise tags 标签栏里，区分显示为「建议」（样式开发定） | 标题 `Possible expert — <name>`；已驳回的建议标签不预填，已在 T2 里的按普通标签显示；登记字段与只读规则见 4.7，本场邮箱锁定同 PG-02a / PG-02b；设计稿是整人 Approve / Reject，改为标签栏增删：留下即同意、删掉即驳回（7 #Q45，推翻 #Q24c 的逐标签同意 / 拒绝）；Save 一律写名册、登记字段一律按名册必填项校验（不再因全删建议标签免校验，7 #Q51）；输入框与底部按钮 4px 圆角，Save 置灰时为淡化品牌色、不弹悬停提示（用户决定 2026-11-06） |
 | Confirm & Apply 二次确认 | `Modal.confirm` | API-23 返回 40903 时弹出，逐条列出 `warnings`，确认后带 `confirmWarnings=true` 重提（7 #Q48）；设计稿没画，文案开发时按设计稿语气定稿 |
-| PG-02d | `Modal` + 参会人 `Select` | 设计稿没画，按项目同类弹框样式；标题「Assign speaker — <说话人名>」 |
+| PG-02d | `Modal` + 参会人 `Select` | 设计稿没画，按项目同类弹框样式；标题「Assign speaker — <说话人名>」；下拉与底部按钮 4px 圆角，Confirm 置灰时为淡化品牌色、不弹悬停提示（用户决定 2026-11-06） |
 | PG-02f | `Modal.confirm` | 标题「Revert to Pending?」，正文「All routed content of this meeting will be taken offline and the meeting goes back to Pending.」，按钮 Cancel / Apply |
 
 状态：会议不存在或无权显示「Meeting not found」（设计稿此时显示空字段，不沿用）；矩阵为空的说明见上。
