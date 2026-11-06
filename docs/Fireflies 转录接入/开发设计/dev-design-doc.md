@@ -1035,7 +1035,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 
 | 区域 | 组件 | 说明 |
 |---|---|---|
-| 列表 | antd `Table`（服务端分页） | Name（审核会议时导入的在姓名同一行加 `From FF Summary Records` 标签（不换行，姓名过长省略，2026-11-04）；`lgUser = true` 的在姓名旁加 `LG user` 标记，样式开发定，7 #Q51）、Email(s)（纵向全列，实在放不下时省略号、悬停看全）、Organization、Role（蓝标签）、Expertise tags（灰小标签，换行）、Validity period（`Aug. 2, 2026 – present`，逾期加琥珀 `Needs review`）、History / Edit |
+| 列表 | antd `Table`（服务端分页） | Name（审核会议时导入的加 `From FF Summary Records` 标签、`lgUser = true` 的加 `LG user` 标记，样式开发定，7 #Q51；标签放姓名下方、放不下换行，姓名单行过长省略、悬停看全，让表格总宽压到 1200 免出横向滚动条，2026-11-06）、Email(s)（纵向全列，实在放不下时省略号、悬停看全）、Organization、Role（蓝标签）、Expertise tags（灰标签，换行）、Validity period（`Aug. 2, 2026 – present`，逾期加黄 `Needs review`）、History / Edit。标签无边框、色块底、4px 圆角（形同系统已有的 Company Status 标签）；Role 与 `From FF Summary Records` 蓝、Expertise 灰，色值取自设计稿；设计稿没有的 `LG user` 用 Thriving 绿、`Needs review` 用 Needs Guidance 黄；History 页同（2026-11-06） |
 | Email Domain 块 | 列表 + 行内 `Input` + `Button` | 不分页；Edit 时该行变输入框 + Save / Cancel |
 | PG-01c1 | `Modal` + `Form` | 字段与校验见 4.4；Name 编辑时置灰，`lgUser = true` 的在 Name 旁同样显示 `LG user`（7 #Q51），新增时重名提示显示在 Name 下方（API-41，7 #Q46）；Email(s) 多行，`+ Add another email`；Role 为 6 项 `Select`；Expertise tags 用 PG-01c2；Area of expertise 为 `TextArea`；Validity period 为两个 `DatePicker`（To 可清空）；新增的 Confirm 前弹 `Modal.confirm`「Confirm submission」 |
 | PG-01c2 | 多选 `Select`（`mode="multiple"`，`dropdownRender` 底部加「Add a new tag…」输入框，可删的选项悬停显示删除，同设计稿 `expertise-select.tsx`） | 预置 7 项在前，新增的按添加顺序在后 |
