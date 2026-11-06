@@ -1,6 +1,6 @@
 # ERL 结转锁定与回退审批 设计文档
 
-> 关联文档: 需求 [ERL Yes问题不重复回答](<../../ERL Yes问题不重复回答.md>) · [ERL 问卷锁定项的回退审批](<../../ERL 问卷锁定项的回退审批.md>) · ERL 主设计 [design-doc.md](../../设计/design-doc.md) · 开发步骤 [dev-steps.md](../开发设计/dev-steps.md) · Asana LG-1581（Exit Readiness: Carry Forward Yes Answers & Change Request Flow）
+> 关联文档: 需求 [ERL Yes问题不重复回答](<../../ERL Yes问题不重复回答.md>) · [ERL 问卷锁定项的回退审批](<../../ERL 问卷锁定项的回退审批.md>) · ERL 主设计 [design-doc.md](../../设计/design-doc.md) · Asana LG-1581（Exit Readiness: Carry Forward Yes Answers & Change Request Flow）
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
