@@ -279,6 +279,7 @@ ERL 衡量公司离可退出还有多远，按维度（FRL / PRL / BERL / RRL / 
   - 已作废：作废整页；
   - 已批准或已拒绝：正常的 Founder 药丸，顶部提示 `This request has already been processed.`，然后从 URL 去掉 `rollbackRequestId`。
 - 两人同时处理时，后点的那位收到「已处理」的拒收，同样提示并刷新。
+- 开发补充（第 22 步）：卡片不看页面当前季度，该维有待审核申请就出，问卷是 P 的草稿、卡头题数也取草稿那份；自己批准 / 拒绝后同样从 URL 去掉 `rollbackRequestId`；成功 toast `Rollback request approved.` / `Rollback request declined.`（自拟）；卡片时间用 A4 本地时间格式；作废页保留面包屑与标题、宽度跟页面；「已处理」提示可关。
 
 #### 12.5.3 作废页
 

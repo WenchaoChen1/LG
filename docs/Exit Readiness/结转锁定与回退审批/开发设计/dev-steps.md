@@ -40,7 +40,7 @@
 | 19 | 线 | Java：三封邮件 | 三个 `EmailComposer`（01 审批人、02 批准、03 拒绝）与模板，`bizKey` = 申请 id，每个收件人一封；接到第 17、18 步留的调用点，都在事务提交后发 | RB9 / §12.6 / §12.9 | 14, 15 | Composer 单测：内容字段齐全、链接参数正确、收件人注销时抛 `NonRetryableEmailException` | 已完成 Java 17de61c84 |
 | 20 | 线 | Web：填报页 `Change to No` + 审核中态 | 两端锁定题加按钮与弹框（Founder `Apply` / GSV `Submit`）；Founder 审核中：提示条、非锁定题与按钮置灰（含 Draft restored 横幅的 `Discard draft`，它走接口 28 会被冻结拒收；「题库已更新」弹窗后端已不弹）；比 P 早的季度置灰按钮并提示；DTO 映射新字段 | §12.5.1 | 1（联调依赖 16, 17） | 页面测试新增用例；tsc 无新增错误 | 已完成 Web f1a100e4a |
 | 21 | 线 | Web：提交确认弹窗返工 | 第 7 步的合并弹窗改成设计稿弹窗 1、2；有待审核申请时提交其他季度弹弹窗 3，与 1 / 2 合并；题库更新弹窗的 `Submit draft content` 加弹窗 3 那句 | §12.5.1 / §12.9 | 7（弹窗 3 联调依赖 17） | `AssessmentPage.test` 改写并新增用例 | 已完成 Web f1a100e4a |
-| 22 | 线 | Web：A4 审核页 + 作废页 | Founder 药丸：卡片、读 P 的草稿（接口 3）只读渲染、高亮 qk、`Refuse` / `Approve` 与两个弹框；邮件链接带 `dimension`，落地时按它选中维度 Tab（现在只读 companyId / period / from / portal，默认第一维）；`rollbackRequestId` 落地按状态显示（作废整页 / 已处理提示 / 待审核） | §12.5.2 / §12.5.3 / §12.9 | 1（联调依赖 18） | `ScoreDetailsPage.test` 新增用例；tsc 无新增错误 | 待开发 |
+| 22 | 线 | Web：A4 审核页 + 作废页 | Founder 药丸：卡片、读 P 的草稿（接口 3）只读渲染、高亮 qk、`Refuse` / `Approve` 与两个弹框；邮件链接带 `dimension`，落地时按它选中维度 Tab（现在只读 companyId / period / from / portal，默认第一维）；`rollbackRequestId` 落地按状态显示（作废整页 / 已处理提示 / 待审核） | §12.5.2 / §12.5.3 / §12.9 | 1（联调依赖 18） | `ScoreDetailsPage.test` 新增用例；tsc 无新增错误 | 已完成 Web 34818a92a |
 | 23 | 面 | 本地联调 + E2E | 挑代表场景：Founder 申请 → 批准 / 拒绝、同季与更晚季度顶掉、更早季度置灰、提交其他季度作废、换版作废、GSV 直接回退、邮件 01～03 落 SQS、两人同时审批。可与第 11 步合并跑 | 全部 | 14～22 | 场景逐条通过 | 待开发 |
 
 可并行：14、15、16 三步互不依赖；17 与 19；20、21、22（Web 按 §12.4 契约先做，联调放到对应 Java 步骤完成后）。
