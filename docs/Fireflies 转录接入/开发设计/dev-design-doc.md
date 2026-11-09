@@ -475,7 +475,7 @@ Fireflies 只在 Python 侧记审计：需求要求记的是「路由决策与�
 |---|---|
 | 专长标签 7 项 | 新建组织时写入（`OrganizationServiceImpl.save`），存量组织由 Java V1 迁移补齐（J5，7 #Q4） |
 | GS 租户 3 个邮箱域名 | 上线时管理员在 Cheat Sheet 页添加（用户决定 2026-10-27，7 #Q5） |
-| Fireflies Management 菜单 | 管理后台 Menu & Function Management 加一条顶层菜单（path `/fireflies`），在 Roles Management 只挂给 PGM / SA 的角色；菜单 `pid = '0'`；配置后删 Redis `menu::menu:user:*`，再等进程内一级缓存过期（Caffeine 10 分钟）或重启各实例，用户清浏览器 `localStorage.roles` 与同名 cookie 后重新登录（ERL 先例；用户决定 2026-10-27，7 #Q7） |
+| Fireflies Management 菜单 | 管理后台 Menu & Function Management 加一条顶层菜单（path `/fireflies`），在 Roles Management 只挂给 PGM / SA 的角色；菜单 `pid = '0'`；配置后用户清浏览器 `localStorage.roles` 与同名 cookie 后重新登录（ERL 先例；用户决定 2026-10-27，7 #Q7；服务端菜单缓存已于 2026-11-09 随 sprint122 删除，不用再清 Redis、等一级缓存或重启） |
 | RAG 新空间业务类型 `EXPERT_TESTIMONY` / `CROSS_COMPANY` | Python 代码种子 `rag/domain/enums.py`，无建表 DDL，V034 更新 `ai_rag_business_association.business_type` 列注释；机构层复用已有种子 `ADMIN_ORGANIZATION`，不新增 |
 
 **投影空间**（`ai_rag_business_association` 组合键 `(end_type, business_type, 作用域 id)`，设计 1.1）：

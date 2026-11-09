@@ -671,7 +671,7 @@
 | # | 变了什么 | 为什么 | 影响章节 |
 |---|---------|--------|---------|
 | **U1** | **菜单入口的落地位置换源**：§8.1.1 前置条件表第 1、2 行的「落地位置」由 ~~`deploy/upgrade_doc/sprint118/V2__erl_menu.sql`~~ 改为**管理后台菜单配置**。**前置条件本身一字不改** —— `menu` 表要有 `path = '/exitReadiness/configuration'` 的行、**`pid` 必须是 `'0'`（根节点）**、该菜单经 `r_role_menu` 授权给用户角色（后台配置时授权给超管角色） | 需求方决定这条菜单不再由发版脚本落库，走后台自助配置。⚠️ **`pid = '0'` 这条约束在后台界面上同样是硬要求**：`MenuServiceImpl.buildTree` 只把 `pid = '0'` 的行放进返回数组顶层，而 `getVerifyRoles` **只比较顶层 `path`、不递归 `menuDtoList`** —— 在后台把它挂到某个父菜单下面，会被 `buildTree` 嵌进 `menuDtoList` 子级，下拉里**依然不显示** | §8.1.1 |
-| **U2** | **清两处缓存的操作要求保留**：配好菜单后仍须 ① 清服务端 `MenuServiceImpl.findAllByUserId` 的 `@Cacheable(key = "'menu:user:' + #userId")`；② 清浏览器 `localStorage.roles` + 同名 cookie，然后重新登录 | 缓存链路与「记录是脚本插的还是后台插的」无关 —— 两处都不清，**在后台配好了也不生效**，和以前改库不清缓存是同一个坑 | §8.1.1 |
+| **U2** | **清两处缓存的操作要求保留**：配好菜单后仍须 ① 清服务端 `MenuServiceImpl.findAllByUserId` 的 `@Cacheable(key = "'menu:user:' + #userId")`（**2026-11-09 起不再需要**：sprint122 删了该缓存）；② 清浏览器 `localStorage.roles` + 同名 cookie，然后重新登录 | 缓存链路与「记录是脚本插的还是后台插的」无关 —— 两处都不清，**在后台配好了也不生效**，和以前改库不清缓存是同一个坑 | §8.1.1 |
 | **U3** | **sprint118 可执行脚本由四份减为三份**：`V1__erl_init.sql` / `V3__erl_question_version_add_dimension_config_version.sql` / `V4__erl_optimistic_lock.sql`（**V3 / V4 的文件名保留旧称不变**，不因 V2 消失而重排序号），另有 `README.md` 作为 runbook。§10.1 的脚本清单与数量词、§0.19-T5 的「这四份脚本」一并订正 | 序号重排会让已按旧编号执行过的环境对不上账，代价大于「编号有缺口」这点观感 | §10.1 / §0.19-T5 |
 | **U4** | **路由守卫的口径不变、论据换例子**：`SecurityLayout.tsx` 仍对 `/exitReadiness/configuration*` 与 `/exitReadiness/benchmark*` 按**端类型 `roleType > 1`** 拦截，**不按菜单权限判**；其论据里的反例由 ~~「`V2__erl_menu.sql` 没跑」~~ 改为「**菜单未在管理后台配置**（或配错成非根节点、忘了授权）」 | 论点原样成立 —— 菜单权限只决定「入口显不显示」，配置页若压在菜单权限上，菜单没配好就会把管理员彻底锁在门外；只是不该再引用一个已删除的脚本当例子 | §8.1.1 |
 
@@ -3415,10 +3415,10 @@ BasicLayout 里硬编码的 menuRight_SuperAdmin（含 `ERL Configuration`）
 |:--:|------|----------|
 | 1 | `menu` 表有 `path = '/exitReadiness/configuration'` 的行，且 **`pid = '0'`**（根节点） | **管理后台菜单配置**（**v4.14 改**：原先由 sprint118 的菜单迁移脚本落库，该脚本已删除） |
 | 2 | 该菜单经 `r_role_menu` 授权给用户的角色（后台配菜单时授权给超管角色，即原脚本按 `role.is_super_admin = true` 授权的那批） | 同上 |
-| 3 | 清两处缓存后重新登录 | 见下 |
+| 3 | 清缓存后重新登录 | 见下 |
 
 - **`pid` 必须是 `'0'`**：`MenuServiceImpl.buildTree` 只把 `pid = '0'` 的行放进返回数组顶层，而 `getVerifyRoles` **只比较顶层 `path`、不递归 `menuDtoList`**。挂到某个父菜单下会被嵌进子级，下拉里依然不显示。
-- **两处缓存**：① 服务端 `MenuServiceImpl.findAllByUserId` 带 `@Cacheable(key = "'menu:user:' + #userId")`；② 浏览器 `localStorage.roles` + 同名 cookie（`utils.ts` 的 `saveRoles`），且 `BasicLayout` 只在 `!rolesData || length < 1` 时才重新拉。**两处都不清，改了库也不生效。**
+- **两处缓存**：① ~~服务端 `MenuServiceImpl.findAllByUserId` 带 `@Cacheable(key = "'menu:user:' + #userId")`~~ → **2026-11-09 已删**（sprint122），服务端每次现查；② 浏览器 `localStorage.roles` + 同名 cookie（`utils.ts` 的 `saveRoles`），且 `BasicLayout` 只在 `!rolesData || length < 1` 时才重新拉。**两处都不清，改了库也不生效。**
 - **基准页 `/exitReadiness/benchmark` 不需要菜单行** —— 它不在那份下拉清单里。~~入口是维度详情页 / A4 页内链接。~~ → **v4.4 订正**（§0.10-D7）：这处描述是**既有文档缺口** —— §8.4 的交互表里 A3、A4 **从未定义过**这条链接，按 v4.3 文档实现，`/exitReadiness/benchmark` 与 `/benchmark/add` 站内**不可达**。本版按 PRD §3.5（`9a203ce`）定档：**入口是 ERL Card 雷达图正下方的链接 ~~`Benchmarkit & Top GSV Quartile ›`~~ `View Top GSV Quartile & External Benchmarks ›`**（→ `/exitReadiness/benchmark?companyId=`**`[&period={period}]`**，**v4.25 补期次**、由接口 1 的 `benchmarkUrl` 下发，§0.29-Z5），**仅管理端渲染**（与雷达图同条件）；`/benchmark/add` 由 D1 页内 `+ Add New` 进入。~~A4 页尾仍只有**只读的基准折叠卡**，不再声称它是基准页的入口。~~ → **2026-09-09 作废**（§0.24-Z4）：A4 的基准由页尾折叠卡改为**末位 Tab**，卡头按原型加了 `+ Add New` / `View history`，**A4 由此成为基准页的第二个站内入口**（**v4.25**：这两条同样带 `&period=`，§0.29-Z1）。菜单口径不变 —— 基准页仍不需要菜单行。
 
 **路由守卫（v4.0 补实现）**：`SecurityLayout.tsx` 对 `/exitReadiness/configuration*` 与 `/exitReadiness/benchmark*` 拦截 `roleType > 1`（公司端）→ 重定向回 Company Overview。这补上了本节「双重拦截」承诺的后一半（此前**只有菜单一半**，直接敲 URL 谁都能进）。
