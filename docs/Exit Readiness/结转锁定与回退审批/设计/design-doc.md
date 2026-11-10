@@ -333,8 +333,8 @@ ERL 衡量公司离可退出还有多远，按维度（FRL / PRL / BERL / RRL / 
 | # | 收件人 | 主题 = 标题 | 正文 |
 |---|---|---|---|
 | 01 | 审批人 | `A locked answer rollback request requires your review` | `Hello {收件人},`<br>`There is a locked answer rollback request requires your review.`<br>`Applicant` / `Company` / `Dimension` / `Quarter` / `Question` / `Requested change: Yes → No` / `Reason provided`<br>`Click the button below to review the full questionnaire and approve or refuse this request.`<br>按钮 `Review Request` |
-| 02 | 申请人 | `Your rollback request has been approved` | `Question` / `Change applied: Yes → No` / `Reviewed by` / `On`<br>`The questionnaire for {Quarter}{Dimension} has been formally submitted. Your drafts for this and future quarters remain available for editing.` |
-| 03 | 申请人 | `Your rollback request has been declined` | `Question` / `Requested change: Yes → No (not applied)` / `Reviewed by` / `On` / `Reason`<br>`The locked answer remains unchanged. All submitted questionnaires and drafts are preserved. You may continue editing drafts or submit a new request if circumstances change.` |
+| 02 | 申请人 | `Your rollback request has been approved` | `Hello {收件人},`<br>`Question` / `Change applied: Yes → No` / `Reviewed by` / `On`<br>`The questionnaire for {Quarter}{Dimension} has been formally submitted. Your drafts for this and future quarters remain available for editing.` |
+| 03 | 申请人 | `Your rollback request has been declined` | `Hello {收件人},`<br>`Question` / `Requested change: Yes → No (not applied)` / `Reviewed by` / `On` / `Reason`<br>`The locked answer remains unchanged. All submitted questionnaires and drafts are preserved. You may continue editing drafts or submit a new request if circumstances change.` |
 
 **申请已作废页**：审批人从邮件打开一条已经自动作废的申请时显示，整页空态，宽 1200px。
 
