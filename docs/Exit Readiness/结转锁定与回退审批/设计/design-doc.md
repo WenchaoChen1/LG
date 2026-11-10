@@ -7,7 +7,7 @@
 | v1.0 | 2026-11-04 | 第一个需求（已答 Yes 的题结转锁定）规则定档（§3），附接口与页面草案（§7、§8，待评审）；第二个需求（回退审批）待讨论（§12） |
 | v1.1 | 2026-11-04 | CF7 改为「全 Yes 之后的季度全部锁定为 Yes、每季手动提交一次确认」，撤销「视为已提交」（`DEEMED_SUBMITTED`）与展示侧回退；开发中的评审结论写入 §8 / §9 / §11 |
 | v1.2 | 2026-11-05 | 第二个需求（回退审批）定档：16 条讨论结论（§12.10）整理成规则、数据、接口、页面、邮件（§12.1～§12.8），收录设计稿（§12.9）；§8.3 的提交确认弹窗改按设计稿 |
-| v1.3 | 2026-11-10 | GSV 卷结转只预填、不锁定，想改直接改（CF1 / CF9）；删掉 GSV 的 `Change to No` 与接口 31（RB1 / RB3 / RB4、§12.4、§12.5.1、§12.10-3）；GSV 卷按设计稿加预填说明与级别徽标，接口 3 加三个出参（§7.1、§8.1） |
+| v1.3 | 2026-11-10 | GSV 卷结转只预填、不锁定，想改直接改（CF1 / CF9）；删掉 GSV 的 `Change to No` 与接口 31（RB1 / RB3 / RB4、§12.4、§12.5.1、§12.10-3）；GSV 卷按设计稿加预填说明、级别徽标与题旁来源标签，接口 3 加三个出参（§7.1、§8.1） |
 
 ---
 
@@ -127,7 +127,7 @@ ERL 衡量公司离可退出还有多远，按维度（FRL / PRL / BERL / RRL / 
 | 状态 | 页面 |
 |---|---|
 | `OPEN`，有锁定题 | 顶部提示条：`Questions answered Yes in {Q4 2025} are carried forward and locked.`<br>全部锁定的 level 照现有规则默认折叠、打绿勾，展开后锁定题只读、带 `Carried forward` 标记；含基线 No 的那一级展开，锁定题只读。页面定位到第一道可答的题（即基线里那道 No）。Reset 只清空非锁定题（服务端删行后重拉，锁定题自然再带出来）。<br>基线全 Yes 时（CF7）所有题锁定、各 level 折叠打勾、不定位，提示条改为 `All questions were answered Yes in {Q4 2025} and are carried forward. Submit to confirm this quarter.`，提交按钮直接可点<br>**2026-11-06 按设计稿改（本地联调时用户定）**：顶部提示条撤下（含 CF7 全锁定时的 `Submit to confirm` 那句）；题干旁的 `Carried forward` 去掉，改为级别标题上的 `🔒 Locked · answered Yes in {Q4 2025}` 徽标（该级有锁定题就出）；锁定题右侧是灰底 `🔒 Yes` 标签（代替已答绿勾）+ 橙框 `Change to No`，下半部分作答与备注区保留（禁用）。 |
-| `OPEN`，GSV 卷有预填（2026-11-10 按设计稿） | 结转题照普通作答带出、可直接改（CF1），没有锁定标签与 `Change to No`。<br>• 维度卡片里、所有级别之上一行说明：`Levels 1–7 were answered “Yes” in {Q3 2026} and are pre-filled — you can still change them. Continue from **{Exit Era - 8}**, answered “No” last quarter.`（只有一级时用单数；没有整级预填时开头改为 `Questions answered “Yes” in {Q3 2026} are pre-filled — you can still change them.`；基线全 Yes 时没有 `Continue from` 那句）。<br>• 整级预填的级别标题旁标 `“Yes” in {Q3 2026}`（逆时针时钟图标，不带底框）；该级被改成 No、显示终止句时不标。<br>• 不自动定位 |
+| `OPEN`，GSV 卷有预填（2026-11-10 按设计稿） | 结转题照普通作答带出、可直接改（CF1），没有锁定标签与 `Change to No`。<br>• 维度卡片里、所有级别之上一行说明：`Levels 1–7 were answered “Yes” in {Q3 2026} and are pre-filled — you can still change them. Continue from **{Exit Era - 8}**, answered “No” last quarter.`（只有一级时用单数；没有整级预填时开头改为 `Questions answered “Yes” in {Q3 2026} are pre-filled — you can still change them.`；基线全 Yes 时没有 `Continue from` 那句）。<br>• 整级预填的级别标题旁标 `“Yes” in {Q3 2026}`（逆时针时钟图标，不带底框）；该级被改成 No、显示终止句时不标。<br>• 整级预填的级别里的题仍答 Yes 时，题目右侧、已答绿勾左边标浅灰底 `From {Q3 2026}`（同一图标）；改成 No 就不标。「接着答」那一级里排在基线 No 之前的题也是预填的，但前端分不出来，与说明框、级别徽标同口径只认整级，不标。<br>• 不自动定位 |
 | `OPEN`，没有锁定题 | 与现在一致 |
 | `CLOSED` | 不显示题目，提示条：`This quarter is closed. {维度} was last submitted for {Q1 2026}; earlier quarters can no longer be filled in.`，附历史记录入口（`View history`）；按钮整排不显示（含 `Cancel`，同现有已提交只读态）。顶部信息栏照常显示，`Assessed by / Role` 因无草稿而显示当前用户；只有旧链接能进到这一页，2026-11-05 定不隐藏 |
 
