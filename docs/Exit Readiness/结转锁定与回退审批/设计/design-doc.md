@@ -351,7 +351,7 @@ ERL 衡量公司离可退出还有多远，按维度（FRL / PRL / BERL / RRL / 
 
 **审核页（2026-11-05 收到）**：就是管理端 A4 Score Details 页的 `Founder` 药丸。有待审核申请时：
 
-- 药丸下方先显示一张浅橙色卡片：标题 `Pending review · Rollback request for {Q4 2026}`（带时钟图标）；下面是 `SUBMITTED BY` / `ON` / `QUESTION` 三列，再下面是 `REASON`。
+- 药丸下方先显示一张浅橙色卡片：标题 `Pending review · Rollback request for {Q4 2026}`（带时钟图标）；下面是 `SUBMITTED BY` / `ON` / `QUESTION` 三列，再下面是 `REASON`。这张卡片与 Founder 填报页的审核中提示条外观一致（2026-11-11 定，前端共用一套样式）：底色、描边、内边距沿用提示条的设计稿版式；字号、颜色按 Lovable 原型（ERL-Company portal 的 Under Review 提示条）——整卡 14px / 20px 藏青 #0d2b56，标签 11px 大写灰 #62748e。字重不照抄原型的数值（原型实际用 Jost 渲染，本项目的 Futura PT 每档只有一个字重，粗细只能靠换字体）：只有标题用 Futura PT Demi，标签、字段值、`REASON` 内容都用 Futura PT Medium（看效果后定：字段值用 Demi 太重），都不额外加粗。
 - 问卷整份只读。锁定题标 `Locked · "Yes" in {Q3 2026}`。申请的那道题整块浅橙高亮，题下多一个框：`CHANGE REQUEST · YES → NO · PENDING REVIEW`，下一行是 `{申请人}: {原因}`。
 - 问卷卡片下方右对齐两个按钮：`Refuse`（红框白底）、`Approve`（橙底）。
 - 有待审核申请时，`Founder` 药丸显示申请那一季 Founder 最后一次保存的草稿（审核期间冻结；从没存过就显示锁定题预览），不显示平时的最近一次提交。申请批准、拒绝或作废后恢复原样。
