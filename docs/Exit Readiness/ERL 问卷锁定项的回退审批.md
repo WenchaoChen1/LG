@@ -119,7 +119,7 @@ Click the button below to review the full questionnaire and approve or refuse th
 Approve 确认弹框提示语：
 
 ▎ Approve this rollback request?  
-▎ The locked answer for "{题目}" will be changed from Yes to No, and this quarter's questionnaire will be formally submitted on the applicant's behalf. Drafts for this and future quarters will be preserved.  
+▎ The locked answer for "{题目}" will be changed from Yes to No, and this quarter's questionnaire will be formally submitted on the applicant's behalf. 
 ▎
 ▎ [Cancel] [Confirm Approval]
 
@@ -134,7 +134,7 @@ Approve 确认弹框提示语：
 ▎ Your rollback request has been approved.  
 ▎ Question: {题目} · Change applied: Yes → No  
 ▎ Reviewed by: {审核人} · On: {审核时间}  
-▎ The questionnaire for {季度} · {维度} has been formally submitted. Your drafts for this and future quarters remain available for editing.
+▎ The questionnaire for {季度} · {维度} has been formally submitted. 
 
 3. **Refuse 流程**
 
