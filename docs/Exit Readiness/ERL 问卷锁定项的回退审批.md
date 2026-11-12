@@ -81,7 +81,7 @@ Founder提交时提示语：
 
 **邮件通知**
 
-- 收件人：该公司所有 Portfolio Group Manager 邮箱
+- 收件人：该公司所有 Portfolio Group Manager和 该公司的Portfolio Manager 邮箱
 - 邮件内容：
   - 问题修改申请描述（题目、原答案 Yes → 新答案 No、修改原因、提交人、提交时间）
   - 问卷路由链接按钮（跳转至待审核问卷页面）
