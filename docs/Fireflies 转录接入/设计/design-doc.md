@@ -2661,9 +2661,9 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 项 | 口径 |
 |---|---|
 | 原有业务 | 原 Memory 页业务原样搬入（门户外壳上提到本页，9.11.1）：只读、管理端按端分层（Company Memory / Portfolio Memory）、按可访问公司圈定、无时间筛选、分页（同 Knowledge Base，9.11.2），均不变；纳入 `FIREFLIES` 中摘要非空的条目（摘要并入知识库条目，开发设计 7 #Q42）与机构层展示照第八章 #11、#13 |
-| 新标签 | Fireflies 条目（`business_type = FIREFLIES` 的 1a / 1b 摘要）多显示一个来源标签 **`Fireflies Memory`**；内容类型标签由 `Document Summary` 换成 **`Meeting Summary`**。非 Fireflies 条目不变 |
+| 新标签 | Fireflies 条目（`business_type = FIREFLIES` 的 1a / 1b 摘要）显示来源标签 **`Fireflies Memory`**（占层标签的位置，不再显示 Company / Portfolio Memory）；内容类型标签由 `Document Summary` 换成 **`Meeting Summary`**。非 Fireflies 条目不变 |
 | 层标签 | 管理端的 Company Memory / Portfolio Memory 照旧：GS → 创始人条目在 Company Memory，LP / GS 内部 / Partner 在 Portfolio Memory（1.1） |
-| 解读 | 需求「添加了一个新标签，Fireflies Memory,Meeting Summary」读作来源标签 + 内容类型标签，**不新增记忆层**；管理端 File Scope 加一项 Fireflies Memory（只看会议摘要、不分层），公司端不加筛选，设计稿里的 Document Summary 选项不加；会议摘要的标签并排显示：层徽标 + Fireflies Memory + Meeting Summary（用户决定 2026-10-27，开发设计 7 #Q24b） |
+| 解读 | 需求「添加了一个新标签，Fireflies Memory,Meeting Summary」读作来源标签 + 内容类型标签，**不新增记忆层**；管理端 File Scope 加一项 Fireflies Memory（只看会议摘要、不分层），Company / Portfolio Memory 两项只列上传文件的摘要（2026-11-12 改），公司端不加筛选，设计稿里的 Document Summary 选项不加；会议摘要的标签为 Fireflies Memory + Meeting Summary，Fireflies Memory 占层徽标的位置（2026-11-12 改，原为并排；开发设计 7 #Q24b） |
 | 内容 | 摘要不超过 150 个英文单词（1.3）；需求原文「1000字符以内」，用户决定 2026-10-10改按单词计；需求 2026-10-19 已注明「实际按不大于150词算」（#78） |
 | 不关联公司 | 公司位显示 `—`。目前只有 LP 基金层条目（机构层，`company_id` 为空）会出现这种情况 |
 | 谁能看 | 不变：管理端全部；公司端只有 Company Admin |
@@ -2867,7 +2867,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 43 | PM 能在 Cross company content Tab 看到跨公司内容（需求写 PM 只是会议名不可点），取代 2026-10-10「管理端页面上只有 PGM / Super Admin 能查看」的用户决定 | 按《Goldie Base》实现：PM / PGM / SA 全租户只读；编辑入口仍只有矩阵一处，这部分不变（9.1、9.11.4） |
 | 44 | PM 在 Expert Testimony Tab 看不到说话人与专长标签（需求「PM 账户不显示」），而 Goldie 里 PM 召回的是署名版（#7 ②） | **已关闭**：《Goldie Base》10-16 版删去「PM 账户不显示」，PM 在本 Tab 也显示说话人姓名与专长标签，与 Goldie 侧署名版一致（9.11.5） |
 | 45 | Play candidate 的可见范围与权限：① Playbook 原本全平台共享一份，会议内容按组织圈定 ② 谁能开关 ③ 须用户在 Goldie 打开本轮 Playbook 开关才召回得到 | **已调整（用户决定 2026-10-16）**：Play candidate 只作候选标记、不进 Playbook 召回，①③ 不再适用；② PGM / SA 可开关，PM 只看状态（9.11.6） |
-| 46 | Memory 新标签：需求「添加了一个新标签，Fireflies Memory, Meeting Summary」 | 按读法 A 实现：来源标签 `Fireflies Memory` + 内容类型标签 `Meeting Summary`（替换「Document Summary」），层标签照旧；不新增记忆层（9.11.3）。**2026-10-27 定**：读法 A，标签并排；管理端 File Scope 加 Fireflies Memory 一项，公司端不加（开发设计 7 #Q24b）。另一读法 B：`Fireflies Memory` 占层标签位置（替换 Company / Portfolio Memory）、`Meeting Summary` 占内容类型位置——与现有徽标两段结构对应（`MemoryMetaRow.tsx:22-38`） |
+| 46 | Memory 新标签：需求「添加了一个新标签，Fireflies Memory, Meeting Summary」 | 按读法 A 实现：来源标签 `Fireflies Memory` + 内容类型标签 `Meeting Summary`（替换「Document Summary」），层标签照旧；不新增记忆层（9.11.3）。**2026-10-27 定**：读法 A，标签并排（**2026-11-12 改按读法 B**：Company / Portfolio Memory 只标上传文件的摘要，与 Fireflies Memory 平级、互斥）；管理端 File Scope 加 Fireflies Memory 一项，公司端不加（开发设计 7 #Q24b）。另一读法 B：`Fireflies Memory` 占层标签位置（替换 Company / Portfolio Memory）、`Meeting Summary` 占内容类型位置——与现有徽标两段结构对应（`MemoryMetaRow.tsx:22-38`） |
 | 47 | Knowledge Base 的 Source 列点 `Fireflies` 跳 Raw Data：公司端 Raw Data 入口原未决（9.3.6、#8） | 仅对有该会议 Raw Data 权限的查看者可点：PGM / SA 全部；创始人本人参加过的会议可点，跳公司端的 Raw Data Tab（入口已由 #90 定）；PM 与未参会的公司端用户显示为纯文字（9.11.2）；若 #9 放开 PM 看 Raw Data，PM 随之可点 |
 | 48 | PM 在两个新 Tab 看到全租户会议的名称与元数据（日期、类型）：会议标题常带公司名 / LP 名，而 PM 按 3.3 只看可访问公司、按 9.3.6 / 9.4 看不到 Raw Data 与 Summary Records 列表；会抵消 3.5 对 GS → LP「剥离 LP 身份」，也暴露非管辖公司的 Partner / 退出会的存在 | 按需求实现：需求写「每条内容附带会议名称及元数据」「PM 不可点击名称」，即 PM 看得到名称、只是不可点。备选：① PM 只看可访问公司相关会议的名称，其余显示 `—`；② PM 只显示会议日期与类型（9.11.4 / 9.11.5） |
 
