@@ -746,7 +746,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 项 | 补定 |
 |---|---|
 | API-21 `participants[].registryState` | `UNREGISTERED`（未入册的外部人）\| `REGISTERED`（名册中已有）\| `PLATFORM_USER`（LG 平台用户）；PG-02c 按它决定 Name 是否可改（只有 `UNREGISTERED` 可改并失焦查重，其余只读；平台用户首次登记时姓名取账号姓名、只读，打开时即调 API-41 查重并在姓名下提示；平台用户的 Role 也可改，7 #Q46、#Q47）。未挂名册条目、但本场邮箱已在名册某条记录会议当天生效版本里的参会人按 `REGISTERED`，`registryForm` 预填那条记录并给 `versionId`（7 #Q51 ⑤）；LG 平台用户仍为 `PLATFORM_USER`（姓名只读、取账号姓名），同样预填并给 `versionId`，与已挂条目的平台用户一致 |
-| 说话人自动挂的条件（7 #Q53 ④） | `identification_service._identity_key` 只按名册条目（`cheat_sheet_name`）给键，GS 人员与公司不再给键；`_same_identity_target` 不变（命中多个时键都有且相同才取第一个，命中一个照旧直接取）。平台账号在名册有会议当天生效的记录时，识别 ② 已写 `cheat_sheet_name`，与按名册邮箱命中的人键相同 |
+| 说话人自动挂的条件（7 #Q53 ④） | `identification_service._same_person_target`（取代 `_same_identity_target` / `_identity_key`）：命中一个照旧直接取；命中多个时，每人取「已挂的名册条目姓名（`cheat_sheet_name`），没有则按邮箱在会议当天生效的名册记录里查到的姓名」，都有且相同才取第一个，GS 人员与公司不再算。按邮箱查是因为按域名判出的人（识别 ①③）此时还没挂名册条目（补充识别在后）；平台账号在名册有记录时识别 ② 已挂 |
 | 保存后重判说话人（7 #Q53 ⑤） | `identification_service` 把「姓名对邮箱前缀 + 上一行的条件」抽成可复用的纯函数（入参：本场参会人的邮箱与 `cheat_sheet_name`、未挂上的说话人；出参：要挂的说话人与参会人）。API-25 的两条保存路径与 API-28 在同一事务里、身份写完后调用，命中的说话人按 `bind_source = NAME_PREFIX` 挂上并刷新 `matched_name`；已挂上的不动。API-27（人工指定）不调 |
 | API-25 说话人关联（PG-02f，7 #Q53） | 不加参数：前端带 `speakerId` 与所选人的邮箱，走现有「按邮箱认人」路径（`registryMatchedName` 返回该人姓名），不新建、不改名册；表单改动由前端先经 API-07 保存 |
 | API-21 `pendingBackfillCount` | `number`：本场被推测者（有专家候选的参会人）中，P2 专长标签与提取快照（P1 `current_extraction_input`）里他的标签不同的人数，打开详情页时现算；大于 0 时 Confirm & Apply 激活并旁注「N 人的标签待补抽，应用后补抽」（7 #Q51 ⑥） |
