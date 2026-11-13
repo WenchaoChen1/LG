@@ -542,7 +542,6 @@ Java 的 5 项 Nacos 配置漏配时用上表默认值；它们与 `cio.fireflie
 | PG-02d | └ 指定说话人（未对上的说话人 → 本场某位参会人） | — | 点未对上的说话人 | PGM / SA | 弹窗（设计稿未画） | 新增 | 9.5.5 |
 | PG-02e | └ 行内 Save 的清洗回显 | — | 行内 Save 返回清洗结果时 | PGM / SA | 弹窗（设计稿未画） | 新增 | 9.6.3 |
 | PG-02f | └ Link existing person 弹窗（两步：从名册选人 → 该人的信息弹框，保存后把本场参会人 / 说话人挂到此人，7 #Q53） | — | 点未识别参会人或未对上说话人下拉里的 `Link existing person` | PGM / SA | 弹窗（设计稿未画） | 新增 | 9.5.5 |
-| PG-02f | └ 改为 Unknown 的二次确认 | — | 类型为 Unknown 时点 Confirm & Apply | PGM / SA | 确认框（本方案） | 新增 | 9.9.2 |
 | PG-03 | 原文页 | `/fireflies/transcripts/:meetingId` | PG-01d 的 Raw transcript；PG-05a 中 Source = Fireflies 且可点的行 | PGM / SA；公司端（本人受邀的会议） | 详情（只读，整篇渲染、后台续加载） | 新增 | 9.3.5、9.3.6 |
 | PG-04 | 名册 Role History | `/fireflies/cheat-sheet/:id/history`（`:id` 为此人任一版本行的 id） | PG-01c 的 History | PGM / SA | 列表（只读） | 新增 | 9.7.6 |
 | PG-05 | Goldie Base（Tab 容器） | `/askGoldie/goldieBase?tab=knowledgeBase\|memorySettings\|crossCompany\|expertTestimony`（用户决定 2026-10-27，7 #Q16） | Ask Goldie 侧栏 / 手机端底栏的 Goldie Base 入口；旧地址 `/knowledgeBase`、`/memorySettings` 重定向到对应 Tab | 两端，按 Tab 区分 | 容器 | 新增（由两页合并） | 9.11.1、第八章 #17 |
@@ -880,7 +879,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 行内 Cancel | 矩阵行 | 该行有改动 | 还原该行 | — | — | — |
 | Authorize 勾选 | 矩阵行 | 摘要行：同一（去向, 公司）的正文行未勾选时置灰（摘要随正文生效，7 #Q42），置灰时不弹悬停提示（用户决定 2026-11-13）；整表不可编辑时置灰 | 只改页面上的勾选，激活 Confirm & Apply；取消勾选正文行时，同组摘要行随之取消 | — | — | — |
 | Discard Changes | 页面底部 | 有未提交的页头类型 / 公司、勾选或 Portfolio 改动 | 还原这些改动以及编辑中未保存的行（可用条件比 9.6.5 收窄：只在有未提交改动时激活）；不撤销已 Save 的内容、名册写入、补抽结果与已点过的 Start Extraction（9.6.5） | — | 否 | — |
-| Confirm & Apply Routing | 页面底部 | 按 9.6.5 按钮状态表（自下而上优先；改为 Unknown 即激活，只在提取或证词补抽进行中置灰，7 #Q25e；`pendingBackfillCount > 0` 时即使没有别的路由级改动也激活，旁注「N 人的标签待补抽，应用后补抽」，7 #Q51 ⑥），置灰时提示原因（如「还有 N 个建议标签未处理」）；有行在编辑未保存时先提示该行 Save 或 Cancel | 一次提交勾选、Portfolio、改 `Unknown`、GS → LP 的公司增删；返回 40903 时弹二次确认框逐条列出 `warnings`（按当前参会人判定的类型与当前类型不同，带建议类型），确认后带 `confirmWarnings=true` 重提，取消则不提交（7 #Q48）；不改 `Unknown` 的应用成功后，服务端为专长标签与提取快照不同的被推测者补抽证词（7 #Q51） | API-23 → API-21 | 类型改为 `Unknown` 时弹 PG-02f（本方案）；返回 40903 时弹上述二次确认 | 成功 toast「Routing applied」，刷新 API-21；有参会人 `testimonyBackfillStatus = RUNNING` 时显示「证词补抽中」并每 5 秒轮询 API-21 直到补抽结束（应用前看不到新证词，补出的直接上线）；被拒提示原因 |
+| Confirm & Apply Routing | 页面底部 | 按 9.6.5 按钮状态表（自下而上优先；改为 Unknown 即激活，只在提取或证词补抽进行中置灰，7 #Q25e；`pendingBackfillCount > 0` 时即使没有别的路由级改动也激活，旁注「N 人的标签待补抽，应用后补抽」，7 #Q51 ⑥），置灰时提示原因（如「还有 N 个建议标签未处理」）；有行在编辑未保存时先提示该行 Save 或 Cancel | 一次提交勾选、Portfolio、改 `Unknown`、GS → LP 的公司增删；返回 40903 时弹二次确认框逐条列出 `warnings`（按当前参会人判定的类型与当前类型不同，带建议类型），确认后带 `confirmWarnings=true` 重提，取消则不提交（7 #Q48）；不改 `Unknown` 的应用成功后，服务端为专长标签与提取快照不同的被推测者补抽证词（7 #Q51） | API-23 → API-21 | 类型改为 `Unknown` 时不弹确认、直接提交（用户决定 2026-11-13，原弹「Revert to Pending?」确认框）；返回 40903 时弹上述二次确认 | 成功 toast「Routing applied」，刷新 API-21；有参会人 `testimonyBackfillStatus = RUNNING` 时显示「证词补抽中」并每 5 秒轮询 API-21 直到补抽结束（应用前看不到新证词，补出的直接上线）；被拒提示原因 |
 | 面包屑 | 页头 | — | 回 PG-01 Summary Records Tab，`org` 取该会议的租户 | — | — | — |
 
 ### 4.7 PG-02a / PG-02b / PG-02c / PG-02d 会议页弹框
@@ -902,7 +901,6 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 各弹框 Cancel | 弹框底部 | — | 关闭，不保存 | — | — | — |
 | 专长标签维护 | Expertise tags 下拉 | 同 PG-01c2 | 新增 / 删除标签；调 API-12 / 13 / 14 时带 API-21 返回的会议所属 `organizationId` | API-13、API-14 | 同 PG-01c2 | 同 PG-01c2 |
 | PG-02e 确认保存 / 继续修改 | 清洗回显弹框底部 | 确认保存：清洗后还有内容（删空时置灰） | 确认保存：带 `originalContent` 再调一次；继续修改：关闭弹框、回到该行 | API-24 | — | 同行内 Save |
-| PG-02f Apply / Cancel | 改 Unknown 确认框底部 | — | Apply：提交；Cancel：关闭 | API-23 | 本身即二次确认 | 同 Confirm & Apply |
 
 ### 4.8 PG-03 原文页、PG-04 Role History
 
@@ -938,7 +936,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 
 - 每个按钮引用的接口都在第 3 节清单里；第 3 节对账表里属于各页面的接口，本节都有对应的加载时机或操作。
 - 没有按钮直接触发的接口：API-38（Ask Goldie 对话），见 3.5；API-08 改为 PG-02c Save 直调、API-26 已删除（7 #Q44）；API-40 已不再使用（7 #Q41）。
-- 本方案新增、设计没写的交互：类型改为 `Unknown` 并应用时二次确认（PG-02f）；原文页与会议详情对「无权」与「不存在」显示同一提示；PG-02c 新建名册时弹 Confirm submission；Discard 只在有未提交改动时激活（比 9.6.5 收窄）；证词补抽中该发言人的证词行不可编辑；有还没提取的页头 / 参会人改动或类型改为 `Unknown` 时矩阵整表不可编辑（2026-11-04）。
+- 本方案新增、设计没写的交互：原文页与会议详情对「无权」与「不存在」显示同一提示；PG-02c 新建名册时弹 Confirm submission；Discard 只在有未提交改动时激活（比 9.6.5 收窄）；证词补抽中该发言人的证词行不可编辑；有还没提取的页头 / 参会人改动或类型改为 `Unknown` 时矩阵整表不可编辑（2026-11-04）。
 
 ## 5. 页面布局
 
@@ -1120,7 +1118,6 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | Confirm & Apply 二次确认 | `Modal.confirm` | API-23 返回 40903 时弹出，逐条列出 `warnings`，确认后带 `confirmWarnings=true` 重提（7 #Q48）；设计稿没画，文案开发时按设计稿语气定稿 |
 | PG-02d | `Modal` + 参会人 `Select` | 设计稿没画，按项目同类弹框样式；标题「Assign speaker — <说话人名>」；下拉与底部按钮 4px 圆角，Confirm 置灰时为淡化品牌色、不弹悬停提示（用户决定 2026-11-06） |
 | PG-02f | `Modal` 两步：选人（搜索框 + 单选列表 + 分页）→ 人员信息（复用 PG-02b 的 `RegistryFormModal`，标题 `Link existing person — <name>`） | 设计稿没画，按项目同类弹框样式；下拉与未对上说话人现有的下拉同一组件 |
-| PG-02f | `Modal.confirm` | 标题「Revert to Pending?」，正文「All routed content of this meeting will be taken offline and the meeting goes back to Pending.」，按钮 Cancel / Apply |
 
 状态：会议不存在或无权显示「Meeting not found」（设计稿此时显示空字段，不沿用）；矩阵为空的说明见上。
 
@@ -1220,7 +1217,7 @@ PG-03                                           PG-04
 | R25 更改授权：Authorize 复选框（III；SR） | 9.6.4 | P7 `authorized`、P8 | PG-02 | API-23 | 4.6 Authorize | 摘要勾选依赖正文：正文未勾时置灰并随之取消（Q42） |
 | R26 Start Extraction 激活 / 置灰规则（III；SR） | 9.5.1、9.9.1 | P1 | PG-02 | API-22、API-21 | 4.6 Start Extraction | Company 只对 GS→Founder 必填（#6） |
 | R27 Discard Changes（III） | 9.6.5 | — | PG-02 | 前端 | 4.6 Discard | 已写库的不撤销（#80①） |
-| R28 Confirm & Apply Routing（III） | 9.6.5 | P7、P1、P8 | PG-02、PG-02f | API-23 | 4.6、4.7 PG-02f | 改 Unknown 即激活（Q25e）；类型对不上时二次确认（Q48） |
+| R28 Confirm & Apply Routing（III） | 9.6.5 | P7、P1、P8 | PG-02 | API-23 | 4.6 | 改 Unknown 即激活、应用时不弹确认（Q25e，用户决定 2026-11-13）；类型对不上时二次确认（Q48） |
 | R29 公司或公司人员增改 → 自动路由 Pending 的 GS-Founder 会议（III） | 9.9.3、第八章 #27 | P2、P4 `auto_routed`、P1 | — | SQS（3.5） | — | #89 |
 | R30 路由决策与覆写写审计（III） | 9.10 | P8 | — | — | — | 只记 7 种事件；无查看页 |
 | **《AI Meeting Type 自动映射标准》** | | | | | | |
