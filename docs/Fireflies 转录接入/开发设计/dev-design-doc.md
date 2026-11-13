@@ -836,7 +836,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | Email Domain：加载 | Email Domain 块 | — | 列出本租户的邮箱域名（`@domain`），不分页 | API-10 | — | — |
 | Email Domain：Add（按钮或 Enter） | Email Domain 块底部 | 输入去 `@`、转小写后格式合法且不重复（前端先校验，重复提示「This domain is already added.」；公共邮箱域名由后端判） | 把新域名并进列表，整份提交 | API-11 | 否 | 成功刷新列表；后端拒绝时在输入框下显示原因（重复 / 公共邮箱域名 / 格式） |
 | Email Domain：Edit → Save / Cancel | 行内 | Save 在输入合法时可点；Enter 保存、Esc 取消 | 替换该项后整份提交 | API-11 | 否 | 同上 |
-| Email Domain：Delete | 行内 Delete 按钮 | — | 去掉该项后整份提交 | API-11 | 否（同设计稿） | 成功刷新 |
+| Email Domain：Delete | 行内 Delete 按钮 | — | 确认后去掉该项、整份提交 | API-11 | 是（用户决定 2026-11-13，设计稿没有）：`Modal.confirm`，标题「Delete email domain?」，正文「@{域名} will no longer be used to identify internal participants.」，按钮 Cancel / Delete（红色），样式同 PG-01b1 | 成功刷新 |
 | PG-01c1 字段 | 弹框 | Name*（新增可填、编辑只读；新增时失焦调 API-41 查重，重名时在姓名下方提示「A Cheat Sheet entry with this name already exists. It will be saved as Tom1.」，不拦提交，7 #Q46）、Email(s)*（至少一个，格式校验，可 `+ Add another email` / ×）、Organization*、Role*（新增时为空）、Expertise tags（Role 为 LP / Strategic Partner / Exit Partner 时必填，提示 `Please select at least one expertise tag.`，改选成不必填的角色时清掉该提示；Founder 选填；只在前端校验，用户决定 2026-11-09，7 #Q24d；Role 为 GS staff / Other 时置灰并清空，用户决定 2026-11-04）、Area of expertise（≤2048 字）、Validity period From* / To（可空） | 改动后才显示必填提示；提示文案 `"From" is required. Leave "To" empty to show the period as open-ended — e.g. "Aug 2, 2025 – present".` | API-41（Name 失焦） | — | — |
 | PG-01c1 Confirm（新增） | 弹框底部 | 必填齐 | 弹「Confirm submission」：姓名提交后不可修改；Yes, submit 后提交 | API-06 | 是 | 成功关闭、刷新列表；重名时以 API-06 自动加后缀后的姓名保存（以保存时为准，7 #Q46）；邮箱已登记在别人名下时在弹框内显示原因、不关窗（7 #Q49） |
 | PG-01c1 Confirm（编辑） | 弹框底部 | 必填齐 | 提交；什么都没改也可提交，即记一次复核（9.7.5） | API-07 | 否 | 成功关闭、刷新列表；邮箱已登记在别人名下时在弹框内显示原因、不关窗（7 #Q49） |
