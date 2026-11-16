@@ -1314,7 +1314,7 @@ GS → 创始人：同 GS → Partner。
 | `identities` 为 `high` | **直接采纳**，参与类型判定。Summary Records 的参会人标签带 `AI inferred` 徽标，悬停显示依据；点击：对到名册的弹 `Edit external party`，推断出的弹 `Assign new external party` 并带入推断的姓名 / 组织 / 角色，管理员可改（9.5.5） |
 | `identities` 为 `low`，或没有结果 | 不采纳：参会人仍是 `Unidentified`，会议 `Pending`（待识别）；`low` 的推断供管理员参考——带 `registry_id` 的提示「可能是名册里的某人」（关联到已有条目，免得新建时撞名，9.5.7），不带的预填进 `Assign new external party` |
 | `speaker_map` 为 `high` | 该发言人映射到对应参会人；对到名册的（带 `registry_id`）识别为该名册人员并入本场参会人（1.9），多个发言人对到同一 `registry_id` 的并入为同一位参会人；证词默认扣留（见下） |
-| `speaker_map` 不是 `high`，或没有结果 | 该说话人仍对不上：会议 `Pending`（待识别），Summary Records 上显示为「未对上的说话人」，由管理员指定为某位参会人或登记进 Cheat Sheet（9.5.5，用户决定 2026-10-16，取代 10-14「不算任何人、不卡会议」） |
+| `speaker_map` 不是 `high`，或没有结果 | 该说话人仍对不上：会议 `Pending`（待识别），Summary Records 上显示为「未对上的说话人」，由管理员登记进 Cheat Sheet 或关联到名册里已有的人（9.5.5，用户决定 2026-10-16，取代 10-14「不算任何人、不卡会议」） |
 | 公司方（`Founder`）只来自 P8 | 类型可判为 GS → 创始人，但**公司不自动关联**（不走 P1 的正文反推）、整场 `Pending`，等管理员在 Company 字段指定公司（2.1；或公司增改后自动路由，9.9.3）——GS → 创始人的内容进创始人可读的空间，人的身份已是 LLM 推断，再靠 LLM 反推公司，错绑就是客户侧泄漏 |
 
 - **校验**：`attendee_ref`、`speaker_id`、`registry_id` 须是输入里给出的值；`speaker_map` 每项的 `attendee_ref` 与 `registry_id` 恰好填一个；`registry_id` 为 null 时 `role` 须在 6 项角色内，非 null 时忽略 `role` / `organization`、取名册条目；不符的丢弃
