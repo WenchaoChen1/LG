@@ -547,8 +547,8 @@ Java 的 5 项 Nacos 配置漏配时用上表默认值；它们与 `cio.fireflie
 | PG-05a | └ Knowledge Base Tab | `?tab=knowledgeBase`（默认） | Tab 切换 | 两端（原业务不变） | 列表 | 改造（原 `KnowledgeBasePage`） | 9.11.2、第八章 #11、#12、#18 |
 | PG-05a1 | 　└ ~~基金标签选择（行内下拉）~~ **已取消（用户决定 2026-11-04：Portfolio 列纯文字）** | — | 管理端 Fireflies 知识库正文行的 Portfolio 列 | — | — | 取消 | 9.11.2、第八章 #16 |
 | PG-05b | └ Memory Settings Tab | `?tab=memorySettings` | Tab 切换 | 管理端；公司端 Company Admin | 列表 | 改造（原 `MemorySettingsPage`） | 9.11.3、第八章 #13、#19 |
-| PG-05c | └ Cross company content Tab | `?tab=crossCompany` | Tab 切换 | 管理端 PM / PGM / SA | 卡片列表 | 新增 | 9.11.4、9.11.6 |
-| PG-05d | └ Expert Testimony Tab | `?tab=expertTestimony` | Tab 切换 | 管理端 PM / PGM / SA | 卡片列表 | 新增 | 9.11.5、9.11.6 |
+| PG-05c | └ Cross company content Tab | `?tab=crossCompany` | Tab 切换 | 管理端 PM / PGM / SA；公司端所有用户（只有正文，7 #Q57） | 卡片列表 | 新增 | 9.11.4、9.11.6 |
+| PG-05d | └ Expert Testimony Tab | `?tab=expertTestimony` | Tab 切换 | 管理端 PM / PGM / SA；公司端所有用户（匿名版，只有正文与专长标签，7 #Q57） | 卡片列表 | 新增 | 9.11.5、9.11.6 |
 
 **入口与守卫**
 
@@ -613,7 +613,7 @@ Java 的 5 项 Nacos 配置漏配时用上表默认值；它们与 `cio.fireflie
 | API-25 | POST `/meetings/{meetingId}/external-parties` | Assign new external party：先看填的邮箱是不是本租户 LG 平台用户——是就不进名册，按平台用户更新本场 P2 / P3，得出的公司写成 P4 未采纳的候选（`adopted = false`、依据 `EMAIL`），是否采纳由页头与 Start Extraction 决定；再看填的邮箱是否已在名册某条记录会议当天生效的版本里——在就不新建，把本场参会人 / 说话人绑到那条记录、按它刷新 P2 / P3，名册不改、表单其余内容不写入；命中的邮箱都属同一条记录、且它当天生效的版本里至少有一个所填邮箱即认（其余所填邮箱只在它的旧版本里也不拦）；所填邮箱都不在它当天生效的版本里，或分属两条记录，拦截（42200，7 #Q49）；都不是才调 API-06 写名册（带 `sourceMeetingId`；重名由 API-06 自动加后缀并返回最终姓名，记进 P2，7 #Q46），更新本场 P2 / P3（9.5.5、9.5.7）。有效期必须包含会议日期（拦截，平台用户与按邮箱认人路径也按表单校验，7 #Q44）；来源是参会人时本场邮箱锁定（不可删改，可加别的邮箱），来源是未对上的说话人时邮箱由管理员填写、不锁。之后重跑类型判定 | `participantId` 或 `speakerId`、表单字段、`updatedAt` | 更新后的参会人、`suggestedType?`（可判定为 X）、`suggestedCompany?`（按平台用户认出的公司）、`registryMatchedName?`（按名册已有记录认人时，7 #Q49）、`participantsChanged`、`updatedAt` | P2、P3、P1（碰行）写，必要时 P4（候选）；LG 表读；J4 读（按邮箱认人），新建经 API-06 | PGM / SA | PG-02a、PG-02f（说话人关联：`speakerId` + 所选人的邮箱，走按邮箱认人、不新建，7 #Q53）。保存成功后给本场还没挂上的说话人按设计 1.9 的条件再判一次、满足即挂上（#Q53 ⑤） | 新增，见 3.6 |
 | API-28 | POST `/meetings/{meetingId}/participants/{participantId}/registry-sync` | 参会人名册同步（7 #Q44、#Q51）：PG-02b / PG-02c 保存成功、关窗后调，不收表单、不调 Java，按库里现状算、可重复调用，只把名单带回本场。按会议日期生效的名册记录刷新本场 P2（平台用户按 #Q47 以记录角色为准）；此人的建议标签在记录里 → `ACCEPTED`、在拒绝名单 J6 → `DECLINED`（P5，含自动消解）；按 9.9.1 参会人改动口径（被推测者的专长标签不比）与提取快照（P1 `current_extraction_input`）比：有参会人改动 → `participantsChanged = true`，角色变了重跑类型判定、返回 `suggestedType`（不静默改判）。不补抽、不写提取快照（被推测者的标签改动由 Confirm & Apply 应用后统一补抽，API-23；原为同步时同步快照并补抽，#Q51 改）。新登记没传 `cheatSheetName`（如上次同步失败后重开）时，按本场邮箱找会议当天生效的记录挂上（第二轮审核 R2-WA2）。首轮未完、提取进行中拒绝（40901）；证词补抽进行中不拦同步（7 #Q51） | `cheatSheetName?`（新登记时传 API-08 返回的最终姓名）；不带 `updatedAt` | `participantsChanged`、`suggestedType?`、`updatedAt` | P2、P5、P1（碰行）写；J4、J6 读 | PGM / SA | PG-02b、PG-02c、PG-02f（参会人关联：`cheatSheetName` 传所选人的姓名，7 #Q53）。同步成功后给本场还没挂上的说话人按设计 1.9 的条件再判一次、满足即挂上（#Q53 ⑤） | 新增（7 #Q44、#Q51 改造），见 3.6 |
 | API-29 | POST `/meetings/{meetingId}/participants/{participantId}/testimony-backfill` | 证词补抽失败后 Retry：只在该参会人 `testimony_backfill_status = FAILED`、且本场没有进行中的提取或补抽时接受 | `updatedAt` | `testimonyBackfillStatus` | P2、P7、P1（碰行）写；P8 `EXTRACT` | PGM / SA | PG-02 | 新增，见 3.6 |
-| API-30 | GET `/goldie-base/contents` | Goldie Base 两个新 Tab 共用：已授权、已投影的跨公司内容，或署名版证词（9.11.4、9.11.5）；关键词匹配内容与会议名称（证词另匹配说话人姓名，按设计稿，7 #Q25b），按会议日期区间过滤；按 `meeting_started_at DESC, meeting_id, source_timestamp`（空的排最后）`, id` 排序、按行分页，前端把相邻的同场行归成一张卡片，同一场会跨页时拆成两张卡片，可以接受（排序与会议名称匹配用 P7 冗余的会议时间与标题，7 #Q23） | `type`（`CROSS_COMPANY` / `TESTIMONY`）、`keyword`、`dateFrom`、`dateTo`、`page`、`pageSize`、`organizationId?` | `items[{rowId, content, meeting{meetingId, firefliesId, title, startedAt, meetingType, canOpen}, inPlaybook, speakerName?, expertiseTags?}]`（后两项仅证词）、`total`、`canTogglePlaybook` | P7 读（排序、筛选都在 P7 内完成）；分页后按会议 id 批量读 P1（会议类型、`fireflies_id`）；证词另读 P2（说话人；关键词匹配说话人时先在 P2 按姓名查出参会人 id） | 管理端 PM / PGM / SA；公司端拒绝 | PG-05c、PG-05d | 新增 |
+| API-30 | GET `/goldie-base/contents` | Goldie Base 两个新 Tab 共用：已授权、已投影的跨公司内容，或证词（管理端署名版、公司端匿名版，9.11.4、9.11.5、7 #Q57）；关键词匹配内容与会议名称（证词另匹配说话人姓名，按设计稿，7 #Q25b），按会议日期区间过滤；按 `meeting_started_at DESC, meeting_id, source_timestamp`（空的排最后）`, id` 排序、按行分页，前端把相邻的同场行归成一张卡片，同一场会跨页时拆成两张卡片，可以接受（排序与会议名称匹配用 P7 冗余的会议时间与标题，7 #Q23） | `type`（`CROSS_COMPANY` / `TESTIMONY`）、`keyword`、`dateFrom`、`dateTo`、`page`、`pageSize`、`organizationId?` | `items[{rowId, content, meeting{meetingId, firefliesId, title, startedAt, meetingType, canOpen}, inPlaybook, speakerName?, expertiseTags?}]`（后两项仅证词）、`total`、`canTogglePlaybook` | P7 读（排序、筛选都在 P7 内完成）；分页后按会议 id 批量读 P1（会议类型、`fireflies_id`）；证词另读 P2（说话人；关键词匹配说话人时先在 P2 按姓名查出参会人 id） | 管理端 PM / PGM / SA；公司端所有用户：租户只认会话机构（没有则返回空页）、不调 Java，`meeting` 与 `speakerName` 为 null、`inPlaybook` 恒 false、关键词只匹配内容、忽略 `dateFrom` / `dateTo`（7 #Q57） | PG-05c、PG-05d | 新增 |
 | API-31 | PATCH `/routing-rows/{rowId}` | 改中间表行上的 Play candidate（`inPlaybook`，限跨公司行与证词署名行），立即生效、不写审计（原另可改基金标签 `fundTagIds`，2026-11-04 取消） | `inPlaybook` | 改后的值 | P7 写 | PGM / SA；不收组织 id，租户按该行所属租户，不做会话租户等值校验（7 #Q32） | PG-05c、PG-05d | 新增 |
 | API-32 | GET `/org-options` | 本租户全部公司（含挂在下级节点的、含不在营的，带状态，7 #Q52）与本节点全部 Portfolio：会议页 Company / Portfolio 下拉候选（只有 PGM / SA 进得了会议页，按设计 9.5.3 / 9.5.4 即本租户全部；原另供知识库基金标签候选，2026-11-04 取消）。不复用 Java `companyGroup/companies`：它返回「公司 × Portfolio」配对，没挂 Portfolio 的公司不返回、也不去重 | `meetingId`（由会议推出租户） | `companies[{companyId, name, status}]`、`portfolios[{companyGroupId, name}]`；不在营的公司带状态返回，GS → 创始人时前端置灰不可选（2.1）；公司另带 `inPortfolio`（挂了本租户或其下级机构的 Active Portfolio），前端 Company 下拉只列为 true 的与已选的——没挂 Portfolio 的公司平台各页都看不到；识别、提取前校验、列表搜索、脱敏仍按全部公司（用户决定 2026-11-12） | LG `company`、`r_organization_company`、`company_group` 读 | PGM / SA | PG-02 | 新增，见 3.6 |
 
@@ -911,7 +911,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 
 | 操作 | 位置 | 显示 / 可用条件 | 行为 | 调用接口 | 二次确认 | 成功 / 失败反馈 |
 |---|---|---|---|---|---|---|
-| 进入 / 切换 Tab | Tab 栏 | 管理端 4 个；公司端 Company Admin 有 Knowledge Base 与 Memory Settings；公司端普通用户只有 Knowledge Base，不显示 Tab 栏 | 改 URL `?tab=`；地址里的 Tab 没有权限时回落到 Knowledge Base；管理端一律取组织树第一个叶子租户（7 #Q32） | API-19、API-39 | 否 | — |
+| 进入 / 切换 Tab | Tab 栏 | 管理端 4 个；公司端 Company Admin 4 个；公司端普通用户没有 Memory Settings、其余 3 个（7 #Q57） | 改 URL `?tab=`；地址里的 Tab 没有权限时回落到 Knowledge Base；管理端一律取组织树第一个叶子租户（7 #Q32） | API-19、API-39 | 否 | — |
 | 侧栏 / 底栏入口 | 门户侧栏、手机端底栏 | — | 合并后的 Goldie Base 入口高亮；Conversation history 回 `/askGoldie` | — | — | — |
 | KB：搜索与筛选 | PG-05a 筛选栏 | — | 保持现有：只按文件名搜，筛选项不变，不加 Source 筛选（7 #Q24a） | API-33、API-34 | 否 | — |
 | KB：下载 | PG-05a 行内 | 现有规则；Fireflies 行按 API-35 新分支（响应带 `content` 时前端用 Blob 下载，3.6） | 下载 | API-35 | 否 | 失败提示 |
@@ -921,11 +921,11 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | Memory：File Scope | PG-05b 筛选栏 | 管理端；公司端不显示 | All Files / Company Memory / Portfolio Memory / Fireflies Memory（7 #Q24b）；Company / Portfolio Memory 只列上传文件的摘要，会议摘要只在 All Files 与 Fireflies Memory 下出现（2026-11-12 改） | API-37 | 否 | — |
 | Memory：搜索、公司筛选 | PG-05b 筛选栏 | 公司筛选只在管理端 | 现有行为：按摘要全文与文件名搜索，不加设计稿的公司匹配（7 #Q25c） | API-37 | 否 | — |
 | Memory：查看详情 | PG-05b 行 | — | 现有详情弹框；会议摘要的标签为 Fireflies Memory + Meeting Summary，不带层徽标 | — | — | — |
-| 跨公司 / 证词：搜索 | PG-05c / PG-05d 工具栏 | — | 匹配内容与会议名称，证词另匹配说话人姓名（7 #Q25b） | API-30 | 否 | 无结果显示空态 |
-| 跨公司 / 证词：时间范围 | 工具栏 | — | 按会议日期区间 | API-30 | 否 | — |
+| 跨公司 / 证词：搜索 | PG-05c / PG-05d 工具栏 | — | 管理端匹配内容与会议名称，证词另匹配说话人姓名（7 #Q25b）；公司端只匹配内容（7 #Q57） | API-30 | 否 | 无结果显示空态 |
+| 跨公司 / 证词：时间范围 | 工具栏 | 管理端；公司端不显示（7 #Q57） | 按会议日期区间 | API-30 | 否 | — |
 | 跨公司 / 证词：分页 | 列表下方 | — | 对齐 Knowledge Base（第 5 节开头，7 #Q43）：默认每页 10 条，可选 10 / 20 / 50 | API-30 | 否 | — |
-| 跨公司 / 证词：会议名 | 卡片 | `canOpen`（PGM / SA）可点，PM 为纯文字 | 跳 PG-02 | — | — | — |
-| Play candidate 开关 | 每条内容旁 | `canTogglePlaybook`（PGM / SA）可切换；PM 只读显示 | 切换即提交 | API-31（`inPlaybook`） | 否 | 失败还原并提示 |
+| 跨公司 / 证词：会议名 | 卡片 | `canOpen`（PGM / SA）可点，PM 为纯文字；公司端不显示会议 | 跳 PG-02 | — | — | — |
+| Play candidate 开关 | 每条内容旁 | `canTogglePlaybook`（PGM / SA）可切换；PM 只读显示；公司端不显示 | 切换即提交 | API-31（`inPlaybook`） | 否 | 失败还原并提示 |
 
 ### 4.10 按钮 ↔ 接口对账
 
@@ -1170,12 +1170,12 @@ PG-03                                           PG-04
 | 区域 | 组件 | 说明 |
 |---|---|---|
 | 门户外壳 | 现有 `PortalNavSidebar` / `PortalTabBar`（上提到 Goldie Base 页） | 两个入口合并为一个 Goldie Base；两个旧页去掉自带外壳，只保留内容区 |
-| Tab 栏 | `Tabs.TabPane` | 顺序按需求：Knowledge Base · Memory Settings · Cross Company Content · Expert Testimony；只有一个 Tab 时不渲染 Tab 栏 |
+| Tab 栏 | `Tabs.TabPane` | 顺序按需求：Knowledge Base · Memory Settings · Cross Company Content · Expert Testimony；公司端普通用户没有 Memory Settings（7 #Q57 之后每个用户至少 3 个 Tab） |
 | Knowledge Base | 现有 `KnowledgeBasePage` 内容区 | 新增 Source 列（`Goldie` / `Fireflies`，Fireflies 可点时为链接）；Portfolio 列一律纯文字（PG-05a1 多选已取消，2026-11-04）；Fireflies 行不显示删除；手机端折行同样显示 Source，空 Portfolio / Company 显示 `—`；Fireflies 行的 From Chat 与 Uploaded By 显示 `—`（7 #Q25a） |
 | Memory Settings | 现有 `MemorySettingsPage` 内容区 | 摘要按 markdown 渲染：详情弹框渲染，列表两行预览去掉标记（设计第十章 #20 交开发设计定，本方案）；管理端 File Scope 加 Fireflies Memory；会议摘要的 `MemoryMetaRow` 显示 Fireflies Memory（青色，占层徽标的位置）+ Meeting Summary，不带层徽标；公司位为空显示 `—` |
-| 两个新 Tab | 卡片列表：相邻的同场行归成一张卡片，`Switch`（Play candidate） | 工具栏：`Input.Search` + 时间区间浮层；证词卡片每条另显示 `Expert <姓名>` 与专长标签（取不到说话人姓名时显示 `Unassigned`，同设计稿；当日没有专长标签时标签区不显示）；会议名 PM 为纯文字；分页按行，同一场会跨页时拆成两张卡片 |
+| 两个新 Tab | 卡片列表：相邻的同场行归成一张卡片，`Switch`（Play candidate） | 工具栏：`Input.Search` + 时间区间浮层；证词卡片每条另显示 `Expert <姓名>` 与专长标签（取不到说话人姓名时显示 `Unassigned`，同设计稿；当日没有专长标签时标签区不显示）；会议名 PM 为纯文字；分页按行，同一场会跨页时拆成两张卡片。公司端（7 #Q57）：每条内容一张卡片、不按会议归组，没有会议名与元数据、没有 `Switch`，工具栏没有时间区间；证词在正文下显示 `Expertise` 与专长标签，没有姓名，没有标签时这一行不显示 |
 
-状态：两个新 Tab 空列表用设计稿文案「No content matches your search.」「No expert testimony matches your search.」；公司端打开两个新 Tab 的地址按 403 处理（接口拒绝，Tab 不显示）。与设计稿的差异：设计稿 Knowledge Base 的 Source 筛选、文件名以外的搜索不做（7 #Q24a）；设计稿 Memory File Scope 的 Document Summary 选项不加（7 #Q24b）；设计稿 Play candidate 开关不持久化、专家归属写死，这里接真实数据；设计稿两个新 Tab 没有分页，分页对齐 Knowledge Base（见本节开头，7 #Q43）；卡片元数据加会议类型（设计 9.11.4），会议名与开关按角色控制（设计稿谁都能点）；搜索为包含匹配（设计稿是子序列模糊匹配，还匹配会议 id、日期与标签）；Knowledge Base 的 Source 取值按需求为 Goldie / Fireflies（设计稿为 Chat）；页头说明「All files uploaded through chat attachments…」已不能概括四个 Tab，改为「Goldie's sources: knowledge files, memories, cross-company content and expert testimony.」（本方案）；侧栏「+」沿用现有行为。
+状态：两个新 Tab 空列表用设计稿文案「No content matches your search.」「No expert testimony matches your search.」；公司端也有两个新 Tab（7 #Q57），不再按 403 处理；公司端搜索框的占位文字为 `Search by content` / `Search by testimony`。与设计稿的差异：设计稿 Knowledge Base 的 Source 筛选、文件名以外的搜索不做（7 #Q24a）；设计稿 Memory File Scope 的 Document Summary 选项不加（7 #Q24b）；设计稿 Play candidate 开关不持久化、专家归属写死，这里接真实数据；设计稿两个新 Tab 没有分页，分页对齐 Knowledge Base（见本节开头，7 #Q43）；卡片元数据加会议类型（设计 9.11.4），会议名与开关按角色控制（设计稿谁都能点）；搜索为包含匹配（设计稿是子序列模糊匹配，还匹配会议 id、日期与标签）；Knowledge Base 的 Source 取值按需求为 Goldie / Fireflies（设计稿为 Chat）；页头说明「All files uploaded through chat attachments…」已不能概括四个 Tab，改为「Goldie's sources: knowledge files, memories, cross-company content and expert testimony.」（本方案）；侧栏「+」沿用现有行为。
 
 ## 6. 需求追溯
 
@@ -1203,7 +1203,7 @@ PG-03                                           PG-04
 | R17 证词 · GS→Partner 类别（II） | 5.6、6.8 | P7 | PG-02、PG-05d | API-21、API-30 | 4.6、4.9 | 与 LP 共用证词库（#28） |
 | R18 证词 · GS→Founder 限专家、只谈市场（II） | 2.5、6.8、6.10（提示词 P7） | P7、P5、P2 `testimony_backfill_status` | PG-02、PG-02c | API-08 → API-28、API-23（应用后补抽）、API-29 | 4.6 证词补抽、Confirm & Apply，4.7 PG-02c | 同场其他专家也抽（#14、#72）；被推测者的证词在 Confirm & Apply 应用后补抽（Q51） |
 | R19 证词带角色、时间戳、会议日期生效的专长标签（II） | 3.4、6.11 步骤 7 | P7 `speaker_participant_id` / `source_timestamp`、P2 `expertise_tags` | PG-02、PG-05d | API-21、API-30 | — | 矩阵里只读显示时间点，不进投影（Q26，5.6） |
-| R20 证词权限：管理端看完整来源，Founder 只看内容与标签（II） | 1.1、3.4、9.6.2、9.11.5 | P7 两版 | PG-02、PG-05d | API-21、API-30 | — | Tab 只显示姓名与标签（#44） |
+| R20 证词权限：管理端看完整来源，Founder 只看内容与标签（II） | 1.1、3.4、9.6.2、9.11.5 | P7 两版 | PG-02、PG-05d | API-21、API-30 | — | 管理端 Tab 只显示姓名与标签（#44）；公司端 Tab 列匿名版，只显示内容与标签（Q57） |
 | R21 管理员在详情页干预，改后实时更新到 AI 聊天（III） | 9.5、9.6、1.6、第八章 #7~#10 | P7、X1 | PG-02 | API-22~24、API-38 | 4.6 | 对话里的来源链接不做（Q21）；投影写纯文本条目、不调 API-40（Q41） |
 | R22 重新分类会议类型 → 重算路由（III） | 9.5.2、9.9.1、9.9.2 | P1、P8 `TYPE_CHANGE` | PG-02 | API-22；改 Unknown 走 API-23 | 4.6 类型下拉、Start Extraction | Pending 首次提取全部不勾（9.6.4） |
 | R23 更改公司（× 移除、多选、可搜索、只列有权限的公司）（III；SR） | 9.5.3、9.9.1 | P4、P8 `COMPANY_CHANGE` | PG-02 | API-22、API-32 | 4.6 Company | GS→Founder 只留一家（#73） |
@@ -1283,7 +1283,7 @@ PG-03                                           PG-04
 | R91 附会议名称与元数据，PM 不可点（CC / ET） | 9.11.4、9.11.5 | P7 冗余、P1 | PG-05c、PG-05d → PG-02 | API-30 `canOpen` | 4.9 | #43、#48 |
 | R92 Play candidate 开关（CC / ET） | 9.11.6 | P7 `in_playbook` | PG-05c、PG-05d | API-31 | 4.9 | Q8 |
 | R93 模糊查询与时间过滤（CC / ET） | 9.11.4、9.11.5 | P7 | PG-05c、PG-05d | API-30 | 4.9 | 证词另匹配说话人姓名（Q25b） |
-| R94 Expert Testimony 每条带说话人姓名与专家标签（ET） | 9.11.5 | P7 → P2 | PG-05d | API-30 | 4.9 | 只列署名版 |
+| R94 Expert Testimony 每条带说话人姓名与专家标签（ET） | 9.11.5 | P7 → P2 | PG-05d | API-30 | 4.9 | 管理端只列署名版；公司端列匿名版、不带姓名（Q57） |
 
 **追溯缺口的处理**（94 条中 11 条原有缺口）：
 
@@ -1368,6 +1368,7 @@ PG-03                                           PG-04
 | Q54 | 测试提出「This page is out of date」弹框设计稿里没有。是否连同防过期提交（P1 `updated_at` 乐观锁）一起去掉、接受后提交的覆盖先提交的 | **保留防过期提交，只把弹框换成页面顶部错误提示条**（用户决定 2026-11-16）：文案 `This page is out of date. Refresh the page.`，不弹框、页面不自动刷新、不清页面草稿，管理员自己刷新；发起写操作的弹框（PG-02a / d / e / f）收到 40900 仍先关掉。评估过去掉乐观锁：页面过期后的写入会落到十余条互不相同的拒绝提示上（多数没说要刷新，有的与页面显示对不上），两位管理员的改动会按行混在一起、可能授权没看过的文字，故不采用。代价（已接受）：别人改了本场任何内容后，自己页面上不相干的写入也会被拒，刷新后未保存的编辑与勾选要重做。后端不改（40900 的 `message` 前端不显示） | 4 通用约定、3.6 错误码 `40900`、P1「防过期提交」；设计 9.6.5「并发」；web `review/utils/writeError.ts` |
 | Q55 | 测试提出摘要行的 Authorize 灰色不能勾，要先勾下面的 Knowledge base 才能勾，看起来像 bug（#Q42 的「正文未勾时摘要置灰、勾回正文不连带勾回摘要」） | **同一（去向, 公司）的正文与摘要当成一个勾选框**（用户决定 2026-11-16）：勾选或取消任一个，另一个随之变；不再有「正文未勾时摘要置灰」，只在正文行已删时摘要置灰。不再支持只放行正文、不放行摘要（#Q42 原允许）。后端不改：API-23 仍按「摘要授权而正文未授权按正文为准」归一。存量数据不处理（只上了测试环境，需要时手动勾选） | 4.6 Authorize、5.6、X1「摘要跟着正文走」、P7；设计 9.6.2；web `review/utils/routingMatrix.ts`（`authorizationChanges` / `isSummaryAuthorizeBlocked`） |
 | Q56 | 测试提出未对上的说话人下拉里的 `Assign to a participant` 不需要，有 `Create new person` / `Link existing person` 两项就够 | **去掉 `Assign to a participant`，连同 PG-02d 弹框与 API-27**（用户决定 2026-11-16）：未对上的说话人与未识别的参会人下拉一致，只有两项。要把说话人挂到本场已有的参会人名下，改走 `Create new person` 并填那位参会人的邮箱——API-25 按邮箱认出本场已有的参会人（平台用户、名册已有的人都不新建），直接挂上；那位参会人既不是平台用户、也不在名册里时，等于先按表单把他登记进名册、再挂说话人（Name 预填的是说话人的显示名，要改成本人姓名）；一位参会人可以挂多个说话人。代价（已接受）：比原来多填一张登记表单；说话人查不到邮箱时不能再「指定给某位参会人」，只能填本场某位参会人的邮箱、挂到他名下。P3 `bind_source = MANUAL_ASSIGN` 只剩历史数据，枚举值与列注释保留；API-21 的 `aiSuggestedMatch` 仍返回，页面不再使用 | 2 PG-02、3.2、3.4、3.6、4.6、4.7、5.6、P3 `bind_source`；设计 1.9、9.5.5、9.5.9、9.7.4、9.9.1、9.10.2、第十章 #66；提示词 6.13；web `review/components/ParticipantChips.tsx`；Python `participant_service.py` |
+| Q57 | 公司端的 Goldie Base 没有 Cross company content、Expert Testimony 两个 Tab：创始人在 Goldie 里召回得到跨公司内容与匿名证词，却没有页面可以浏览（设计第十章 #41 原定只在管理端） | **公司端也显示这两个 Tab，内容与公司端在 Goldie 召回到的一致**（用户决定 2026-11-17）：Cross company content 只有正文；Expert Testimony 列匿名版的行，只有正文与专长标签。不给公司端的：会议名称与元数据、说话人姓名、Play candidate——API-30 对公司端调用者不返回这些字段（`meeting`、`speakerName` 为 null，`inPlaybook` 恒 false），不靠前端隐藏。公司端所有用户可见（召回也不分 Company Admin）；租户只认会话机构、不采信前端传入的组织，没有机构时返回空页；不调 Java；关键词只匹配正文；不提供时间过滤、接口忽略公司端传入的日期（审核发现按日期逐日收窄能反推每条内容的会议日期，再对照本人受邀的会议可能认出匿名证词的说话人）；每条一张卡片、不按会议归组。两版各看各的授权：管理端 Tab 看署名行，公司端 Tab 看匿名行。管理端的两个 Tab 不变（管理端在 Goldie 召回的也只有署名版）。索引 `idx_ai_ff_routing_row_tab` 的谓词加上 `TESTIMONY_ANON`（迁移 V035，发版前后执行均可）。API-31 对公司端仍拒绝 | 2 PG-05c / PG-05d、3 API-30、4.9、5.8、P7 索引；设计 9.11、9.11.1、9.11.4、9.11.5、第十章 #41；Python `goldie_base_service.py`、`routing_row_repository.py`、`business/V035`、`source/rag/ROLE_VISIBILITY.md` §8；web `askGoldie/goldieBase/` |
 
 ## 8. 开发任务拆分（第 6 步计划）
 

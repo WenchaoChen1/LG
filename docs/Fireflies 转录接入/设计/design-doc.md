@@ -64,7 +64,7 @@
 
 **Cross-Company 只投影已审核放行的条目**：需求 I.2「管理员会在任何信息传播前进行审核」，所有类型都需审核（用户决定 2026-10-10），Authorize 默认不勾（1.7、9.6.4），放行后才写入跨公司空间。
 
-证词与跨公司条目**不进 Memory 页**：它们不属于任何公司，登记行 `company_id` 为空，业务类型也另取两个值（1.2）。管理端在 Goldie Base 的 Cross company content / Expert Testimony 两个 Tab 查看（9.11.4 / 9.11.5）。
+证词与跨公司条目**不进 Memory 页**：它们不属于任何公司，登记行 `company_id` 为空，业务类型也另取两个值（1.2）。两端都在 Goldie Base 的 Cross company content / Expert Testimony 两个 Tab 查看：管理端带会议与来源，公司端只有正文与专长标签（9.11.4 / 9.11.5）。
 
 #### 按会议类型的产物归属
 
@@ -139,7 +139,7 @@ GS 内部与 GS → Partner 没有基金层：绑不到公司的内容不写 1b�
 | GS → 创始人条目 | `APP` | 关联公司 | Memory 页 Company Memory；公司端与管理端知识库页 |
 | 公司层条目（GS 内部 / Partner） | `ADMIN` | 命中公司 | Memory 页 Portfolio Memory；管理端知识库页 |
 | 基金层条目（LP） | `ADMIN` | **空** | Memory 页与管理端知识库页的机构层展示（改造后） |
-| 证词两版 / 跨公司 | `APP` / `ADMIN` | **空** | 不出现在两个页面；管理端在 Goldie Base 各自的 Tab 查看（9.11.4 / 9.11.5） |
+| 证词两版 / 跨公司 | `APP` / `ADMIN` | **空** | 不出现在两个页面；两端在 Goldie Base 各自的 Tab 查看（9.11.4 / 9.11.5） |
 
 `organization_id` 一律填租户。证词与跨公司的 `company_id` **必须为空**：它们已匿名、不属于任何公司；若填来源公司，会以该公司条目的身份出现在其 Memory 页与知识库页。
 
@@ -566,8 +566,8 @@ n-gram 阈值可配置（需求 I），实施期用真实数据调优。
 | 1b 管理端记忆 | ✅ | **与 1a 同一份** | 同 1a |
 | Founder KB | ✅ | 由 overview 整理的 markdown 文档，无长度上限；overview 为空时按纪要结构从转录生成（6.5） | 公司端：Goldie、Founder KB 页；PM：Goldie、管理端知识库页；PGM / SA：Goldie、会议管理页、管理端知识库页 |
 | Portfolio KB | ✅ | **与 Founder KB 同一份** | 同 Founder KB |
-| Cross-Company | ✅ | 市场趋势、商业趋势、战略决议闭环、全公司视角四类，仅可迁移，0~N 条；**所有进行中的交易信息永不放出**；**须管理员审核后发出**（2.3） | 审核放行后——公司端：Goldie；PM：Goldie、Goldie Base 的 Cross company content Tab（只读，9.11.4）；PGM / SA：Goldie、该 Tab、会议管理页（审核与编辑的唯一入口，9.6） |
-| 专家证词 | **条件产出** | 仅当会上有专家（Founder / LP / Strategic Partner / Exit Partner 带专长标签，GS staff 与 Other 不算，1.11）；被 AI 推测为专家的人确认后补抽（2.5）；匿名版 + 署名版 | 公司端：Goldie（匿名版）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行，含说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
+| Cross-Company | ✅ | 市场趋势、商业趋势、战略决议闭环、全公司视角四类，仅可迁移，0~N 条；**所有进行中的交易信息永不放出**；**须管理员审核后发出**（2.3） | 审核放行后——公司端：Goldie、Goldie Base 的 Cross company content Tab（只有正文，9.11.4）；PM：Goldie、Goldie Base 的 Cross company content Tab（只读，9.11.4）；PGM / SA：Goldie、该 Tab、会议管理页（审核与编辑的唯一入口，9.6） |
+| 专家证词 | **条件产出** | 仅当会上有专家（Founder / LP / Strategic Partner / Exit Partner 带专长标签，GS staff 与 Other 不算，1.11）；被 AI 推测为专家的人确认后补抽（2.5）；匿名版 + 署名版 | 公司端：Goldie（匿名版）、Goldie Base 的 Expert Testimony Tab（匿名版，只有正文与专长标签，9.11.5）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行，含说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
 
 > **KB 两列按用户决定实现**：路由表字面 Founder KB 为「Fireflies Essence Summary」、Portfolio KB 为「1,000 字以内摘要」；用户决定（2026-09-30）把两者合为同一份 overview 整理稿，公司端与管理端关联同一份。
 >
@@ -731,8 +731,8 @@ GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归
 | 1b 管理端记忆 | ✅ | **基金层**一条（组合级别摘要，含会上谈到的被投公司进行中交易）；**不按公司拆分**（用户决定 2026-10-10，3.3） | PM：Goldie；PGM / SA：Goldie、会议管理页 |
 | Founder KB | ❌ | | |
 | Portfolio KB | ✅ | 同 1b（仅基金层），markdown 文档 | PM：Goldie、管理端知识库页；PGM / SA：Goldie、管理端知识库页、会议管理页 |
-| Cross-Company | ✅ | 市场趋势、商业趋势、战略决议闭环、全公司视角四类，仅可迁移；**所有进行中的交易信息永不放出**；一份匿名版，**须管理员审核后发出**（2.3、3.5） | 审核放行后——公司端：Goldie；PM：Goldie、Goldie Base 的 Cross company content Tab（只读，9.11.4）；PGM / SA：Goldie、该 Tab、会议管理页（审核与编辑的唯一入口，9.6） |
-| 专家证词 | **条件产出** | 会上有专家时（3.4）；融资 / 市场 / 估值倍数 | 公司端：Goldie（匿名版）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行，含说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
+| Cross-Company | ✅ | 市场趋势、商业趋势、战略决议闭环、全公司视角四类，仅可迁移；**所有进行中的交易信息永不放出**；一份匿名版，**须管理员审核后发出**（2.3、3.5） | 审核放行后——公司端：Goldie、Goldie Base 的 Cross company content Tab（只有正文，9.11.4）；PM：Goldie、Goldie Base 的 Cross company content Tab（只读，9.11.4）；PGM / SA：Goldie、该 Tab、会议管理页（审核与编辑的唯一入口，9.6） |
+| 专家证词 | **条件产出** | 会上有专家时（3.4）；融资 / 市场 / 估值倍数 | 公司端：Goldie（匿名版）、Goldie Base 的 Expert Testimony Tab（匿名版，只有正文与专长标签，9.11.5）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行，含说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
 
 ### 3.3 1b 与 Portfolio KB 提取规则
 
@@ -830,7 +830,7 @@ GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归
 
 公司端只解匿名版空间、管理端只解署名版空间，**两端都不会重复命中同一条证词的两个版本**。
 
-**管理端页面**：Goldie Base 的 Expert Testimony Tab 一条证词一行（只列署名版的行，9.11.5），PM / PGM / SA 可见；显示说话人姓名与专长标签（9.11.5，以设计稿为准）。公司端没有这个 Tab，只经 Goldie 召回匿名版。
+**管理端页面**：Goldie Base 的 Expert Testimony Tab 一条证词一行（只列署名版的行，9.11.5），PM / PGM / SA 可见；显示说话人姓名与专长标签（9.11.5，以设计稿为准）。**公司端页面**：同一个 Tab 列匿名版的行，只显示正文与专长标签，与公司端在 Goldie 召回到的一致（9.11.5，用户决定 2026-11-17）。
 
 > 署名**不能放 `chunk.metadata`**：`SearchHitDTO` 只透出 `chunk_id / content / entry_id / entry_title / space_id / space_name / similarity / match_type / uploaded_at / chunk_kind / file_id`，**metadata 不在返回字段中**，管理端召回后拿不到。
 
@@ -909,7 +909,7 @@ GS 方 ≥ 1（口径同 2.1），**且**无参会人属于公司方（否则归
 | 1b 管理端记忆 | ✅ | 与某个公司有关的结论性内容，按公司拆分（4.3） | PM：Goldie；PGM / SA：Goldie、会议管理页 |
 | Founder KB | ❌ | | |
 | Portfolio KB | ✅ | 同 1b，markdown 文档 | PM：Goldie、管理端知识库页；PGM / SA：Goldie、管理端知识库页、会议管理页 |
-| Cross-Company | ✅ | 市场趋势、商业趋势、战略决议闭环、全公司视角四类，仅可迁移；**所有进行中的交易信息永不放出**；**须管理员审核后发出**（2.3、4.4） | 审核放行后——公司端：Goldie；PM：Goldie、Goldie Base 的 Cross company content Tab（只读，9.11.4）；PGM / SA：Goldie、该 Tab、会议管理页（审核与编辑的唯一入口，9.6） |
+| Cross-Company | ✅ | 市场趋势、商业趋势、战略决议闭环、全公司视角四类，仅可迁移；**所有进行中的交易信息永不放出**；**须管理员审核后发出**（2.3、4.4） | 审核放行后——公司端：Goldie、Goldie Base 的 Cross company content Tab（只有正文，9.11.4）；PM：Goldie、Goldie Base 的 Cross company content Tab（只读，9.11.4）；PGM / SA：Goldie、该 Tab、会议管理页（审核与编辑的唯一入口，9.6） |
 | 专家证词 | ❌ | GS 内部会不抽证词（用户决定 2026-10-16，#72）；需求证词表只列 GS → LP 与 GS → Partner（另有 2.5 的 GS → 创始人一路） | |
 
 > 1b 与 Portfolio KB 按**仅管理端**实现。
@@ -1034,8 +1034,8 @@ LP、Strategic Partner、Exit Partner、Founder
 | 1b 管理端记忆 | ✅ | 涉及具体公司退出的摘要，按公司拆分；默认放行（5.4） | PM：Goldie；PGM / SA：Goldie、会议管理页 |
 | Founder KB | ❌ | | |
 | Portfolio KB | ✅ | 同 1b，markdown 文档 | PM：Goldie、管理端知识库页；PGM / SA：Goldie、管理端知识库页、会议管理页 |
-| Cross-Company | ✅ | 市场趋势、商业趋势、战略决议闭环、全公司视角四类，仅可迁移；**所有进行中的交易信息永不放出**；**须管理员审核后发出**（2.3、5.5） | 审核放行后——公司端：Goldie；PM：Goldie、Goldie Base 的 Cross company content Tab（只读，9.11.4）；PGM / SA：Goldie、该 Tab、会议管理页（审核与编辑的唯一入口，9.6） |
-| 专家证词 | **条件产出** | 会上有专家时（3.4）；商业采购行为、软件使用、估值倍数、买方行为、退出趋势（**5 类**，5.6） | 公司端：Goldie（匿名版）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行，含说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
+| Cross-Company | ✅ | 市场趋势、商业趋势、战略决议闭环、全公司视角四类，仅可迁移；**所有进行中的交易信息永不放出**；**须管理员审核后发出**（2.3、5.5） | 审核放行后——公司端：Goldie、Goldie Base 的 Cross company content Tab（只有正文，9.11.4）；PM：Goldie、Goldie Base 的 Cross company content Tab（只读，9.11.4）；PGM / SA：Goldie、该 Tab、会议管理页（审核与编辑的唯一入口，9.6） |
+| 专家证词 | **条件产出** | 会上有专家时（3.4）；商业采购行为、软件使用、估值倍数、买方行为、退出趋势（**5 类**，5.6） | 公司端：Goldie（匿名版）、Goldie Base 的 Expert Testimony Tab（匿名版，只有正文与专长标签，9.11.5）；PM / PGM / SA：Goldie（署名版）、Goldie Base 的 Expert Testimony Tab（一条一行，含说话人与专长标签，9.11.5）；PGM / SA：会议管理页（两版各一行） |
 
 ### 5.4 1b 与 Portfolio KB 提取规则
 
@@ -1325,7 +1325,7 @@ Fireflies Management 下的四个页面以 Tab 组织，顺序按原型：Summar
 | **Memory 页**（Goldie 内，Company Memory / Portfolio Memory 两层；现为 Goldie Base 的 Memory Settings Tab，9.11.3） | 各条目的摘要（1a / 1b）。GS → 创始人的条目是 APP 端条目，在 Company Memory 层；GS 内部 / Partner 的公司层条目是 ADMIN 端条目，在 Portfolio Memory 层（1.1） | 查询纳入 `ai_file_registry.business_type = FIREFLIES` 中摘要非空的条目（现只取 `KNOWLEDGE_BASE`；摘要并入知识库条目，开发设计 7 #Q42）；LP 基金层条目归属机构、`company_id` 为空，现按公司列的 Memory 页取不到，需增加机构层展示；Fireflies 条目另显示 `Fireflies Memory` + `Meeting Summary` 标签（9.11.3） |
 | **知识库页**（公司端 Founder KB / 管理端 Portfolio KB；现为 Goldie Base 的 Knowledge Base Tab，9.11.2） | 各条目的 markdown 正文，可下载（Fireflies 行由后端现生成 `.md`，9.11.2） | 查询纳入 `FIREFLIES`；公司端普通用户现只能看自己上传的文件，Fireflies 条目由系统写入，需对该公司公司端用户放开（与 Goldie 召回的口径一致，1.1）；~~管理端增加基金标签的手动选择~~（2026-11-04 取消，9.11.2）；新增 Source 列（9.11.2） |
 
-专家证词与 Cross-Company 不进 Memory 页（1.1），在管理端各有 Goldie Base 的独立 Tab（9.11.4 / 9.11.5）。
+专家证词与 Cross-Company 不进 Memory 页（1.1），在 Goldie Base 各有独立 Tab，两端都有（9.11.4 / 9.11.5）。
 
 **Portfolio KB 的基金标签**已取消（2026-11-04），见 9.11.2。
 
@@ -2616,10 +2616,10 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 |---|---|---|---|---|
 | Knowledge Base（9.11.2） | ✅ | ✅ | ✅ | ✅ |
 | Memory Settings（9.11.3） | ✅ | ✅ | ✅ | — |
-| Cross company content（9.11.4） | ✅ 只读 | ✅ 只读 + Play candidate | — | — |
-| Expert Testimony（9.11.5） | ✅ 只读 | ✅ 只读 + Play candidate | — | — |
+| Cross company content（9.11.4） | ✅ 只读 | ✅ 只读 + Play candidate | ✅ 只读，只有正文 | ✅ 只读，只有正文 |
+| Expert Testimony（9.11.5） | ✅ 只读 | ✅ 只读 + Play candidate | ✅ 只读，匿名版：正文与专长标签 | ✅ 只读，匿名版：正文与专长标签 |
 
-- **两个新 Tab 只在管理端**（本方案）：需求这两节只写到 PM 与管理员，未提创始人；创始人照旧经 Goldie 召回审核放行的跨公司内容与匿名版证词（1.1）（待确认，第十章 #41）
+- **两个新 Tab 两端都有**（用户决定 2026-11-17，取代原方案「只在管理端」，第十章 #41）：公司端页面显示的内容与公司端在 Goldie 召回到的一致——跨公司内容只有正文，证词列匿名版、只有正文与专长标签；会议名称与元数据、说话人姓名、Play candidate 都不给公司端。公司端不分 Company Admin 与普通用户（召回也不分）
 - **Memory Settings 在公司端仍只给 Company Admin**（现状，不变）
 - **旧地址保留**：`/knowledgeBase`、`/memorySettings` 打开即跳到 Goldie Base 的对应 Tab。现状：域内 README 规定 `/askGoldie`、`/knowledgeBase` 为既有线上地址、不得改动（web `src/pages/askGoldie/README.md:25`）。用 `redirect` 实现，有先例（web `config/routes.ts:757-760`），须放在 404 兜底路由之前
 - **入口改指新页**：聊天侧栏的知识库图标与 Memory 齿轮（现状：web `src/pages/devSupport/chat/components/HistorySidebar.tsx:169-181`）、手机端底部 Tab（`PortalTabBar.tsx:56-66`）合并为一个 Goldie Base 入口、默认打开 Knowledge Base Tab；门户导航的高亮键（`PortalNavSidebar.tsx:25`，现只有 `knowledge` / `memory`）与手机端底栏的 `PortalTab` 类型（`PortalTabBar.tsx:21`）随之改为单一的 Goldie Base；入口测试断言的是旧 URL（`PortalNavSidebar.test.tsx:49-52`、`PortalTabBar.test.tsx:64-66`），一起改。合并依据设计稿 `ask-goldie.tsx:80-89`（开发设计第 2 节）
@@ -2631,9 +2631,9 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | Tab 顺序 | Knowledge Base · Memory Settings · Cross company content · Expert Testimony（需求顺序）；默认打开第一个 |
 | 路由 | 新增一个路由，当前 Tab 记在 URL 上，旧地址据此直达对应 Tab：`/askGoldie/goldieBase?tab=knowledgeBase\|memorySettings\|crossCompany\|expertTestimony`（用户决定 2026-10-27，开发设计 7 #Q16）。门户布局判定 `isChatPortal`（web `src/layouts/BasicLayout.tsx:147-150`）与顶栏 `askAI` 高亮（`:462-467`）按 `/askGoldie`、`/knowledgeBase`、`/memorySettings` 前缀判断：新路由在 `/askGoldie` 下，这两处不用改。旧地址的 redirect 放在 404 兜底之前 |
 | 门户外壳 | 两页现各自渲染门户外壳（侧栏 + 标题 + 手机端底栏：`KnowledgeBasePage.tsx:489-496,641-647`、`MemorySettingsPage.tsx:98,224-227`），不能原样挂进 Tab：外壳上提到 Goldie Base 页，两页只保留内容区（本方案） |
-| 按端显示 | 按上表，没有权限的 Tab 不显示。公司端普通用户只剩 Knowledge Base 一个 Tab，是否仍显示 Tab 栏开发设计定 |
+| 按端显示 | 按上表，没有权限的 Tab 不显示。公司端普通用户有 Knowledge Base、Cross company content、Expert Testimony 三个 Tab（2026-11-17 起） |
 | 管理端分角色 | 两个新 Tab 要区分 PM 与 PGM / SA（会议名称可否点击、开关可否改动）。判定按 9.1「权限」的口径：PGM / SA = 管理端，且 superAdmin 或角色菜单含 `seeAllPortfolio`；PM = 管理端其余用户（本方案）。Java 暴露判定结果，Python 接口据此给出可点标志 / 拒写（第八章 #22）；前端不自己判角色，按接口返回的标志位（如 `canManage`、按行的可点标志）显示 |
-| 接口鉴权 | 两个新 Tab 的接口对公司端一律拒绝；Play candidate 的写接口只接受 PGM / SA。不靠前端隐藏（本方案，同 9.3.6）。本租户（9.1）：管理端（PM / PGM / Super Admin）一律与现有知识库一致，取组织树第一个租户（web `src/pages/askGoldie/components/orgScope.ts` 的 `firstLeafOrgId`），不提供切换；后端信任前端传入的组织 id，会话租户的等值校验先不启用（用户决定 2026-10-28，开发设计 7 #Q32，取代 2026-10-16 的等值校验口径） |
+| 接口鉴权 | 两个新 Tab 的列表接口两端都可调：对公司端只返回正文与专长标签，会议、说话人、Play candidate 由后端不返回，不靠前端隐藏；公司端的租户只认会话里的机构，不采信前端传入的组织（与召回定位空间用的机构相同），会话没有机构时列表为空（用户决定 2026-11-17）。Play candidate 的写接口只接受 PGM / SA，公司端拒绝（本方案，同 9.3.6）。管理端的本租户（9.1）：管理端（PM / PGM / Super Admin）一律与现有知识库一致，取组织树第一个租户（web `src/pages/askGoldie/components/orgScope.ts` 的 `firstLeafOrgId`），不提供切换；后端信任前端传入的组织 id，会话租户的等值校验先不启用（用户决定 2026-10-28，开发设计 7 #Q32，取代 2026-10-16 的等值校验口径） |
 
 现状：`/askGoldie`、`/knowledgeBase`、`/memorySettings` 三个路由登录即可访问（web `config/routes.ts:133-146`）；知识库页与 Memory 页都是同一组件按端分叉，管理端判定为 `roleType===1`，PM / PGM / SA 在前端不区分；`src/pages/askGoldie/` 下没有现成的 Tab 容器。
 
@@ -2717,6 +2717,8 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 | 会议元数据 | Fireflies id（不加 `#`）与会议时间；不显示会议类型（用户决定 2026-11-04）。会议名称一律 Blue/900，可点的悬停加下划线 | PM、PGM / SA |
 | Play candidate | 开关（9.11.6） | PM 只看状态；PGM / SA 可改 |
 
+**公司端**（用户决定 2026-11-17）：同一个 Tab 对公司端所有用户开放，列会话机构下已审核放行的跨公司内容，范围与公司端在 Goldie 召回的相同。只显示内容，一条一张卡片；不显示会议名称与元数据、不按会议归组、没有 Play candidate。搜索只匹配内容；没有时间过滤——按会议日期逐日收窄能反推出每条内容出自哪天的会议，公司端用户再对照自己受邀的会议，就可能认出匿名证词是谁说的，接口同样忽略公司端传入的日期；排序与分页同管理端。
+
 类别（`category`）与标签设计稿上没有，不显示（以设计稿为准）；标签与可迁移理由不落库（9.6.6）。
 
 现状：「模糊搜索 + 时间区间」的现成实现在 devSupport 会话管理——后端 `chatbot/interfaces/routes.py:246-286`（keyword + dateFrom / dateTo，UTC 自然日含边界），辅助函数 `escape_like` / `utc_day_start` / `utc_day_end_exclusive` 在 `chatbot/domain/repository/_common.py:7-17`，前端 RangePicker 在 web `src/pages/devSupport/chat/manage/ChatManagePage.tsx:58,471`。这些辅助函数是 chatbot 私有，复用前先挪到 `common/`。
@@ -2727,9 +2729,9 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 
 | 项 | 口径 |
 |---|---|
-| 列什么 | 本租户已授权、**已投影**（`file_id` 非空，9.6.6）、未软删的证词**署名版**的行（会议处于待确认专家时不列），天然一条证词一行 |
-| 两版的授权 | 矩阵里两版各占一行、各有一个 Authorize，可单独放行（9.6.2）；本 Tab 以署名版的授权为准，只放行了匿名版的证词不进本 Tab（用户决定 2026-10-26）。本 Tab 只在管理端，展示的说话人信息与管理端在 Goldie 召回到的都是署名版 |
-| 只读、谁能看 | 同 9.11.4：管理端 PM / PGM / SA，全租户；编辑在矩阵，两版各自编辑（9.6.2） |
+| 列什么 | 管理端：本租户已授权、**已投影**（`file_id` 非空，9.6.6）、未软删的证词**署名版**的行（会议处于待确认专家时不列）。公司端：同样条件的**匿名版**的行（用户决定 2026-11-17）。两端都是天然一条证词一行 |
+| 两版的授权 | 矩阵里两版各占一行、各有一个 Authorize，可单独放行（9.6.2）；管理端以署名版的授权为准，只放行了匿名版的证词不进管理端的 Tab（用户决定 2026-10-26）；公司端以匿名版的授权为准，只放行了署名版的不进公司端的 Tab（用户决定 2026-11-17）。各端 Tab 列的，与该端在 Goldie 召回到的是同一版 |
+| 只读、谁能看 | 同 9.11.4：管理端 PM / PGM / SA，全租户；公司端所有用户，会话机构；编辑在矩阵，两版各自编辑（9.6.2） |
 | 搜索、时间过滤、排序与分页 | 同 9.11.4（分页同样对齐 Knowledge Base Tab，开发设计 7 #Q43），内容一侧匹配证词正文；按设计稿另匹配说话人姓名（expert）（开发设计 7 #Q25b） |
 | 数据源 | 中间表的证词行 + 会议名称与元数据（物理取数同 9.11.4）。说话人姓名与专长标签按证词行的 `speaker_participant_id` 关联参会人表取（专长标签为会议日期生效的版本，9.6.4、9.6.6）；正文与来源行分开存，来源行由程序按这些字段生成，本 Tab 只取正文与这些字段 |
 
@@ -2746,6 +2748,8 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 - **说话人信息对管理端全显示**：PM / PGM / SA 都显示姓名与专长标签——《Goldie Base》10-16 版删去了「PM 账户不显示」，只写姓名与专家标签，设计稿也只画了这两项。原本方案按《会议内容提取规则》证词权限「管理端可查看完整来源信息（提供者及其角色/组织）」在本 Tab 补组织与角色，现以设计稿为准不在本 Tab 显示；管理端在 Goldie 召回的署名版来源行仍带提供者的组织与角色，这条要求照样满足。与 PM 在 Goldie 召回署名版一致（第十章 #44 关闭）
 - 会议名称可能带有对方机构或人名，PM 可据此获知非管辖公司 / LP 会议的存在；需求要求同时显示会议名称，按需求实现，风险与备选见第十章 #48
 
+**公司端**（用户决定 2026-11-17）：列匿名版的行，每条只显示证词正文（不含来源行）与专长标签——会议当日生效的版本，与匿名版来源行 `Expertise: …` 同源，没有标签时不显示这一行；一条一张卡片。不显示说话人姓名、会议名称与元数据，没有 Play candidate（标记只打在署名行，9.11.6）。搜索只匹配证词正文，不匹配说话人姓名与会议名称；没有时间过滤，排序与分页同 9.11.4 的公司端。管理端的 Tab 不变：管理端在 Goldie 召回的也只有署名版，没有匿名版。
+
 #### 9.11.6 Play candidate
 
 > 需求《Goldie Base》10-16 版（Cross Company Content、Expert Testimony 两节同文）：「有Play candidate 开关，管理员可以打开使其进入playbook candidate内容」
@@ -2754,7 +2758,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 |---|---|
 | 含义 | 打开 → 该条标为 **playbook 候选**；**只是标记**：不进 Goldie 的 Playbook 召回，不影响它在原空间的正常召回，不改内容、不改授权（用户决定 2026-10-16） |
 | 用途 | 后续另一任务处理这些候选、产出 playbook——不是本项目 Goldie 召回的 Playbook 手册；怎么处理不在本期（第十章 #62，用户确认 2026-10-27） |
-| 存储 | 中间表行上的 `in_playbook`，默认关。跨公司与证词在中间表**逐条一行**（9.6.6，#38）；一条证词对应两版两行而开关只有一个，**标记打在署名行**，匿名行恒为关——Expert Testimony Tab 列的就是署名行（9.11.5，用户决定 2026-10-26）。是挂在条目上的开关、不是单独一种产出（用户确认 2026-10-27，开发设计 7 #Q8） |
+| 存储 | 中间表行上的 `in_playbook`，默认关。跨公司与证词在中间表**逐条一行**（9.6.6，#38）；一条证词对应两版两行而开关只有一个，**标记打在署名行**，匿名行恒为关——管理端的 Expert Testimony Tab 列的就是署名行（9.11.5，用户决定 2026-10-26）。是挂在条目上的开关、不是单独一种产出（用户确认 2026-10-27，开发设计 7 #Q8） |
 | 谁能开关 | PGM / SA——「管理员」按本文档惯例指 PGM / SA（9.1），与矩阵编辑同一批人；PM 看得到开关状态、不能改（第十章 #45） |
 | 生效 | 开关只改中间表的标记，立即生效，不经 `Confirm & Apply Routing` |
 | 审计 | 不写审计，只留当前值与 `updated_by`（9.10.2，用户决定 2026-10-26） |
@@ -2883,7 +2887,7 @@ Ask Goldie 下新建 **Goldie Base** 页，汇总 Goldie 作答所用的数据�
 
 | # | 事项 | 当前处理 |
 |---|---|---|
-| 41 | 两个新 Tab（Cross company content、Expert Testimony）是否只在管理端：需求只提到 PM 与管理员，未提创始人 | 只在管理端（PM / PGM / SA）；公司端 Goldie Base 只有 Knowledge Base 与 Memory Settings 两个 Tab，Memory Settings 仍只给 Company Admin。创始人照旧经 Goldie 召回跨公司内容与匿名证词（9.11.1） |
+| 41 | 两个新 Tab（Cross company content、Expert Testimony）是否只在管理端：需求只提到 PM 与管理员，未提创始人 | **已调整（用户决定 2026-11-17）**：两端都有。公司端显示的与公司端在 Goldie 召回到的一致——Cross company content 只有正文；Expert Testimony 列匿名版，只有正文与专长标签；不给会议名称与元数据、说话人姓名、Play candidate，不提供时间过滤；公司端不分 Company Admin 与普通用户，Memory Settings 仍只给 Company Admin。原方案「只在管理端（PM / PGM / SA）」作废（9.11、9.11.4、9.11.5，开发设计 7 #Q57） |
 | 42 | Cross company content Tab 列哪些：需求写"已经归类为 cross company 的内容"，未说待审核、被拒的列不列 | 只列已审核放行（已授权、已投影）的内容；本 Tab 只读（Play candidate 除外），审核与编辑仍只在 Content Routing Matrix（9.11.4、9.6） |
 | 43 | PM 能在 Cross company content Tab 看到跨公司内容（需求写 PM 只是会议名不可点），取代 2026-10-10「管理端页面上只有 PGM / Super Admin 能查看」的用户决定 | 按《Goldie Base》实现：PM / PGM / SA 全租户只读；编辑入口仍只有矩阵一处，这部分不变（9.1、9.11.4） |
 | 44 | PM 在 Expert Testimony Tab 看不到说话人与专长标签（需求「PM 账户不显示」），而 Goldie 里 PM 召回的是署名版（#7 ②） | **已关闭**：《Goldie Base》10-16 版删去「PM 账户不显示」，PM 在本 Tab 也显示说话人姓名与专长标签，与 Goldie 侧署名版一致（9.11.5） |
