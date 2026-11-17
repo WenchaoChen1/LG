@@ -584,7 +584,7 @@ Java 的 5 项 Nacos 配置漏配时用上表默认值；它们与 `cio.fireflie
 | API-02 | POST `/connection/link` | 提交 key：调 Fireflies `user` 校验、加密落库；换账号按首次连接（9.2.6） | `apiKey`、`organizationId?` | 同 API-01；失败返回原因码（鉴权失败 / 网络不可达） | J1 写 | PGM / SA | PG-01b | 新增，见 3.6 |
 | API-03 | POST `/connection/sync` | Sync now：条件更新抢占 `sync_started_at`，异步拉取（补投 → 拉列表 → 写原文 → 发 SQS），立即返回；正在同步、或没有 key（`UNCONNECTED`）时拒绝 | `organizationId?` | `syncing` | J1 写；J2 / J3 写；发 SQS | PGM / SA | PG-01b | 新增，见 3.6 |
 | API-04 | POST `/connection/remove` | 清空密文、回 `UNCONNECTED` | `organizationId?` | 同 API-01 | J1 写 | PGM / SA | PG-01b1 | 新增 |
-| API-05 | GET `/cheat-sheets` | 名册列表：每人取当前状态那一版（9.7.1），带逾期待复核标记；每行现算 `lgUser`（不加表字段）：按该行（当前状态那一版）的邮箱匹配本租户 LG 账号，与识别 ② 同口径——本租户管理端用户、本租户公司的公司端用户（本租户含下级节点，7 #Q52），忽略大小写，命中即 true（7 #Q51） | `keyword`、`role`、`page`、`size`、`organizationId?`、`meetingId?`（PG-02f 用，7 #Q53：给了就以会议所属租户为准，每人改取会议当天生效的那一版；当天没有生效版本的人照常返回当前状态那一版并标 `effectiveOnMeeting = false`） | `content[{id, name, emails, organization, role, expertiseTags, areaOfExpertise, validFrom, validTo, source, needsReview, lgUser, effectiveOnMeeting?}]`、`totalElements`、`overdueCount` | J4 读；LG 用户表读（`lgUser`） | PGM / SA | PG-01c、PG-01c1（编辑预填同一行）、PG-02f | 新增，见 3.6 |
+| API-05 | GET `/cheat-sheets` | 名册列表：每人取当前状态那一版（9.7.1），带逾期待复核标记；每行现算 `lgUser`（不加表字段）：按该行（当前状态那一版）的邮箱匹配本租户 LG 账号，与识别 ② 同口径——本租户管理端用户、本租户公司的公司端用户（本租户含下级节点，7 #Q52），忽略大小写，命中即 true（7 #Q51） | `keyword`、`role`、`page`、`size`、`organizationId?`、`meetingId?`（PG-02f 用，7 #Q53：给了就以会议所属租户为准，每人改取会议当天生效的那一版；当天没有生效版本的人照常返回当前状态那一版并标 `effectiveOnMeeting = false`） | `content[{id, name, emails, organization, role, expertiseTags, areaOfExpertise, validFrom, validTo, source, needsReview, lgUser, effectiveOnMeeting?}]`、`totalElements`（原另返回 `overdueCount`，随逾期提示条取消，用户决定 2026-11-17） | J4 读；LG 用户表读（`lgUser`） | PGM / SA | PG-01c、PG-01c1（编辑预填同一行）、PG-02f | 新增，见 3.6 |
 | API-06 | POST `/cheat-sheets` | 新建人员（第一版）；租户内重名（忽略大小写）不拒绝，姓名自动加数字后缀，返回最终姓名（7 #Q46）；填的邮箱已登记在名册别的条目里时拒绝（7 #Q49）；带 `sourceMeetingId` 时有效期必须包含会议日期（7 #Q44） | `name`、`emails`、`organization`、`role`、`expertiseTags`、`areaOfExpertise`、`validFrom`、`validTo`、`sourceMeetingId?`、`organizationId?` | 新行（含最终姓名与 `id`） | J4 写（有 `sourceMeetingId` 记 `FF_SUMMARY_RECORDS` 与 `source_meeting_id`、租户由该会议推出，否则 `MANUAL`）；J2 读（推租户、取会议日期） | PGM / SA | PG-01c1；Python 经 API-25 调用 | 新增，见 3.6 |
 | API-07 | PUT `/cheat-sheets/{id}` | 编辑：一律按弹框追加一条完整新版本（9.7.1），不改旧行（7 #Q44）。不带 `sourceMeetingId`（Cheat Sheet 页）：什么都没改时只在当前状态那一行记复核（`reviewed_*`，9.7.5）；带 `sourceMeetingId`（会议页 Edit external party，`{id}` 为 API-21 返回的 `versionId`）：新行记来源，有效期必须包含会议日期，与 `{id}` 那一版相比没有任何改动时不写、也不记复核。填的邮箱已登记在名册别的条目里时拒绝（本条目自己的各版本不算，7 #Q49） | 同 API-06（无 `name`、`organizationId`） | 新行 id；或 `reviewed: true` | J4 写（带 `sourceMeetingId` 的记 `FF_SUMMARY_RECORDS` 与 `source_meeting_id`）；J2 读（取会议日期） | PGM / SA | PG-01c1、PG-02b（前端直调） | 新增，见 3.6 |
 | API-08 | POST `/cheat-sheets/expert-confirmations` | 专家确认保存（7 #Q44、#Q45、#Q51），一个事务，一律写名册（维护名单，7 #Q51）：已在册的按 API-07 规则以 `baseVersionId` 为底追加一条完整新版本（与 T2 相比没有改动不写；邮箱查重同 API-07），未登记的按 API-06 规则新建（必填校验、重名加后缀，邮箱已登记在名册别的条目里时拒绝，7 #Q49；LG 平台用户同样新建，#Q47）；Expertise tags 为空也照建 / 照追加；写拒绝名单 J6：驳回 = `suggestedTags` − 保存后的 Expertise tags，邮箱取 P2 该参会人的本场邮箱；有效期必须包含会议日期；租户由 `sourceMeetingId` 推出。不再有「只写驳回、不建条目」的调用（原 #Q45，#Q51 改） | `sourceMeetingId`、`participantId`、`suggestedTags`（本次打开时的建议标签）、`entry`（登记字段同 API-06，必填，7 #Q51）、`baseVersionId?`（已在册时为预填的 T2 id，未登记为空） | 最终姓名、写入的版本 id | J4 写（新行记 `FF_SUMMARY_RECORDS` 与 `source_meeting_id`）；J6 写；J2 读（推租户、取会议日期）；P2 读（本场邮箱） | PGM / SA | PG-02c（前端直调） | 新增（7 #Q44 改造），见 3.6 |
@@ -821,7 +821,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 
 | 操作 | 位置 | 显示 / 可用条件 | 行为 | 调用接口 | 二次确认 | 成功 / 失败反馈 |
 |---|---|---|---|---|---|---|
-| 逾期提示条 | 列表上方 | `overdueCount > 0` | 显示「N entries are overdue and flagged "needs review".」 | API-05 | — | — |
+| 逾期提示条 | 列表上方 | **已取消（用户决定 2026-11-17）**：逾期只靠每行的 `Needs review` 标记提示 | — | — | — | — |
 | 搜索 | 筛选栏 | — | 匹配姓名、邮箱、组织、专长标签与 Area of expertise | API-05 | 否 | 无结果：「No registry entries match this search.」 |
 | Role 筛选 | 筛选栏 | — | All roles / 6 种角色 | API-05 | 否 | — |
 | 分页 | 表格下方 | — | 对齐 Knowledge Base（第 5 节开头，7 #Q43）：默认每页 10 条，可选 10 / 20 / 50 | API-05 | 否 | — |
@@ -1021,7 +1021,6 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ External Parties Registry                [Add external party]│
-│ N entries are overdue and flagged "needs review".            │
 │ [Search by name, email, organization or expertise] [Role ▾]  │
 ├──────────────────────────────────────────────────────────────┤
 │ Name        │ Email(s)    │ Organization │ Role │ Expertise tags │ Validity period │      │

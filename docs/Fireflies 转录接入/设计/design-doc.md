@@ -2285,7 +2285,7 @@ GS → 创始人会议里 Founder 的组织或所属公司与关联的公司对�
 
 #### 9.7.3 列表
 
-**顶部汇总条**：`N entries are overdue and flagged "needs review".`——原型有、需求没写，是整页唯一的主动提示。
+**顶部汇总条**：不做（用户决定 2026-11-17）。原型在列表上方有一行 `N entries are overdue and flagged "needs review".`，需求没写；逾期只靠每行 Validity period 里的 `Needs review` 标记提示（9.7.5），接口也不再返回逾期条数。
 
 **列**：Name、Email(s)、Organization、Role、Expertise tags、Validity period，行末 `History` / `Edit`。Area of expertise 不进列表（需求列表字段未含），在弹框与 History 中展示。
 
