@@ -3,12 +3,13 @@
 > 关联文档：
 > - **需求文档（本设计的唯一权威来源）**：[../../Exit_Readiness_PRD.md](../../Exit_Readiness_PRD.md)
 > - **sprint122 结转锁定与回退审批（Asana LG-1581）**：独立设计文档 [结转锁定与回退审批/设计/design-doc.md](<../结转锁定与回退审批/设计/design-doc.md>)，本文不重复
+> - **题库草稿保存需求（`Save as Draft` / `Discard Change`）**：[../题库草稿保存功能.md](<../题库草稿保存功能.md>)，题库配置的保存、发布与丢弃口径以它为准（§6.4 / §7.9 / §8.4）
 > - 原型（Lovable，已发布，**仅作 UI 参考**）：`https://exit-readiness-hub.lovable.app`（项目 `exit-readiness-hub` / `ERL-Portfolio portal`）。与 PRD 冲突处一律按 PRD；⚠️ 原型全部为五维形态，维度数量以配置为准
 > - 后端规范：[../../../CIOaas-api/standards/architecture.md](../../../CIOaas-api/standards/architecture.md) · [../../../CIOaas-api/standards/coding.md](../../../CIOaas-api/standards/coding.md)
 > - Python 规范：[../../../CIOaas-python/standards/architecture.md](../../../CIOaas-python/standards/architecture.md) · [../../../CIOaas-python/standards/coding.md](../../../CIOaas-python/standards/coding.md)
 > - 前端规范：[../../../CIOaas-web/standards/architecture.md](../../../CIOaas-web/standards/architecture.md) · [../../../CIOaas-web/standards/coding.md](../../../CIOaas-web/standards/coding.md)
 
-阶段：④ 设计 | 版本：v5.0 | 日期：2026-11-16 | 范围：ERL Card（含 Gap 区块）/ 维度详情 / 全维 Score Details（**双端可达**）/ 双端填报（**Yes/No 逐级解锁 + 维度级提交**）/ 题库配置（**`Question Library` / `Dimension Configuration` 两个顶层 Tab + 题库版本历史页**）/ 基准 / Goldie 差距分析（**含 Share**）/ 组合层 ERL Tab
+阶段：④ 设计 | 版本：v5.1 | 日期：2026-11-18 | 范围：ERL Card（含 Gap 区块）/ 维度详情 / 全维 Score Details（**双端可达**）/ 双端填报（**Yes/No 逐级解锁 + 维度级提交**）/ 题库配置（**`Question Library` / `Dimension Configuration` 两个顶层 Tab + 题库版本历史页**）/ 基准 / Goldie 差距分析（**含 Share**）/ 组合层 ERL Tab
 
 > 2026-11-16 精简：删除版本说明、§0.3～§0.51 修正清单、§10 改动文件清单、§11 验证清单、附录 A～C；变更经过见 git 历史。代码注释里引用的旧编号见 §0.3 对照表。
 
@@ -59,7 +60,7 @@
 | §0.23-P6 | F2 页面不显示任何期次文字 | §8.4 |
 | §0.10-D11 | 提交确认弹窗两套文案：该期次该端该维 `submissionCount > 0` 时用 `Submit again?` 确认框（不提 source of truth） | §8.4 |
 | §0.10-D10 | 版本锁定不变；接口 3 出参 `latestPublishedVersionNo` / `hasNewerQuestionSet`，题库有新版时填报页弹强阻断二选一弹窗（`Submit draft content` / `Access new question library`） | §6.3 / §7.9 / §8.4 |
-| §0.5-5 | 题库写接口（接口 11 / 12 / 13 / 14 及 `reorder`）按 `questionKey` 定位，不按题目 `id`（写时复制会换 id） | §6.4 / §7.9 |
+| §0.5-5 | 题目的跨版本身份是 `questionKey`，不是题目 `id`（每版一换）；整批保存（接口 30 / 21）按 `questionKey` 认题。逐条写接口 10～14 已删除 | §6.4 / §7.9 |
 | §0.47 | 差距分析生成门槛为维度级：两端都有 SOT 且无题集 mismatch 的维度即可分析，只为它们建 / 派发任务，一个都没有才不生成；Share 门槛仍要求全部 Active 维度 | §7.5 / §6.6 |
 | §0.46 | 两端都以最新一条差距分析记录为准：公司端只在最新记录 `shared = true` 时可见，分享后再提交即回到空态，直到管理端再次 Share | §7.5 / §6.6 |
 | §0.44 | 差距分析无 severity：`gaps[]` 每项只有 `title`；提示词 `erl_gap_analysis.md` 版本 1.0，模型输出 `{gaps: [str], actions: [str], narrative}`；`gaps` 无可用条目判该任务 FAILED | §6.6 |
@@ -96,9 +97,9 @@
 | B 填报 | **B4 Reset / 丢弃草稿** | ✅ | §3.3 | 填报页 `Reset` 按钮：**连草稿行一起删除**（附件 → 答案 → 草稿行，§6.3 接口 28）；**无二次确认，点下去直接清**。**接口 28** `DELETE /erl/assessment/draft`（§6.3） |
 | B 填报 | B3 评估历史列表 | ✅ | §3.9 | 完整保留每次提交，无 `Current` 徽章（最新 SOT 屏上只靠行序）。含 `Submitted` 列、无 `Completion` 列、分数列为**本维度 Overall Score + Stage 徽章**、`Portal` 列仅管理端渲染、详情限本维度 |
 | C 配置 | C1 题库列表（**`Question Library` 顶层 Tab** 内：各维度 Tab + Era band 分组表格；维度 Tab 数按当前 `status = 'Active'` 的维度集合动态） | ✅ | §3.8 | **仅 portfolio portal**；题库按**组织（租户）**隔离 |
-| C 配置 | C2 新增题目 / C3 编辑删除 | ✅ | §3.8 | 题干 / Era band（1–9 level）/ Source（无判定标准字段）；表单字段与 PRD §3.8 完全一致 |
-| C 配置 | **C4 Era Band 内拖拽重排（= 必答顺序）** | ✅ | §3.8 | 含管理员影响提示 |
-| C 配置 | **C5 题库版本化 + Publish 发布** | ✅ | §3.8 | 配置页改的是**草稿版本**；**新增 / 编辑 / 删除 / 重排全部经 Publish 才生效**；存在草稿版本即激活按钮（§7.9） |
+| C 配置 | C2 新增题目 / C3 编辑删除 | ✅ | §3.8 | 题干 / Era band（1–9 level）/ Source（无判定标准字段）；表单字段与 PRD §3.8 完全一致。**只改页面上的工作副本，不调接口**（§8.4） |
+| C 配置 | **C4 Era Band 内拖拽重排（= 必答顺序）** | ✅ | §3.8 | 同样只改页面上的工作副本 |
+| C 配置 | **C5 题库版本化 + `Save as Draft` / `Publish` / `Discard Change`** | ✅ | §3.8 + [题库草稿保存功能](<../题库草稿保存功能.md>) | 新增 / 编辑 / 删除 / 重排先留在页面上；**`Save as Draft`** 把全部维度整批存成本组织唯一的一份草稿，**`Publish`** 把页面当前内容整批发布，**`Discard Change`** 连草稿一起丢弃、回到在用版本；三者都不分维度（§7.9） |
 | C 配置 | **C6 维度配置** | ✅ | §3.8 / §3.1 | 配置页第二个顶层 Tab **`Dimension Configuration`**：可**新增 / 删除 / 排序 / 改权重**；维度集合与权重**整组保存、就地整组替换，不产生版本**（§7.11）；权重合计**必须 = 100%** 且需脏态才激活 Save；综合分按**当前 `status = 'Active'` 的维度集合**加权（§5.1.3 / §6.4 接口 23/24）。停用 / 删除落库均为置位、不删行（见 §1.2） |
 | C 配置 | **C7 题库版本历史页** | ✅ | 原型（UI 参考） | `Question Library` Tab 的 `View history` 入口；**版本快照页**：页头版本下拉（取**接口 25**，**只列已发布版本**，草稿不进下拉）+ **各维度各一张只读题目表**（取**接口 26**；卡片张数按该版本的维度列表，由接口 26 出参 `dimensions[]` 下发 = 该版本**发布当时**的逐维快照，存于 `erl_question_config_dimension_version`（§5.1.5），后续维度增删改名不影响历史展示）。卡头**不显示 `Retired` 灰标**；**本页不取接口 23**，只读接口 25 / 26 |
 | D 基准 | D1 基准记录页 + **D2 新增记录（独立页）** | ✅ | §4 | Benchmarkit / Top GSV Quartile 的**外部静态数据接入口**，平台不计算；**每期次按维度各录两个分**（维度条目数按当前 `status = 'Active'` 的维度集合动态）。入口：ERL Card 雷达图正下方 `View Top GSV Quartile & External Benchmarks ›`，**仅管理端** |
@@ -254,8 +255,8 @@ Gateway :9000  -->  CIOaas-web(Java) :5213/web
 | **附件只有题级一种粒度**，双端同口径：表 `erl_answer_attachment`、`erl_assessment_answer_id` not null | 粒度归一后「附件属于哪道题」是表上自明的事实，不需要「空 / 非空」这种隐式区分标志 | ❌ 可空 `erl_assessment_answer_id` 只在服务端拦维度级写入（表结构仍在说谎，日后必被误用）；❌ `erl_answer_attachment` + `erl_dimension_attachment` 两张近乎相同的表 |
 | **计分不落库、实时算**（含维度 level 分与加权综合分） | 与 §12「不冗余存储聚合分数」一致；level 分由答案唯一决定，无二义。**加权综合分与 Stage 一律按当前 `status = 'Active'` 的维度集合与其当前 `weight` 实时算**（§7.1 / §7.11）—— 故会随配置变更**回溯改变历史期次的值**（已接受，§13-Q21）。某维无分（未填 / 0 题）按 0 计入、其余权重不归一化（§7.1） | ❌ 提交时把综合分 / Stage 写死 |
 | 草稿与正式提交**同一条记录**，用 `status` 区分；提交后该行冻结，再改则新建下一条 | PRD §3.3「支持保存进度」+「提交后即只读，如需修改必须新建一次提交」 | ❌ 独立草稿表 |
-| **题库版本化**：版本表 + 写时复制草稿版本，所有配置变更经 Publish 生效 | 需求方要求「所有变更都经发布」；状态位只能表达「新增未发布」，表达不了「同一题的编辑前后两份题干」 | ❌ `publish_status` 状态位（编辑无法两态并存）；❌ 双表（草稿表 + 正式表，等于版本化但只能存两代、且两套 DDL 要同步维护） |
-| 题目删除 = **在草稿版本内物理删行** | 历史评估绑定题库版本快照，已发布版本的行不会被删，软删标记失去价值 | ❌ 软删 —— 版本内留一堆 `enabled=false` 的行，查询恒要带条件 |
+| **题库版本化**：版本表 + 草稿版本（按页面内容整批替换），所有配置变更经 Publish 生效 | 需求方要求「所有变更都经发布」；状态位只能表达「新增未发布」，表达不了「同一题的编辑前后两份题干」 | ❌ `publish_status` 状态位（编辑无法两态并存）；❌ 双表（草稿表 + 正式表，等于版本化但只能存两代、且两套 DDL 要同步维护） |
+| 题目删除 = **保存草稿时不再写这一行**（草稿题目行整批重写） | 历史评估绑定题库版本快照，已发布版本的行不会被删，软删标记失去价值 | ❌ 软删 —— 版本内留一堆 `enabled=false` 的行，查询恒要带条件 |
 | **必答顺序落在 `erl_question_config.sort_order`**，配置页拖拽即改该列 | PRD §3.8「该顺序即评估中的必答顺序」 | ❌ 顺序只做展示、计分顺序另存 |
 | **level 计分收在 `application/scoring/ErlLevelScorer` 一个类里** | 逐级解锁的「终止 level」判定同时被填报解锁、提交校验、展示计分、组合层、Goldie 输入五处消费，散写必然漂移 | ❌ 把 level 判定散写在各 service；❌ 策略接口 + 工厂（只有一种模式，抽象无消费者） |
 | Gap analysis 绑 **`(company_id, period)`**（不分 audience）+ `shared` / `shared_at` / `shared_by` 状态位 | PRD 要求单一口吻、「GSV 团队可见，点 `Share to founder` 分享给 Founder 端」⇒ 一份 prompt；激活门槛 = 该 `(company, period)` 下**每个维度**的 FOUNDER 与 GSV 两端都有 `SUBMITTED` 记录（同 `(company_id, period, portal, dimension_code)` 内按 `submitted_at DESC, id DESC` 取首条 `SUBMITTED` 判存在）（接口 27） | ❌ 绑单个 `assessment_id`；❌ 按 Founder / GSV 两套口吻各生成一份；❌ 生成即对 Founder 可见（PRD 要求 GSV 主动 Share） |
@@ -377,30 +378,30 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 |------|------|------|------|
 | `id` | varchar(36) | PK | |
 | **`organization_id`** | **varchar(36)** | **not null** | 所属组织（租户）。取值缺省来自 `SecurityUtils.getOrganizationId()`（§2.1），可由可选入参 `organizationId` 指定组织树内的组织（§4.3） |
-| **`question_key`** | **varchar(36)** | **not null** | **跨版本稳定的题目标识**。克隆时原样复制，新增题时生成新 UUID。**版本 diff（`changeType`）与 C 模块写接口定位按它**，不用 `id`。答案表不携带它 |
+| **`question_key`** | **varchar(36)** | **not null** | **跨版本稳定的题目标识**。每出一版原样沿用，新题由前端生成 UUID（§6.4）。**版本 diff（`changeType`）与整批保存认题按它**，不用 `id`。答案表不携带它 |
 | **`dimension_code`** | **varchar(8)** | **not null** | **创建时生成、与 `dimension_abbr` 解耦**。**组织内稳定** —— `erl_question_config.dimension_code`、`erl_assessment.dimension_code`、`erl_reference_score_item.dimension_code`、`erl_question_config_dimension_version.dimension_code`、`erl_gap_analysis_dimension_task.dimension_code` 五处历史数据全靠它关联，故**一经创建即永不改变**。<br>**生成规则：`{前缀}{随机后缀}`，如 `OPS4K7M`**<br>· **前缀** = 创建时 `dimension_abbr` 的**前 3 位**（大写化，只保留 `A-Z0-9`；不足 3 位就用实际长度）—— **只是创建时的一次快照，此后 `dimension_abbr` 怎么改都不影响它**。<br>· **后缀** = **4 位随机**，字符集取 **Crockford Base32**（`0-9A-Z` 去掉 `I` / `L` / `O` / `U`）—— 去 `I/L/O/U` 是为了 `0/O`、`1/I/L` 不混淆（这串要被人从日志里抄进 SQL），去 `U` 顺带避开冗余拼出冒犯性单词。<br>· **总长 ≤ 7**，`varchar(8)` **留 1 位余量**（日后加前缀 / 校验位不用 ALTER 五张表）。<br>· **唯一性按全局查重**（生成时 `SELECT 1 WHERE dimension_code = ?` **不带 `organization_id`**）—— 落库约束仍是组织内唯一，但全局查重成本为零，可让「用户新建的维度」彻底免疫跨租户串号。<br>· ⚠️ **生成必须在写事务之前完成**（循环「生成 → 查重 → 命中则重生成」+ 本次请求内维护已分配集合），**不得在整组替换的事务内 catch 唯一冲突重试** —— PostgreSQL 下唯一冲突会把整个事务置为 aborted，同事务内重试必抛 `current transaction is aborted`；且 JPA 延迟 flush 会让冲突在提交那一刻才爆。真撞上了就**整个请求失败重试**，不在事务内继续。<br>· 页面上哪里都不显示、**也不允许用户指定**（§8.4-C6） |
 | `era_band` | smallint | not null, 1–9 | **题目归属的 level**（PRD §3.3 的「level」即此列）；Era 由此推导（1–3 Founder / 4–6 Harvest / 7–9 Exit）。**逐级解锁与维度分判定的唯一依据**（§7.2） |
 | `question_text` | **varchar(2048)** | not null | 题干。配置页 C2 / C3 的输入框限 **2000 字符**（前端 `maxLength` + `n / 2000` 字数提示），库留 48 余量，**那 48 不是第二个业务上限**；服务端 `@Size(max = 2048)` 跟列宽走 |
 | `evidence_source` | varchar(255) | | 来源标签（**`Founder / CFO`**、`Looking Glass`、`SharePoint`、`GSV Assessment`、`Board Transcripts / Fireflies`…）；空显示 `—`。**PRD §3.3 写的 `Founder/CTO` 是输入错误**，以 `Founder / CFO` 为准 |
 | `sort_order` | int | not null | **同 `dimension_code + era_band` 内的必答顺序**，配置页拖拽即改此列（PRD §3.8）。**level 内的作答顺序**，跨 level 的推进由解锁规则控制（§7.2） |
-| **`version_no`** | **int** | **not null** | **按 `dimension_code` 自增**的题目集版本号，从 1 起 —— **每个维度各有一条独立的版本线**（`FRL` 到 v7 时 `PRL` 可能才 v2）。一行只属于「该维度的某一版」；同一维度的版本间整份克隆，故同一道题在该维度的 N 个版本里有 N 行。⚠️ **与 `erl_question_config_version.version_no` 不是同一个东西** —— 后者是**组织级发布批次号**（§5.1.1），两者由 §5.1.5 的快照表建立对应关系 |
+| **`version_no`** | **int** | **not null** | **按 `dimension_code` 自增**的题目集版本号，从 1 起 —— **每个维度各有一条独立的版本线**（`FRL` 到 v7 时 `PRL` 可能才 v2）。一行只属于「该维度的某一版」；同一维度每出一版就整份重写一批行，故同一道题在该维度的 N 个版本里有 N 行。⚠️ **与 `erl_question_config_version.version_no` 不是同一个东西** —— 后者是**组织级发布批次号**（§5.1.1），两者由 §5.1.5 的快照表建立对应关系 |
 
 约束与索引（定位键 `(organization_id, dimension_code, version_no)`）：
 - `uk_erl_question_config_key (organization_id, dimension_code, version_no, question_key)` —— **同组织同维度的同一版本内**一个 key 只有一行。
 - `idx_erl_question_config_version_dim (organization_id, dimension_code, version_no, era_band, sort_order)` —— 配置页与填报页的主查询路径（**恒带 `(organization_id, dimension_code, version_no)`** —— 一次只取一个维度的一版）。
 - **题库按组织（租户）单份**（PRD §4「ERL 配置层级按照租户层级」），本表直接带 `organization_id`（`erl_question_config.version_no` 与 `erl_question_config_version.version_no` 不是同一个数，无法经版本号间接归属）。**发布批次在组织内单份**（Publish 是组织内的全局动作，§7.9），但**各维度的题目集版本线相互独立**。
 
-> **题库版本是「每维一条版本线」**：`version_no` 按 `dimension_code` 自增，一份维度题目由 `(dimension_code, version_no)` 定位。**组织级的「第 n 次发布」在 `erl_question_config_version`**（§5.1.1），它与各维度当时 `version_no` 的对应关系逐行落在 `erl_question_config_dimension_version`（§5.1.5）—— 即「本次发布 = FRL 的 v7 + PRL 的 v2 + …」。只改了某一个维度的题目时，**只有那个维度的 `version_no` 前进**，其余维度在新发布批次里仍指向各自的旧版本号，不整库克隆。
+> **题库版本是「每维一条版本线」**：`version_no` 按 `dimension_code` 自增，一份维度题目由 `(dimension_code, version_no)` 定位。**组织级的「第 n 次发布」在 `erl_question_config_version`**（§5.1.1），它与各维度当时 `version_no` 的对应关系逐行落在 `erl_question_config_dimension_version`（§5.1.5）—— 即「本次发布 = FRL 的 v7 + PRL 的 v2 + …」。只改了某一个维度的题目时，**只有那个维度的 `version_no` 前进**，其余维度在新发布批次里仍指向各自的旧版本号，不整库重写。
 >
-> **草稿态的题目集怎么定位**：已发布版本经 §5.1.5 快照拿到各维 `question_version_no`；**草稿没有快照行**，故草稿态取该维的 `max(version_no)`。为让这条规则安全，配套两条约束：
-> - **新版本号只在写时复制时分配**：某维度本轮首次被编辑时，在**草稿版本行的悲观锁内**算 `version_no = max(version_no) + 1 WHERE organization_id = ? AND dimension_code = ?` 并克隆该维题目；未被编辑的维度**不产生新号**，其 `max` 恰等于已发布号，读侧行为自洽。§7.9-②’’ 的 `max(version_no)` 与写时复制的取号**一律带 `organization_id` 作用域**。
-> - **丢弃草稿必须同事务清理高版本号题目行**（删除该组织所有 `version_no` 大于“当前已发布版本快照里该维的 `question_version_no`”的行）—— 否则那批行会被 `max` 永久命中，成为**幽灵草稿**。⚠️ 本仓当前**没有丢弃题库草稿的接口**（§7.10 边界 5：“不做丢弃草稿”），故该风险当前不可达；**日后若补丢弃接口，这条清理是必选项**。
+> **草稿态的题目集怎么定位**：草稿版本行下有该维的快照行（§5.1.5）⇒ 取快照行的 `question_version_no`；没有 ⇒ 这份草稿没改该维，取在用版本的号（§7.9-②’’）。配套两条约束：
+> - **新版本号只在保存草稿时分配**：`Save as Draft` / `Publish` 写入某个与在用版本不同的维度时，在**草稿版本行的悲观锁内**取 `version_no = max(version_no) + 1 WHERE organization_id = ? AND dimension_code = ?`；与在用版本相同的维度**不产生新号**。取号**一律带 `organization_id` 作用域**。
+> - **草稿的题目行随草稿一起清**：每次保存草稿先删掉上一份草稿的全部题目行与快照行再重写，丢弃草稿（接口 31）同样删干净 —— 草稿被覆盖或丢弃后不留高版本号的题目行，下一份草稿取到的仍是同一个号（§7.9-②）。
 >
 > 题目行按 `(organization_id, dimension_code, version_no)` 定位，各组织互不相干；脚本不插任何种子题目，题目行一律由业务侧写入。
 
 > **本表不含的字段**：
 > - 发布状态在**版本级**（§5.1.1），题目行无 `publish_status` / `published_at`。
-> - 无软删列 —— 删除题目 = **在草稿版本内物理删行**。已发布版本的行不受影响，历史评估按 `erl_assessment.erl_question_config_version_id` 读旧版本，题干天然可还原。
+> - 无软删列 —— 删除题目 = **保存草稿时不再写这一行**。已发布版本的行不受影响，历史评估按 `erl_assessment.erl_question_config_version_id` 读旧版本，题干天然可还原。
 > - 全部题恒 Yes/No，无 `answer_type`。
 > - **判定标准（`criteria`）不进需求设计**：配置页不采集、题目行不展示、不作为 Goldie 输入。题库字段清单**与 PRD §3.8 逐项对齐**（题干 / Era Band / Source）。
 
@@ -410,18 +411,18 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 |------|------|------|------|
 | `id` | varchar(36) | PK | |
 | **`organization_id`** | **varchar(36)** | **not null** | 所属组织（租户）。PRD §4「ERL 配置层级按照租户层级」；取值缺省来自 `SecurityUtils.getOrganizationId()`（§2.1）；管理端可用可选入参 `organizationId` 指定**自身组织树内**的组织（§4.3） |
-| `version_no` | int | not null | **组织内**递增的**发布批次号**，从 1 起；配置页显示 `Published v3` / `Draft v4`。⚠️ 与 `erl_question_config.version_no` 不是同一个东西 —— 后者按 `dimension_code` 自增、是各维度题目集各自的版本号（§5.1），两者的对应关系落在 §5.1.5 |
+| `version_no` | int | not null | **组织内**递增的**发布批次号**，从 1 起；配置页不常驻显示它，只出现在发布成功提示 `Published v{n}.` 与 C7 版本下拉的 `v{n}` 里。⚠️ 与 `erl_question_config.version_no` 不是同一个东西 —— 后者按 `dimension_code` 自增、是各维度题目集各自的版本号（§5.1），两者的对应关系落在 §5.1.5 |
 | `status` | varchar(16) | not null | `DRAFT`（在改，未生效）/ `PUBLISHED`（已生效）。**在用版本 = 本组织 `status = 'PUBLISHED'` 中 `version_no` 最大的那一条**（新发起的评估绑定它，§7.9-①）；`version_no` 组织内唯一且草稿号恒为 `max + 1`，故结果天然唯一、不需要次级排序键。**不用 `published_at` 作判据**（只是时间戳、无唯一约束，草稿行为 `null`）。⚠️ 草稿行的 `version_no` 恒为最大，取在用版本**必须带 `status = 'PUBLISHED'`**，漏了就会把未发布的草稿当成在用版本发到问卷上。Publish 只翻本版的状态，**一行都不碰上一版** |
 | `published_at` | timestamp | | `PUBLISHED` 才有值 |
 | `published_by` | varchar(128) | | 发布人姓名快照 |
-| `version` | bigint | not null, default 0 | JPA `@Version` 乐观锁版本号。草稿版本行是**同组织多管理员共编**的对象：A 的加题事务持有草稿行时、B 把同一行发布成 PUBLISHED，A 随后把新题写进那个版本号（`erl_question_config.version_no`）—— 一道从未发布过的题瞬间进入线上问卷。题目的增删改排写的是 `erl_question_config`、**不碰本表**，故防线是 `ensureDraftVersion` 对草稿行发的那条带版本谓词的 UPDATE |
+| `version` | bigint | not null, default 0 | JPA `@Version` 乐观锁版本号。草稿版本行是**同组织多管理员共用**的对象，保存草稿 / 发布 / 丢弃草稿都先对它取悲观锁（§7.9-②’’’）；`@Version` 兜的是两个事务同时发现无草稿、并发建草稿行的那一下 |
 
 约束（全部带 `organization_id` 前缀）：
 - **部分唯一索引** `uk_erl_question_config_version_draft ON erl_question_config_version (organization_id) WHERE status = 'DRAFT'` —— **同一组织内同时最多一份草稿版本**。题库按组织单份，草稿也就按组织单份（同组织的多个管理员共享同一份草稿，后果见 §7.9-④）。
 - `uk_erl_question_config_version_no (organization_id, version_no)` —— 同时是「至多一个在用版本」的兜底：在用版本 = `PUBLISHED` 里 `version_no` 最大的那条，组织内号唯一 ⇒ 结果必然唯一。
 - 索引 `idx_erl_question_config_version_status (organization_id, status, version_no DESC)` —— 版本历史列表、建草稿时算 `version_no = max + 1`、取本组织最新已发布版本的主路径。
 
-> **本表不存克隆来源与变更摘要**：版本序列由 `version_no` 表达；变更摘要不落库，接口 9 只返回根节点 `hasDraft` 一个布尔值、接口 25 不返回 `changeSummary`（§6.4）。发布当时的维度集合由 §5.1.5 逐维快照（`dimension_code` / `dimension_name` / `dimension_abbr` / `sort_order`），不依赖维度配置留存历史。
+> **本表不存上一版来源与变更摘要**：版本序列由 `version_no` 表达；变更摘要不落库、也不下发（接口 9 / 21 / 25 的出参都没有 `changeSummary`）；草稿与在用版本的差异只体现在接口 9 根节点的 `hasDraft` 与每题的 `changeType`（§6.4）。发布当时的维度集合由 §5.1.5 逐维快照（`dimension_code` / `dimension_name` / `dimension_abbr` / `sort_order`），不依赖维度配置留存历史。
 
 > **为什么不用「双表（草稿表 + 正式表）」**：双表本质就是只能存两代的版本化，却要把 `erl_question_config` 的全部列复制一份 DDL 并长期同步维护；版本表方案用版本号表达同样的语义，还顺带给了历史评估一个天然的题干快照来源（省掉软删）。
 
@@ -482,8 +483,8 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 
 ### 5.1.5 `erl_question_config_dimension_version` —— 题库版本 ↔ 维度快照
 
-> ⚠️ **本表也在草稿阶段写入**。某维本轮首次被编辑、触发克隆时就写一行
-> （挂在**草稿版本行**上）—— 它是「本轮克隆过哪些维度」的**唯一记录**（§7.9-②’’）。
+> ⚠️ **本表也在草稿阶段写入**。保存草稿时，内容与在用版本不同的维度各写一行
+> （挂在**草稿版本行**上）—— 它是「这份草稿改了哪些维度」的**唯一记录**（§7.9-②’’）。
 > Publish 只是把同一条版本行翻成 `PUBLISHED`，这批行随之成为该发布版本的快照。
 >
 > ⚠️ **这条特性直接决定接口 23 的 `deletable` 怎么算**（§6.4）。「该维度是否进入过
@@ -504,13 +505,13 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 | `sort_order` | int | not null | 排序：C7 版本快照页的维度卡顺序按它排（= 发布当时 `erl_dimension_config.sort_order` 的快照） |
 | `bound_at` | timestamp | not null | 绑定时间（= 该题库版本的发布时刻） |
 
-> ⚠️ **本表的行会被评估行直接指向**：`erl_assessment.erl_question_config_dimension_version_id` 存的就是本表某一行的 id（§5.2）。因此「**已发布版本的快照行此后永不改写、永不删除**」是**评估取题的前提** —— 行被删掉，那条评估就退回复合键路径（仍能取到题，但「作答依据」的直连断了）。Publish 时删行的那一支（§7.9-②'''' 边界 ①：草稿期克隆过、发布前又被置 `Inactive`）删的是**草稿版本**的行，评估只会绑到**已发布版本**的行上，两者不重叠。
+> ⚠️ **本表的行会被评估行直接指向**：`erl_assessment.erl_question_config_dimension_version_id` 存的就是本表某一行的 id（§5.2）。因此「**已发布版本的快照行此后永不改写、永不删除**」是**评估取题的前提** —— 行被删掉，那条评估就退回复合键路径（仍能取到题，但「作答依据」的直连断了）。保存草稿、丢弃草稿时删的行（§7.9-②）都挂在**草稿版本**上，评估只会绑到**已发布版本**的行上，两者不重叠。
 
 约束与索引：
 - `uk_erl_question_config_dimension_version (erl_question_config_version_id, dimension_code)` —— 同一题库版本内一个维度只有一行。
 - 索引 `idx_erl_question_config_dimension_version (erl_question_config_version_id, sort_order)` —— 按版本取有序维度列表的主查询路径（接口 26 出参 `dimensions[]`）。
 
-**写入时机**：**草稿版本行上就有快照行** —— 某维本轮首次被编辑、触发克隆时就写一行挂在草稿版本行上（`ErlQuestionConfigVersionServiceImpl.ensureDimensionCloned`），它是「本轮克隆过哪些维度」的**唯一记录**（§7.9-②''）。**接口 21 Publish 在同一事务内**只把同一条版本行翻成 `PUBLISHED`，这批行随之成为该发布版本的快照，**无需重写**；Publish 当时只补写「本轮未克隆过的 `Active` 维度」那几行（取该组织当时 `erl_dimension_config` 中 `status = 'Active'` 的行，带上该维度当时的 `question_version_no`），`bound_at` = 发布时刻；**此后永不改写**。⚠️ 若实现成「草稿不写本表」，§7.9-②'' 的判据就没有落点，写时复制会退回用两个 `max` 比大小反推 —— 那有两个可达的静默错误分支（§7.9-②'' 已列）。
+**写入时机**：**草稿版本行上就有快照行** —— 保存草稿（接口 30，以及接口 21 发布事务里的同一步）时，内容与在用版本不同的维度各写一行挂在草稿版本行上，它是「这份草稿改了哪些维度」的**唯一记录**（§7.9-②’’）；每次保存先清掉上一份草稿的快照行再重写。**接口 21 Publish 在同一事务内**把这条版本行翻成 `PUBLISHED`，这批行随之成为该发布版本的快照；再补写「本次未改动的 `Active` 维度」那几行（取该组织当时 `erl_dimension_config` 中 `status = 'Active'` 的行，带上该维度在用的 `question_version_no`），`bound_at` = 发布时刻；**此后永不改写**。
 
 > **`question_version_no` 与 `erl_question_config_version_id` 不冗余**：前者是**该维度题目集自己的版本号**（`erl_question_config.version_no`，按 `dimension_code` 自增，§5.1），后者是**组织级的发布批次**（§5.1.1）。本表正是两者的对应关系表 —— 一行 = 「第 n 次发布时，维度 X 用的是它自己的第 m 版题目」。取某个发布版本下某维度的题目：先按 `erl_question_config_version_id` 查出本行，再用 `(dimension_code, question_version_no)` 回 `erl_question_config` 取题。
 >
@@ -673,7 +674,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 
 > 统一前缀：Java 侧 `@RequestMapping("/erl")`，前端经网关调 `/api/web/erl/**`。响应统一 `Result<T>`。入参走 `interfaces/vo/request`、出参走 `interfaces/vo/response`（`standards/coding.md` 三层传输实体强制），**禁止直接暴露 Entity**。
 >
-> **接口共 29 个**：1~20、#21 publish、#22 scoreDetails、#23 / #24 维度配置读写、#25 题库版本历史、#26 版本题面快照、#27 `POST /erl/gapAnalysis/share`（§6.6）、#28 `DELETE /erl/assessment/draft`（§6.3）、#29 `POST /erl/assessment/progress`（§6.3 —— 草稿期推进解锁进度，**只算不存、零写入**）。编号只增不改，删除的接口保留编号空位以免全文交叉引用失效。
+> **接口编号到 31**（#10～#14 已删除、编号留空）：1~9、15~20、#21 publish、#22 scoreDetails、#23 / #24 维度配置读写、#25 题库版本历史、#26 版本题面快照、#27 `POST /erl/gapAnalysis/share`（§6.6）、#28 `DELETE /erl/assessment/draft`（§6.3）、#29 `POST /erl/assessment/progress`（§6.3 —— 草稿期推进解锁进度，**只算不存、零写入**）、#30 `PUT /erl/question/draft`、#31 `DELETE /erl/question/draft`（§6.4 —— 题库保存草稿 / 丢弃草稿）。编号只增不改，删除的接口保留编号空位以免全文交叉引用失效。
 >
 > **三条全局规则，逐接口不再重复声明**：
 > ① **维度级提交（R1）** —— 一次提交 = 某公司某期次某端的**单个维度**，填报域（接口 3 / 4 / 5 / 28）的请求体与响应体一律带 `dimension`，单维平铺。
@@ -798,23 +799,21 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 
 ### 6.4 题库配置（C，PRD §3.8）
 
-> C 模块的读写**一律面向草稿版本**，写接口的定位参数是 **`questionKey`** 而非题目 `id` —— 写时复制会让草稿行拿到新 `id`，前端手里的 `id` 属于已发布版本，按 `id` 定位在「首次编辑」这一步必然失配。
+> C 模块的题库读写**一律面向草稿版本**（无草稿时读在用版本）。题目的增删改排**不逐条落库**：页面改的是本地工作副本（§8.4-C1），`Save as Draft`（接口 30）与 `Publish`（接口 21）才把**全部维度的整份题目**一次提交；题目按 **`questionKey`** 认，不按题目 `id`（`id` 每版一换）。
 
 | # | 方法 / 路径 | 用途 | 关键入参 |
 |---|-------------|------|----------|
-| 9 | `GET /erl/question` | C1 列表（按 `eraBand` 分组、组内带题数、按 `sortOrder` 排序）；**返回草稿版本**，无草稿时返回最新已发布版本 | `dimension` |
-| 10 | `POST /erl/question` | C2 新增 | `dimension`、`eraBand`（1–9 level）、`questionText`、`evidenceSource` —— 与 PRD §3.8 的题目字段逐项一致 |
-| 11 | `GET /erl/question/{questionKey}` | C3 编辑回填 | path `questionKey` + **query `dimensionCode`（必传）** |
-| 12 | `PUT /erl/question/{questionKey}` | C3 更新 | path `questionKey` + **query `dimensionCode`（定位用的**原维度**，必传）** + 体同 10（体里的 `dimensionCode` 是**目标维度**） |
-| 13 | `DELETE /erl/question/{questionKey}` | C3 删除（**草稿版本内物理删行**） | path `questionKey` + **query `dimensionCode`（必传）** |
-| 14 | **`PUT /erl/question/reorder`** | **C4 拖拽重排** | `dimension`、`eraBand`、**`questionKeys[]`**（该 band 内的完整新顺序） |
-| 21 | **`POST /erl/question/publish`** | **C5 发布草稿版本** | 仅可选 `organizationId`；出参 `versionNo`、`publishedAt` + **`dimensions[{ dimensionCode, dimensionName, dimensionAbbr, questionVersionNo, sortOrder }]`**（本次发布写入 `erl_question_config_dimension_version` 的逐维快照，§5.1.5；与接口 26 共用同一个出参结构，发布后的 toast 可直接报维度名） |
+| 9 | `GET /erl/question` | C1 列表：**一次返回全部 `Active` 维度的题**（每题带 `dimensionCode`，维度内按 `eraBand`、`sortOrder` 排序）；**返回草稿版本**，无草稿时返回在用版本 | 仅可选 `organizationId` |
+| 10～14 | —— | **已删除**（逐条新增 / 回填 / 更新 / 删除 / 重排），编号留空 | —— |
+| 30 | **`PUT /erl/question/draft`** | **C5 `Save as Draft`**：用页面内容**整份覆盖**本组织的草稿 | 体 `dimensions[{ dimensionCode, questions[{ questionKey, eraBand, questionText, evidenceSource }] }]`，`questions[]` 的数组顺序即题序；出参同接口 9 |
+| 21 | **`POST /erl/question/publish`** | **C5 `Publish`**：把页面内容整份存成草稿，并在同一事务内发布 | 体同接口 30；出参 `versionNo`、`publishedAt` + **`dimensions[{ dimensionCode, dimensionName, dimensionAbbr, questionVersionNo, sortOrder }]`**（本次发布写入 `erl_question_config_dimension_version` 的逐维快照，§5.1.5；与接口 26 共用同一个出参结构） |
+| 31 | **`DELETE /erl/question/draft`** | **C5 `Discard Change`**：删除本组织的草稿，回到在用版本 | 仅可选 `organizationId`；无出参 |
 | 23 | **`GET /erl/dimension/config`** | **C6 读维度配置**（`Dimension Configuration`，D13） | 可选 `organizationId`（缺省 = 登录态组织）+ **可选 `includeDeactivated`**（默认 `false`）；出参 `savedAt` / `savedBy`（取本组织**全部行审计列 `updated_at` 的 max**、`savedBy` 取该行的 `updated_by`）、`dimensions[{dimensionCode, dimensionName, dimensionAbbr, sortOrder, weight, **status**}]`（默认只返 `Active` 行，带 `includeDeactivated=true` 时返全量供 C6 回看与恢复；C6 **恒**带 `includeDeactivated=true`（停用行由常显区块承载，§8.4-C6），该入参保留供其它调用方）+ **`deletable`**（boolean 非空：`true` ⟺ 该 `dimension_code` **从未进入任何已发布题库版本的维度快照** ⇒ 行尾给垃圾桶=删除；`false` ⇒ 给电源按钮=停用。⚠️ **判据必须 join `erl_question_config_version` 并过滤 `status = 'PUBLISHED'`** —— `erl_question_config_dimension_version` **草稿版本上也有行**（§5.1.5），只查快照表会把「只在未发布草稿里改过题」的维度误判为不可删）。⚠️ **`deleted = true` 的行任何情况下都不下发**（**含 `includeDeactivated=true`**）—— 那个入参管的是 `status`，与 `deleted` 正交，混用会把已删维度重新暴露到 `Deactivated Dimensions` 区块里）、`total`（**`Active` 行**的权重合计 —— 含 `Inactive` 行的合计永远不是 100，前端的 Exceeds/Needs 提示会算错） |
 | 24 | **`PUT /erl/dimension/config`** | **C6 整组保存维度配置**（D13） | **顶层**：`savedAt`（**必传**，取自上一次接口 23；不匹配即「配置已被他人修改，请重新加载」，防 lost update。该组织**首次保存**时库里一行都没有、令牌本身就是 `null`，此时**必须传 null** —— 一边有一边没有同样算冲突；不匹配返回**业务错误**：**HTTP 200 + `success: false`**（§4.3），既不是 409、也不是 400）+ `deactivatedCodes[]`（**必传**，本次要停用的已有维度 code，**可为空数组**）+ **`deletedCodes[]`**（本次要**删除**的已有维度 code ⇒ 置 `deleted = true`。⚠️ **与 `deactivatedCodes` 不同，它可缺省**（缺省 / null = 空数组）：`deactivatedCodes` 必传是为了杜绝「未出现即停用」的隐式软删（下方校验 ⑥），而 `deletedCodes` 缺省表达的就是「什么都没删」，本身安全）+ `dimensions[]`（**整组替换**）。<br>**数组每项二选一**（显式判别）：① **已有维度**：`{dimensionCode, dimensionName, dimensionAbbr, sortOrder, weight}` —— `dimensionCode` 必须命中本组织已有行；② **新增维度**：`{isNew: true, clientRef, dimensionName, dimensionAbbr, sortOrder, weight}` —— **不带 `dimensionCode`**，`clientRef` 是前端生成的**幂等键**（本次请求内唯一）。**两者都不带、或同时带 `dimensionCode` 与 `isNew` → 业务错误**（§4.3）。<br>新增项**不做任何重名 / 重缩写校验**：与任何已有行（含 `Inactive` 行）同名 / 同缩写一律**直接创建**，不阻断、不要求二次确认；两行靠 `dimension_code` 区分。<br>出参：同 23 **+ `created[{clientRef, dimensionCode}]` 映射**（前端用出参 `dimensions[]` 整体替换本地列表、不读 `created`（§8.4-C6）；该映射保留给需要保持本地行身份的调用方，也便于排障）；出参 `dimensions[]` **按 `sortOrder` 升序**（契约保证） |
 | 25 | **`GET /erl/question/version`** | **C7 版本清单** —— C7 页头版本下拉的数据源 | 仅可选 `organizationId`（缺省 = 登录态组织）；出参 `versions[]`，返回 `DRAFT` + `PUBLISHED`、按 `versionNo` 倒序草稿最前；C7 的版本下拉**只取 `status === 'PUBLISHED'` 的项**，过滤做在前端取数 hook `useQuestionVersions` 里 |
 | 26 | **`GET /erl/question/version/{versionNo}`** | **C7 某一版的整份题面** | path `versionNo`；出参复用接口 9 的 `{ version, questions[] }` + **`dimensions[]`**（全部维度一次给全，项数动态） |
 
-- **C 模块 11 个接口（9-14 / 21 / 23 / 24 / 25 / 26）的组织归属：缺省取 `SecurityUtils.getOrganizationId()`，接受可选 query 入参 `organizationId`**（POST / PUT 亦走 query，不进 Request 体），且只认调用者组织树内的组织（§4.3）；仅管理端可调。
+- **C 模块 8 个接口（9 / 21 / 23 / 24 / 25 / 26 / 30 / 31）的组织归属：缺省取 `SecurityUtils.getOrganizationId()`，接受可选 query 入参 `organizationId`**（POST / PUT 亦走 query，不进 Request 体），且只认调用者组织树内的组织（§4.3）；仅管理端可调。
 - **接口 24 的校验（D13 / R2）**：
   1. **`status = 'Active'` 的维度权重合计恰为 `100.00`**（`numeric(5,2)` 精确比较，不用浮点等值；`Inactive` 行仍在表里，计入则永远凑不满 100），每个 `0 ≤ weight ≤ 100`，否则 `BadRequestException("Dimension weights must add up to 100%.")`。前端 Save 按钮同条件禁用，**服务端不因前端已拦就省掉校验**。
   2. **维度集合合法**：① **带 `dimensionCode` 的项**必须命中本组织已有行，否则**业务错误**（HTTP 200 + `success: false`，§4.3）（跨组织的 code 天然命中不到）；② **带 `isNew` 的项**由服务端生成 code（§5.1.3），**不对 code 做任何格式 / 长度 / 大写校验**（同一列里 `FRL` 与 `OPS4K7M` 并存，任何断言都会误杀一方）；③ `dimensionAbbr` **1–8 字符**，不查重 —— ⚠️ **长度校验必须保留**：`abbr` 与 `code` 已解耦，列宽就是 `varchar(8)`，不校验会直接撞列宽；④ `sortOrder` 无重复；⑤ **至少保留一个 `Active` 维度**（全停用时合计恒为 0，Save 永远失败）；⑥ **集合完整性校验（防静默软删）**：`当前 Active 集合`（`deleted = false` 的那些）必须恰等于 `带 code 的项` ∪ `deactivatedCodes` ∪ **`deletedCodes`**。对不上即**业务错误**（§4.3）并列出缺口 —— 前端漏传一行的 code 就会落到这里，**不得静默当新增处理**。⚠️ 并集里**必须有 `deletedCodes`**：被删的那一行既不在 `dimensions[]` 也不在 `deactivatedCodes[]` 里，漏了这一项每次删除都会被判成「前端漏传了一行」。
@@ -831,29 +830,26 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
   - 配置页的「**删除**维度」= 置 **`deleted = true`**：只对 `deletable = true`（该 code 从未进入任何已发布题库版本的快照）的维度开放，code 走 `deletedCodes[]` 显式点名；行留在表里但**所有读侧一律排除**、页面两处都不显示、**无恢复入口**（§5.1.3）。
   - 删除拦截的判据是「**是否进入过已发布题库版本**」而不是「**有无历史数据**」—— 后者会连「有人填过、但题库从没发布过」的维度也拦住（那种维度删掉是安全的）；保护对象是**已发布题库版本的语义**：那份版本的维度快照与按 code 关联的历史，必须始终解得出那个维度。
 - **`Dimension Configuration` 的改动不进题库版本、不激活 Publish，走自己的 Save**（§5.1.3；题库 Tab 的 Publish 语义不变，§7.9）。
-- **单题接口（11 / 12 / 13）必传 query 参数 `dimensionCode`**：题目行的键位是
-  `(organization_id, dimension_code, version_no, question_key)`，而题目集版本号按维度各自自增 ——
-  **不知道维度就解析不出用哪个 `version_no`**，`questionKey` 单独不是一个完整的定位符。
-  配置页本就按维度分 Tab，前端手上一定有这个值。
-  - ⚠️ **接口 12 的两个 `dimensionCode` 不是同一个**：query 里的是**原维度**（定位用，= 当前所在 Tab），
-    请求体里的是**目标维度**。两者不同即**跨维度移动**：题目行从原维的版本线移到目标维的版本线上，
-    **两条线都要先克隆**（各调一次 `ensureDimensionCloned`），并排到目标组末尾；diff 上表现为
-    原维 removed + 目标维 added，口径自洽。
-- **接口 10 / 12 / 13 / 14 均触发写时复制**：进入 service 先 `ensureDraftVersion()`（**两级判据**，§7.9-②）—— ① 无草稿版本行则同事务内建一条（组织级 `version_no = max + 1`），有则**取行锁复用**；② **再判本维度本轮是否已克隆**（`draftDimensionVersions()`），未克隆才克隆该维题目行并拿新的 `version_no`（只克隆被改动的那个维度）。**漏了第二级判据 = 直接写穿已发布版本**，再在草稿版本上执行本次变更。四个接口都不改已发布版本一个字节。
-- 接口 14 在一个事务内按数组下标重写该 band 全部题目的 `sort_order`；**只允许同 band 内重排**。**跨 band 移动不走本接口**，而是由题目行内的 `Era band` 下拉触发**接口 12 的全量更新**（§8.4 C4）。
-- 接口 9 出参：根节点增加 `version { versionNo, status, lastEditedBy, lastEditedAt }` 与 **`hasDraft`**（布尔）—— **`hasDraft` 即 Publish 按钮的激活依据**（存在草稿版本 = 有未发布变更）；每题增加 `changeType`（`ADDED` / `MODIFIED` / `REORDERED` / `UNCHANGED`，由草稿与最新已发布版本按 `question_key` 逐字段 diff 得出），供列表打徽章。**`hasDraft` 是全局的，切 Tab 不重算**（PRD §3.8「**任意维度**有变更，按钮即激活」，维度数动态）。
-- 接口 21 在一个事务内把草稿版本 `status` 置 `PUBLISHED`、写 `published_at` / `published_by`，**并为每个 `Active` 维度写一行 `erl_question_config_dimension_version`**（`dimension_code` / `dimension_name` / `dimension_abbr` / `question_version_no` / `sort_order` / `bound_at`，§5.1.5）。**无草稿版本时返回业务错误**（§4.3）（前端按钮此时已禁用）；不做「重复点击幂等」的特殊处理 —— 发布成功后草稿已不存在，第二次点击落到同一分支。
+- **接口 30 / 21 的请求体是「页面上看到的整份题库」**，不是增量：
+  - **只处理当前 `Active` 的维度**。体里出现的非 `Active`（已停用 / 已删除 / 不存在）维度**直接忽略**；当前 `Active` 但体里没带的维度按「与在用版本相同」处理（该维不进草稿）。
+  - **`questionKey` 必传**：已有题原样回传，**新题由前端生成 UUID**。服务端只校验格式（UUID）与**本次请求内不重复**，不要求它在库里已存在 —— 页面上的题可能来自一份已被别人丢弃的草稿，照样要能存下来（§7.9-④）。
+  - 逐题校验：`eraBand` 1–9、`questionText` 非空且 ≤ 2048、`evidenceSource` ≤ 255。任一不过即**业务错误**（§4.3），**库中不得有任何写入**。
+  - `sort_order` 由服务端按数组下标在每个 `(维度, eraBand)` 内重编为 `1..n`。
+- **接口 30 的落库（§7.9-②）**：一个事务内先删掉上一份草稿的全部题目行与快照行，再逐维比对「体里的题」与「在用版本的题」（按顺序逐题比 `questionKey` / `eraBand` / `questionText` / `evidenceSource`）—— **不同的维度**才写一批新题目行 + 一行草稿快照，相同的维度不写；**至少有一维不同**才保留（或新建）草稿版本行并刷新其 `updated_at` / `updated_by`，**全部相同则不留草稿**（已有草稿行一并删除，出参 `hasDraft = false`）。
+- **接口 21**：同一事务内先走完接口 30 的落库，再把草稿版本 `status` 置 `PUBLISHED`、写 `published_at` / `published_by`，**并为每个 `Active` 维度补齐 `erl_question_config_dimension_version`**（`dimension_code` / `dimension_name` / `dimension_abbr` / `question_version_no` / `sort_order` / `bound_at`，§5.1.5）。**页面内容与在用版本完全相同时返回业务错误**（§4.3，`There are no unpublished changes to publish.`）、整个事务回滚、不产生新版本 —— 前端按钮此时本应是灰的，走到这里只可能是页面过期（别人刚发布过同样的内容）。
+- **接口 31**：一个事务内删除草稿的题目行、快照行与草稿版本行（§7.9-②）；**没有草稿时幂等返回成功**。
+- 接口 9 出参：`questions[]`（每题 `questionKey` / `dimensionCode` / `eraBand` / `eraLabel` / `questionText` / `evidenceSource` / `sortOrder` / `changeType`）+ 根节点 `version { versionNo, status, lastEditedBy, lastEditedAt }` 与 **`hasDraft`**（布尔，本组织是否存在草稿版本）。**有草稿时 `lastEditedAt` / `lastEditedBy` 就是最近一次 `Save as Draft` 的时刻与保存人**（版本行审计列 `updated_at` / `updated_by`，姓名由用户表解析）—— 草稿只由接口 30 写入，配置页的 `Draft saved … by …` 提示直接取这两个字段（§8.4-C5）。`changeType`（草稿与在用版本按 `question_key` 逐字段比对）照常下发，前端不渲染。
 - **接口 25 出参**：`versions[]`，每项 `versionNo` / `status`（`DRAFT` | `PUBLISHED`）/ `publishedAt` / `publishedBy` / `lastEditedBy` / `lastEditedAt`。**按 `versionNo` 倒序，草稿（`DRAFT`）排在最前**。
-  - **仅可选入参 `organizationId`**（缺省取 `SecurityUtils.getOrganizationId()`，可指定组织树内的组织）、**仅管理端可调**，公司端报业务错误（§4.3 —— 端类型 / 组织越权同样由 `ErlAccessServiceImpl` 抛 `BadRequestException`）。**只读接口，不触发写时复制**（不调 `ensureDraftVersion()`）。
+  - **仅可选入参 `organizationId`**（缺省取 `SecurityUtils.getOrganizationId()`，可指定组织树内的组织）、**仅管理端可调**，公司端报业务错误（§4.3 —— 端类型 / 组织越权同样由 `ErlAccessServiceImpl` 抛 `BadRequestException`）。**只读接口，不写草稿**。
   - ⚠️ **草稿行照常下发，但 C7 不显示它们**：C7 的版本下拉按 `status === 'PUBLISHED'` 过滤，过滤**落在前端取数 hook `useQuestionVersions`**、**不下沉到服务端** —— 「库里到底有没有草稿版本」是「`Publish` 按钮能不能点」的判据来源，服务端一旦把草稿行滤掉，那个判断就没了数据来源；C7 是本接口**当前唯一的消费方**，过滤放在页面侧的代价只是一个 `filter`。⚠️ 由此带来一个**空态**：只有草稿、没有任何已发布版本的组织，C7 下拉为空、页体走 `No published question set versions yet.`（§8.4-C7）。
 - **接口 26**：出参**复用接口 9 的 `ErlQuestionConfigListResponse`**（`version` + `questions[]` + `dimensions[]`），不为它另造一对 DTO/Response。与接口 9 的四点不同：
   - **版本由 `versionNo` 指定**，不是「草稿优先的当前版本」；`versionNo` **只在组织内唯一**，故解析时必须带组织（缺省登录态，可由可选入参 `organizationId` 指定并经 §4.3 复核），查不到即 `BadRequestException("Question set version not found.")`。
-  - **全部维度一次给全**（接口 9 是单维度），复用已有的 `findByVersionIdOrderByDimensionAscEraBandAscSortOrderAsc`。⚠️ 其中维度序是 `dimension` 列的**字典序**，不是业务序 —— **前端按本接口的 `dimensions[]` 归组与排序**，**不读接口 23 的当前生效配置**（`ErlDimensionEnum` 枚举与前端静态 `DIMENSIONS` 映射均不存在）。
+  - **全部维度一次给全**，复用已有的 `findByVersionIdOrderByDimensionAscEraBandAscSortOrderAsc`。⚠️ 其中维度序是 `dimension` 列的**字典序**，不是业务序 —— **前端按本接口的 `dimensions[]` 归组与排序**，**不读接口 23 的当前生效配置**（`ErlDimensionEnum` 枚举与前端静态 `DIMENSIONS` 映射均不存在）。
   - **`dimensions[{ dimensionCode, dimensionName, dimensionAbbr, questionVersionNo, sortOrder }]`**：取 `erl_question_config_dimension_version` 中该 `erl_question_config_version_id` 的逐维快照行（§5.1.5），按 `sortOrder` 升序。名称 / 缩写 / 顺序均为**发布当时的快照**，后续改名不影响。⚠️ **出参里没有 `weight`**：接口 26 的 `dimensions[]` 是**不含 `weight`** 的窄 Response `ErlQuestionConfigDimensionVersionResponse`（DTO `ErlQuestionConfigDimensionVersionDTO` 同形，两处 builder 见 `ErlQuestionConfigVersionServiceImpl` 的发布态与草稿回退分支，**从不 set weight**），所以**既不下发、也无从漂移**；前端 `CIOaas-web/src/services/api/exitReadiness/response.ts` 的对应类型注释亦写明「**没有 `weight`、没有 `status`**」。<br>　**`questionVersionNo`**（int）= **该维在这一版下用的题目集版本号**（§5.1.5 的 `question_version_no`，按 `dimension_code` 自增的那条独立版本线，§5.1；**该维在该版下无题时为 `0`**）—— 前端据此知道「第 n 次发布里，各维分别落到了自己的第几版题目」；它与外层的组织级发布批次号 `versionNo` 不是同一个东西（§5.1.5 的「两者不冗余」一段）。C7 当前不渲染它，字段留着是因为它是这张快照表**唯一**能表达「这一版用的是哪份题」的列。**草稿版本（无快照行）时回退当前 `Active` 集合**（C7 下拉只列已发布版本，该回退在 C7 上不可达，**保留**给 API 直调方）。**接口 9 恒为 `null`** —— 配置页 C1 的维度骨架另走接口 23。本字段是 C7 卡片骨架的**唯一**来源 —— C7 不拿接口 23 的当前生效配置做任何事（既不过滤、也不打 `Retired` 灰标），**本页与「今天的维度配置」彻底解耦**。本字段**不按当前配置过滤**：发布当时快照里有几个维度就出几张卡。
   - **`hasDraft` 与每题 `changeType` 恒为 `null`** —— `changeType` 是「草稿 vs 最新已发布」的实时 diff，套到历史版本上没有意义（历史版本的对比基线早已改变）。
-  - **只读接口，不触发写时复制**（不调 `ensureDraftVersion()`）；**仅管理端**，公司端报业务错误（§4.3）。**不新增表**，也**不新增「查全部题」的无版本查询** —— 仍先解析出 `versionId` 再查。
-- 新增题目（接口 10）`sort_order = 该 band 当前 max + 1`，`question_key` 新生成 UUID。
-- **生效范围**：四类变更**全部只落草稿版本**，对填报页、维度详情页、计分、组合层**一概不可见**，直到接口 21 发布。详见 §7.9。
+  - **只读接口，不写草稿**；**仅管理端**，公司端报业务错误（§4.3）。**不新增表**，也**不新增「查全部题」的无版本查询** —— 仍先解析出 `versionId` 再查。
+- 页面上新增的题排在所选 band 的末尾，改 Era band 的题排到目标 band 末尾 —— 都是前端工作副本里的顺序（§8.4-C4），服务端只按提交的数组顺序落 `sort_order`。
+- **生效范围**：页面上的改动在 `Save as Draft` 之前只存在于这张浏览器页面；存成草稿后也**只落草稿版本**，对填报页、维度详情页、计分、组合层**一概不可见**，直到接口 21 发布。详见 §7.9。
 
 ### 6.5 基准（D，PRD §4）
 
@@ -1345,123 +1341,112 @@ PENDING ──(派发前 CAS)──► RUNNING ──(Python 回 SUCCESS，CAS)�
 
 > ⚠️ 一次评估从创建到提交、再到被展示与计分，全程锚在自己绑定的版本上。取「最新已发布版本」的地方**全系统只有一处** —— 创建新评估记录时（`ErlAssessmentService` 的首次 `POST draft`）。
 
-**② 写时复制（copy-on-write）—— 两级判据**
+**② 草稿的写入 —— 页面内容整批替换**
 
-> ⚠️ **为什么必须两级**：克隆粒度是**维度级**，而草稿版本行是**组织级**。若只用单一判据「本组织有无草稿版本」，则「先改 FRL（建草稿 + 克隆 FRL）→ 再改 PRL」时，PRL 会走「已有草稿 → 直接改」分支，而它**从未被克隆** —— `erl_question_config` 既无 `status`、也无指向版本行的外键，草稿题与已发布题在库里长得一模一样，于是该改动会**直接写穿已发布版本的题目行**，击穿 §7.9-⑤「版本锁定 / 无用户数据丢失路径」与 §7.9-⑥「不允许改已发布版本的题目行」。
+配置页的增删改排只改浏览器里的工作副本（§8.4-C1），落库只有三个动作，**都以整份题库为单位、都不分维度**：
+
+| 动作 | 接口 | 落库 |
+|------|------|------|
+| `Save as Draft` | 30 | 清掉上一份草稿 → 按页面内容重写草稿 |
+| `Publish` | 21 | 同上，再把草稿版本行翻成 `PUBLISHED` |
+| `Discard Change` | 31 | 清掉草稿，连草稿版本行一起删 |
 
 ```
-管理员在配置页对维度 D 做任一变更（新增 / 编辑 / 删除 / 重排）
+保存草稿（接口 30；接口 21 的前半段是同一步）
         │
-        ├── 【第一级・组织级】本组织有 DRAFT 版本行吗？
-        │      否 → 同事务内新建 DRAFT 行（version_no = 组织内 max + 1）
-        │      是 → 复用它（并 SELECT … FOR UPDATE 取行锁，见 ②’’’）
+        ├── 取锁：先锁本组织的维度配置行，再锁草稿版本行（三个动作同序，见 ②’’’）
         │
-        ├── 【第二级・维度级】维度 D 在**本轮草稿**里已经克隆过了吗？
-        │      （判定：草稿行下有没有 D 的 erl_question_config_dimension_version 快照行，见 ②’’）
-        │      是 → 直接改那批草稿题目行
-        │      否 → 同事务内克隆 D 的题目行：
-        │            question_key 原样复制、id 重新生成、
-        │            新 version_no = max(version_no WHERE organization_id = O AND dimension_code = D) + 1，
-        │            并写草稿快照行
-        │            → 再在新克隆出来的那批行上改
+        ├── 清掉上一份草稿：草稿版本行下每一行快照 → 删它指向的那批题目行 → 删快照行
+        │      （草稿版本行本身先留着；没有草稿就跳过）
         │
-        └──► 填报页 / 维度页 / 计分 此刻读到的仍是旧的已发布版本，毫无变化
+        ├── 对请求体里每个 Active 维度 D：
+        │      体里 D 的题 与 在用版本里 D 的题 逐题相同？
+        │      是 → 不写（D 不进草稿）
+        │      否 → draftNo = max(version_no WHERE organization_id = O AND dimension_code = D) + 1
+        │            按体里的顺序写一批题目行（question_key 原样、id 新生成、sort_order 按 band 重编）
+        │            写一行草稿快照 (草稿版本行 id, D, draftNo)
+        │
+        └── 至少一维不同 → 没有草稿版本行就建一条（version_no = 组织内 max + 1），有就刷新 updated_at / updated_by
+            全部相同     → 删掉草稿版本行（如有）—— 与在用版本一模一样的内容不算草稿
 
-⚠️ 两个 max 是**不同集合**的 max：第一级的是 erl_question_config_version.version_no（组织级发布批次号），
-   第二级的是 erl_question_config.version_no（按 dimension_code 分组的题目集版本号）。
-
-管理员点 Publish（接口 21）
-        │
+发布（接口 21）= 上面整段，然后
+        │      全部相同 → 业务错误，事务回滚，不产生新版本
         └──► DRAFT.status = PUBLISHED，写 published_at / by
-             同一事务内：为每个 status='Active' 的维度写一行
-             erl_question_config_dimension_version（code/name/abbr/
-             question_version_no/sort_order/bound_at）—— 发布当时的维度快照
-             ↑ question_version_no = max(version_no WHERE organization_id = 本组织 AND dimension_code = 该维)，
-               本轮被克隆过的维度拿到新号，未改动的拿到与上一版相同的旧号
-             本版 status 翻成 PUBLISHED，它自己就成了「PUBLISHED 里 version_no 最大」的那一版
-             （**一行都不碰上一版**）
+             为本次未改动的 Active 维度补快照行（question_version_no 取在用版本的号，从未有题写 0）
+             全部快照行的 name / abbr / sort_order / bound_at 刷成发布当时的值
+             本版成为「PUBLISHED 里 version_no 最大」的那一版（**一行都不碰上一版**）
              → 此刻起**新发起的评估**用新版本
              → **已存在的评估（含正在填的草稿）继续用各自绑定的旧版本**
-             → **Publish 不推进任何 version_no**（推进发生在每维首次编辑的克隆时刻）
+
+丢弃（接口 31）= 取锁 → 清掉草稿（同上）→ 删草稿版本行；没有草稿直接返回成功
 ```
 
-**②’’ 本轮草稿改动了哪些维度（三处共用）**
+- **「清掉草稿」是三个动作共用的一步**，范围以草稿版本行下的快照行为准：每行快照指明一个维度和它的草稿题目集版本号，按 `(organization_id, dimension_code, version_no)` 删题目行。没有任何表指向草稿版本或草稿题目行（评估只绑已发布版本，§5.2），删除不需要查引用。
+- **版本号会被复用**：草稿题目行删掉后该维的 `max(version_no)` 回落，下一次保存取到的还是同一个号 —— 一个维度的题目集版本号只在**发布**后才真正前进一格。
+- **只有与在用版本不同的维度进草稿**，所以发布时只有这些维度拿到新的 `question_version_no`，未改动的维度沿用旧号：两端「同维题集版本不一致」的判定（§7.10-13）与待审核回退申请的作废都只波及真正改过的维度。
+- 草稿只包含保存当时 `Active` 的维度；发布总是先按页面内容重写草稿，所以发布出去的快照里不会有已停用维度的行，也不留无快照指向的题目行。
 
-「哪些维度被本轮草稿改过」是三个地方的前提，统一由**一个解析函数** `draftDimensionVersions(organizationId)` 给出。**判据是显式记录**：克隆某维时，**同事务往 `erl_question_config_dimension_version` 写一行草稿版本的快照**。
+**②’’ 这份草稿改了哪些维度**
 
-> ⚠️ **不得用「`max(erl_question_config.version_no)` > 最新快照里该维的 `question_version_no`」反推是否已克隆** —— 该推论在两个产品可达的状态下给出错误答案，且都是静默的：「停用某维 → 发布 → 恢复该维」会误判「已克隆」（编辑直接写穿已发布版本，走接口 13 则物理删掉已发布的题目行，绑定该版本的历史评估永久丢题）；「把某维的题删光」会误判「未克隆」（删除被静默撤销，题目原样复活）。根因是 `max(version_no)` 同时承担了「哪一版是草稿」与「是否已克隆」两个职责。
+判据是**显式记录**：草稿版本行下有该维的 `erl_question_config_dimension_version` 快照行 ⇔ 这份草稿改了该维。由**一个解析函数** `draftDimensionVersions(organizationId)` 给出，草稿态的读侧取题（§7.9-②’）与发布补快照共用：
 
 ```
-ensureDimensionCloned(organizationId, dimensionCode)：
-    若存在快照行 (erl_question_config_version_id = 草稿行 id, dimension_code)
-        ⇒ 本轮已克隆，直接返回该行的 question_version_no
-    否则
-        ⇒ draftNo = max(erl_question_config.version_no WHERE organization_id AND dimension_code) + 1
-           克隆该维**现有最新一批行**（即 max 那一版）到 draftNo
-             —— 取 max 而不是取已发布号，是为了兑现 ②'''' 边界 ①「孤儿行在维度恢复时直接用上」
-           写快照行 (草稿行 id, dimension_code, draftNo)
-           返回 draftNo
-
 draftDimensionVersions(organizationId)：
     对每个 status = 'Active' 的维度：
         published = 最新已发布版本的快照行.question_version_no（无则 0）
-        若草稿行有该维快照 ⇒ 本轮**已克隆**，草稿题集 = 快照行.question_version_no
-        否则                ⇒ 本轮**未改**，草稿题集 = published
+        若草稿版本行有该维快照 ⇒ 草稿题集 = 快照行.question_version_no
+        否则                    ⇒ 草稿题集 = published
 ```
 
-> 💡 草稿行与发布行是**同一条 `erl_question_config_version`**
-> （Publish 只是把它的 `status` 翻成 `PUBLISHED`，`id` 不变），所以克隆时写下的那批快照行
-> **自动成为该发布版本的快照**，无需重写。Publish 时只剩两件事：为**本轮未克隆**的
-> `Active` 维度补行（取旧号 / 从未有题写 `0`），以及删掉「草稿期克隆过、发布前又被
-> `Inactive`」的行（②'''' 边界 ①）。
+> ⚠️ **不得用「`max(erl_question_config.version_no)` > 在用版本的号」反推某维是否在草稿里** —— 「停用某维 → 发布 → 恢复该维」留下的存量题目行会让两者对不上。
 
-三个消费方：① 写时复制的第二级判据（上图）；② 草稿态的读侧取题（§7.9-②’）；③ 发布前的变更摘要 diff（§7.9-③）—— **diff 必须逐维做**，跨维度的整版本查询不成立。
+> 💡 草稿行与发布行是**同一条 `erl_question_config_version`**（Publish 只是把它的 `status` 翻成 `PUBLISHED`，`id` 不变），所以保存草稿时写下的那批快照行**自动成为该发布版本的快照**，Publish 只需为未改动的 `Active` 维度补行。
 
-**②’’’ 并发防线的准确表述**
+**②’’’ 并发**
 
-`@Version` **只在「首次创建草稿」那一次生效**：`ensureDraftVersion` 在「草稿已存在」时只是一次 SELECT，不发 UPDATE ⇒ 版本谓词根本没出现。真正兜住竞争的是行锁：
+- **保存草稿、发布、丢弃三个事务开头都对草稿版本行 `SELECT … FOR UPDATE`**（先锁维度配置行、再锁版本行，三者同序），彼此串行；后到的那个整份覆盖先到的（§7.9-④）。
+- `@Version` 与部分唯一索引 `uk_erl_question_config_version_draft` 只兜**并发建草稿版本行**（两个事务同时发现无草稿）：败者得到业务错误 `This record was changed by someone else. Please reload and try again.`（§9），页面上的改动原样保留，再点一次即可。
 
-- **每次题库写事务开头对草稿版本行 `SELECT … FOR UPDATE`** —— 这才是「A 加题 vs B 发布」与「两人同时首次编辑同一维度」两个竞争的唯一防线，也是第二级判据与克隆必须原子的原因。
-- `@Version` 仅兜住**并发建草稿**（两个事务同时发现无草稿），与部分唯一索引 `uk_erl_question_config_version_draft` 双保险。
-- ⚠️ **懒克隆的窗口**：A 首次编辑 PRL（触发 PRL 克隆）与 B 点 Publish 并发时，若 B 先提交，A 的克隆行会落在一个已变成 PUBLISHED 的版本头之下，既不在任何快照里、又是下一轮草稿的克隆基线 ⇒ A 未经审阅的改动会**静默混进下一次发布**。行锁能挡住（前提是编辑方真的取锁），**代码审查须专项检查**。
-
-**②’’’’ Publish 写快照的三个边界**
+**②’’’’ Publish 写快照的取值**
 
 | 情形 | `question_version_no` 取值 |
 |------|------|
-| 本轮被克隆改过的维度 | 新克隆出的那个号（= 该维 `max`） |
-| 本轮未改动的维度 | 与上一版快照**相同的旧号**（该维 `max` 恰等于它） |
-| **`Active` 但从未有题的维度**（新增后还没加题） | `max` 为空 ⇒ **写 `0`**，表示「该版本下本维题集为空」。**仍要写这一行**（否则 C7 缺卡）；该维的填报与提交由 §6.3 校验 3「0 题维度不可提交」拦住 |
-
-另两个并发边界：① 某维在草稿期被克隆改过、**发布前又被置 `Inactive`** ⇒ 不写快照，其克隆行成为**孤儿行**（无快照指向，但仍是该维 `max`）—— 日后该维被恢复为 `Active` 时会被下一轮直接用上，**需在恢复时提示管理员确认**；② 发布前新 `Active` 但本轮未克隆的维度 ⇒ 按上表第二/第三行取值，正常写快照。
+| 本次改动的维度 | 保存草稿时分配的新号 |
+| 本次未改动的维度 | 与上一版快照**相同的旧号** |
+| **`Active` 但从未有题的维度**（新增后还没加题） | **写 `0`**，表示「该版本下本维题集为空」。**仍要写这一行**（否则 C7 缺卡）；该维的填报与提交由 §6.3 校验 3「0 题维度不可提交」拦住 |
 
 **②’ 两个 `version_no` 的分工与读侧解析**
 
 | 列 | 含义 | 自增维度 |
 |------|------|------|
-| `erl_question_config_version.version_no` | **组织级发布批次号**（配置页显示 `Published v3` / `Draft v4`） | 组织内自增 |
+| `erl_question_config_version.version_no` | **组织级发布批次号**（发布成功提示 `Published v{n}.` 与 C7 版本下拉的 `v{n}`） | 组织内自增 |
 | `erl_question_config.version_no` | **某个维度的题目集版本号** | 按 `dimension_code` 各自自增 |
 
 两者由 `erl_question_config_dimension_version`（§5.1.5）建立对应。**读侧取「某发布版本下某维的题」分三条路径**：
 
 - **已发布版本**：先按 `erl_question_config_version_id` + `dimension_code` 命中快照行拿到 `question_version_no`，再按 `(dimension_code, version_no)` 取题。
-- **草稿版本**：按 §7.9-②’’ 的 `draftDimensionVersions` 取 —— 草稿行有该维快照（本轮已克隆）⇒ 快照行的 `question_version_no`；否则（本轮未改）⇒ 最新已发布号。
+- **草稿版本**：按 §7.9-②’’ 的 `draftDimensionVersions` 取 —— 草稿行有该维快照（这份草稿改了该维）⇒ 快照行的 `question_version_no`；否则（没改）⇒ 最新已发布号。
 - **已绑定快照行的评估**（优先级最高）：`erl_assessment.erl_question_config_dimension_version_id` 非空时**直接一跳**取该行的 `question_version_no`，不再按复合键反查（§5.2）—— 前提是该行还在、维度与批次都对得上，否则打 WARN 回退。为空（存量行、或该维在那一版下本就没有快照行）时回落到上面两条路径 —— **三条路径对同一份数据必须解出同一个号**。
 
 > **为什么草稿仍是「组织级一份」而不是每维一份**：§5.1.1 保留了 `uk_erl_question_config_version_draft ON (organization_id) WHERE status = 'DRAFT'`，即每组织至多一份草稿。这同时保住了并发论证 —— 所有题库编辑仍经同一条草稿版本行的 `@Version` 乐观锁 + 悲观锁，如果改成每维一份草稿，那条论证会失效。
 
 **③ Publish 按钮**
 
-- **激活条件 = 存在草稿版本**，与 PRD「有**新问题、新顺序或新编辑内容**」（即四类变更任一）一致。
+- **激活条件 = 存在草稿版本，或页面上有未保存的改动**（§8.4-C5）。发布的是**页面当前内容**：可能与已存的草稿相同，也可能比它新；没存过草稿也可以直接发布。
 - **维度配置不受 Publish 管辖**：配置页第二个 Tab **`Dimension Configuration`**（维度新增 / 删除 / 排序 / 权重）有**自己的 Save 按钮**与「权重合计 = 100.00」校验，**就地整组替换，不产生版本**（§7.11），**不产生题库版本、不激活 Publish 按钮**（§6.4 接口 24）。反之，题库 Publish **不改**维度配置，但**会读**当时 `Active` 的维度写入 §5.1.5 快照 —— 本模块**只有题库一条版本线**。
 - 按钮**不分维度**：一次发布整个草稿版本（**该版本内的全部维度一起**），不做单维发布（§12）。
-- 变更摘要由草稿与最新已发布版本按 `question_key` 逐字段 diff 得出（**必须逐维做** —— 先用 `draftDimensionVersions()`（§7.9-②’’）解出每维的草稿号与已发布号，再逐维比；跨维度的整版本查询不成立）（`added` / `modified` / `removed` / `reordered`）。⚠️ **只实时算、不落库**：历史版本的对比基线早已随后续发布改变，实时 diff 会算出与当时不同的数字，因此**接口 25（C7 版本历史）不返回 `changeSummary`**（接口 9 照常下发 `changeSummary` / `changeType`，前端不渲染）。
+- **不出变更摘要**：接口 9 / 21 / 25 都不下发 `changeSummary`。草稿与在用版本的差异只有接口 9 每题的 `changeType`（`ADDED` / `MODIFIED` / `REORDERED` / `UNCHANGED`，按 `question_key` 逐字段比对；**必须逐维做** —— 先用 `draftDimensionVersions()`（§7.9-②’’）解出每维的草稿号与已发布号，再逐维比），**只实时算、不落库**，前端不渲染。历史版本的对比基线早已随后续发布改变，所以接口 26 的 `changeType` 恒为 `null`。
 
-**④ 多管理员共享同一份草稿（已接受）**
+**④ 多管理员共用同一份草稿（已接受）**
 
-草稿版本**在组织内**单份 ⇒ **同一组织的两个管理员同时改的是同一份草稿**，且**任一人点 Publish 会把另一人尚未改完的变更一并发布出去**。这是「题库按组织单份」的必然结果，不是缺陷，但界面不提示多人共编与连带发布（版本条、变更摘要、发布确认均已撤下），属已接受的代价。
+草稿版本**在组织内**单份，而每次 `Save as Draft` / `Publish` 提交的都是**提交者页面上的整份题库**：
 
-V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 —— 题库配置是低频管理动作，为它上并发控制不划算（§12）。
+- **后保存的整份覆盖先保存的**，不提示冲突、不合并。A 存了草稿后，B 用一张更早打开的页面再存，A 的改动就没了。
+- **发布的是发布者页面上的内容**。页面打开之后别人存的草稿、甚至别人已经发布的新版本，只要这张页面没刷新过就不在上面，会被这次发布盖回去。
+- **任一人 `Discard Change` 丢掉的是全组织共用的那份草稿**，包括别人存的。
+- 界面不提示多人共编。
+
+不做草稿的编辑锁、按人隔离的草稿、提交前的过期检测与冲突合并 —— 题库配置是低频管理动作，需求方已确认「后提交的覆盖先提交的」，**含盖掉别人已发布的版本**（2026-11-18，§12）。
 
 **⑤ 版本锁定**
 
@@ -1490,7 +1475,7 @@ V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 �
 
 **⑥ 首版与部署**
 
-- `erl_init.sql` **不落任何版本行与题目行** ⇒ **「系统起来后没有已发布版本、填报页全空」是新库的既定状态**，直到管理员在配置页 Publish 第一版（`ensureDraftVersion` 建 `version_no = 1` 草稿 → Publish 转 `PUBLISHED` 并逐维写 `erl_question_config_dimension_version`）。
+- `erl_init.sql` **不落任何版本行与题目行** ⇒ **「系统起来后没有已发布版本、填报页全空」是新库的既定状态**，直到管理员在配置页 Publish 第一版（保存草稿或直接 Publish 时建 `version_no = 1` 的版本行，Publish 转 `PUBLISHED` 并逐维写 `erl_question_config_dimension_version`）。
 - 上线后**不允许直接改库里已发布版本的题目行**（会让历史评估的题面漂移）；任何修正都走配置页 → 草稿 → Publish。
 
 ### 7.10 版本化的边界
@@ -1502,10 +1487,10 @@ V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 �
 | 1 | **发布粒度** | A | 一次发布整个草稿版本（**该版本内的全部维度一起**） | 单维发布 —— 裁决已明确不做 |
 | 2 | **撤回 / 回滚** | A | 不做（已发布不可退回草稿，无版本回滚 UI） | 需要版本切换与「当前生效版本」指针，模型要再改一层 |
 | 3 | **变更类型** | A | 新增 / 编辑 / 删除 / 重排**四类全部**经发布 | 只有新增经发布 —— 不做 |
-| 4 | **草稿唯一性** | B | **本组织一份草稿**，多管理员共享；任一人发布会连带发布他人未完成的改动（§7.9-④） | 每人一份私有草稿 → 需要三方合并与冲突解决，V1 不划算 |
-| 5 | **丢弃草稿** | B | **不做**。误改只能手工改回来（题库低频） | 加 `DELETE /erl/question/draft` 即可，不影响模型（§12） |
+| 4 | **草稿唯一性** | A | **本组织一份草稿**，多管理员共用；后保存的整份覆盖先保存的，任一人发布 / 丢弃都作用于这一份（§7.9-④） | 每人一份私有草稿 → 需要三方合并与冲突解决，不划算 |
+| 5 | **丢弃草稿** | A | **做**：`Discard Change`（接口 31）连草稿一起丢弃，页面回到在用版本；页面上未保存的改动一并丢掉（§8.4-C5） | — |
 | 6 | **评估是否跟随题库** | A | **不跟随（版本锁定）** —— 评估创建时绑定版本，此后题库发布多少版都与它无关（§7.9-⑤） | 重基 —— 不做 |
-| 7 | **版本数据保留** | B | **只克隆被改动的那个维度**（按 `dimension_code` 分版本线），**永久保留、不清理** | 定期归档旧版本 —— 会让历史评估取不到题面，不可做 |
+| 7 | **版本数据保留** | B | **只有改动过的维度才出新的一版题目行**（按 `dimension_code` 分版本线），已发布的**永久保留、不清理** | 定期归档旧版本 —— 会让历史评估取不到题面，不可做 |
 | 8 | **谁能 Publish** | B | C 模块的 admin 均可，不再分级 | 若需「编辑者 / 发布者」分权，属 §13-Q7 的角色细化 |
 | 9 | **组合层跨版本可比性** | B | 不做提示 —— F2 总表可能同屏比较基于不同题库版本的分数 | 要提示则需在表内标版本号，噪音大于价值（V1 不做趋势对比） |
 | **W1** | **改权重会改变历史期次的综合分与 Stage** | **A** | **接受漂移**：权重不版本化、**不做任何快照**，综合分实时按当前 `erl_dimension_config.weight` 算（§5.1.3 / §7.1）；Save 不弹确认框，页面上无处提示这一点（§8.4-C6）。见 §13-Q21 | 要不漂移 —— 需在 `erl_assessment` 上存每维权重快照，需求方已选择不补 |
@@ -1633,8 +1618,10 @@ V1 不做草稿的编辑锁、按人隔离的草稿、变更逐条勾选发布 �
 | `/exitReadiness/benchmark/add` | `./exitReadiness/benchmark/add` | **D2 新增记录（独立页，非 Modal）** | 仅管理端 |
 | `/exitReadiness/configuration` | `./exitReadiness/configuration` | **两个顶层 Tab**：`Question Library`（C1 + C3 删除 + C4 拖拽 / 改 band）+ **`Dimension Configuration`**（C6 维度新增 / 删除 / 排序 / 权重） | **仅管理端**（PRD §3.8「仅 portfolio portal」） |
 | `/exitReadiness/configuration/history` | `./exitReadiness/configuration/history` | **C7 题库版本快照页** | **仅管理端**；入口为 `Question Library` Tab 的 `View history` |
-| `/exitReadiness/configuration/add` | `./exitReadiness/configuration/add` | C2 | |
-| `/exitReadiness/configuration/edit/:questionKey` | `./exitReadiness/configuration/edit` | C3 | 按 **`:questionKey`** 定位 —— §6.4 的 C 模块写接口一律按 `questionKey` 定位，写时复制后草稿行是新 `id`，用 `id` 进页面必然失配 |
+| `/exitReadiness/configuration/add` | `./exitReadiness/configuration/add` | C2 | 只改工作副本，不调接口 |
+| `/exitReadiness/configuration/edit/:questionKey` | `./exitReadiness/configuration/edit` | C3 | 按 **`:questionKey`** 在工作副本里找题（新题的 key 由前端生成，没保存也有）；找不到（直接打开链接、或刷新后未保存的新题已丢）时显示 `Open this question from the question library.` |
+
+**配置页四条路由共用一个常驻父路由**：`/exitReadiness/configuration` 用父组件 `./exitReadiness/configuration/_shell` + 子 `routes`（列表 / `add` / `edit/:questionKey` / `history`），写法同 `/devSupport`。题库的工作副本放在这个父组件里（§8.4-C1），在四个页面之间跳转不丢；离开这组路由、刷新浏览器或切换租户即丢。
 
 **不设 `/exitReadiness`（Dashboard）落地页** —— PRD §3.1「不设独立 Exit Readiness 落地页」。
 
@@ -1720,7 +1707,9 @@ src/pages/exitReadiness/
 ├── benchmark/{index.tsx, BenchmarkPage.tsx, add/, hooks/, components/}
 │                                  components/ 内含 BenchmarkDimensionTable（D1 两张卡与 D2 表单共用的
 │                                    **按维度行结构**，行数随配置维度动态）
-└── configuration/{index.tsx, ConfigurationPage.tsx, add/, edit/, history/, hooks/, components/}
+└── configuration/{_shell.tsx, index.tsx, ConfigurationPage.tsx, add/, edit/, history/, hooks/, components/}
+                                   _shell.tsx 为四条配置路由的常驻父组件，持有题库工作副本
+                                     （hooks/useQuestionLibrary：useReducer + Context，不新增 dva model）
                                    ConfigurationPage.tsx 组装两个顶层 Tab：
                                      Question Library → 维度 Tab（按配置动态）+ QuestionLibraryTable
                                        （表格 + Era band 分组行 + 拖拽列 + 行内 Era band 下拉）
@@ -1763,6 +1752,10 @@ F2 的 `GET /erl/portfolio`、ERL Card 的 `GET /erl/card` 均归入 `exitReadin
 | `getDimensionConfig()` | **接口 23** `GET /erl/dimension/config` | **当前 `status = 'Active'` 的维度集合**（维度列表 + `sortOrder` + `weight`）；`useDimensionConfig` 与 C6 共用 |
 | `saveDimensionConfig(items)` | **接口 24** `PUT /erl/dimension/config` | **整组保存**维度集合 + 排序 + 权重，服务端校验 **`Active` 行**合计 = 100.00；**就地整组替换，缺席维度置 `Inactive`，不产生版本** |
 | `getAssessmentHistoryDetail(assessmentId, { dimension })` | 接口 8（可选 `dimension` 入参） | B3 从带维度的历史列表进入时只渲染该维度 |
+| `fetchErlQuestions()` | **接口 9** `GET /erl/question` | 配置页一次取回全部维度的题（草稿优先），作为工作副本的起点 |
+| `saveErlQuestionDraft(dimensions)` | **接口 30** `PUT /erl/question/draft` | `Save as Draft`：用页面内容整份覆盖草稿；出参同接口 9 |
+| `publishErlQuestionDraft(dimensions)` | **接口 21** `POST /erl/question/publish` | `Publish`：按页面内容整份发布 |
+| `discardErlQuestionDraft()` | **接口 31** `DELETE /erl/question/draft` | `Discard Change`：丢弃草稿 |
 
 ### 8.4 关键交互
 
@@ -1823,12 +1816,14 @@ F2 的 `GET /erl/portfolio`、ERL Card 的 `GET /erl/card` 均归入 `exitReadin
 | **B 元信息栏** | 页头下方一条元信息栏，标签屏上大写：`PORTAL` / `ASSESSED BY` / `ROLE` / `FUND`。**打开页面就要有值**：`ASSESSED BY` / `ROLE` 取进页时恢复的那份有作答的草稿的保存人（接口 3 `lastSavedBy`），没有时退回**当前登录用户**（姓名 + 当前组织下的角色名），两格整体二选一、不各自兜底；`FUND` 取接口 3 出参 `fund`（该公司 Portfolio Name），取不到显 `—`。**Founder 卷不显示 `FUND`**，收成三格；GSV 卷四格 | 需求方 |
 | **B 题集版本标注** | **前端任何页面都不显示 `Question set v{n}`**（接口 3 仍下发 `questionVersionNo`（供 `hasNewerQuestionSet`），前端不渲染；接口 7 与 `submission` 节点不含该字段，§13-Q31）。两端题集版本不一致只由 A1 Gap 区块的 mismatch 态（`New version pending`）体现；C7 版本下拉里的 `v{n}` 是题库版本本身，不在此列 | §7.10-13 / N2 |
 | **B3 详情** | 点击某行进 `/exitReadiness/history/:assessmentId`，复用 A3 的题级布局呈现该次提交时的状态；从**带 `dimension` 的历史列表**（A3 / A4 卡头的 `View History`）进入时，URL 透传 `?dimension={code}`，**接口 8 有可选 `dimension` 入参**，页面**只渲染该维度**。提交单元本就是单维，故该参数在实现上恒等于该条记录的 `dimension`，透传只为页头标注与直链一致。URL 同时透传 **`?period={period}`**（列表页 URL 上有才带）。详情页**自身取数不用它**（题目与元数据都取该条记录本身），它只让详情页面包屑回列表那一级把用户送回**带同一期次**的 B3。⚠️ **这一跳只带 `period`、不带 `dimension`** —— 返回落到的仍是**全维混排**的 B3，`?dimension=` 过滤态不保留 | §3.9 |
-| **C1 页面结构** | 页头：H1 `ERL Configuration` + 说明 `Configure dimension weights and the question library for each Exit Readiness dimension.`；页头右侧为**租户选择器**（数据取存量 `/api/web/organization/findByTree`，ERL 不另加接口）：组织树根节点下没有子组织（`subdata` 为空，如 Portfolio Group Manager）或取数失败时不渲染，与 `/settings` 的 Portfolio User Management 同口径。选中的组织只记在 URL 的 `?organizationId=` 上；选择器可见而 URL 未带值时默认取树的第一个组织。C 模块的接口一律把它作为 query 参数带上，进入 `add` / `edit` / `history` 子页时随 URL 带过去。维度配置保存过程中选择器置灰。其下**两个顶层 Tab**：`Question Library` / **`Dimension Configuration`**。`Question Library` 内自上而下：操作区（`Add New` / `Publish` / `View history`，**右对齐**）→ **维度 Tab（按当前生效配置动态渲染，非固定五个；已删除的维度不出 Tab）** → **题目表格**：列 `QUESTION` / `ERA BAND` / `SOURCE` / `ACTIONS`（另有**最左拖拽列**），按 **Era band 分组**、每组一条组头行（band 徽章 + `{n} questions`）。**维度 Tab 回跳定位**：进 `add` / `edit` / `history` 子页与从子页回来（`Back`、保存后回跳）都在 URL 上带 `?dimension={code}`（与 `?organizationId=` 一起透传），配置页拿它当维度 Tab 的**一次性种子** —— 该 code 在接口 23 当前配置里才采纳，否则落 `sortOrder` 首位；切 Tab 本身不回写 URL | §3.8 + 原型 |
-| **C4 拖拽重排 + 改 Era band** | **同 band 内**：表格最左拖拽列拖动排序，松手即调接口 14 **写入草稿版本**（不影响填报页，直到 Publish）；行上不打徽章、不弹提示<br>**跨 band 移动**：直接改题目行内 `ERA BAND` 列的**下拉**，选中即调**接口 12 全量更新**该题，行随即移动到目标分组末尾。接口 14 **只做同 band 重排**（§6.4） | §3.8「拖拽重排…该顺序即评估中的必答顺序」+ 原型+ 本设计（警告提示） |
-| **C3 删除** | `Modal.confirm` 二次确认（与 C6 删维度同款：无图标、antd 默认遮罩、焦点落 `Cancel`、琥珀 `Delete`）：标题 `Delete question?` + 正文 `This will remove the question from the {维度名} dimension. This action cannot be undone.`（维度名加粗） | §3.8 |
-| **C5 草稿态线索** | 不显示版本条；有草稿时整页加浅色「编辑中」边框，与「无草稿即禁用」的 `Publish` 是仅有的两条草稿态线索 | §7.9-④ |
-| **C5 Publish 按钮** | 页面右上角主按钮 `Publish`；**存在草稿版本即激活**（任意维度的任意变更，与当前所处 Tab 无关；**`Dimension Configuration` Tab 的改动不激活它** —— 维度集合 / 排序 / 权重走自己的 Save（接口 24）；配置无版本，只有题库一条版本线，**Publish 会把当时 `Active` 的维度逐维快照进 §5.1.5**）；禁用条件 `!hasDraft || library.loading`，无 tooltip、无变更计数；点击不弹确认，直接调接口 21，成功 toast `Published v{n}.` 并刷新列表 | §3.8 |
-| **C5 离开页面** | 草稿是服务端持久对象、非表单脏数据，离开不拦截、不弹确认；⚠️ **例外**：`Dimension Configuration` Tab 是**普通表单脏态**（不是服务端草稿），未 Save 就离开**要弹确认** | 本设计（§7.9） |
+| **C1 页面结构** | 页头：H1 `ERL Configuration` + 说明 `Configure dimension weights and the question library for each Exit Readiness dimension.`；页头右侧为**租户选择器**（数据取存量 `/api/web/organization/findByTree`，ERL 不另加接口）：组织树根节点下没有子组织（`subdata` 为空，如 Portfolio Group Manager）或取数失败时不渲染，与 `/settings` 的 Portfolio User Management 同口径。选中的组织只记在 URL 的 `?organizationId=` 上；选择器可见而 URL 未带值时默认取树的第一个组织。C 模块的接口一律把它作为 query 参数带上，进入 `add` / `edit` / `history` 子页时随 URL 带过去。维度配置保存过程中选择器置灰。其下**两个顶层 Tab**：`Question Library` / **`Dimension Configuration`**。`Question Library` 内自上而下：操作区（左端草稿提示 `Draft saved … by …`；**右对齐** `Add New` / `Discard Change` / `Save as Draft` / `Publish` / `View history`，见 C5）→ **维度 Tab（按当前生效配置动态渲染，非固定五个；已删除的维度不出 Tab）** → **题目表格**：列 `QUESTION` / `ERA BAND` / `SOURCE` / `ACTIONS`（另有**最左拖拽列**），按 **Era band 分组**、每组一条组头行（band 徽章 + `{n} questions`）。**维度 Tab 回跳定位**：进 `add` / `edit` / `history` 子页与从子页回来（`Back`、保存后回跳）都在 URL 上带 `?dimension={code}`（与 `?organizationId=` 一起透传），配置页拿它当维度 Tab 的**一次性种子** —— 该 code 在接口 23 当前配置里才采纳，否则落 `sortOrder` 首位；切 Tab 本身不回写 URL | §3.8 + 原型 |
+| **C1 工作副本** | 进页调**接口 9** 一次取回全部维度的题（草稿优先，无草稿取在用版本），作为页面的**工作副本**，放在配置路由的常驻父组件里（§8.1）。**新增 / 编辑 / 删除 / 拖拽 / 改 Era band 都只改工作副本，不调接口、不弹 toast**；切维度 Tab 不重新取数。任一改动把页面标为「**有未保存改动**」—— 只记「动过」，不与服务端比对（改过又改回仍算）。工作副本按 `dimensionCode` 存题，提交时只发**当前 `Active`** 的维度（`Dimension Configuration` 保存后维度 Tab 按新配置刷新，已停用维度的本地题不再提交）。列表页与 `Add New` / 编辑 / `View history` 子页之间跳转**不丢**工作副本；**离开这组页面、刷新浏览器、切换租户即丢，不拦截、不弹确认** | [题库草稿保存功能](<../题库草稿保存功能.md>) |
+| **C4 拖拽重排 + 改 Era band** | **同 band 内**：表格最左拖拽列拖动排序，松手即改工作副本里的顺序；行上不打徽章、不弹提示<br>**跨 band 移动**：直接改题目行内 `ERA BAND` 列的**下拉**，选中后该行移到目标分组末尾（同样只改工作副本）。拖拽**只做同 band 重排**，不能拖到别的 band | §3.8「拖拽重排…该顺序即评估中的必答顺序」+ 原型+ 本设计 |
+| **C2 / C3 新增与编辑页** | 表单字段与校验不变（Dimension / Era band / Question / Evidence source；编辑页 Dimension 只读）。**`Save` 只把这道题写进工作副本、然后回列表页，不调接口**；新题的 `questionKey` 由前端生成（UUID），排在所选 band 末尾。编辑页按 URL 的 `:questionKey` 从工作副本回填，**不调接口**；工作副本里找不到该题时显示 `Open this question from the question library.`。`Cancel` / `Back` 直接回列表页 | [题库草稿保存功能](<../题库草稿保存功能.md>) |
+| **C3 删除** | `Modal.confirm` 二次确认（与 C6 删维度同款：无图标、antd 默认遮罩、焦点落 `Cancel`、琥珀 `Delete`）：标题 `Delete question?` + 正文 `This will remove the question from the {维度名} dimension. This action cannot be undone.`（维度名加粗）；确认后只从工作副本里移除该题 | §3.8 |
+| **C5 草稿提示** | 有草稿（接口 9 `hasDraft`）时操作区左端显示 `Draft saved {D MMM YYYY, HH:mm} (UTC) by {姓名}`，如 `Draft saved 4 Nov 2026, 06:59 (UTC) by {姓名}`（复用填报页的 `draftSavedText`）。时刻与姓名取接口 9 `version.lastEditedAt` / `lastEditedBy`，即**最近一次 `Save as Draft` 的时刻与操作人**（显示名，取法同填报页的保存人）。页面上又有未保存改动时，提示照旧显示上一次保存的信息；发布或丢弃后提示消失。整页不再加「编辑中」边框 | [题库草稿保存功能](<../题库草稿保存功能.md>) |
+| **C5 三个按钮** | 操作区右对齐：`Add New` / **`Discard Change`** / **`Save as Draft`** / **`Publish`** / `View history`。三个按钮**都作用于全部维度**，与当前所处维度 Tab 无关；**`Dimension Configuration` Tab 的改动不影响它们**（那边走自己的 Save，接口 24）。<br>**启用条件**（「有草稿」= 接口 9 `hasDraft`；「有未保存改动」见 C1 工作副本）：<br>· `Save as Draft`：**有未保存改动**<br>· `Publish`：**有草稿，或有未保存改动**<br>· `Discard Change`：**有草稿，或有未保存改动**<br>取数中、或三者任一在途时三个按钮都禁用，在途的那个显示 loading；无 tooltip、无变更计数。<br>**`Save as Draft`**：把工作副本里全部 `Active` 维度的题整份提交接口 30；成功后用出参整体替换工作副本、清掉「有未保存改动」，toast `Draft saved.`（出参 `hasDraft = false`，即内容与在用版本完全相同时，toast `No changes from the published version.`，不出草稿提示）。失败时保留工作副本、按钮保持可点。<br>**`Publish`**：不弹确认，把工作副本整份提交接口 21 —— **发布的是页面当前内容**，没存过草稿也可以直接发布；成功 toast `Published v{n}.`，重拉接口 9（草稿提示消失），并刷新维度配置的 `deletable`。失败时保留工作副本。<br>**`Discard Change`**：`Modal.confirm` 二次确认（与 C3 删题同款，焦点落 `Cancel`）：标题 `Discard changes?` + 正文 `This will discard the saved draft and all unsaved changes, and restore the published question library. This action cannot be undone.`，OK 文案 `Discard`。确认后有草稿则调接口 31，随后重拉接口 9，页面回到在用版本；只有未保存改动、没有草稿时不调接口 31，直接重拉 | [题库草稿保存功能](<../题库草稿保存功能.md>)（`Discard Change` 的位置、样式与二次确认设计稿未给，为本设计取值） |
+| **C5 离开页面** | 题库的未保存改动**不拦截、不弹确认**：离开配置页这组路由、刷新或切换租户即丢（口径同填报页：没点保存就是没保存）；⚠️ **例外**：`Dimension Configuration` Tab 的表单脏态未 Save 就离开**要弹确认** | [题库草稿保存功能](<../题库草稿保存功能.md>) |
 | **D1 页头** | 面包屑跟来处走（`from` 链，同 A4）：从 A4 来是 `Portfolio Companies › Score Details › Top GSV Quartile & External Benchmarks`，从 Company Overview 基准入口来是 `Portfolio Companies › {公司名} › Top GSV Quartile & External Benchmarks`；`Score Details` 那一级，链接 `scoreDetailsUrl` 回 A4 **带 `&period=`**（URL 上带了就带回去）。标题下一句说明「Reference scores used to compare this company's Exit Readiness against the GSV top quartile and the **External Benchmarks** peer set. Each entry is kept as a dated record.」；右上 `+ Add New` → D2，**同样带期次**（`addUrl`） | §4 + 原型 |
 | **D1 卡一：`Current Version`** | 卡头 `Current Version · {period}`（期次取**卡一实际显示的那条记录**，取哪条见 §7.8）；表格三列 `DIMENSION` / **`EXTERNAL BENCHMARKS`** / **`TOP GSV QUARTILE`**（`BenchmarkDimensionTable` 是 A4 末位基准 Tab 与 D1 两张卡共用组件，同一个概念两页同名）；⚠️ **无 `Average` 行** —— 三处一律只有明细行。**一维一行，行数按配置维度动态**；维度列 `**FRL** Financial Readiness`（缩写加粗 + 全称次级色）；分值格式 `6.5/9`，`/9` 次级字号；卡头下另有**一行提交元信息**：`Submitter: {姓名 · 角色}` · `Submission time: {YYYY-MM-DD}`（组件 `BenchmarkSubmissionMeta`，与 D3 详情卡共用；时刻 = 审计列 `created_at`，走 `formatErlIsoDate()`，为空显示 `—`） | 原型 |
 | **D1 卡二：Record History** | 列 `PERIOD`（最新一条加 `LATEST` 徽章）/ **`SUBMISSION TIME`**（**真实录入时刻**：审计列 `created_at`，经 `formatErlIsoDate()` 渲染 **`YYYY-MM-DD`**，为空显示 `—`）/ `SUBMITTER`（姓名 · 角色）+ 行尾 `›`，整行可点进 D3 记录详情页（键盘 Enter / Space 同效）；按 **`created_at DESC NULLS LAST, id DESC`**（纯提交时间倒序，补录旧期次的那条也排在最前）—— 同期次可有多条**并列**，最近录入的排在前面，`LATEST` 徽章只给这个排序下的**首条** | 原型 |
@@ -1939,8 +1934,9 @@ Company Overview 页（Revenue / Financials 两张通栏卡在上，不变）
 | 草稿保存失败（网络） | — | 吸底条红色提示 **`Draft not saved.`**，本地作答原样留在页面上，**由用户自己再点一次 `Save as draft`**（无自动重试、无离开拦截） |
 | **在填期间题库发布了新版** | **不是降级场景，是正常路径**：评估恒按 `erl_question_config_version_id` 渲染与计分，服务端行为与没发布过完全一致。接口 3 出参含 `latestPublishedVersionNo` + `hasNewerQuestionSet` | **存过草稿**且 `hasNewerQuestionSet` 时一进页面弹**强阻断二选一弹窗**、不可关闭，必须在「按旧题库就地提交」与「Reset 换新题库」之间选一个（见 §8.4「B 题库更新提示」）—— **服务端行为不受影响**（版本锁定本体不变）；页头不显示题集版本 |
 | **提交时绑定版本已不是最新** | **不校验、不拦截**，正常提交 | 无提示；B3 列表不显示题集版本（§8.4「B 题集版本标注」），与新版本提交的行分母不同属正常（§7.10-N2） |
-| **配置页有草稿但未发布** | 填报页 / 维度页 / 计分**读不到任何草稿变更**，行为与没改过完全一致 | 无任何感知（这是版本化的目的）；仅配置页显示 `Draft v{n} — unpublished changes` |
+| **配置页有草稿但未发布** | 填报页 / 维度页 / 计分**读不到任何草稿变更**，行为与没改过完全一致 | 无任何感知（这是版本化的目的）；仅配置页显示 `Draft saved … by …` 提示（§8.4-C5） |
 | **某维度在已发布版本中 0 题** | 同「题库为空」：该维度 `levelScore = null`，`totalCount` 不含未发布内容 | 填报页该维度显示空态 `No questions published for this dimension yet.`（填报单元＝单个维度，此时整页即空态，`Submit` 禁用）；配置页则正常列出草稿内容 + `Publish` 提示 |
+| **题库 `Save as Draft` / `Publish` / `Discard Change` 失败** | 业务错误或网络错误，库中无任何写入 | 报错提示；工作副本与「有未保存改动」原样保留，可再点一次 |
 | **提交时题序已变更** | 不阻断，且**因版本锁定而不可能影响本次评估** —— 评估恒按自己绑定的版本渲染与计分（§7.9-⑤） | 无提示。⚠️ 题序**直接影响 level 内的作答顺序**（PRD §3.8「该顺序即评估中的必答顺序」），但**不影响维度分** —— 维度分只看「该 level 是否全 Yes」，与 level 内答题先后无关 |
 | **某 level 内混有 Yes 和 No** | 扫到**第一道 No** 即 `BLOCKED`，`levelScore = 该维上一个整级通关的 level`（一级都没通关则 `0`；level 连续时与 `level − 1` 同值）；**该 No 之后的题不必作答**；该 No 之后已答的那些当场清空、落盘时删除，Goldie 只拿到首个 No 为止的作答 | 该 level 组头标 `Stopped here`，组内逐题各显示自己的 Yes / No 徽章；**不把整组显示为 No** |
 | 重复提交（**该条记录**已 SUBMITTED） | `BadRequestException` | 提示已提交并跳转到该次提交的只读详情。⚠️ 这指「同一条 `erl_assessment` 被提交两次」；**该期次该端该维再提交一份新的**是**正常路径**（`submissionCount > 0` 时按「B 提交」的第二套确认文案弹窗，新记录因 `submitted_at` 最大而成为该维 SOT，历史提交保留） |
@@ -1970,8 +1966,8 @@ Company Overview 页（Revenue / Financials 两张通栏卡在上，不变）
   - **保护对象不是那一行**（置位下行不消失），是**已发布题库版本的语义**（§7.11-④）。
 - **不做全局统一题库** —— 题库与权重**按组织（租户）**隔离（PRD §4）；组织内不按公司细分，公司级覆盖也不做。**题库版本化已纳入 V1**（§7.9）。
 - **不做撤回（已发布 → 草稿）、单维度发布、变更逐条勾选发布、定时发布、版本回滚与版本对比 UI** —— V1 只实现「改草稿 → 全量发布」一条路径（§7.9）。只读的**版本历史页**（C7）已纳入 V1，能按版本回看**那一版的整份题面**（接口 26），但**不含回滚、不含版本间 diff 视图**（两版并排比对、逐题标红绿都不做）——「能看某一版长什么样」与「能比较两版差在哪」是两件事。
-- **不做草稿的丢弃（Discard changes）** —— 未要求；代价是误改只能手工改回来（题库低频、变更摘要可见，可接受）。若实际使用中成为痛点，加一个 `DELETE /erl/question/draft` 即可，不影响现有模型。
-- **不做草稿的编辑锁 / 按人隔离的草稿 / 变更冲突合并** —— 题库配置是低频管理动作，多人共编不做界面提示（§7.9-④）。⚠ 这里只指**草稿之间**不做编辑锁与冲突合并（后保存覆盖先保存，接受）；「已发布版本一个字节都不改」（§7.9）与「已 SUBMITTED 的记录一律只读」（§7.7）这两条**不变量**由 `@Version` 乐观锁 + `SELECT … FOR UPDATE` 悲观锁在数据库层兜底，别把本条读成「跨状态覆盖也不管」。题库草稿的并发编辑取悲观锁而非乐观锁，是为了让**失败落在低频的发布方**：两个管理员同时编辑不同维度的题目是允许的，若靠乐观锁，后提交者会因为版本号被对方改过而丢掉刚录的题目。
+- **不做题库未保存改动的本地缓存与离开拦截** —— 没点 `Save as Draft` 就离开配置页、刷新或切换租户，页面上的改动直接丢失（需求方确认，§8.4-C5）。
+- **不做草稿的编辑锁 / 按人隔离的草稿 / 变更冲突合并** —— 题库配置是低频管理动作，多人共编不做界面提示（§7.9-④）。⚠ 这里只指**草稿之间**不做编辑锁与冲突合并（后保存覆盖先保存，接受）；「已发布版本一个字节都不改」（§7.9）与「已 SUBMITTED 的记录一律只读」（§7.7）这两条**不变量**由 `@Version` 乐观锁 + `SELECT … FOR UPDATE` 悲观锁在数据库层兜底，别把本条读成「跨状态覆盖也不管」。题库草稿的保存 / 发布 / 丢弃取悲观锁串行，后到的整份覆盖先到的；**也不做提交前的过期检测** —— 一张打开较早的页面保存或发布时，会把期间别人存的草稿、甚至别人已发布的新版本盖回去（§7.9-④）。
 - **不做在填评估的重基 / 「升级到最新题集」按钮** —— 评估版本锁定，一次评估自始至终用同一版题集（§7.9-⑤）。
 - **不做题集版本不一致的阻断** —— 同期次两端跨版本、旧版本草稿延迟提交照旧**允许**，前端不显示版本号（§8.4「B 题集版本标注」；§7.10-13 / N1 / N2）；**但维度级的「不可比」要告警**：两端同维 `question_version_no` 不等时，接口 1 / 17 的该维下发 `questionSetMismatch` + `mismatchSide`，A1 小卡渲染绿点 + 琥珀字 `New version pending`（并出面板级告警）、该维不送进 Goldie。判据只能是维度级题集版本号（用组织级发布批次号会假阳性）。
 - 不做评估期次之间的对比、趋势图、导出。
