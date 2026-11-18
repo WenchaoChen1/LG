@@ -1,6 +1,6 @@
 # 卡死任务定时清扫 — 代码示例
 
-> 关联文档: [开发设计](./dev-design-doc.md) · [Fireflies 代码示例第 4 节（人工应急）](../../Fireflies%20转录接入/开发设计/code-examples.md)
+> 关联文档: [开发设计](./dev-design-doc.md)（清扫没跑时的人工应急见 4.8）
 
 ## 1. 扫描与认领 SQL
 

@@ -1,6 +1,6 @@
 # 卡死任务定时清扫 — 开发设计
 
-> 关联文档: [Fireflies 开发设计](../../Fireflies%20转录接入/开发设计/dev-design-doc.md)（P1「卡死兜底」、7 #Q12 #Q13 #Q30）· [Fireflies 代码示例第 4 节](../../Fireflies%20转录接入/开发设计/code-examples.md) · [智能解析系统架构](../../智能解析/调研/system-architecture.md) · [代码示例（SQL / DDL / 消息）](./code-examples.md)
+> 关联文档: [Fireflies 开发设计](../../Fireflies%20转录接入/开发设计/dev-design-doc.md)（P1「卡死兜底」、7 #Q12 #Q13 #Q30）· [智能解析系统架构](../../智能解析/调研/system-architecture.md) · [代码示例（SQL / DDL / 消息）](./code-examples.md)
 >
 > **本文范围**：定时扫出卡死的 Fireflies 会议处理与 AI 财务提取任务并收尾。与 Fireflies 一起上线（Fireflies 7 #Q12）。第 7 节各项已于 2026-10-30 拍板。
 
@@ -198,6 +198,19 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
 - `mark_pending` 对无动作的行不改（已删且无 `file_id` 的行 `_derive_action` 为无动作）。知识库摘要行：正文条目已在线（摘要行带 `file_id`）时也置 `PENDING`，使只改摘要的保存（API-23 只勾 / 取消摘要、API-24 改摘要）被打断后同样交 F5（用户决定 2026-10-30）；正文没上线的摘要行不动。配套：撤摘要不因正文 `PENDING` 而推迟；正文推送用尽置 `FAILED` 时，仍是 `PENDING` 的配对摘要行一并置 `FAILED`，不让 F5 无限重推。
 - API-23 的上线列表按 `NONE` / `FAILED` 选，必须在 `mark_pending` 之前算出。
 - `_list_rows_to_offline` 若按状态过滤，要把 `PENDING` 算进去（开发时核对）。
+
+### 4.8 清扫没跑时的人工应急
+
+清扫停了或还没上线时，按 F1~F6 的判定条件查出会议后人工处理：
+
+| 类 | 人工处理 | 与清扫动作的区别 |
+|---|---|---|
+| F1 首轮卡在处理中 | 删掉该会议的 P1 状态行（产出在下次开跑时会先删），再把 `ff_meeting_meta_info.dispatched_at` 置空；下一次拉取 Java 自动补投（只拉 `CONNECTED` / `DISCONNECTED` 的租户），Python 当新会议从头处理 | 清扫按失败收尾、转 Pending，不重跑（4.1） |
+| F2 已投递却没有 P1 行 | 把 `dispatched_at` 置空，同 F1 等下一次拉取补投；补投过（`redispatched_at` 非空）仍丢失的，改为把 `redispatched_at` 置空，下一轮清扫再补投一次 | — |
+| F3 非首轮提取卡在 RUNNING | 按 Fireflies 设计 6.11 作废：`extraction_status = 'VOIDED'`，会议转 Pending、待识别 | — |
+| F4 证词补抽卡在 RUNNING | `testimony_backfill_status` 置为 `FAILED` | — |
+| F5 投影卡在 PENDING | `projection_status` 置为 `FAILED`，管理员在会议页点 Confirm & Apply 即按行当前状态重推（API-23 会重推 `NONE` / `FAILED` 的已授权行，Fireflies 开发设计 7 #Q30） | — |
+| F6 应下线却没下成 | 没有页面入口，按条目下线：删 RAG 条目与切片、软删登记行；第（一）种再把中间表行的 `file_id` 置空、`projection_status` 置为 `NONE` | — |
 
 ## 5. AI 财务提取
 
