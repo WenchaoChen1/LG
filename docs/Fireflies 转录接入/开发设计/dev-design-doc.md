@@ -497,7 +497,7 @@ Fireflies 只在 Python 侧记审计：需求要求记的是「路由决策与�
 | Java | Nacos `cio.fireflies.encryption`：API key 加密密钥（AES-256-GCM），Base64 编码的 32 字节，可用 `openssl rand -base64 32` 生成；漏配不影响启动，Link 与拉取时报错；配上后不要再换，换了已存的 key 解不开、只能重新 Link。Nacos 登录不上的环境改配 Java 容器环境变量 `CIO_FIREFLIES_ENCRYPTION`（Spring 宽松绑定映射到同一个 key，代码不用改；test / uat 即此，2026-11-04），只配一处 | 无，必配 |
 | Java | Nacos `cio.fireflies.sync.first-lookback-days`：首次连接（含换账号）的回溯天数 | 14 |
 | Java | Nacos `cio.fireflies.sync.lookback-hours`：增量拉取从上次成功往前回看的小时数 | 72 |
-| Java | Nacos `cio.fireflies.sync.disconnect-threshold`：连续非鉴权失败达到即转 `Disconnected`（本方案，设计 9.12 #1 待确认） | 3 |
+| Java | 连续非鉴权失败转 `Disconnected` 的次数：写死在 `FfSyncServiceImpl.DISCONNECT_THRESHOLD`，不可配，改次数要改代码、随 Java 发版（7 #Q58） | 3 |
 | Java | Nacos `cio.fireflies.sync.pull-read-timeout-ms`：拉会议列表（一页 50 场，含逐句）的读超时，按实测再调 | 60000 |
 | Java | Nacos `cio.fireflies.sync.sync-stale-minutes`：同步卡死时限（`sync_started_at` 超过即可被重新抢占，API-01 的 `syncing` 也按它判） | 60 |
 | Java | 每日拉取 cron：写死在 `FixedScheduleTypeEnum.FirefliesDailyPull`（`cron(40 3 * * ? *)`，每日 03:40 UTC，7 #Q33），不可配，改时段要改枚举、随 Java 发版（7 #Q33） | 每日 03:40 UTC |
@@ -1250,7 +1250,7 @@ PG-03                                           PG-04
 | R63 Email Domain 可多个、可编辑删除（Email Domain） | 9.7.7、1.9 ① | J1 | PG-01c | API-10、API-11 | 4.4 | 整份提交（Q22） |
 | **《Fireflies Configuration》** | | | | | | |
 | R64 只支持 API Key；说明文案；Link（Connection / API Key） | 9.2、9.2.5 | J1 | PG-01b、PG-01b1 | API-02、API-04 | 4.3 | 掩码 + Remove 按设计稿（Q1）；说明文案已补（5.3） |
-| R65 连接状态四种（Connection） | 9.2.4 | J1 | PG-01b | API-01 | 4.3 | `Disconnected` 阈值默认 3（1.4） |
+| R65 连接状态四种（Connection） | 9.2.4 | J1 | PG-01b | API-01 | 4.3 | `Disconnected` 阈值 3，写死（1.4，7 #Q58） |
 | R66 显示最近同步时间（Connection） | 9.2.6 | J1 | PG-01b | API-01 | 4.3 | 固定 UTC 显示（Q25f） |
 | R67 Sync now（Connection） | 9.2.6、9.3.1 | J1、J2、J3 | PG-01b | API-03 → API-01 | 4.3 | — |
 | R68 每日拉取（拉取；RD） | 9.2.6、9.3.1、第八章 #29 / #30 | J1、J2、J3 | — | EventBridge → Java → SQS（3.5） | — | 每日 03:40 UTC（1.4） |
@@ -1294,7 +1294,7 @@ PG-03                                           PG-04
 | R36 | HubSpot 一级没有落点 | 已写进第 2 节「不在本期」 |
 | R48 | 「整场分类、不做子会议切分」没有明文 | 实现上满足（P1 一场一个类型，混合会议靠 4.6 手动改判），不另加 |
 | R52、R62、R64 | 邮箱省略号、History 面包屑去向、Configuration 说明文案 | 已补进 5.4、4.8、5.3 |
-| R65 | `Disconnected` 阈值与每日拉取时间没人拍板 | 1.4 给默认值：阈值 3（Nacos 可配）、每日 03:40 UTC（落地时写死在枚举、不可配，7 #Q33）（本方案） |
+| R65 | `Disconnected` 阈值与每日拉取时间没人拍板 | 1.4 给默认值：阈值 3（原为 Nacos 可配，后改为写死，7 #Q58）、每日 03:40 UTC（落地时写死在枚举、不可配，7 #Q33）（本方案） |
 | R66 | 展示时区未定 | 已定：固定 UTC 显示（7 #Q25f） |
 | R89 | Memory 摘要按 markdown 渲染还是写成纯文本（设计 #20 交开发设计定） | 定为 Memory 页按 markdown 渲染：详情弹框渲染，列表两行预览去掉标记；提示词不改（本方案，5.8） |
 
@@ -1368,6 +1368,7 @@ PG-03                                           PG-04
 | Q55 | 测试提出摘要行的 Authorize 灰色不能勾，要先勾下面的 Knowledge base 才能勾，看起来像 bug（#Q42 的「正文未勾时摘要置灰、勾回正文不连带勾回摘要」） | **同一（去向, 公司）的正文与摘要当成一个勾选框**（用户决定 2026-11-16）：勾选或取消任一个，另一个随之变；不再有「正文未勾时摘要置灰」，只在正文行已删时摘要置灰。不再支持只放行正文、不放行摘要（#Q42 原允许）。后端不改：API-23 仍按「摘要授权而正文未授权按正文为准」归一。存量数据不处理（只上了测试环境，需要时手动勾选） | 4.6 Authorize、5.6、X1「摘要跟着正文走」、P7；设计 9.6.2；web `review/utils/routingMatrix.ts`（`authorizationChanges` / `isSummaryAuthorizeBlocked`） |
 | Q56 | 测试提出未对上的说话人下拉里的 `Assign to a participant` 不需要，有 `Create new person` / `Link existing person` 两项就够 | **去掉 `Assign to a participant`，连同 PG-02d 弹框与 API-27**（用户决定 2026-11-16）：未对上的说话人与未识别的参会人下拉一致，只有两项。要把说话人挂到本场已有的参会人名下，改走 `Create new person` 并填那位参会人的邮箱——API-25 按邮箱认出本场已有的参会人（平台用户、名册已有的人都不新建），直接挂上；那位参会人既不是平台用户、也不在名册里时，等于先按表单把他登记进名册、再挂说话人（Name 预填的是说话人的显示名，要改成本人姓名）；一位参会人可以挂多个说话人。代价（已接受）：比原来多填一张登记表单；说话人查不到邮箱时不能再「指定给某位参会人」，只能填本场某位参会人的邮箱、挂到他名下。P3 `bind_source = MANUAL_ASSIGN` 只剩历史数据，枚举值与列注释保留；API-21 的 `aiSuggestedMatch` 仍返回，页面不再使用 | 2 PG-02、3.2、3.4、3.6、4.6、4.7、5.6、P3 `bind_source`；设计 1.9、9.5.5、9.5.9、9.7.4、9.9.1、9.10.2、第十章 #66；提示词 6.13；web `review/components/ParticipantChips.tsx`；Python `participant_service.py` |
 | Q57 | 公司端的 Goldie Base 没有 Cross company content、Expert Testimony 两个 Tab：创始人在 Goldie 里召回得到跨公司内容与匿名证词，却没有页面可以浏览（设计第十章 #41 原定只在管理端） | **公司端也显示这两个 Tab，内容与公司端在 Goldie 召回到的一致**（用户决定 2026-11-17）：Cross company content 只有正文；Expert Testimony 列匿名版的行，只有正文与专长标签。不给公司端的：会议名称与元数据、说话人姓名、Play candidate——API-30 对公司端调用者不返回这些字段（`meeting`、`speakerName` 为 null，`inPlaybook` 恒 false），不靠前端隐藏。公司端所有用户可见（召回也不分 Company Admin）；租户只认会话机构、不采信前端传入的组织，没有机构时返回空页；不调 Java；关键词只匹配正文；不提供时间过滤、接口忽略公司端传入的日期（审核发现按日期逐日收窄能反推每条内容的会议日期，再对照本人受邀的会议可能认出匿名证词的说话人）；每条一张卡片、不按会议归组。两版各看各的授权：管理端 Tab 看署名行，公司端 Tab 看匿名行。管理端的两个 Tab 不变（管理端在 Goldie 召回的也只有署名版）。索引 `idx_ai_ff_routing_row_tab` 的谓词加上 `TESTIMONY_ANON`（迁移 V035，发版前后执行均可）。API-31 对公司端仍拒绝 | 2 PG-05c / PG-05d、3 API-30、4.9、5.8、P7 索引；设计 9.11、9.11.1、9.11.4、9.11.5、第十章 #41；Python `goldie_base_service.py`、`routing_row_repository.py`、`business/V035`、`source/rag/ROLE_VISIBILITY.md` §8；web `askGoldie/goldieBase/` |
+| Q58 | `Disconnected` 的连续失败次数做成了 Nacos 配置项 `cio.fireflies.sync.disconnect-threshold`（默认 3），用处不大、大概率不会改 | **去掉这个配置项，次数写死为 3**（用户决定 2026-11-18）：`FfSyncProperties` 删 `disconnectThreshold`，`FfSyncServiceImpl` 改用常量 `DISCONNECT_THRESHOLD = 3`，行为不变；环境变量台账删掉这一行。已在 Nacos 配了这一项的环境不用清，多余的键会被忽略 | 1.4、6 R65；设计 9.2.4、9.12 #1 |
 
 ## 8. 开发任务拆分（第 6 步计划）
 
