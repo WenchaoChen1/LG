@@ -120,7 +120,7 @@ GS 内部与 GS → Partner 没有基金层：绑不到公司的内容不写 1b�
 
 | # | 规则 | 做法 | 涉及的产物 |
 |---|---|---|---|
-| 1 | 公司端普通用户也能召回系统写入的会议条目 | 行级过滤为 `created_by ∈ {本人, 系统用户}`，会议条目一律以系统用户写入；Company Admin 不叠这条过滤 | KB-APP 的会议条目（需求路由表 1a / Founder KB 要求公司端可见） |
+| 1 | 公司端普通用户能召回本人受邀的会议条目 | 行级过滤为「`created_by` = 本人，或 `file_id` 属于本人受邀的会议」（受邀 = 本人邮箱在会议受邀名单里，清单查询时现算，开发设计 7 #Q59）；会议条目一律以系统用户写入，不靠 `created_by` 认；Company Admin 不叠这条过滤 | KB-APP 的会议条目（需求路由表 1a / Founder KB 要求公司端可见） |
 | 2 | 管理端的行级过滤**按空间施加** | `company_id IN 可访问公司 OR thread_id` 只叠在知识库空间（KB-ADMIN 与各公司的 APP 空间）上，机构层、证词、跨公司空间不叠 | `company_id` 为空的条目：机构层、证词署名版、跨公司 |
 | 3 | 两端按组织另解会议空间 | 公司端另解证词匿名版与跨公司空间；管理端另解证词署名版、跨公司与机构层空间 | 证词两版、跨公司、机构层 |
 
@@ -610,7 +610,7 @@ n-gram 阈值可配置（需求 I）。
 | 条目形态 | 每条条目 = 一条 TEXT 来源的 `ai_rag_entry`（`content_text` 存 markdown）+ 一行 `ai_file_registry`，以合成 `file_id` 关联；不生成文件、不上传 S3，走「会议派生 markdown 入库」路径，登记行由我方写入（1.3；开发设计 7 #Q41）。知识库页下载时由后端现生成 `.md`（9.11.2） |
 | 摘要 | 由我方传入，跳过系统的二次 `summarize`；摘要行已授权时写进条目的 `ai_rag_entry.summary`，并整段建一条 `chunk_kind=summary` 向量（Memory 页只列摘要非空的条目）。摘要跟着正文走：正文未授权时条目不上线，摘要的授权不生效（1.3；开发设计 7 #Q42） |
 | 登记 | `ai_file_registry.business_type = FIREFLIES`，知识库页与 Memory 页都按它纳入（1.2）；Memory Tab 另显示 `Fireflies Memory` + `Meeting Summary` 标签，知识库 Tab 的 Source 列显示 `Fireflies`（9.11.3 / 9.11.2） |
-| 公司端可见 | 平台规则下公司端普通用户只召回自己上传的条目；`FIREFLIES` 条目对该公司全体公司端用户可召回 |
+| 公司端可见 | 平台规则下公司端普通用户只召回自己上传的条目；`FIREFLIES` 条目普通用户只召回本人受邀的会议，Company Admin 可召回该公司全部（开发设计 7 #Q59） |
 | 管理端可见 | 经「可访问公司的 APP 空间」召回；在 Memory 页的 **Company Memory** 层与知识库页看到 |
 | Cross-Company | `(APP, CROSS_COMPANY, organization_id)`，空间业务类型 `CROSS_COMPANY`，登记 `FIREFLIES_CROSS_COMPANY`；只投影审核放行的条目，不进 Memory 页 |
 | 专家证词 | 见 2.5 / 3.4 |
@@ -1103,14 +1103,14 @@ PM / PGM 的判定（#22）走 Java 现有接口、透传用户 token，不读�
 | 7 | **公司端分支多解证词-匿名、跨公司两个空间**，调高 top_k | `ai/tools/knowledge_base_tool.py` |
 | 8 | **管理端分支多解证词-署名、跨公司、机构层三个空间** | `ai/tools/knowledge_base_tool.py` |
 | 9 | **行级过滤改为按空间施加**：KB-ADMIN 为 `company_id IN 可访问公司 OR thread_id`；KB-APP 对公司端普通用户按 `created_by` 收窄（例外见 #10）；证词、跨公司、机构层空间不叠行级过滤。**不放开 `company_id IS NULL`**——管理端会话文件的 `company_id` 同样为空（1.1） | `knowledge_base_tool.py`、`search_service.py`、`factory.py`、`chunk_repository.py` |
-| 10 | **公司端普通用户可召回 KB-APP 内的会议条目**：会议条目统一以固定系统身份写 `created_by`，过滤为 `created_by ∈ {本人, 系统身份}` | `knowledge_base_tool.py`、`chunk_repository.py` |
+| 10 | **公司端普通用户可召回 KB-APP 内本人受邀的会议条目**：会议条目统一以固定系统身份写 `created_by`、不靠它认，过滤为「`created_by` = 本人，或 `file_id` 属于本人受邀的会议」，Company Admin 不叠（开发设计 7 #Q59） | `knowledge_base_tool.py`、`chunk_repository.py` |
 
 **页面数据源**
 
 | # | 改动 | 位置 |
 |---|---|---|
 | 11 | **Memory 页与知识库页纳入 `FIREFLIES`**（开发设计 7 #Q42）：Memory 页 `list_kb_entry_scopes` 取 `KNOWLEDGE_BASE` 与 `FIREFLIES`，只列摘要非空的条目；知识库页列表 `_kb_documents_query`、上传者筛选项 `distinct_kb_uploaders`、按文件圈定召回的候选查询 `list_chat_scope_files` 同样纳入；会议条目按合成 `file_id` 圈定，与普通文件同一用法（1.3） | `lg/db/service/file_registry.py`、`file_registry/domain/repository/file_registry_repository.py` |
-| 12 | **知识库页对公司端普通用户放开会议文件**：列表对 `FIREFLIES` 行不按 `created_by` 收窄；下载在 `KNOWLEDGE_BASE` 与 `SESSION_UPLOAD` 之外放行 `FIREFLIES`（其余一律 404）：本公司 + APP 端（公司端）、可访问公司或本组织机构层（管理端）。Fireflies 行没有 S3 对象，下载由后端按条目的 markdown 现生成，返回 `data = {url: null, fileName, content}`（`fileName` 取登记行文件名、`.md`），前端见 `content` 用 Blob 下载；其他行仍只返回 `url`（开发设计 3.6、7 #Q41）。通用登记写接口（`PUT` / `DELETE /api/ai/file-registry/records/{id}`；service `update_record` / `delete_record`）对 `FIREFLIES` / `FIREFLIES_TESTIMONY` / `FIREFLIES_CROSS_COMPANY` 三类行**拒绝通用写操作**（开发设计 7 #Q42），改内容 / 撤下一律走矩阵（9.6.3、9.6.4） | `file_registry_repository.py`、`file_registry_service.py`、`file_registry/interfaces/routes.py`；web 知识库页下载（`src/pages/askGoldie/knowledgeBase/`） |
+| 12 | **知识库页对公司端普通用户放开本人受邀的会议文件**：列表对 `FIREFLIES` 行不按 `created_by` 认，普通用户只列本人受邀的会议、Company Admin 列本公司全部，下载同此（开发设计 7 #Q59）；下载在 `KNOWLEDGE_BASE` 与 `SESSION_UPLOAD` 之外放行 `FIREFLIES`（其余一律 404）：本公司 + APP 端（公司端）、可访问公司或本组织机构层（管理端）。Fireflies 行没有 S3 对象，下载由后端按条目的 markdown 现生成，返回 `data = {url: null, fileName, content}`（`fileName` 取登记行文件名、`.md`），前端见 `content` 用 Blob 下载；其他行仍只返回 `url`（开发设计 3.6、7 #Q41）。通用登记写接口（`PUT` / `DELETE /api/ai/file-registry/records/{id}`；service `update_record` / `delete_record`）对 `FIREFLIES` / `FIREFLIES_TESTIMONY` / `FIREFLIES_CROSS_COMPANY` 三类行**拒绝通用写操作**（开发设计 7 #Q42），改内容 / 撤下一律走矩阵（9.6.3、9.6.4） | `file_registry_repository.py`、`file_registry_service.py`、`file_registry/interfaces/routes.py`；web 知识库页下载（`src/pages/askGoldie/knowledgeBase/`） |
 | 13 | **机构层条目的展示**：Memory 页与管理端知识库页在按 `company_id IN` 圈定之外另有机构层作用域——按组织 + 机构层空间圈定，**不按 `company_id` 为空圈定**（证词、跨公司、会话文件同样为空）；web Memory 页有机构层的展示 | `memory/application/memory_service.py`、`lg/db/service/file_registry.py`、`file_registry/domain/repository/file_registry_repository.py` + web `src/pages/askGoldie/memorySettings/` |
 
 **Java 与新建表**
@@ -1220,7 +1220,7 @@ Fireflies Management 下的四个页面以 Tab 组织，顺序按原型：Summar
 | 已有页面 | 展示什么 | 改造 |
 |---|---|---|
 | **Memory 页**（Goldie 内，Company Memory / Portfolio Memory 两层；现为 Goldie Base 的 Memory Settings Tab，9.11.3） | 各条目的摘要（1a / 1b）。GS → 创始人的条目是 APP 端条目，在 Company Memory 层；GS 内部 / Partner 的公司层条目是 ADMIN 端条目，在 Portfolio Memory 层（1.1） | 查询纳入 `ai_file_registry.business_type = FIREFLIES` 中摘要非空的条目（摘要并入知识库条目，开发设计 7 #Q42）；LP 基金层条目归属机构、`company_id` 为空，按公司列取不到，另有机构层展示；Fireflies 条目另显示 `Fireflies Memory` + `Meeting Summary` 标签（9.11.3） |
-| **知识库页**（公司端 Founder KB / 管理端 Portfolio KB；现为 Goldie Base 的 Knowledge Base Tab，9.11.2） | 各条目的 markdown 正文，可下载（Fireflies 行由后端现生成 `.md`，9.11.2） | 查询纳入 `FIREFLIES`；公司端普通用户的普通文件仍只看自己上传的；Fireflies 条目由系统写入，对该公司公司端用户全部放开（与 Goldie 召回的口径一致，1.1）；Source 列（9.11.2） |
+| **知识库页**（公司端 Founder KB / 管理端 Portfolio KB；现为 Goldie Base 的 Knowledge Base Tab，9.11.2） | 各条目的 markdown 正文，可下载（Fireflies 行由后端现生成 `.md`，9.11.2） | 查询纳入 `FIREFLIES`；公司端普通用户的普通文件仍只看自己上传的；Fireflies 条目由系统写入，普通用户只看本人受邀的会议、Company Admin 看该公司全部（与 Goldie 召回的口径一致，1.1；开发设计 7 #Q59）；Source 列（9.11.2） |
 
 专家证词与 Cross-Company 不进 Memory 页（1.1），在 Goldie Base 各有独立 Tab，两端都有（9.11.4 / 9.11.5）。
 
@@ -2620,7 +2620,7 @@ Portfolio 列与原知识库一致，一律纯文字：有公司的显示该公�
 | # | 事项 | 当前处理 |
 |---|---|---|
 | 9 | PM 没有 Raw Data 权限，但 Portfolio KB 里的原始转录链接指向 Raw Data | **待确认**：现在 PM 不能看 Raw Data，Knowledge Base Tab 的 Source 列对 PM 显示为纯文字；是否给 PM 开放相关会议的原文，请确认；若放开，Source 列对 PM 随之可点 |
-| 11 | 公司端谁能召回 GS → 创始人的摘要：现有规则下公司端普通用户只召回自己上传的文件 | 该公司全体公司端用户可召回（第八章）；原始转录是仅参会人，摘要是否也收窄到参会人，需求未区分 |
+| 11 | 公司端谁能召回 GS → 创始人的摘要：现有规则下公司端普通用户只召回自己上传的文件 | 已定（用户决定 2026-11-18，开发设计 7 #Q59）：普通用户只召回本人受邀的会议的摘要与正文，Company Admin 可召回该公司全部；原始转录仍是仅受邀人 |
 | 13 | "被标记为专家"的判定口径：需求没有专门字段；需求写"Cheat Sheet 的 Founder 指未使用 LG 平台的创始人"，而身为 LG 用户的专家创始人也要能登记 | 该人在 Cheat Sheet 中按会议日期生效的版本带至少一个专长标签（1.11）。名册里可以有 LG 平台用户：确认 LG 用户为专家时建 Role = Founder 的条目，其参会人胶囊也例外地可弹确认框（9.5.6）；这一条的角色可改，且他会议当天的角色以它为准（开发设计 7 #Q47）；Cheat Sheet 列表与编辑弹框按邮箱现算、在姓名旁标出 `LG user`（9.7.1、9.7.3），不加字段；专家确认框保存一律写名册，平台用户全部驳回也建一条 Founder 记录（开发设计 7 #Q51）。请需求方知悉《Cheat Sheet》「Founder 指未使用 LG 平台的人」的例外 |
 | 19 | 管理端在 Memory 页看到 GS → 创始人摘要的层级 | 只写 APP 条目（摘要与正文合投一条，开发设计 7 #Q42），管理端在 Company Memory 层看到它，不在 Portfolio Memory 层（1.1）；若需求方要求出现在 Portfolio Memory 层，需另写 ADMIN 条目 |
 | 20 | Memory 摘要的格式：产出一律 markdown | Memory 页按 markdown 渲染——详情弹框渲染，列表两行预览去掉标记；提示词不改（开发设计 5.8） |

@@ -616,9 +616,9 @@ API-26、API-27 已删除（7 #Q44、#Q56），编号不复用。
 
 | 编号 | 方法 路径 | 改什么 | 使用页面 | 新增 / 改造 |
 |---|---|---|---|---|
-| API-33 | GET `/api/ai/file-registry/files` | 主表是登记表 `ai_file_registry`（分页、排序、筛选都在登记表上），P7 / P1 只在分页后按本页的 Fireflies 行补查。筛选与搜索保持现有：搜索只按文件名，不加设计稿的 Source 筛选（7 #Q24a）；Source 列照加。只纳入 `FIREFLIES` 行（证词、跨公司登记为另两个值，不进本 Tab，7 #Q42），对公司端普通用户不按 `created_by` 收窄；机构层作用域按组织 + 机构层空间圈定；`source` 取值为 `GOLDIE` / `FIREFLIES`（设计第八章 #18）；Fireflies 行经 P7 按 `file_id`（同一 `file_id` 有摘要、正文两行，取正文行，7 #Q42）带出会议 id、能否跳原文与 `portfolioDisplay`（列里显示的值：有公司取公司所属 Portfolio，无公司取会议 Portfolio 标记）；Fireflies 行的 From Chat 与 Uploaded By 都显示 `—`：`uploadedBy` / `uploadedByName` 返回空，不带出系统用户 id（设计 9.11.2，7 #Q25a）（第八章 #11~#13、#16、#18） | PG-05a | 改造，见 3.6 |
+| API-33 | GET `/api/ai/file-registry/files` | 主表是登记表 `ai_file_registry`（分页、排序、筛选都在登记表上），P7 / P1 只在分页后按本页的 Fireflies 行补查。筛选与搜索保持现有：搜索只按文件名，不加设计稿的 Source 筛选（7 #Q24a）；Source 列照加。只纳入 `FIREFLIES` 行（证词、跨公司登记为另两个值，不进本 Tab，7 #Q42），公司端普通用户只列本人受邀的会议（按受邀名单里的邮箱，7 #Q59），公司管理员列本公司全部；机构层作用域按组织 + 机构层空间圈定；`source` 取值为 `GOLDIE` / `FIREFLIES`（设计第八章 #18）；Fireflies 行经 P7 按 `file_id`（同一 `file_id` 有摘要、正文两行，取正文行，7 #Q42）带出会议 id、能否跳原文与 `portfolioDisplay`（列里显示的值：有公司取公司所属 Portfolio，无公司取会议 Portfolio 标记）；Fireflies 行的 From Chat 与 Uploaded By 都显示 `—`：`uploadedBy` / `uploadedByName` 返回空，不带出系统用户 id（设计 9.11.2，7 #Q25a）（第八章 #11~#13、#16、#18） | PG-05a | 改造，见 3.6 |
 | API-34 | GET `/api/ai/file-registry/files/filter-options` | 作用域放开到 Fireflies 行后，上传者选项排除 `FIREFLIES` 行（Uploaded By 显示 `—`，7 #Q25a） | PG-05a | 改造 |
-| API-35 | GET `/api/ai/file-registry/files/{entryId}/download` | 加 `FIREFLIES` 分支：公司端限本公司 APP 端，管理端限可访问公司或本组织机构层（#12）。Fireflies 行没有 S3 对象，由后端按条目的 markdown 现生成（返回结构见 3.6，7 #Q41） | PG-05a | 改造，见 3.6 |
+| API-35 | GET `/api/ai/file-registry/files/{entryId}/download` | 加 `FIREFLIES` 分支：公司端限本公司 APP 端，普通用户还须本人受邀、否则 404（7 #Q59），管理端限可访问公司或本组织机构层（#12）。Fireflies 行没有 S3 对象，由后端按条目的 markdown 现生成（返回结构见 3.6，7 #Q41） | PG-05a | 改造，见 3.6 |
 | API-36 | PUT、DELETE `/api/ai/file-registry/records/{registryId}` | `update_record` / `delete_record` 里按 `business_type` 显式拒绝 `FIREFLIES` / `FIREFLIES_TESTIMONY` / `FIREFLIES_CROSS_COMPANY` 三类行（DELETE 会连带删 RAG 条目与向量）；`_PROTECTED_BIZ_TYPES` 另加这三个类型，防聊天上传改写会议行（7 #Q42）；Fireflies 行前端不显示删除（#12） | PG-05a | 改造 |
 | API-37 | GET `/api/ai/memories` | 「登记表圈定条目 → `ai_rag_entry` 取摘要分页」两步，不读 P7（Fireflies 摘要在投影时已写进正文条目的 `summary`，7 #Q42）。圈定 `KNOWLEDGE_BASE` 与 `FIREFLIES`，只列摘要非空的条目，返回项加来源字段，增加机构层（#11、#13、#19）。管理端 `scope` 加取值 `fireflies`：只取 `FIREFLIES`、只看会议摘要、不分层；`company` / `portfolio` 只取 `KNOWLEDGE_BASE`（上传文件的摘要），不含会议摘要与机构层；公司端不加筛选；设计稿 File Scope 里的 Document Summary 选项不加。会议摘要的标签为 Fireflies Memory + Meeting Summary，Fireflies Memory 占层徽标的位置、不显示 Company / Portfolio Memory；文件摘要不变（7 #Q24b） | PG-05b | 改造，见 3.6 |
 | API-38 | POST `/api/ai/sse/stream`（Goldie 召回） | 接口契约不变；召回改造见第八章 #7~#10 | Ask Goldie 对话（不在本页面清单） | 改造 |
@@ -1275,7 +1275,7 @@ PG-03                                    PG-04
 
 ## 7. 待确认问题
 
-Q1~Q36、Q41~Q58 已定；Q37~Q40 是尚无结论的待核实事实或知会风险，见本节末「仍需核实」，有结论前按现在的实现。
+Q1~Q36、Q41~Q59 已定；Q37~Q40 是尚无结论的待核实事实或知会风险，见本节末「仍需核实」，有结论前按现在的实现。
 
 | # | 问题 | 决定 | 影响范围 |
 |---|---|---|---|
@@ -1333,6 +1333,7 @@ Q1~Q36、Q41~Q58 已定；Q37~Q40 是尚无结论的待核实事实或知会风�
 | Q56 | 未对上的说话人下拉里要不要 `Assign to a participant` | 不要，PG-02d 弹框与 API-27 一并删除：未对上的说话人与未识别的参会人下拉一致，只有 `Create new person` / `Link existing person` 两项。要把说话人挂到本场已有的参会人名下，走 `Create new person` 并填那位参会人的邮箱——API-25 按邮箱认出本场已有的参会人（平台用户、名册已有的人都不新建），直接挂上；那位参会人既不是平台用户、也不在名册里时，等于先按表单把他登记进名册、再挂说话人（Name 预填的是说话人的显示名，要改成本人姓名）；一位参会人可以挂多个说话人。代价（已接受）：多填一张登记表单；说话人查不到邮箱时只能填本场某位参会人的邮箱、挂到他名下。P3 `bind_source = MANUAL_ASSIGN` 只剩历史数据，枚举值与列注释保留；API-21 的 `aiSuggestedMatch` 仍返回，页面不使用。用户决定 2026-11-16 | 2 PG-02、3.2、3.4、3.6、4.6、4.7、5.6、P3 `bind_source`；设计 1.9、9.5.5、9.5.9、9.7.4、9.9.1、9.10.2、第十章 #66；提示词 6.13；web `review/components/ParticipantChips.tsx`；Python `participant_service.py` |
 | Q57 | 公司端的 Goldie Base 要不要 Cross company content、Expert Testimony 两个 Tab（创始人在 Goldie 里召回得到这些内容） | 公司端也显示这两个 Tab，内容与公司端在 Goldie 召回到的一致：Cross company content 只有正文；Expert Testimony 列匿名版的行，只有正文与专长标签。不给公司端：会议名称与元数据、说话人姓名、Play candidate——API-30 对公司端调用者不返回这些字段（`meeting`、`speakerName` 为 null，`inPlaybook` 恒 false），不靠前端隐藏。公司端所有用户可见（召回也不分 Company Admin）；租户只认会话机构、不采信前端传入的组织，没有机构时返回空页；不调 Java；关键词只匹配正文；不提供时间过滤、接口忽略公司端传入的日期（按日期逐日收窄能反推会议日期、进而认出匿名证词的说话人）；每条一张卡片、不按会议归组。两版各看各的授权：管理端 Tab 看署名行，公司端 Tab 看匿名行。管理端的两个 Tab 不变。索引 `idx_ai_ff_routing_row_tab` 的谓词含 `TESTIMONY_ANON`（迁移 V035，发版前后执行均可）。API-31 对公司端仍拒绝。用户决定 2026-11-17 | 2 PG-05c / PG-05d、3 API-30、4.9、5.8、P7 索引；设计 9.11、9.11.1、9.11.4、9.11.5、第十章 #41；Python `goldie_base_service.py`、`routing_row_repository.py`、`business/V035`、`source/rag/ROLE_VISIBILITY.md` §8；web `askGoldie/goldieBase/` |
 | Q58 | `Disconnected` 的连续失败次数要不要做成 Nacos 配置项 | 不做配置项，次数写死为 3：`FfSyncServiceImpl` 用常量 `DISCONNECT_THRESHOLD = 3`，`FfSyncProperties` 不设 `disconnectThreshold`。已在 Nacos 配了 `cio.fireflies.sync.disconnect-threshold` 的环境不用清，多余的键会被忽略。用户决定 2026-11-18 | 1.4、6 R65；设计 9.2.4、9.12 #1 |
+| Q59 | 需求变更：创始人只看自己参加的会议的 Memory 与 KB（原为本公司全部会议） | 公司端普通用户只看本人受邀的会议，公司管理员仍看本公司全部，管理端不变；跨公司内容与证词匿名版不动。「受邀」= 本人邮箱在会议受邀名单 `ff_meeting_meta_info.participants` 里（忽略大小写），同 Raw Data 与原文页的口径；只圈本公司 `KB_APP` 去向、在线的行，不比对会话机构。清单查询时现算（fireflies `list_invited_kb_file_ids`，返回与登记行、条目、切片共用的 `file_id`），不加字段、存量不处理，四处共用：① Goldie 召回：行级过滤由「创建人是本人或系统用户」改为「创建人是本人，或 `file_id` 在清单里」；② `find_files` / `get_file_summary`：会议文件只取清单里的；③ Knowledge Base 页（API-33）：会议行只列清单里的；④ 下载（API-35）：本人没受邀按不存在处理（404）。邮箱取 Java 当前用户（聊天取每轮开头存下的用户快照），取不到即看不到任何会议内容，不放宽。普通用户仍没有 Memory Settings 页，摘要只在 Goldie 里召回。用户决定 2026-11-18 | 3.3 API-33 / API-35、3.6；设计 1.3、第八章 #10~#12；Python `goldie_base_service.py`、`chunk_repository.py`、`file_registry_repository.py`、`knowledge_base_tool.py`、`source/rag/ROLE_VISIBILITY.md` §8 |
 
 仍需核实（尚无结论，按现在的实现）：
 
