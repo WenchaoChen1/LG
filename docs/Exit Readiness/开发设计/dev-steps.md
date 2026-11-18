@@ -15,10 +15,12 @@
 | 7 | 线 | Web：常驻父路由 + 页面改读写工作副本 | `config/routes.ts` 四条配置路由挂到 `configuration/_shell.tsx`（写法同 `/devSupport`）；Context 提供工作副本；`ConfigurationPage`（列表、拖拽、改 band、删除）、`QuestionBandGroup`、`add/QuestionAddPage`、`edit/QuestionEditPage` 不再调逐条接口；切租户重新载入；载入时传当时的 Active 维度（没有题的建空列表）；`Dimension Configuration` 保存后出现工作副本里没有的 Active 维度时，重调接口 9 只把这些维度并入工作副本（reducer 补一个并入动作） | §8.1、§8.2、§8.4-C1～C4 | 5、6 | 列表与新增 / 编辑 / 历史页来回跳转改动不丢；刷新即丢；编辑页找不到题显示 `Open this question from the question library.`；tsc / lint 无新增错误 | 待开发 |
 | 8 | 线 | Web：操作区草稿提示与三个按钮 | `ConfigurationPage` 操作区、`components/constants.ts` 文案：`Draft saved … by …`；`Discard Change` / `Save as Draft` / `Publish` 的启用规则与动作；`Discard changes?` 确认框；去掉 `pageEditing` 边框；发布后刷新维度配置的 `deletable` | §8.4-C5、§9（题库保存失败行） | 7 | 单测覆盖按钮状态表四种组合、三个动作成功后的状态、失败时保留工作副本；tsc / lint 无新增错误 | 待开发 |
 | 9 | 面 | 两端删除逐条写接口 10～14 及写时复制残留 | Java：四个写接口与 `GET /question/{questionKey}`，`create` / `update` / `delete` / `reorder` / `findByQuestionKey`，不再使用的 `ensureDimensionCloned` / `touchDraft` 等方法、对应 Request 类与测试；`ErlQuestionConfigDimensionVersion` 类注释「草稿不写本表」。Web：对应 api / service 函数与测试、`response.ts` 的 `Draft v{n}` 注释、`constants.ts` 版本条注释 | §6.4（接口 10～14 已删除） | 4、7、8 | 两端编译通过、全仓无引用残留；ERL 相关单测通过 | 待开发 |
-| 10 | 面 | 本地联调 | 本地起 Java + 前端，按需求「按钮状态」表与设计 §7.9 走场景 | 需求「已确认口径」、§7.9、§8.4-C5 | 1～9 | 场景走通：跨维度改动后保存、刷新看到草稿与提示；不存草稿直接发布；存草稿后继续改再发布以页面为准；`Discard Change` 回到在用版本；改回原样再保存不留草稿；停用维度后保存；发布后新开的问卷用新版本、在填问卷弹题库更新 | 待开发 |
+| 10 | 面 | 本地联调 | 本地起 Java + 前端，按需求「按钮状态」表与设计 §7.9 走场景 | 需求「已确认口径」、§7.9、§8.4-C5 | 1～9 | 场景走通：跨维度改动后保存、刷新看到草稿与提示；不存草稿直接发布；存草稿后继续改再发布以页面为准；`Discard Change` 回到在用版本；改回原样再保存不留草稿；停用维度后保存；发布后新开的问卷用新版本、在填问卷弹题库更新；停用某维 → 发布 → 恢复该维，配置页见原题与草稿提示，发布后该维连题恢复 | 待开发 |
+| 11 | 线 | Java：恢复停用维度时带回旧题进草稿 | `PUT /erl/dimension/config`（接口 24）：`ErlDimensionConfigServiceImpl` 在 `Inactive → Active` 的维度上调 `ErlQuestionConfigVersionService` 新方法；该方法找含该维快照的最新已发布版本、复制题目行、写草稿快照、建 / 刷新草稿版本行（复用第 3 步）；仓储补查询 | §7.9-②’’’’’、§6.4（维度配置改动的例外） | 3 | 单测：停用期间发布过 → 复制题目行（`question_key` 等原样、新号 = 该维 max + 1）、写草稿快照、建或刷新草稿版本行；停用后未发布过 / 从未发布过 / 那一版 0 道题 → 不写；取锁顺序先维度行后草稿行 | 待开发 |
 
 ## 备注
 
 - **开发分支**：Java 与 Web 都直接在主目录的 `sprint122` 上开发（用户 2026-11-18 定），不另开分支、不开 worktree。第 2 步合入后到第 8 步完成前，配置页处于不可用的中间态，这期间的提交先不推送。
 - **Java 单测**放 worktree 跑（IntelliJ 开着 WebApplication 时主目录跑 `mvn test` 会弄坏运行中的应用）；多个测试类用逗号分隔，看 `Tests run` 行确认真跑了。
-- **建议并行**：Java 1 → 2 → 3 → 4 与 Web 5 ∥ 6 → 7 → 8 两条线互不依赖，可按轮并行（同一轮 Java 一个 agent、Web 一至两个 agent）；第 2 步与第 5 步同轮做。9、10 两条线都做完后再做。
+- **建议并行**：Java 1 → 2 → 3 → 4 与 Web 5 ∥ 6 → 7 → 8 两条线互不依赖，可按轮并行（同一轮 Java 一个 agent、Web 一至两个 agent）；第 2 步与第 5 步同轮做。第 11 步在第 3 步之后，可与第 4 步同轮。9、10 两条线都做完后再做（第 10 步联调含第 11 步的场景）。
+- **Java 单测**命令（worktree `D:\workspace\worktrees\erl-question-draft\java\CIOaas-api`，先把主目录未提交的改动 `git diff | git apply` 过去）：`mvn -q -pl gstdev-cioaas-web -am test -Dtest=类A,类B -Dsurefire.failIfNoSpecifiedTests=false`，带 `-q` 时看 `target/surefire-reports/*.txt` 的 `Tests run` 行。
