@@ -272,7 +272,7 @@ Python 表编号 P6 空出（拒绝名单为 Java 表 J6，7 #Q45）。
 | `cheat_sheet_id` | VARCHAR(36) | 是 | — | 识别时按会议日期取到的那一行 `ff_cheat_sheet.id`（一行即一个版本），留痕，名册同步（API-28）时随之刷新；P8 输出的 `registry_id` 即它 | 9.5.9 |
 | `display_name` | VARCHAR(255) | 是 | — | 胶囊显示名 | 9.5.5 |
 | `organization` | VARCHAR(255) | 是 | — | 胶囊显示的组织 | 9.5.5 |
-| `expertise_tags` | JSONB | 否 | `'[]'` | 补充识别：会议日期生效版本的专长标签；登记时由 API-25 就地刷新，Edit external party 与专家确认框保存后由名册同步（API-28）按名册当日生效版本刷新（徽标随之显示 `Expert`）；被推测者的新值由 Confirm & Apply（API-23）同步进 P1 快照并补抽证词（见 P1 `current_extraction_input`，7 #Q51）。提取时本列与 `cheat_sheet_id` 即建议标签的扣除基准 T1：建议标签 = 大模型标签 − T1 − 拒绝名单（J6），不另加字段（7 #Q44） | 1.11 |
+| `expertise_tags` | JSONB | 否 | `'[]'` | 补充识别：会议日期生效版本的专长标签；登记时由 API-25 就地刷新，Edit external party 与专家确认框保存后由名册同步（API-28）按名册当日生效版本刷新；被推测者的新值由 Confirm & Apply（API-23）同步进 P1 快照并补抽证词（见 P1 `current_extraction_input`，7 #Q51）。提取时本列与 `cheat_sheet_id` 即建议标签的扣除基准 T1：建议标签 = 大模型标签 − T1 − 拒绝名单（J6），不另加字段（7 #Q44） | 1.11 |
 | `ai_inferred_identity` | JSONB | 是 | — | AI（P8）推断的此人身份：`{confidence, evidence, name, role, organization, registry_id}`（P8 原样输出，`registry_id` 即 `ff_cheat_sheet.id`），不采纳的也存 | 6.13 |
 | `testimony_backfill_status` | VARCHAR(16) | 是 | — | 被推测者的证词补抽状态：`RUNNING`（补抽中）/ `FAILED`（补抽失败，可重试）；空 = 没有补抽或已成功。Confirm & Apply（API-23）应用后需补抽的人在应用事务里置 `RUNNING`（7 #Q51），Retry（API-29）同样置 `RUNNING`。补抽在 Python 进程内执行，被打断后没有重投，靠定时清扫判超时：`RUNNING` 且本行 `updated_at` 距今超过卡死时限，置 `FAILED`（条件更新），页面出现 Retry。不另设开始时间列：置 `RUNNING` 时触发器刷新 `updated_at`，期间本行别的改动只会推迟判定（见 P1「卡死兜底」） | 2.5 |
 | `testimony_tags` | JSONB | 是 | — | 上次为此人抽证词时所用的专长标签集合（首次提取与每次补抽成功时写入；标签清空、证词行软删时写 `[]`；空 = 从没为他抽过证词）。补抽前与他名册里会议当日生效的标签比对（即名册同步带回的 P2 `expertise_tags`；应用后补抽不重读名册，7 #Q48、#Q51）：三类会议的 P5 都不带标签，只在从没抽过且现在有标签时补抽（7 #Q35） | 2.5 |
@@ -740,7 +740,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | API-25 说话人关联（PG-02f，7 #Q53） | 不加参数：前端带 `speakerId` 与所选人的邮箱，走现有「按邮箱认人」路径（`registryMatchedName` 返回该人姓名），不新建、不改名册；表单改动由前端先经 API-07 保存 |
 | API-21 `pendingBackfillCount` | `number`：本场被推测者（有专家候选的参会人）中，P2 专长标签与提取快照（P1 `current_extraction_input`）里他的标签不同的人数，打开详情页时现算；大于 0 时 Confirm & Apply 激活并旁注「N 人的标签待补抽，应用后补抽」（7 #Q51 ⑥） |
 | API-21 `participants[].registryForm.versionId` | T2（会议日期当天生效的那条记录）的 id；已在册时有值，PG-02b 作 API-07 的 `{id}`、PG-02c 作 API-08 的 `baseVersionId`（7 #Q44） |
-| API-21 `badges` / `clickAction` | `badges`：`EXPERT` \| `POSSIBLE_EXPERT` \| `AI_INFERRED`；`clickAction`：`EXPERT_CONFIRM` \| `ASSIGN` \| `EDIT` \| `NONE` |
+| API-21 `badges` / `clickAction` | `badges`：`POSSIBLE_EXPERT` \| `AI_INFERRED`（不再有 `EXPERT`，7 #Q60）；`clickAction`：`EXPERT_CONFIRM` \| `ASSIGN` \| `EDIT` \| `NONE` |
 | API-21 `identifySubReasons` | 待识别子原因（设计 9.4.2），现算，会议不在待识别时为空数组；前端不展示、不读取；取值：`PARTICIPANT_UNIDENTIFIED`（有未识别的参会人）、`SPEAKER_UNMAPPED`（有未对上的说话人）、`TYPE_UNDETERMINED`（类型为 Unknown，含被改为 Unknown）、`COMPANY_MULTIPLE`（GS → 创始人关联了多家公司）、`COMPANY_UNDETERMINED`（GS → 创始人定不出公司，含公司方只来自 P8、名册反推不出）、`FOUNDER_COMPANY_MISMATCH`（有 Founder 归属不到关联的公司；近似，不区分是否到场）、`IDENTIFICATION_FAILED`（P1 / P8 最终失败，只在之后还没提取过时出现）、`EXTRACTION_FAILED`（最近一次提取作废） |
 | API-21 `participants[].email` | 本场邮箱（参会人行 `email`；名册可能有多个邮箱，前端据此锁定本场那一个，7 #Q44）。`registryForm` 的 T2 里没有本场邮箱时已补在末尾；会议当天没有生效版本（会后改了有效期）时按识别时记的 `cheat_sheet_id` 那一行预填并作 `versionId`，管理员须把有效期改到包含会议日期才能保存 |
 | API-21 `routingRows[].companyId` | 该行的公司 id（无公司的去向为空）；前端按（`destination`, `companyId`）配对摘要行与正文行、划分矩阵分区，不按公司名（同名或空名公司会串） |
@@ -1092,7 +1092,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 |---|---|---|
 | 页头 | `breadCrumbs`、提示文案、`Button`（Start Extraction） | 提取进行中按钮显示进行中并置灰 |
 | 会议信息卡 | 描述列表 + `Select`（类型）+ 可关闭的标签（公司 / Portfolio）+ `Select` 入口（下拉列全部候选，已选的浅黄底高亮、再点移除，悬停灰底，不显示滚动条；Company 下拉顶部带搜索框，同设计稿） | 每家公司下方一行识别依据（9.5.3 文案）；未采纳的候选不展示；GS → 创始人的 Portfolio 只读 |
-| 参会人 | 胶囊 `Tag` | 按身份着色（GS 蓝、Founder 橙、外部紫、未识别与未对上的说话人灰 + 红点）；徽标 Expert / Possible expert / AI inferred（不弹依据）；未识别与未对上的说话人点开下拉 `Create new person` / `Link existing person`（7 #Q53、#Q56）；证词补抽中 / 失败 · Retry 显示在胶囊旁 |
+| 参会人 | 胶囊 `Tag` | 按身份着色（GS 蓝、Founder 橙、外部紫、未识别与未对上的说话人灰 + 红点）；徽标 Possible expert / AI inferred（不弹依据）；未识别与未对上的说话人点开下拉 `Create new person` / `Link existing person`（7 #Q53、#Q56）；证词补抽中 / 失败 · Retry 显示在胶囊旁 |
 | Content Routing Matrix | 自写表格：每行 `TextArea` + Visible to 文本 + `Checkbox`；Knowledge base 行正文是 markdown，平时按 markdown 渲染（react-markdown），点 Edit 换成 markdown 编辑器（react-markdown-editor-lite，只有工具栏与编辑区），Cancel / 保存成功后回到渲染态 | 改动行琥珀边框并出现 Save / Cancel；证词行的来源行只读显示在正文上方；跨公司与证词行另以灰色小字只读显示出处时间点 `[hh:mm:ss]`（`sourceTimestamp` 为空时不显示，7 #Q26）；GS 内部 / Partner 按公司分组、行标注公司名；GS → LP 标注机构层；Pending 会议首次提取前矩阵为空，显示「提取后在此显示」；提取进行中显示「提取中」占位，作废后显示「提取失败，补齐后点 Start Extraction」；`projectionStatus = FAILED` 的行显示红色标记，悬停说明投影失败；摘要行的 `Checkbox` 与同组正文行一起勾选、一起取消，正文行已删时置灰（4.6，7 #Q55）；证词区按 `speakerParticipantId` 显示该发言人的「证词补抽中」/「证词补抽失败 · Retry」。Visible to 文案：`KB_APP` → Founder, PM & PGM；`TESTIMONY_SIGNED` → Expert testimony (Portfolio)；`TESTIMONY_ANON` → Expert testimony (Founder)；`CROSS_COMPANY` → Cross company（以上同设计稿）；`KB_ADMIN` → PM & PGM、`FUND_LEVEL` → PM & PGM (fund level)（设计稿没有） |
 | 底部按钮 | `Button` ×2 | 置灰时不弹悬停提示；Confirm & Apply 成功后若有证词补抽，参会人胶囊与证词区显示「证词补抽中」（7 #Q51） |
 | PG-02e 行内 Save 的清洗回显 | `Modal` | 列出删去的行及原因、替换的实体，按钮「确认保存」/「继续修改」；清洗后什么都不剩时「确认保存」置灰（淡化品牌色）、预览处提示 `Nothing left to save. Keep editing to revise this content.` |
@@ -1210,7 +1210,7 @@ PG-03                                    PG-04
 | R37 先邮箱后姓名（一） | 1.8、1.9 ⑥ | P2 `match_step` | — | — | — | 姓名只出候选，交 P8 核对（#77） |
 | R38 LLM 从转录推断（一） | 1.9 ⑦、6.13（提示词 P8）、6.4（提示词 P1） | P2、P3、P4 的 AI 字段 | PG-02 | API-21 | 4.6 AI inferred 悬停 | 经 P8 认出的证词默认不勾 |
 | R39 仍无法解析 → Pending（一、二） | 1.9 ⑧、1.10、9.4.2 | P1 | PG-01a、PG-02 | API-20、API-21 | 4.2、4.6 | — |
-| R40 Founder 为专家时补充识别（特殊说明） | 1.11、2.5 | P2 `expertise_tags` | PG-02 | API-21 | — | Expert 徽标 |
+| R40 Founder 为专家时补充识别（特殊说明） | 1.11、2.5 | P2 `expertise_tags` | PG-02 | API-21 | — | 只作补充识别，不显示徽标（7 #Q60） |
 | R41 专家推测触发（专家推测） | 1.11、6.10、6.11 步骤 5 | P5 | PG-02 | API-21 | 4.6 点参会人 | ≥2 条门槛 |
 | R42 多标签逐条确认 / 拒绝；拒绝记邮箱 + 标签（专家推测；SR） | 1.11、9.5.6、9.5.7、9.5.10 | P5、J6、J4 | PG-02c | API-08 → API-28 | 4.7 PG-02c | Q22；标签栏里留下 = 同意、删掉 = 驳回（Q45）；保存一律写名册，只驳回也要登记（Q51） |
 | R43 GS 员工永不标为专家（专家推测） | 1.11、9.5.6 | 程序过滤 | — | — | — | 另排除 Other（#72） |
@@ -1334,6 +1334,7 @@ Q1~Q36、Q41~Q59 已定；Q37~Q40 是尚无结论的待核实事实或知会风�
 | Q57 | 公司端的 Goldie Base 要不要 Cross company content、Expert Testimony 两个 Tab（创始人在 Goldie 里召回得到这些内容） | 公司端也显示这两个 Tab，内容与公司端在 Goldie 召回到的一致：Cross company content 只有正文；Expert Testimony 列匿名版的行，只有正文与专长标签。不给公司端：会议名称与元数据、说话人姓名、Play candidate——API-30 对公司端调用者不返回这些字段（`meeting`、`speakerName` 为 null，`inPlaybook` 恒 false），不靠前端隐藏。公司端所有用户可见（召回也不分 Company Admin）；租户只认会话机构、不采信前端传入的组织，没有机构时返回空页；不调 Java；关键词只匹配正文；不提供时间过滤、接口忽略公司端传入的日期（按日期逐日收窄能反推会议日期、进而认出匿名证词的说话人）；每条一张卡片、不按会议归组。两版各看各的授权：管理端 Tab 看署名行，公司端 Tab 看匿名行。管理端的两个 Tab 不变。索引 `idx_ai_ff_routing_row_tab` 的谓词含 `TESTIMONY_ANON`（迁移 V035，发版前后执行均可）。API-31 对公司端仍拒绝。用户决定 2026-11-17 | 2 PG-05c / PG-05d、3 API-30、4.9、5.8、P7 索引；设计 9.11、9.11.1、9.11.4、9.11.5、第十章 #41；Python `goldie_base_service.py`、`routing_row_repository.py`、`business/V035`、`source/rag/ROLE_VISIBILITY.md` §8；web `askGoldie/goldieBase/` |
 | Q58 | `Disconnected` 的连续失败次数要不要做成 Nacos 配置项 | 不做配置项，次数写死为 3：`FfSyncServiceImpl` 用常量 `DISCONNECT_THRESHOLD = 3`，`FfSyncProperties` 不设 `disconnectThreshold`。已在 Nacos 配了 `cio.fireflies.sync.disconnect-threshold` 的环境不用清，多余的键会被忽略。用户决定 2026-11-18 | 1.4、6 R65；设计 9.2.4、9.12 #1 |
 | Q59 | 需求变更：创始人只看自己参加的会议的 Memory 与 KB（原为本公司全部会议） | 公司端普通用户只看本人受邀的会议，公司管理员仍看本公司全部，管理端不变；跨公司内容与证词匿名版不动。「受邀」= 本人邮箱在会议受邀名单 `ff_meeting_meta_info.participants` 里（忽略大小写），同 Raw Data 与原文页的口径；只圈本公司 `KB_APP` 去向、在线的行，不比对会话机构。清单查询时现算（fireflies `list_invited_kb_file_ids`，返回与登记行、条目、切片共用的 `file_id`），不加字段、存量不处理，四处共用：① Goldie 召回：行级过滤由「创建人是本人或系统用户」改为「创建人是本人，或 `file_id` 在清单里」；② `find_files` / `get_file_summary`：会议文件只取清单里的；③ Knowledge Base 页（API-33）：会议行只列清单里的；④ 下载（API-35）：本人没受邀按不存在处理（404）。邮箱取 Java 当前用户（聊天取每轮开头存下的用户快照），取不到即看不到任何会议内容，不放宽。普通用户仍没有 Memory Settings 页，摘要只在 Goldie 里召回。用户决定 2026-11-18 | 3.3 API-33 / API-35、3.6；设计 1.3、第八章 #10~#12；Python `goldie_base_service.py`、`chunk_repository.py`、`file_registry_repository.py`、`knowledge_base_tool.py`、`source/rag/ROLE_VISIBILITY.md` §8 |
+| Q60 | 参会人胶囊上的 `Expert` 徽标要不要显示（名册里已带专长标签的人） | 不显示：API-21 `badges` 不再返回 `EXPERT`，只留 `Possible expert`（本场有未处理的建议标签）与 `AI inferred`；前端不渲染没有文案的徽标，发版先后不会露出原始值。名册里的专长标签照常用于补充识别、证词与建议标签扣除。用户决定 2026-11-19 | 3.6 API-21；5.6；6 R40；设计 9.5.5 徽标表、9.5.6 |
 
 仍需核实（尚无结论，按现在的实现）：
 
