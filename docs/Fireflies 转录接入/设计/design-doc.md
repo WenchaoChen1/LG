@@ -495,7 +495,7 @@ n-gram 阈值可配置（需求 I）。
 | **无公司端用户、也没有域名命中，公司方有按邮箱命中（1.9 ④）的 Cheat Sheet Founder** | ✅ 本类型 | Cheat Sheet 条目只有 `Organization` 文本、**没有 `company_id`**，只能**由正文提及反推**（6.4（P1）） |
 | **公司方只来自 6.13（P8）**（推断出的 `Founder`，或经 P8 对到名册的 `Founder`，含按日历姓名命中、经 P8 核对的，第十章 #77） | ✅ 本类型 | **不自动关联**：P1 的正文提及同 `low` 一样只留在识别结果里（9.5.9）、不采纳，整场 `Pending`，等管理员在 Company 字段指定（或公司增改后自动路由，9.9.3） |
 
-**每位到场 Founder 都要归属到关联的那家公司**：Cheat Sheet Founder 与 P8 推断的 Founder 没有 `company_id`，程序拿他的机构（名册 Organization，或 P8 推断的组织）与关联公司的名称比较——忽略大小写、首尾空白与 Inc. / Ltd. / LLC / Corp. 等后缀，对不上或机构为空 → 会议进 `Pending`（待识别），原因写「<姓名>（<机构>）对不上 <公司>」。管理员两种处理：
+**每位到场 Founder 都要归属到关联的那家公司**：Cheat Sheet Founder 与 P8 推断的 Founder 没有 `company_id`，程序拿他的机构（名册 Organization，或 P8 推断的组织）与关联公司的名称比较——忽略大小写、空格、标点与 Inc. / Ltd. / LLC / Corp. 等后缀（"Tax Taker" 与 "TaxTaker" 算同名），对不上或机构为空 → 会议进 `Pending`（待识别），原因写「<姓名>（<机构>）对不上 <公司>」。管理员两种处理：
 
 | 情形 | 处理 |
 |---|---|
