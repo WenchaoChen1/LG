@@ -394,7 +394,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 > **题库版本是「每维一条版本线」**：`version_no` 按 `dimension_code` 自增，一份维度题目由 `(dimension_code, version_no)` 定位。**组织级的「第 n 次发布」在 `erl_question_config_version`**（§5.1.1），它与各维度当时 `version_no` 的对应关系逐行落在 `erl_question_config_dimension_version`（§5.1.5）—— 即「本次发布 = FRL 的 v7 + PRL 的 v2 + …」。只改了某一个维度的题目时，**只有那个维度的 `version_no` 前进**，其余维度在新发布批次里仍指向各自的旧版本号，不整库重写。
 >
 > **草稿态的题目集怎么定位**：草稿版本行下有该维的快照行（§5.1.5）⇒ 取快照行的 `question_version_no`；没有 ⇒ 这份草稿没改该维，取在用版本的号（§7.9-②’’）。配套两条约束：
-> - **新版本号只在保存草稿时分配**：`Save as Draft` / `Publish` 写入某个与在用版本不同的维度时，在**草稿版本行的悲观锁内**取 `version_no = max(该维题目行的 version_no, 本组织该维已发布快照的 question_version_no) + 1`（都带 `organization_id = ? AND dimension_code = ?`）；与在用版本相同的维度**不产生新号**。取号**一律带 `organization_id` 作用域**。题目集版本号用户看不到（页面只显示组织级的 `v{n}`），只用来取题和判断两版同维题集是否相同，所以只要求**发布过的号不再被别的内容占用**、号只增不减；必须把已发布快照算进去 —— 某维删光后发布，新号下一道题目行都没有，只看题目行会把这个已发布的号再取一次，草稿题就写进了已发布版本。
+> - **新版本号只在写草稿时分配**：`Save as Draft` / `Publish` 写入某个与在用版本不同的维度时（以及接口 24 恢复停用维度、把旧题复制进草稿时，§7.9-②’’’’’），在**草稿版本行的悲观锁内**取 `version_no = max(该维题目行的 version_no, 本组织该维已发布快照的 question_version_no) + 1`（都带 `organization_id = ? AND dimension_code = ?`）；与在用版本相同的维度**不产生新号**。取号**一律带 `organization_id` 作用域**。题目集版本号用户看不到（页面只显示组织级的 `v{n}`），只用来取题和判断两版同维题集是否相同，所以只要求**发布过的号不再被别的内容占用**、号只增不减；必须把已发布快照算进去 —— 某维删光后发布，新号下一道题目行都没有，只看题目行会把这个已发布的号再取一次，草稿题就写进了已发布版本。
 > - **草稿的题目行随草稿一起清**：每次保存草稿先删掉上一份草稿的全部题目行与快照行再重写，丢弃草稿（接口 36）同样删干净 —— 草稿被覆盖或丢弃后不留高版本号的题目行，下一份草稿取到的仍是同一个号（§7.9-②）。
 >
 > 题目行按 `(organization_id, dimension_code, version_no)` 定位，各组织互不相干；脚本不插任何种子题目，题目行一律由业务侧写入。
@@ -838,7 +838,7 @@ isAdmin   = user.roleType <= 1        // 管理端（portfolio portal）
 - **接口 35 的落库（§7.9-②）**：一个事务内先删掉上一份草稿的全部题目行与快照行，再逐维比对「体里的题」与「在用版本的题」（按顺序逐题比 `questionKey` / `eraBand` / `questionText` / `evidenceSource`）—— **不同的维度**才写一批新题目行 + 一行草稿快照，相同的维度不写；**至少有一维不同**才保留（或新建）草稿版本行并刷新其 `updated_at` / `updated_by`，**全部相同则不留草稿**（已有草稿行一并删除，出参 `hasDraft = false`）。
 - **接口 21**：同一事务内先走完接口 35 的落库，再把草稿版本 `status` 置 `PUBLISHED`、写 `published_at` / `published_by`，**并为每个 `Active` 维度补齐 `erl_question_config_dimension_version`**（`dimension_code` / `dimension_name` / `dimension_abbr` / `question_version_no` / `sort_order` / `bound_at`，§5.1.5）。**页面内容与在用版本完全相同时返回业务错误**（§4.3，`There are no unpublished changes to publish.`）、整个事务回滚、不产生新版本，已存的草稿原样保留 —— 前端 `Publish` 只按「有草稿或页面动过」启用（§8.4-C5，不与服务端比对），所以改过又改回、把草稿改回在用版本的样子、或页面过期（别人刚发布过同样的内容）都会走到这里，前端照常报错、保留工作副本。
 - **接口 36**：一个事务内删除草稿的题目行、快照行与草稿版本行（§7.9-②）；**没有草稿时幂等返回成功**。
-- 接口 9 出参：`questions[]`（每题 `questionKey` / `dimensionCode` / `eraBand` / `eraLabel` / `questionText` / `evidenceSource` / `sortOrder` / `changeType`）+ 根节点 `version { versionNo, status, lastEditedBy, lastEditedAt }` 与 **`hasDraft`**（布尔，本组织是否存在草稿版本）。**有草稿时 `lastEditedAt` / `lastEditedBy` 就是最近一次 `Save as Draft` 的时刻与保存人**（版本行审计列 `updated_at` / `updated_by`，姓名由用户表解析）—— 草稿只由接口 35 写入，配置页的 `Draft saved … by …` 提示直接取这两个字段（§8.4-C5）。`changeType`（草稿与在用版本按 `question_key` 逐字段比对）照常下发，前端不渲染。
+- 接口 9 出参：`questions[]`（每题 `questionKey` / `dimensionCode` / `eraBand` / `eraLabel` / `questionText` / `evidenceSource` / `sortOrder` / `changeType`）+ 根节点 `version { versionNo, status, lastEditedBy, lastEditedAt }` 与 **`hasDraft`**（布尔，本组织是否存在草稿版本）。**有草稿时 `lastEditedAt` / `lastEditedBy` 就是最近一次 `Save as Draft` 的时刻与保存人**（版本行审计列 `updated_at` / `updated_by`，姓名由用户表解析）—— 草稿由接口 35 写入（接口 21 发布时同一步写入后随即发布；唯一例外是接口 24 恢复停用维度时把旧题复制进草稿，此时是恢复维度的人与时刻，§7.9-②’’’’’），配置页的 `Draft saved … by …` 提示直接取这两个字段（§8.4-C5）。`changeType`（草稿与在用版本按 `question_key` 逐字段比对）照常下发，前端不渲染。
 - **接口 25 出参**：`versions[]`，每项 `versionNo` / `status`（`DRAFT` | `PUBLISHED`）/ `publishedAt` / `publishedBy` / `lastEditedBy` / `lastEditedAt`。**按 `versionNo` 倒序，草稿（`DRAFT`）排在最前**。
   - **仅可选入参 `organizationId`**（缺省取 `SecurityUtils.getOrganizationId()`，可指定组织树内的组织）、**仅管理端可调**，公司端报业务错误（§4.3 —— 端类型 / 组织越权同样由 `ErlAccessServiceImpl` 抛 `BadRequestException`）。**只读接口，不写草稿**。
   - ⚠️ **草稿行照常下发，但 C7 不显示它们**：C7 的版本下拉按 `status === 'PUBLISHED'` 过滤，过滤**落在前端取数 hook `useQuestionVersions`**、**不下沉到服务端** —— 「库里到底有没有草稿版本」是「`Publish` 按钮能不能点」的判据来源，服务端一旦把草稿行滤掉，那个判断就没了数据来源；C7 是本接口**当前唯一的消费方**，过滤放在页面侧的代价只是一个 `filter`。⚠️ 由此带来一个**空态**：只有草稿、没有任何已发布版本的组织，C7 下拉为空、页体走 `No published question set versions yet.`（§8.4-C7）。
@@ -1405,7 +1405,7 @@ draftDimensionVersions(organizationId)：
 **②’’’ 并发**
 
 - **保存草稿、发布、丢弃三个事务开头都对草稿版本行 `SELECT … FOR UPDATE`**（先锁维度配置行、再锁版本行，三者同序），彼此串行；后到的那个整份覆盖先到的（§7.9-④）。
-- `@Version` 与部分唯一索引 `uk_erl_question_config_version_draft` 只兜**并发建草稿版本行**（两个事务同时发现无草稿）：败者得到业务错误 `This record was changed by someone else. Please reload and try again.`（§9），页面上的改动原样保留，再点一次即可。
+- **并发建草稿版本行**（两个事务同时发现无草稿）实际走不到：建草稿的三个入口（保存草稿、发布、接口 24 恢复停用维度）都先锁本组织的维度配置行，已经串行。部分唯一索引 `uk_erl_question_config_version_draft` 只是兜底，真撞上返回一次 500（`@Version` 拦不住两条并发 INSERT）。
 
 **②’’’’ Publish 写快照的取值**
 
@@ -1424,6 +1424,8 @@ draftDimensionVersions(organizationId)：
 - **写入**：取锁顺序同 ②’’’（接口 24 本来就先锁维度配置行，再锁草稿版本行）；没有草稿版本行就建一条，有就刷新 `updated_at` / `updated_by`；`draftNo` 按 §5.1 的取号规则（与保存草稿共用）；逐题复制（`question_key` / `era_band` / `question_text` / `evidence_source` / `sort_order` 原样，`id` 新生成）；写一行草稿快照 `(草稿版本行 id, D, draftNo)`。
 - ⚠️ **必须复制，不能让草稿快照直接指向旧号**：清掉草稿按快照删题目行（②），指向旧号会把已发布版本的题删掉。
 - **效果**：配置页看到这批题、出现 `Draft saved … by {恢复维度的人}`、`Publish` 可点，发布后该维恢复；之后 `Save as Draft` 时该维的题与在用版本（0 道）不同，自然留在草稿里；`Discard Change` 连这批题一起丢掉，该维回到 0 道（与「丢弃即回到在用版本」一致）。
+- **已知后果（固有）**：恢复的维度发布后拿到新号，内容与停用前的旧号相同，但号不同。某期次一端在停用前按旧号提交、另一端在恢复并发布后按新号提交时，两端「同维题集版本号不等」，A1 该维显示 `New version pending`、不进 Goldie 分析（§7.10-13），直到一端重新提交。这是「必须复制到新号」带来的，修复前该维是 0 道题，现状更好。
+- 一次保存恢复多个维度时逐维处理，第二个维度复用第一个维度刚建的草稿版本行。
 
 **②’ 两个 `version_no` 的分工与读侧解析**
 
