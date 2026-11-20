@@ -373,8 +373,7 @@ Python 表编号 P6 空出（拒绝名单为 Java 表 J6，7 #Q45）。
 | `file_id` | VARCHAR(36) | 是 | — | 当前在线投影的合成 id，不指向真实文件（不是 Java `files.id`，也没有 S3 对象，7 #Q41）：每次投影生成一个，同时写进 RAG 条目、切片与登记行，即 `ai_file_registry.file_id`（ORM 主键）；RAG 条目经登记行的 `ai_rag_entry_id` 取，不另存（设计 9.6.6 的 `rag_entry_id` / `file_registry_id` 不建）。改内容时新条目写成功才换；下线完成后置空（重新勾选时按「`file_id` 为空且已授权 → 上线」推）。三类知识库去向的摘要行与正文行共用一个：正文行上线时生成，摘要写进在线条目时摘要行记同一个值（7 #Q42） | 1.2、1.6 |
 | `projection_status` | VARCHAR(16) | 否 | `'NONE'` | 投影状态：`NONE`（未投影或已下线）/ `PENDING`（投影中，含重试）/ `ONLINE`（已上线）/ `FAILED`（重试用尽仍失败）。摘要行在摘要写入在线条目时为 `ONLINE`，正文不在线或摘要未授权时为 `NONE`，只替换摘要进行中（含重试）为 `PENDING`、重试用尽为 `FAILED`（审计 `PROJECTION_FAILED` 的动作记 `SUMMARY_UPDATE`）（7 #Q42）。改正文时新条目上线后撤旧条目，撤旧按同样的退避重试，用尽时行保持 `ONLINE`、记 `PROJECTION_FAILED`（动作 `UPDATE`，`after_value.replacedFileId` 为旧条目），交清扫下线（P1「卡死兜底」⑥）。提取、证词补抽，以及 Start Extraction（API-22）、Confirm & Apply（API-23）、改内容（API-24）落库时，都在同一事务里把要上线 / 下线的行置 `PENDING`，提交后、推送前进程被杀由清扫 ⑤ 接手（[定时清扫开发设计](../../卡死任务清扫/开发设计/dev-design-doc.md)第 4.7 节） | 1.6 |
 | `projection_attempts` | INT | 否 | `0` | 已重试次数 | 1.6 |
-| `edited_by` | VARCHAR(36) | 是 | — | 最近一次行内 Save | 9.9.4 |
-| `edited_at` | TIMESTAMPTZ | 是 | — | 最近一次行内 Save 的时间；为空即 AI 原文 | 9.9.4 |
+| `edited_at` | TIMESTAMPTZ | 是 | — | 最近一次行内 Save 改内容的时间；为空即 AI 原文。改的人不另存，见 `CONTENT_EDIT` 审计的 `operator`；`updated_by` 会被勾选、投影等后续改动覆盖，不能代替 | 9.9.4 |
 | `deleted` | BOOLEAN | 否 | `false` | 软删 | 9.6.6 |
 | `created_by` / `created_at` / `updated_by` / `updated_at` | — | — | — | 审计 | |
 
