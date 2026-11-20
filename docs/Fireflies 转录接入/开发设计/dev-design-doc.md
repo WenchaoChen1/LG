@@ -342,7 +342,7 @@ Python 表编号 P6 空出（拒绝名单为 Java 表 J6，7 #Q45）。
 | `created_by` / `created_at` / `updated_by` / `updated_at` | — | — | — | 审计 | |
 
 - 主键 `pk_ai_ff_expert_candidate (id)`
-- 唯一 `uk_ai_ff_expert_candidate_live (meeting_id, participant_id, tag) WHERE deleted = FALSE`
+- 索引 `idx_ai_ff_expert_candidate_meeting (meeting_id)` —— 按会议读、撤下（重新提取 / 改 Unknown）、删除（首轮重跑）本场建议标签；同一场同一人同一标签不重复由写入逻辑保证（提取时按人、标签去重，凭证防并发写入），不设唯一约束
 - 索引 `idx_ai_ff_expert_candidate_pending_tag (organization_id, tag) WHERE status = 'PENDING' AND deleted = FALSE` —— Java 删标签前查「正被未处理标记引用」
 - 状态流转：`PENDING → ACCEPTED / DECLINED`（保存后的名册同步 API-28，含自动消解的标签；既不在记录也不在拒绝名单的保持 `PENDING`）；`PENDING → WITHDRAWN`（重新提取或改 Unknown 应用时仍未处理的，随旧产物软删）；会议状态只看未软删的 `PENDING` 行
 
