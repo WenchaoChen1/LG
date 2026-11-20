@@ -1820,7 +1820,7 @@ GS → 创始人以外的类型都可手动打标记，但只有 LP 基金层内
 | `speaker_id` | Fireflies 说话人 id，与逐句表、P5 / P7 的 `speaker_ref` 同值，只在本场唯一（6.3） |
 | `speaker_name` | Fireflies 说话人名（会议显示名）；未对上时胶囊显示它，登记弹框的 Name 用它预填（9.5.5） |
 | `participant_id` | 绑定的参会人；为空即未对上的说话人，会议 `Pending`（待识别）（1.9）；句数按逐句表现算（9.5.5） |
-| `bind_source` | 姓名匹配 / P8（`speaker_map` 为 `high`）/ 人工登记（1.9、6.13、9.5.5；「人工指定」只剩历史数据，开发设计 7 #Q56）；证词是否默认扣留按此人或其说话人是否经 P8 得出判（6.11 步骤 7） |
+| `bind_source` | 姓名匹配 / AI 推断（P8 `speaker_map` 为 `high`）/ 人工登记（1.9、6.13、9.5.5）；证词是否默认扣留按此人或其说话人是否经 P8 得出判（6.11 步骤 7） |
 | `ai_speaker_match` | AI（P8 `speaker_map`）判断这个说话人是哪位参会人或名册里的谁，`low` 也保留（6.13） |
 | `bound_by` / `bound_at` | 人工绑定的操作人与时间 |
 
