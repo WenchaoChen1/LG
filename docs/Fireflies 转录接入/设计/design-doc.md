@@ -1422,7 +1422,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | 范围 | 只在调用者本来能看到的会议里搜：PGM 为会话租户，Super Admin 为所选租户（9.1）；创始人视图只在本人受邀的会议里搜（9.3.6） |
 | 接口 | 列表接口加可选参数 `keyword` |
 
-**筛选与排序**（以设计稿为准，开发设计 7 #Q20）：除关键词外，另有日期区间、参会人多选（选项为调用者可见会议的参会人去重）、有效性（全部 / 只看 `Invalid` / 隐藏 `Invalid`）筛选与列头排序，都在服务端过滤后分页；筛选状态存在会话里，从原文页返回时恢复。
+**筛选与排序**（以设计稿为准，开发设计 7 #Q20）：除关键词外，另有日期区间、参会人多选（选项为调用者可见会议的参会人去重）、有效性（全部 / 只看 `Invalid` / 隐藏 `Invalid`）筛选与列头排序，都在服务端过滤后分页；筛选状态存在会话里，从原文页的面包屑、浏览器后退或刷新回来时恢复；从菜单或直接打开链接进来时清空（开发设计 7 #Q67）。
 
 **分页**：默认按会议时间倒序，**每页 10 条**。样式对齐 Knowledge Base Tab：10 为默认值，可选 10 / 20 / 50，手机端隐藏条数选择、用小号（开发设计 7 #Q43；9.4.1、9.7.3、9.11.4、9.11.5 同此）。
 
@@ -1508,7 +1508,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 **会议名与 `Review` 链接均可点击**，都进该会议的详情页（9.5）。
 
 **搜索**：模糊匹配 Meeting（标题与会议 id）与 Companies，搜索框提示写明三者（开发设计 7 #Q67）。
-**筛选**：AI Meeting Type、Status、Period 三个下拉（`All meeting types` / `All statuses` / `All time`）。Status 下拉只有 `Passed` / `Pending`，不按 Pending 原因筛（9.4.2）。搜索与筛选状态存在会话里，从详情页返回时恢复（同 Raw Data，开发设计 7 #Q67）。
+**筛选**：AI Meeting Type、Status、Period 三个下拉（`All meeting types` / `All statuses` / `All time`）。Status 下拉只有 `Passed` / `Pending`，不按 Pending 原因筛（9.4.2）。搜索与筛选状态存在会话里，何时恢复、何时清空同 Raw Data（9.3.3，开发设计 7 #Q67）。
 **分页**：每页 10 条，默认按会议时间倒序；样式同 Raw Data（可选 10 / 20 / 50，9.3.3，开发设计 7 #Q43）。
 
 #### 9.4.2 Status 与阻断关系
