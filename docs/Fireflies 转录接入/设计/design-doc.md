@@ -1507,8 +1507,8 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 
 **会议名与 `Review` 链接均可点击**，都进该会议的详情页（9.5）。
 
-**搜索**：模糊匹配 Meeting 与 Companies。
-**筛选**：AI Meeting Type、Status、Period 三个下拉（`All meeting types` / `All statuses` / `All time`）。Status 下拉只有 `Passed` / `Pending`，不按 Pending 原因筛（9.4.2）。
+**搜索**：模糊匹配 Meeting（标题与会议 id）与 Companies，搜索框提示写明三者（开发设计 7 #Q67）。
+**筛选**：AI Meeting Type、Status、Period 三个下拉（`All meeting types` / `All statuses` / `All time`）。Status 下拉只有 `Passed` / `Pending`，不按 Pending 原因筛（9.4.2）。搜索与筛选状态存在会话里，从详情页返回时恢复（同 Raw Data，开发设计 7 #Q67）。
 **分页**：每页 10 条，默认按会议时间倒序；样式同 Raw Data（可选 10 / 20 / 50，9.3.3，开发设计 7 #Q43）。
 
 #### 9.4.2 Status 与阻断关系
