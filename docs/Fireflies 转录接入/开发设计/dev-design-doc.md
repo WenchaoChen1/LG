@@ -717,7 +717,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 项 | 补定 |
 |---|---|
 | API-19 | `AuthenticatedUserDto` 新字段 `pgmOrSuperAdmin: boolean`，与 Fireflies 接口首行的 PGM / SA 断言同一判定；前端与 Python 都读它 |
-| API-05 `meetingId`（7 #Q53） | 给了 `meetingId`：按会议取租户（忽略 `organizationId`，会议不存在按现有 `requireMeeting` 报错），会议日期取 `started_at` 的 UTC 自然日；每人按该日期用 9.7.2 的版本裁决取生效的那一版——取到则该行各字段用这一版、`effectiveOnMeeting = true`，取不到用当前状态那一版、`false`。`keyword`、`role` 过滤在取版本之后做，`needsReview`、`lgUser`、分页与排序照旧。不带 `meetingId` 时行为与返回都不变（不出 `effectiveOnMeeting`）。行的 `id` 即 PG-02f 第二步保存时 API-07 的路径参数 |
+| API-05 `meetingId`（7 #Q53） | 给了 `meetingId`：按会议取租户（忽略 `organizationId`，会议不存在按现有 `getMeetingById` 报错），会议日期取 `started_at` 的 UTC 自然日；每人按该日期用 9.7.2 的版本裁决取生效的那一版——取到则该行各字段用这一版、`effectiveOnMeeting = true`，取不到用当前状态那一版、`false`。`keyword`、`role` 过滤在取版本之后做，`needsReview`、`lgUser`、分页与排序照旧。不带 `meetingId` 时行为与返回都不变（不出 `effectiveOnMeeting`）。行的 `id` 即 PG-02f 第二步保存时 API-07 的路径参数 |
 | API-05 取数（7 #Q69） | 每人一版在库里挑好再读回：当前那一版用 `DISTINCT ON (name)` 按 `valid_from`、`updated_at`、`id` 倒序取第一条（与 Service 的 `VALID_FROM_ORDER` 同一顺序，改规则两处同改）；带 `meetingId` 时另取每人有效期覆盖会议日期、`updated_at` 最晚的那一版；`needsReview` 另取每人全部版本最晚的 `updated_at` / `reviewed_at`。先按窄列挑出 `id` 再取整行（整行参与排序会溢写磁盘）。读回的行数只随人数增长、不随版本数增长；`keyword`、`role` 筛选、排序与分页仍在内存里做 |
 | `organizationId` | 各接口的可选 `organizationId` 一律走 query 参数（GET 与写接口都是），写接口的 body 不带它 |
 | 名册接口 | 邮箱查重（7 #Q49）：新建与编辑（API-06 / 07 / 08）时任一邮箱（忽略大小写）已出现在租户内别的条目（编辑时不含本条目）的任一版本里即拒绝，不认人、不合并；姓名后缀（7 #Q46）：API-06 / 08 新建与 API-41 查重同一规则——姓名忽略大小写比较，重名时从 1 起取第一个未占用编号接在姓名后（Tom → Tom1 → Tom2），保存时再算一次、以保存时为准；API-05 按姓名升序；API-06 / 07 / 08 的 To 早于 From 拒绝；带 `sourceMeetingId` 时有效期必须包含会议日期（From ≤ 会议日期，To 为空或 ≥ 会议日期；会议日期为 J2 `started_at` 的 UTC 日期，7 #Q44） |
