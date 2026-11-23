@@ -2125,7 +2125,7 @@ GS → 创始人会议里 Founder 的组织或所属公司与关联的公司对�
 
 | 要什么 | 怎么取 |
 |---|---|
-| 列表的当前状态 | **今天生效的那一版**：按 9.7.2 的算法、以今天为日期取；今天没有生效版本（已到期或尚未开始）时取 `updated_at` 最晚的一行。不取「最后写入的一行」（补录旧时段、从旧会议页追加的记录写入更晚，9.5.7） |
+| 列表的当前状态 | **生效日期（`valid_from`）最新的那一版**，同一生效日期有多行时取 `updated_at` 最晚的；不看今天，已结束或尚未开始的版本也照取（开发设计 7 #Q68）。与 History 的排序（9.7.6）同一顺序，列表这一行即 History 最上面那行。不取「最后写入的一行」（补录旧时段、从旧会议页追加的记录写入更晚，9.5.7）；也不走 9.7.2 的按日期裁决（那套用于会议回溯） |
 | History | 该 `(organization_id, name)` 的全部行 |
 | 某场会议当时的登记 | 见 9.7.2 的回溯算法 |
 | 最近复核时间 | 此人全部行的 `updated_at` 与 `reviewed_at` 中最晚的（9.7.5） |
@@ -2223,7 +2223,7 @@ Name、Email(s)、Organization、Role、Validity period（From）为必填，带
 
 **每行一个完整快照**（以《Cheat Sheet》为准）：Name、Email(s)、Role、Organization、Expertise tags、Area of expertise、Validity period，外加 Updated by（含更新日期）；设计稿没画 Area of expertise，按需求保留。角色为蓝色标签，专长标签为灰色小标签。
 
-**排序**：按 `valid_from` 倒序，同一生效日期有多行时再按 `updated_at` 倒序。排在最上的不一定是当前状态（有尚未开始的版本，或旧时段后来重写过时），当前状态以 9.7.1 为准。
+**排序**：按 `valid_from` 倒序，同一生效日期有多行时再按 `updated_at` 倒序。排在最上的那行即列表显示的当前状态（9.7.1，开发设计 7 #Q68）。
 
 **`Updated by` 显示实际操作人**：由 Summary Records 审核时登记的版本（含专家确认）同样显示操作人，来源看列表的 `From FF Summary Records` 标签；系统用户写入的显示 `System`。
 
