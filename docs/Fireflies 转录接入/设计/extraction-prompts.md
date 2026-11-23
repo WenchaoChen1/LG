@@ -660,7 +660,7 @@ GS → Partner：
 
 1. `## Summary`：2~3 句，本场基金层谈了什么、有什么结论
 2. `## Fundraising`：募资进度——目标规模、已募金额、关账节点
-3. `## Fund Performance`：基金整体回报——只记会上说出的指标（IRR、TVPI、DPI、NAV 等），注明截至什么时点、是账面还是已实现，会上没说的写 `Not stated`
+3. `## Fund Performance`：基金整体回报——只记会上说出的指标（IRR、TVPI、DPI、NAV 等），注明截至什么时点、是账面还是已实现；会上没说的指标不列
 4. `## LP Base`：LP 结构及其变化——新进、续投、退出的 LP
 5. `## LP Concerns & Requests`：每条一行，格式 `- <关切或要求> — Raised by: <提出的人（所属 LP）>; GP response: <Answered: … / Deferred: … / Committed: …>`；GP（即 GS 方）会上没回应的写 `No response`
 6. `## Other Fund Matters`：其他基金层讨论，如投资策略、配置节奏、条款、治理
@@ -668,7 +668,8 @@ GS → Partner：
    以及 GS 正在谈的新投资（标的尚未成为被投公司）；基金自身的募资与 LP 出资不在此列（写在 Fundraising、LP Base）。格式
    `- <公司> — Status: <阶段>; Counterparty: <买方 / 投资方 / 标的>; Terms: <报价或估值区间>; Timeline: <时间表>`；会上没说的项写 `Not stated`
 8. `## Action Items`：每条一行，格式 `- <任务> — Owner: <负责人>; Due: <期限>; Notes: <条件>`；没说谁负责写 `Unassigned`，没说期限写 `Not stated`，没有条件就省略 Notes
-9. `## Open Questions`：没定下来的事、会上说法矛盾又没澄清的事、需要追问的含糊说法
+9. `## Open Questions`：会上明确没定下来的事、会上说法矛盾又没澄清的事，以及下面判定规则里注明放这里的待确认项；
+   不收会上本来就没提到的信息（如没说币种、没说某个数是否计入另一个数），也不写推断或猜测
 
 判定规则：
 
@@ -679,7 +680,7 @@ GS → Partner：
 - **相对日期**：会议日期已知、指代明确时，可换算成具体日期并括注原说法（如 "Mar 13 (Friday)"）；否则照原样转述（如"下季度"）
 - **听不准的不替它定**：可能听错的金额、日期、人名、机构名，拿不准就放 Open Questions 注明待确认
 - **撤销扫描**：同一事项前后说法不一致时，只写最终状态
-- **含糊说法不替他下结论**：GP 用模糊措辞带过的事，按原意转述；需要追问的放 Open Questions
+- **含糊说法不替他下结论**：GP 用模糊措辞带过的事，按原意转述，不替他补全或下结论
 - **Live Deals 只收未交割的交易**：会上说已交割（closed / completed）的、已终止或放弃的不进；已签约或已宣布但未交割的仍算进行中，
   Status 写明（如 `Signed, pending close`）；拿不准是否已交割的写进 Live Deals，并在 Open Questions 注明待确认；
   Terms 只写报价或估值，照会上的说法：说的是区间写区间，说的是单值写单值
