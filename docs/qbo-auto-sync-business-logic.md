@@ -117,12 +117,18 @@ QBO 的科目名每家公司都不一样，必须靠映射才能算出各类费�
 | 手动刷新（`GET /companyQuickbooks/refresh`，前端入口是 Company Overview 的 "Books Are Past Due" 弹窗） | Mapping + Sync |
 | 每日定时 `QuickbooksSync`，`cron(0 3 * * ? *)`，调度默认时区 UTC | 每家符合条件的公司一条 Sync |
 
-每日定时只处理同时满足以下条件的公司：
-- `company_quickbooks.mode='Automatic'`
-- `status='success'`
-- 公司处于活跃状态
+手动触发（前四行）发出消息后记一条 QBO Log `MANUAL_SYNC_QUEUED`，Message 写触发来源，Operator 为触发人（OAuth 回调没有登录态，取 state 里的 userId）。SQS 发送失败（`SQSService` 只打 ERROR 日志、不抛异常）记 Failed，ErrorMessage 为 `SQS send failed, see server log`；接口照常返回，与原来一致。
 
-> 状态变成 `Invalid` 的公司**不会**被每日同步拉取，直到用户手动刷新或重新连接（见 §6）。
+每日定时取 `company_quickbooks.mode='Automatic'` 的公司（代码未排除已退出 / 关停的公司），逐家处理（单家发送失败只记该家，不影响后面的公司），每家写一条 QBO Log，Operator 为 `System`：
+
+| 连接状态 | 处理 | QBO Log |
+|---------|------|---------|
+| `status='success'` | 发 Sync | `SCHEDULED_SYNC_QUEUED`（发送失败记 Failed） |
+| 其余（`Invalid` 授权失效、`fail` 未连接等） | 不发 | `SCHEDULED_SYNC_SKIPPED`（Failed），Message 写原因；已退出 / 关停或不属于任何 portfolio 的公司不记 |
+
+Manual 模式的公司不处理、不记日志。
+
+> 状态变成 `Invalid` 的公司**不会**被每日同步拉取（每天记一条 Skipped），直到用户手动刷新或重新连接（见 §6）。
 
 ### 4.2 队列与消费
 
@@ -354,7 +360,10 @@ Java `gstdev-cioaas-web`，包前缀 `com.gstdev.cioaas.web`：
 | `CLICK_CONNECT_QBO` | 200 | 点击连接 |
 | `CONNECT_QBO_FAILED` / `CONNECT_QBO_SUCCESS` | 201 / 202 | OAuth 回调结果 |
 | `CLICK_DISCONNECT_QBO` | 203 | 断开连接 |
-| `AIRFLOW_DAILY_SCHEDULE_BEGIN` / `END` | 300 / 301 | Mapping / Sync 开始和结束（名字是历史遗留，现由 Java 执行） |
+| `AIRFLOW_DAILY_SCHEDULE_BEGIN` / `END` | 300 / 301 | Mapping / Sync 开始和结束，定时与手动触发都记；页面显示 QBO Sync Begin / End（常量名是历史遗留，现由 Java 执行） |
+| `SCHEDULED_SYNC_QUEUED` | 302 | 每日定时给该公司发出 Sync 消息（Operator 为 System） |
+| `SCHEDULED_SYNC_SKIPPED` | 303 | 每日定时跳过该公司（Automatic 但连接状态不是 success），Message 写原因 |
+| `MANUAL_SYNC_QUEUED` | 304 | 手动触发同步（Refresh、保存科目映射、修改 Payroll、OAuth 首次授权），Operator 为触发人 |
 | `REFRESH_TOKEN_BEGIN` / `END` | 400 / 401 | Token 刷新 |
 
 `SEND_TO_AIRFLOW`（204）已不再使用。
