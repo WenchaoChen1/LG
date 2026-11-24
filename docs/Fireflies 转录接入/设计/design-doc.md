@@ -2121,7 +2121,7 @@ GS → 创始人会议里 Founder 的组织或所属公司与关联的公司对�
 | `updated_at` | 写入时间，**重合裁决的依据**；复核不改它（9.7.5） |
 | `reviewed_by` / `reviewed_at` | 最近一次「看过无需修改」的复核人与时间（9.7.5），可空；不参与裁决 |
 
-**每次 Confirm 追加一行**（会议页的编辑与专家确认同样每次只追加一条完整记录，9.5.7，开发设计 7 #Q44），不修改旧行（「看过但无需修改」只在当前状态那一行记复核字段，9.7.5）。
+**每次 Confirm 追加一行**（会议页的编辑与专家确认同样每次只追加一条完整记录，9.5.7，开发设计 7 #Q44），不修改旧行（「看过但无需修改」只在弹框带入的那一版记复核字段，9.7.5）。
 
 | 要什么 | 怎么取 |
 |---|---|
@@ -2215,7 +2215,7 @@ Name、Email(s)、Organization、Role、Validity period（From）为必填，带
 
 **不单设"复核"按钮**——任何一次 `Edit` 提交即刷新它。
 
-**"看过但无需修改"**：`Edit` 弹框什么都不改直接 `Confirm` 时，**不追加新行，只在当前状态那一行（9.7.1）记下 `reviewed_by` / `reviewed_at`**。**`updated_at` / `updated_by` 不动**（改了会让旧版本压过已录入的新版本，9.7.2）。Summary Records 页的 `Edit external party` 带入的是会议日期那一版，不改直接 Confirm 不记复核。
+**"看过但无需修改"**：`Edit` 弹框什么都不改直接 `Confirm` 时，**不追加新行，只在弹框带入的那一版记下 `reviewed_by` / `reviewed_at`（记在哪一版对 Needs review 没有区别，开发设计 7 #Q70）**。**`updated_at` / `updated_by` 不动**（改了会让旧版本压过已录入的新版本，9.7.2）。Summary Records 页的 `Edit external party` 带入的是会议日期那一版，不改直接 Confirm 不记复核。
 
 #### 9.7.6 History
 
