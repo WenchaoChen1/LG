@@ -16,7 +16,7 @@
 路径相对 `python/CIOaas-python/`：
 
 - `sql/migrations/business/V034__sprint122_fireflies_init.sql`：建 `ai_ff_*`（P1~P5、P7、P8）及索引、注释、共用的 `updated_at` 触发器函数；X1 `ai_file_registry` 与 `ai_rag_business_association` 的 `business_type` 注释补新取值；`ai_rag_entry` 加 `file_id` 索引；定时清扫扫描用的部分索引。先于 Python 与 Java 发版执行，可重跑。
-- `sql/migrations/business/V035__sprint122_fireflies_routing_row_tab_index_anon.sql`：`idx_ai_ff_routing_row_tab` 纳入 `TESTIMONY_ANON`（公司端 Expert Testimony 页签列匿名版）；`match_step` / `bind_source` 的 `P8` 改为 `AI_INFERRED`，`bind_source` 的存量 `MANUAL_ASSIGN` 并入 `MANUAL_CHEAT_SHEET`（两列注释直接改在 V034）。Python 发版后立即执行，可重跑。
+- `sql/migrations/business/V035__sprint122_fireflies_routing_row_tab_index_anon.sql`：P7 加条目入库时间 `projected_at` 并回填在线的存量行；`idx_ai_ff_routing_row_tab` 纳入 `TESTIMONY_ANON`（公司端 Expert Testimony 页签列匿名版）、排序列换成 `projected_at`；`match_step` / `bind_source` 的 `P8` 改为 `AI_INFERRED`，`bind_source` 的存量 `MANUAL_ASSIGN` 并入 `MANUAL_CHEAT_SHEET`（两列注释直接改在 V034）。先于 Python 发版执行，可重跑。
 
 ## 3. 提取输入（`current_extraction_input`）示例
 
