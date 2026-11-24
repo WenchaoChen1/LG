@@ -1227,7 +1227,7 @@ GS → 创始人：同 GS → Partner。
      | Cross-Company | 每条洞察一条，落 `CROSS_COMPANY` 空间（仅审核放行后） | — | `statement` |
 
      Portfolio KB 附原始转录链接（指向 LG 的 Raw Data 详情页，不用 Fireflies 的 `transcript_url`，1.3）、不复制原文（本方案）。证词与 Cross-Company 不进 Memory 页（它们登记为 `FIREFLIES_TESTIMONY` / `FIREFLIES_CROSS_COMPANY`、不写摘要，Memory 页只纳入 `FIREFLIES` 中摘要非空的条目，开发设计 X1）
-   - **条目标题与文件名**（本方案）：Goldie 作答时要引用条目标题（`knowledge_base_tool` 的 `source_title` 即 `entry_title`），知识库页也展示文件名。Cross-Company 与证词匿名版**不用会议标题**，按固定模板只写内容类别，如 `Cross-company insight · <category>`、`Expert testimony · <category>`，不含公司、人名、项目代号与日期——会议标题常带这些，沿用就会把正文里剥掉的身份从标题带回去。GS → 创始人多家公司到场时（`other_companies` 非空）同理不用会议标题，固定为 `Meeting summary · <会议开始时间>`（UTC，如 `2026-11-20 23.30 UTC`）：会议标题里其他到场公司的写法常与 LG 公司名不同，还可能是人名或产品名，按名删不干净（开发设计 7 #Q71）。其余条目（只有一家公司参会的 GS → 创始人 APP 条目、公司层与基金层 1b、证词署名版）照常用会议标题
+   - **条目标题与文件名**（本方案）：Goldie 作答时要引用条目标题（`knowledge_base_tool` 的 `source_title` 即 `entry_title`），知识库页也展示文件名。条目标题不带 `.md`，文件名是标题加 `.md`（开发设计 7 #Q76）。Cross-Company 与证词匿名版**不用会议标题**，按固定模板只写内容类别，如 `Cross-company insight · <category>`、`Expert testimony · <category>`，不含公司、人名、项目代号与日期——会议标题常带这些，沿用就会把正文里剥掉的身份从标题带回去。GS → 创始人多家公司到场时（`other_companies` 非空）同理不用会议标题，固定为 `Meeting summary · <会议开始时间>`（UTC，如 `2026-11-20 23.30 UTC`）：会议标题里其他到场公司的写法常与 LG 公司名不同，还可能是人名或产品名，按名删不干净（开发设计 7 #Q71）。其余条目（只有一家公司参会的 GS → 创始人 APP 条目、公司层与基金层 1b、证词署名版）照常用会议标题
 9. **投影失败**——自动重试，用尽仍失败记 `PROJECTION_FAILED`；有旧条目时（改内容）的先后顺序见 1.6；重新提取的旧条目在点击 Start Extraction 时已整场下线
 
 **编辑后的重投影**（管理员在 Content Routing Matrix 改了内容，9.6.3；Cross-Company 也只在这里编辑）：
