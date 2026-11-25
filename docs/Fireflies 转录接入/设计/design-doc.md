@@ -98,7 +98,7 @@
 
 | 产物 | 空间 | 份数 | 页面展示 |
 |---|---|---|---|
-| 1b + Portfolio KB（按正文提及的公司拆分，退出相关；默认放行，5.4） | KB-ADMIN | 每命中公司一条 | 同类型三 |
+| 1b + Portfolio KB（按正文提及的公司拆分；正文是该公司退出情况的摘要，分 Exit Readiness、Exit Process 两节；默认放行，5.4） | KB-ADMIN | 每命中公司一条 | 同类型三 |
 | 证词 · 两版 | 证词-匿名 / 证词-署名 | 0~N 条 | 同类型一（9.11.5） |
 | Cross-Company（同类型一） | 跨公司 | 0~N 条 | 同类型一 |
 
@@ -165,7 +165,7 @@ GS 内部与 GS → Partner 没有基金层：绑不到公司的内容不写 1b�
 | 条目 | 摘要 | 正文 | 来源 |
 |---|---|---|---|
 | GS → 创始人 | 1a = 1b，≤150 个英文单词 | Founder KB = Portfolio KB，不设长度上限 | Fireflies `summary.overview` → 大模型整理为 markdown；overview 为空时从原始转录生成（正文同此） |
-| 公司层（GS 内部 / Partner） | 1b，≤150 个英文单词 | Portfolio KB markdown，**附原始转录链接、不复制原文**（链接指向 LG 的 Raw Data 详情页（9.3.5），打开时按 9.3.6 鉴权，不用 Fireflies 的 `transcript_url`；PM 无 Raw Data 权限（9.3.6），点开会被拒，链接实际只对 PGM / SA 有效；基金层同此） | 从原始转录抽取（第六章） |
+| 公司层（GS 内部 / Partner） | 1b，≤150 个英文单词 | Portfolio KB markdown（GS → Partner 为退出摘要，只分 Exit Readiness、Exit Process 两节，5.4），**附原始转录链接、不复制原文**（链接指向 LG 的 Raw Data 详情页（9.3.5），打开时按 9.3.6 鉴权，不用 Fireflies 的 `transcript_url`；PM 无 Raw Data 权限（9.3.6），点开会被拒，链接实际只对 PGM / SA 有效；基金层同此） | 从原始转录抽取（第六章） |
 | 基金层（LP） | 1b 基金层，≤150 个英文单词 | Portfolio KB 基金层 markdown，附原始转录链接 | 从原始转录抽取 |
 | 证词两版 | 不写 | 证词 markdown，首行为来源行（3.4）；此人本场各条合成一块，每条一段、段首为程序加的类别标签（开发设计 7 #Q77） | 从原始转录抽取 |
 | Cross-Company | 不写 | 洞察 markdown，只放正文（`statement`）：本场各条合成一块，每条一段、段首为程序按类别（`category`，四类之一，6.9（P6））加的标签；类别不另存，条目标题不再带类别（开发设计 7 #Q77）。P6 的行业 / 阶段 / 问题类型标签不落库 | 从原始转录抽取 |
@@ -959,6 +959,8 @@ LP、Strategic Partner、Exit Partner、Founder
 3. **具体交易事实**——买方、价格、时间表、竞争性投标情况。此类内容**只能落这里**
 4. 退出计划与时间表
 5. 买方 / 伙伴对该公司的意向与估值判断
+
+**正文写法**：按需求是「涉及具体公司退出的摘要」，不按完整纪要写，只分两节、按此顺序——`## Exit Readiness`（上面 1、2：缺口、风险与定下的方向，每行只写缺口、风险或决定是什么，要在哪个退出节点前解决，GS 定下的处理方式）→ `## Exit Process`（上面 3~5：交易形式与阶段、流程节点合写一行、每个买方一行，只写名称、意向程度、报价或估值区间、附带条件）；不写 Summary 与 Action Items（开发设计 7 #Q79，提示词 6.6）。
 
 与退出无关的商业合作、采购类内容**不入 1b**——可迁移的部分按 5.5 进 Cross-Company。
 
