@@ -398,7 +398,7 @@ n-gram 阈值可配置（需求 I）。
 >
 > **没有 `Flagged` 状态**：「仅凭 Cheat Sheet Founder、公司靠正文反推」的路径只采高置信度、低置信度一律 `Pending`。
 >
-> **Pending 不显示原因**：列表与详情页照设计稿都只显示 Pending，不标原因、不列子原因；管理员按页面上各处的就地提示处理——参会人的未识别红点、未对上的说话人、`Please complete` 缺的必填项、有跨公司内容时的审核提示（9.5.1，开发设计 7 #Q78）、矩阵里未勾选的行（9.4.2）；AI 识别失败、到场 Founder 归属不到这两类没有就地提示，只能看到 Start Extraction 可点（已接受的取舍）。重新提取不设草稿、提取成功即按授权初值生效（9.9.5），会议状态与自动提取按同一规则判：仍有待审核内容的进「待审核」。
+> **Pending 不显示原因**：列表与详情页照设计稿都只显示 Pending，不标原因、不列子原因；管理员按页面上各处的就地提示处理——参会人的未识别红点、未对上的说话人、`Please complete` 缺的必填项、有跨公司内容时 Pending 后的问号提示（9.5.1，开发设计 7 #Q78）、矩阵里未勾选的行（9.4.2）；AI 识别失败、到场 Founder 归属不到这两类没有就地提示，只能看到 Start Extraction 可点（已接受的取舍）。重新提取不设草稿、提取成功即按授权初值生效（9.9.5），会议状态与自动提取按同一规则判：仍有待审核内容的进「待审核」。
 
 **后台加工中不另设状态**：识别与自动提取跑完前会议不进 Summary Records，Raw Data 照常可见；识别与自动提取中断（进程被杀、代码异常）由 SQS 重投接手、从头重跑，本次已写的产出全部作废，最多 N 次（N 即 SQS 队列的最大接收次数）；仍没跑完的停在处理中、不进 Summary Records，交给定时清扫（单独功能，与本功能一起上线）（开发设计 P1、7 #Q13）；不给 Pending 会议设超时。Start Extraction 超时同该次提取作废（6.11），由定时清扫判（开发设计 P1）；消息进了死信或过期、首轮停在半路的会议同样交给定时清扫（开发设计 7 #Q12）。
 
@@ -1526,7 +1526,7 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 
 没有 `Flagged` 状态（1.10）；仅凭 Cheat Sheet `Founder` 的 GS → 创始人会议的人工复核，由上表「待识别」的「GS → 创始人定不出公司」一条承接。
 
-**Pending 原因不以标签显示**：列表与详情页照设计稿只显示 Pending，也不按原因筛选（开发设计 7 #Q25d），详情页 Scrub Status 下方也不列子原因与剩余标签数（`Confirm & Apply Routing` 置灰时也不弹悬停提示）；有跨公司内容时在会议信息卡 Portfolio 下方提示审核（9.5.1，开发设计 7 #Q78）。三者处理方式不同——待识别补参会人、类型或公司后点 Start Extraction；待确认专家点参会人标签打开专家确认框，留下或删掉建议标签后保存（9.5.6），再点 Confirm & Apply Routing；待审核在矩阵勾选要放行的行后点 Confirm & Apply Routing。一场会可能同时有待确认专家与待审核内容。
+**Pending 原因不以标签显示**：列表与详情页照设计稿只显示 Pending，也不按原因筛选（开发设计 7 #Q25d），详情页 Scrub Status 下方也不列子原因与剩余标签数（`Confirm & Apply Routing` 置灰时也不弹悬停提示）；有跨公司内容时 Pending 后带问号，悬停提示审核（9.5.1，开发设计 7 #Q78）。三者处理方式不同——待识别补参会人、类型或公司后点 Start Extraction；待确认专家点参会人标签打开专家确认框，留下或删掉建议标签后保存（9.5.6），再点 Confirm & Apply Routing；待审核在矩阵勾选要放行的行后点 Confirm & Apply Routing。一场会可能同时有待确认专家与待审核内容。
 
 **待识别的子原因与下一步**（详情页照设计稿不展示，API-21 仍按下列口径现算返回）：参会人或说话人未识别 → Participants（9.5.5）；类型未判出或被改为 `Unknown` → 类型下拉（9.5.2）；GS → 创始人关联多家或定不出公司 → Company（9.5.3）；到场 Founder 归属不到 → 确属别家直接点 Start Extraction，名册写法不同在 Participants 改其 Organization（2.1）；P1 / P8 / 提取失败 → 补齐后点 Start Extraction（6.11）。
 
@@ -1542,11 +1542,10 @@ Failed / Disconnected --Link 成功 或 Sync 成功--> Connected
 | Date | `started_at`，日期 + 时间合并展示 |
 | Duration | 取整到分钟 |
 | Fireflies ID | `fireflies_id`，Fireflies 返回的原生 id |
-| Scrub Status | 两态徽章：✓ `Passed`（绿）/ ◷ `Pending`（红），不旁注原因，同列表 Status；下方不列子原因与剩余标签数，靠参会人红点、`Please complete`、跨公司审核提示等就地提示（9.4.2）；状态旁另按 `extraction_status` 显示 `Extracting…` / `Extraction failed` |
+| Scrub Status | 两态徽章：✓ `Passed`（绿）/ ◷ `Pending`（红），不旁注原因，同列表 Status；Pending 会议有跨公司内容时徽章后带问号图标，悬停显示 `Cross-Company content needs review.`（白底说明框，同列表 Status 的悬停；其他 Pending 情况不加，开发设计 7 #Q78）；下方不列子原因与剩余标签数，靠参会人红点、`Please complete` 等就地提示（9.4.2）；状态旁另按 `extraction_status` 显示 `Extracting…` / `Extraction failed` |
 | AI Meeting Type | 当前值标签 + 下拉，切换时标签实时更新（9.5.2） |
 | Company | 已采纳公司的标签 + 识别依据（9.5.3） |
 | Portfolio | 多选标记；GS → 创始人只读显示公司所属 Portfolio（9.5.4） |
-| 跨公司审核提示 | Pending 会议有跨公司内容时，Portfolio 下方红字（同 `Please complete`）提示 `Cross-Company content needs review.`；其他 Pending 情况不加（开发设计 7 #Q78） |
 | Participants | 参会人胶囊标签（9.5.5、9.5.6） |
 
 **Start Extraction**（需求《Summary Records》会议信息卡 + 《会议内容提取规则》III）
