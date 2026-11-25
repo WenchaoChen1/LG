@@ -2,7 +2,7 @@
 
 > 关联文档: [多租户与企业级安全 · 系统架构（4-12 无用户上下文路径）](../../多租户与企业级安全/调研/system-architecture.md) | [Exit Readiness 设计](<../../Exit Readiness/设计/design-doc.md>) | [AI Chatbot 设计](../../AI-Chatbot/设计/design-doc.md)
 
-> 状态：草案（2026-11-25）。§8 待确认项未拍板。
+> 状态：草案（2026-11-25）。§8 已定。
 
 ## 1. 背景与目标
 
@@ -53,9 +53,11 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 | 凭证 | `Authorization: Bearer <用户 JWT>` | `X-Internal-Token: <共享密钥>` |
 | 身份 | 该用户 | 系统用户 `"1"`（两边已有的 `SYSTEM_USER_ID`） |
 | 数据范围 | 跟着用户权限走 | 调用方显式传公司 / 组织参数，接口不从"当前用户"推断 |
-| 可用接口 | 所有要求登录的接口 | 只限显式标注过的接口（Java `@InternalAccess`、Python `get_caller`） |
+| 可用接口 | 所有要求登录的接口 | 只限显式允许的接口（Java 标 `@InternalAccess`；Python 见 §5.1） |
 
 两个方向共用**同一个请求头、同一个密钥**；每一端都既要会"发"、也要会"认"。
+
+**本任务范围**：只建服务通道机制，并把两处现有的无鉴权调用迁过来（§4.1 `getFileLinkById`、§4.2 预测批）。其他接口是否开放服务通道，本任务完成后另开任务分析（§8）。
 
 ### 3.2 判定规则（两端一致）
 
@@ -64,6 +66,8 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
    - 一致、且该接口允许服务通道：以系统身份放行。
    - 其他情况：按未登录拒绝，响应与无效 token 相同，不暴露是密钥错了还是接口不允许。
 3. **本端没配密钥**：服务通道关闭，任何 `X-Internal-Token` 都不认（默认拒绝）。
+
+**同一接口可以同时接两种请求**：页面请求照常走用户通道，带密钥的请求走服务通道，互不影响。但两种请求下，接口内部读到的身份不同：服务调用时"当前用户"是系统用户 `"1"`，没有组织和公司。如果接口靠当前用户来圈定数据范围，服务调用过来时可能查不到数据、报错，甚至因为取不到组织而不加过滤、返回全量数据。开放这类接口前要逐个确认（见 §6「数据范围」）。
 
 ## 4. Java 端
 
@@ -74,23 +78,22 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
   - 通过时设置系统身份，包括 Spring Security 的认证对象和 `SecurityUtils.setCurrentUserId("1")`，审计字段自然记为 `"1"`。
 - **配置**：Nacos `cio.internal-token`。改值需要重启，与现有 `@Value` 注入的配置一致。
 - **首批接口**：`getFileLinkById` 从 `@AnonymousAccess` 改为 `@InternalAccess`，访问范围从"任何人"收紧为"登录用户或服务"。
+  - **不影响前端预览**（含微软 Office 在线预览）：前端用的是 `/storage/files/getFileLinkById`、`/storage/files/getPreviewLinkById`，以及列表数据里 Java 在进程内生成好的 S3 预签名链接，都不经过 `/inner/`。`/inner/getFileLinkById` 目前只有 Python 的 `query_file_link_internal` 一个调用方。
 
 ### 4.2 发出（Java → Python）
 
-- **`ErlPythonClient`**：有用户 token 继续转发；没有用户时带上密钥头。
-- **预测批调 `/financial_forecast/predict`**：带上密钥头。
-- 两处都读同一个配置项 `cio.internal-token`。
+- **预测批调 `/financial_forecast/predict`**：带上密钥头，读同一个配置项 `cio.internal-token`。
+- **ERL（`ErlPythonClient`）不在本任务**：照旧转发用户 token。Python 的 ERL 路由仍用 `get_current_user`，是否开放给服务通道，留给后续的接口分析任务。
 
 ## 5. Python 端
 
 ### 5.1 接收（Java → Python）
 
 - **`AuthMiddleware`**：按 §3.2 判定。服务通道通过时，跳过向 Java 的 `check_access`，并在请求状态里标记为服务调用。
-- **新增依赖 `get_caller`**（`common/auth/identity.py`）：
-  - 用户请求：与 `get_current_user` 相同。
-  - 服务调用：返回 `AuthUser(user_id=SYSTEM_USER_ID)`，不带公司和组织。
-  - 只有允许服务通道的路由改用 `get_caller`。其余路由仍用 `get_current_user`，服务调用到那里会返回 401。Python 端的"显式标注"就是看路由用不用 `get_caller`。
-  - 不声明身份依赖的路由（如 `/financial_forecast/predict`），服务调用只要过了中间件就能进入。
+- **路由层面**：
+  - 不声明身份依赖的路由（如 `/financial_forecast/predict`），服务调用过了中间件就能进入。本任务唯一要接入的 Python 路由就是它。
+  - 用 `get_current_user` 的路由不变。服务调用没有用户 token，到那里会返回 401，这就是 Python 端的默认拒绝。
+  - 需要身份、又要开放给服务通道的路由，后续任务再新增依赖 `get_caller`（`common/auth/identity.py`）：用户请求与 `get_current_user` 相同；服务调用返回 `AuthUser(user_id=SYSTEM_USER_ID)`，不带公司和组织。本任务没有这样的路由，暂不加。
 - **配置**：环境变量 `INTERNAL_TOKEN`，放在 `common/config/auth.py`，并记入 `sql/migrations/env-vars/env-update.txt`。
 
 ### 5.2 发出（Python → Java）
@@ -117,21 +120,20 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 每一步都兼容旧版本，没有硬期限。
 
 1. **配密钥**：各环境的 Nacos（`cio.internal-token`）和 Python 环境变量（`INTERNAL_TOKEN`）配同一个随机密钥。
-2. **Java 发版**：加过滤器和 `@InternalAccess`；调 Python 时带上密钥头。此时 Python 还不认这个头，多带一个也不影响。
-3. **Python 发版**：中间件认这个头、新增 `get_caller`；调 Java 时发这个头；删掉写死的 token。
+2. **Java 发版**：加过滤器和 `@InternalAccess`；预测批调 Python 时带上密钥头。此时 Python 还不认这个头，多带一个也不影响。
+3. **Python 发版**：中间件认这个头；调 Java 时发这个头；删掉写死的 token。
 4. **收尾**：
    - `getFileLinkById` 去掉 `@AnonymousAccess`、改为 `@InternalAccess`。
    - 各环境删掉 `AUTH_CHECK_EXEMPT_PATHS=/financial_forecast`。
 
 本地开发时两边配同一个值即可。不配的话服务通道关闭，用户通道不受影响。
 
-## 8. 待确认
+## 8. 已定事项（2026-11-25）
 
-| # | 问题 | 建议 |
+| # | 问题 | 结论 |
 |---|---|---|
-| Q1 | 服务通道只在标注过的接口可用，还是放开到所有要求登录的接口？ | 只在标注过的接口可用：默认拒绝；放开到全部接口等于又造了一个超管 |
-| Q2 | 第一批要接入的定时任务 / 场景是哪个？ | 决定首批给哪些接口加 `@InternalAccess` / `get_caller` |
-| Q3 | 两个方向共用一个密钥，还是每个方向各一个？ | 先共用一个，以后要拆只改配置，代码不动 |
+| Q1 | 服务通道能用哪些接口（包括第一批接入哪个场景、ERL 是否接入）？ | **不在本任务范围**。本任务只建机制（默认不开放），并迁移 `getFileLinkById` 与预测批两处现有调用；其余接口是否开放，本任务完成后另开任务分析 |
+| Q2 | 两个方向共用一个密钥，还是每个方向各一个？ | **共用一个密钥** |
 
 ## 9. 未采用的方案
 
