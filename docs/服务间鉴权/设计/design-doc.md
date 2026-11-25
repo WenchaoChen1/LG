@@ -2,7 +2,7 @@
 
 > 关联文档: [多租户与企业级安全 · 系统架构（4-12 无用户上下文路径）](../../多租户与企业级安全/调研/system-architecture.md) | [Exit Readiness 设计](<../../Exit Readiness/设计/design-doc.md>) | [AI Chatbot 设计](../../AI-Chatbot/设计/design-doc.md)
 
-> 状态：草案（2026-11-25）。§8 已定。
+> 状态：草案（2026-11-25）。§8 各项均已定。
 
 ## 1. 背景与目标
 
@@ -53,7 +53,7 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 | 凭证 | `Authorization: Bearer <用户 JWT>` | `X-Internal-Token: <共享密钥>` |
 | 身份 | 该用户 | 系统用户 `"1"`（两边已有的 `SYSTEM_USER_ID`） |
 | 数据范围 | 跟着用户权限走 | 调用方显式传公司 / 组织参数，接口不从"当前用户"推断 |
-| 可用接口 | 所有要求登录的接口 | 只限显式允许的接口（Java 标 `@InternalAccess`；Python 见 §5.1） |
+| 可用接口 | 所有要求登录的接口 | 只限显式允许的接口（Java 标 `@InternalAccess`；Python 写死的名单 `SERVICE_CHANNEL_PATHS`） |
 
 两个方向共用**同一个请求头、同一个密钥**；每一端都既要会"发"、也要会"认"。
 
@@ -73,7 +73,7 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 
 ### 4.1 接收（Python → Java）
 
-- **新增注解 `@InternalAccess`**：标在 controller 方法上，表示该接口**额外**接受服务通道，用户访问规则不变。接口路径的收集方式与现有 `@AnonymousAccess` 相同。
+- **新增注解 `@InternalAccess`**：标在 controller 方法上，表示该接口**额外**接受服务通道，用户访问规则不变。判定以 Spring 实际路由到的处理方法上有没有这个注解为准，所以同一路径下 HTTP 方法不同的接口、或路径更具体的同级接口，不会被连带放行。
 - **新增过滤器**，放在 `JwtAuthenticationFilter` 旁边，按 §3.2 判定：
   - 通过时设置系统身份，包括 Spring Security 的认证对象和 `SecurityUtils.setCurrentUserId("1")`，审计字段自然记为 `"1"`。
 - **配置**：Nacos `cio.internal-token`。改值需要重启，与现有 `@Value` 注入的配置一致。
@@ -85,15 +85,21 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 - **预测批调 `/financial_forecast/predict`**：带上密钥头，读同一个配置项 `cio.internal-token`。
 - **ERL（`ErlPythonClient`）不在本任务**：照旧转发用户 token。Python 的 ERL 路由仍用 `get_current_user`，是否开放给服务通道，留给后续的接口分析任务。
 
+### 4.3 网关拒绝内部接口
+
+- 网关配置（Nacos `cioaas-gateway.yml`）在现有两条路由之前加一条规则，拒绝 `/api/web/storage/files/inner/**` 和 `/web/storage/files/inner/**`。只改配置，不改代码。
+- 效果：内部接口从公网访问不到，符合 Java 规范「内部专用接口须在网关限制为内网可达」；密钥是第二道防线。
+- Python 直连 Java 业务服务（§5.3），不经网关，不受这条规则影响。
+
 ## 5. Python 端
 
 ### 5.1 接收（Java → Python）
 
-- **`AuthMiddleware`**：按 §3.2 判定。服务通道通过时，跳过向 Java 的 `check_access`，并在请求状态里标记为服务调用。
+- **`AuthMiddleware`**：按 §3.2 判定。服务通道通过时，跳过向 Java 的 `check_access`。
+- **允许名单**：`common/auth/access_check.py` 里写死的 `SERVICE_CHANNEL_PATHS`（完整路径、精确匹配，不放环境变量）。目前只有 `/financial_forecast/predict`。不在名单里的接口，密钥正确也按未登录拒绝。
 - **路由层面**：
-  - 不声明身份依赖的路由（如 `/financial_forecast/predict`），服务调用过了中间件就能进入。本任务唯一要接入的 Python 路由就是它。
-  - 用 `get_current_user` 的路由不变。服务调用没有用户 token，到那里会返回 401，这就是 Python 端的默认拒绝。
-  - 需要身份、又要开放给服务通道的路由，后续任务再新增依赖 `get_caller`（`common/auth/identity.py`）：用户请求与 `get_current_user` 相同；服务调用返回 `AuthUser(user_id=SYSTEM_USER_ID)`，不带公司和组织。本任务没有这样的路由，暂不加。
+  - 用 `get_current_user` 的路由不变：即使以后进了名单，服务调用没有用户 token，到那里仍返回 401。
+  - 需要身份、又要开放给服务通道的路由，后续任务再新增依赖 `get_caller`（`common/auth/identity.py`）：用户请求与 `get_current_user` 相同；服务调用返回 `AuthUser(user_id=SYSTEM_USER_ID)`，不带公司和组织。到时再在请求状态里标记服务调用。本任务没有这样的路由，暂不加。
 - **配置**：环境变量 `INTERNAL_TOKEN`，放在 `common/config/auth.py`，并记入 `sql/migrations/env-vars/env-update.txt`。
 
 ### 5.2 发出（Python → Java）
@@ -104,6 +110,15 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 - **自动走服务通道**：`query_file_link_internal` / `download_file_via_java` 本来就不传用户 token，改完自然走服务通道。
 - **同步改文档**：`lgpi_api/CLAUDE.md` 中「双 token 契约」的描述，回退目标从"静态 service token"改为"服务通道"。
 
+### 5.3 调 Java 的地址改走集群内网
+
+- **新增环境变量 `LGPI_INNER_URL`**：Java 业务服务在集群内的地址，如 `http://java-business:5213`。配了它，Python 调 Java 的接口全部直连业务服务，路径前缀从 `/api/web/` 变为 `/web/`，不经网关、不出公网。
+  - 范围：`lgpi_api` 的全部接口（17 个），以及每个请求的 token 校验。
+  - 可行的原因：网关对 `/api/web/**` 只做"去掉 `/api` 前缀再转发"，不做鉴权；直连时 Java 收到的请求完全一样。
+- **没配时回退**：仍用 `LGPI_BASE_URL` + `/api/web/`（现状）。本地开发不用改，漏配的环境也不会出故障。
+- **`LGPI_BASE_URL` 保留**：它还用来拼给用户点击的页面链接（Fireflies 会议原始数据详情页），必须保持公网域名，不能改成内网地址。
+- **`AUTH_CHECK_PATH`**：现在存的是带 `/api/web/` 前缀的完整路径，改走内网后含义要跟着调整；开发时处理兼容，并写进上线清单。
+
 ## 6. 安全约束
 
 - **密钥**：至少 32 字节的随机串，各环境各不相同；只放在 Nacos 和部署环境变量里，不进代码库。
@@ -111,27 +126,33 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 - **日志**：两端日志和 trace 都不得输出这个请求头。
   - Python `lgpi_api` 的请求日志只打印 `Authorization` 的脱敏预览，不会输出新头；服务调用时那一栏显示"(无)"，可以顺手改成"服务通道"，方便排查。
   - 网关日志只记方法、路径，不受影响。
-- **传输**：Python → Java 经 `LGPI_BASE_URL`，可能是公网域名；走 HTTPS 时可以接受。
+- **Sentry**：两端的 Sentry 都会把请求头随错误事件和性能事务上报，这个头不在任何一方的默认脱敏名单里，必须自己脱敏。
+  - Python：`main.py` 的 `_scrub_sensitive_headers` 加上这个头，并同时挂到错误事件和性能事务上。
+  - Java：新增 `SentrySensitiveHeaderScrubber`，从两类事件里删掉 `X-Internal-Token`，顺带删掉此前一直没脱敏的 `Authorization`。
+- **传输**：两个方向都是集群内直连，不经网关、不出公网。Java → Python 用 `http://python:8090`；Python → Java 用 `LGPI_INNER_URL`（§5.3）。内部接口另在网关拒绝（§4.3）。
 - **轮换**：两边同时改并重启。两边值不一致的那段时间里，服务通道调用会失败；目前没有用户的调用量很小。
 - **数据范围**：服务身份不带公司和组织，所以允许服务通道的接口必须要求调用方显式传公司参数，缺参就拒绝（对齐多租户需求 1.4「取不到上下文时拒绝执行而非放行」）。
 
 ## 7. 上线顺序
 
-每一步都兼容旧版本，没有硬期限。
+两端都只在本端配了密钥时才发送密钥头，所以**先发版、后配密钥**。这样任何一方开始发密钥头时，对方已经带着 Sentry 脱敏上线。没有硬期限。
 
-1. **配密钥**：各环境的 Nacos（`cio.internal-token`）和 Python 环境变量（`INTERNAL_TOKEN`）配同一个随机密钥。
-2. **Java 发版**：加过滤器和 `@InternalAccess`；预测批调 Python 时带上密钥头。此时 Python 还不认这个头，多带一个也不影响。
-3. **Python 发版**：中间件认这个头；调 Java 时发这个头；删掉写死的 token。
-4. **收尾**：
-   - `getFileLinkById` 去掉 `@AnonymousAccess`、改为 `@InternalAccess`。
+1. **两端发版，都不配密钥**：服务通道关闭，行为与现在完全一样（预测批仍靠豁免路径，`getFileLinkById` 仍是匿名）。两端谁先谁后都可以。
+2. **配环境变量并重启**：
+   - 各环境的 Nacos（`cio.internal-token`）和 Python 环境变量（`INTERNAL_TOKEN`）配同一个随机密钥。
+   - Python 另配 `LGPI_INNER_URL`。配之前先在该环境的 Python 容器里确认能连通 Java 业务服务（`curl -i <地址>/web/system/auth/check` 应返回 401）。
+3. **收尾**（Java 需要再发一次版）：
+   - `getFileLinkById` 去掉 `@AnonymousAccess`、改为 `@InternalAccess`。**不能和第 1 步同一次发版**：密钥还没配时，Python 后台取文件会全部 401。
+   - 网关加上拒绝 `/inner/**` 的规则（§4.3）。必须在该环境的 Python 已配 `LGPI_INNER_URL` 之后，否则后台取文件会被网关挡住。
    - 各环境删掉 `AUTH_CHECK_EXEMPT_PATHS=/financial_forecast`。
 
 本地开发时两边配同一个值即可。不配的话服务通道关闭，用户通道不受影响。
 
-## 8. 已定事项（2026-11-25）
+## 8. 已定与待定事项（2026-11-25）
 
 | # | 问题 | 结论 |
 |---|---|---|
+| Q3 | Python 调 Java 是否改走内网地址？Java 规范（`standards/coding.md` 安全一节）要求内部专用接口在网关限制为内网可达 | **改走内网**：Python 调 Java 全部经 `LGPI_INNER_URL` 直连业务服务（§5.3），网关拒绝 `/inner/**`（§4.3）。test 环境已实测 Python 容器能连通 `http://java-business:5213`（2026-11-25）；uat、prod 上线前各测一次 |
 | Q1 | 服务通道能用哪些接口（包括第一批接入哪个场景、ERL 是否接入）？ | **不在本任务范围**。本任务只建机制（默认不开放），并迁移 `getFileLinkById` 与预测批两处现有调用；其余接口是否开放，本任务完成后另开任务分析 |
 | Q2 | 两个方向共用一个密钥，还是每个方向各一个？ | **共用一个密钥** |
 
@@ -141,4 +162,6 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
   - 改动更多：Java 要新增一种授权方式；Python 要做 token 缓存与续期，还要在 Redis 里准备 `auth:user:1`。
   - 风险更大：系统 JWT 能通过所有只要求登录的接口，等于又造了一个超管。
 - **继续用豁免路径 / 匿名端点**：本质上是不鉴权，每个环境都要单独配置，而且外部可访问。
-- **IP 白名单**：Python 调 Java 经过网关，Java 看到的来源地址是网关，区分不出调用方。
+- **IP 白名单**：集群内调用方的地址不固定，按来源地址区分不出是谁在调。
+- **在公网入口（ALB）拒绝内部接口，Python 经网关的内网地址调用**：拦截规则要运维在每个环境的入口上维护，不在代码仓库里；也不是规范要求的"在网关限制"。
+- **直接把 `LGPI_BASE_URL` 改成内网地址**：它同时用来拼给用户点击的页面链接，改了链接就打不开。
