@@ -80,7 +80,7 @@
 
 | 产物 | 空间 | 份数 | 页面展示 |
 |---|---|---|---|
-| 1b + Portfolio KB · **基金层**（一条 ADMIN 条目，`company_id` 为空，带 Portfolio 标记） | 机构层 | 每场 0~1 条 | Memory 页、管理端知识库页的机构层展示 |
+| 1b + Portfolio KB · **基金层**（一条 ADMIN 条目，`company_id` 为空，带 Portfolio 标记；正文是基金层摘要，分 Fundraising、LP Concerns & Requests、Fund Matters、Live Deals 四节，开发设计 7 #Q80） | 机构层 | 每场 0~1 条 | Memory 页、管理端知识库页的机构层展示 |
 | 证词 · 匿名版 | 证词-匿名 | 0~N 条 | 同类型一（9.11.5） |
 | 证词 · 署名版 | 证词-署名 | 与匿名版一一对应 | 同匿名版 |
 | Cross-Company（同类型一） | 跨公司 | 0~N 条 | 同类型一 |
@@ -166,7 +166,7 @@ GS 内部与 GS → Partner 没有基金层：绑不到公司的内容不写 1b�
 |---|---|---|---|
 | GS → 创始人 | 1a = 1b，≤150 个英文单词 | Founder KB = Portfolio KB，不设长度上限 | Fireflies `summary.overview` → 大模型整理为 markdown；overview 为空时从原始转录生成（正文同此） |
 | 公司层（GS 内部 / Partner） | 1b，≤150 个英文单词 | Portfolio KB markdown（GS → Partner 为退出摘要，只分 Exit Readiness、Exit Process 两节，5.4），**附原始转录链接、不复制原文**（链接指向 LG 的 Raw Data 详情页（9.3.5），打开时按 9.3.6 鉴权，不用 Fireflies 的 `transcript_url`；PM 无 Raw Data 权限（9.3.6），点开会被拒，链接实际只对 PGM / SA 有效；基金层同此） | 从原始转录抽取（第六章） |
-| 基金层（LP） | 1b 基金层，≤150 个英文单词 | Portfolio KB 基金层 markdown，附原始转录链接 | 从原始转录抽取 |
+| 基金层（LP） | 1b 基金层，≤150 个英文单词 | Portfolio KB 基金层 markdown（基金层摘要，只分 Fundraising、LP Concerns & Requests、Fund Matters、Live Deals 四节，开发设计 7 #Q80），附原始转录链接 | 从原始转录抽取 |
 | 证词两版 | 不写 | 证词 markdown，首行为来源行（3.4）；此人本场各条合成一块，每条一段、段首为程序加的类别标签（开发设计 7 #Q77） | 从原始转录抽取 |
 | Cross-Company | 不写 | 洞察 markdown，只放正文（`statement`）：本场各条合成一块，每条一段、段首为程序按类别（`category`，四类之一，6.9（P6））加的标签；类别不另存，条目标题不再带类别（开发设计 7 #Q77）。P6 的行业 / 阶段 / 问题类型标签不落库 | 从原始转录抽取 |
 
