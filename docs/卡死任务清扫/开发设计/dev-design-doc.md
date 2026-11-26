@@ -15,7 +15,7 @@
 | F1 | Fireflies | 首轮 P1 `processing_stage` 停在 `IDENTIFYING` / `EXTRACTING` | 连续 3 次没跑完（消息进死信）、消费者停摆超过 4 天（消息过期） | 永久处理中、不进列表；Java 再发消息会被当重复删掉（`meeting_pipeline_service.py` `_claim_meeting`：首次收到且已有行 → `SKIPPED_DUPLICATE`） | 按失败收尾、转 Pending 交管理员：卡在提取中按 6.11 作废；卡在识别中不调大模型补完识别（P8 / P1 按失败计） |
 | F2 | Fireflies | 已投递（`dispatched_at` 非空）但 Python 没有 P1 行 | 消息解析失败被删、建行失败 3 次进死信、消费者停摆超过 4 天 | 永久不处理；Java 只补投 `dispatched_at IS NULL` 的行 | Java 补投一次（`redispatched_at` 记一次上限）；没有 P1 行就没有可给管理员看的东西 |
 | F3 | Fireflies | 非首轮提取 `extraction_status = RUNNING` | Start Extraction / 自动路由提取被打断 | 整场写操作被挡、Start Extraction 不可点；自动路由重投因已有进行中的提取不再匹配 | 按设计 6.11 作废，会议转 Pending（待识别 · 提取失败），Start Extraction 恢复可点 |
-| F4 | Fireflies | P2 `testimony_backfill_status = RUNNING` | API-23 应用后补抽 / API-29 Retry 被打断 | 页面没有出口（能清空它的操作自己也被挡） | 置 `FAILED`，页面出现 Retry |
+| F4 | Fireflies | P2 `testimony_backfill_status = RUNNING` | API-23 应用后补抽 / API-29 Retry 被打断 | 页面没有出口（能清空它的操作自己也被挡） | 置 `FAILED`，本场排队中的（`QUEUED`）一并置 `FAILED`（Fireflies 开发设计 7 #Q86），页面出现 Retry |
 | F5 | Fireflies | P7 `projection_status = PENDING`；已授权、未删、上线 / 改内容重试用尽停在 `FAILED`（用户决定 2026-11-03） | 进程内的退避重试随进程消失；正文卡住时摘要行也一直 `PENDING` | API-23 跳过 `PENDING`，已授权内容一直不上线 / 应下线的一直在线 | 认领后按行当前状态重推（Fireflies 7 #Q30） |
 | F6 | Fireflies | 应下线却没下成的 RAG 条目 | （一）已删 / 未授权、下线重试用尽停在 `FAILED`；（二）改正文后撤旧条目重试用尽；（三）写了条目与登记行、回写 `file_id` 前被杀 | 已删、未授权内容继续被召回 | （一）按行下线；（二）（三）按 `file_id` 删条目、软删登记行 |
 | F7 | Fireflies | 先提交、后推送的写操作（**新发现**） | API-22 Start Extraction 软删、API-23 改 Unknown / 取消授权 / 上线、API-24 改内容：事务里没置 `PENDING`，提交后、推送前被杀 | 行停在 `ONLINE`（已删 / 未授权 / 内容已改）或 `NONE`（应上线），F5、F6 都捞不到 | 在 Fireflies 这几个事务里补 `mark_pending`，归入 F5（第 4.7 节） |
@@ -161,7 +161,7 @@ scheduler-queue ──► Java ScheduleProcessor.processMessage  case StuckTaskS
 ### 4.4 F4 证词补抽卡在 RUNNING
 
 - **判定**：P2 `testimony_backfill_status = 'RUNNING' AND updated_at < now() - 120 分钟`。
-- **动作**：一个事务，先锁 P1 行再处理参会人行（与正常流程锁顺序一致）：核对仍是 `RUNNING` 且 `updated_at` 等于扫到的值后置 `FAILED`（所有改补抽状态的写入方都先锁或碰 P1，锁住 P1 后读到的即最新值，等价于条件更新）；`state_repo.touch` 刷新 P1；写 `SWEEP` 审计（target 为参会人）。页面出现 Retry（API-29 只接受 `FAILED`）。
+- **动作**：一个事务，先锁 P1 行再处理参会人行（与正常流程锁顺序一致）：核对仍是 `RUNNING` 且 `updated_at` 等于扫到的值后置 `FAILED`，本场 `QUEUED` 的参会人一并置 `FAILED`（排队的人靠正在补的那位收尾时接力，它卡住后不会再被接，Fireflies 开发设计 7 #Q86）（所有改补抽状态的写入方都先锁或碰 P1，锁住 P1 后读到的即最新值，等价于条件更新）；`state_repo.touch` 刷新 P1；写 `SWEEP` 审计（target 为参会人）。页面出现 Retry（API-29 只接受 `FAILED`）。
 - **新增**：`extraction_service.fail_stuck_backfill(meeting_id, participant_id, updated_at) -> bool`。不复用 `_finish_backfill`：它要的 `_BackfillContext` 会读整场转录。
 - **并发**：老进程的补抽落库前核对 `RUNNING`（`_replace_testimony` / `_finish_backfill`），被置 `FAILED` 后结果丢弃；置 `FAILED` 后用户点 Retry 与老补抽并存时先提交者生效、后者看到状态已清空而丢弃。
 
