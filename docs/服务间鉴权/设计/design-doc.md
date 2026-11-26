@@ -41,7 +41,7 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 | Python → Java | 后台取文件 `/storage/files/inner/getFileLinkById`（财务提取、RAG 入库、ERL 附件摘要） | Java 侧标了 `@AnonymousAccess`，**完全不鉴权**。请求头里带的是早期开发写死的 token，Java 会忽略它 | 经网关从外部也能访问，拿到 fileId 就能取下载链接 |
 | Python → Java | 每个请求的 token 校验 `/api/web/system/auth/check` | 转发用户 token | 无 |
 
-**结论**：目前还没有定时任务需要调对方的鉴权接口。本方案提前把通道建好，并顺带收掉上表中两处不鉴权的调用。
+**结论**：目前还没有定时任务需要调对方的鉴权接口。本方案提前把通道建好；上表中两处不鉴权的调用留给后续任务切换（§7）。
 
 ## 3. 方案总览
 
@@ -57,7 +57,7 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 
 两个方向共用**同一个请求头、同一个密钥**；每一端都既要会"发"、也要会"认"。
 
-**本任务范围**：只建服务通道机制，并把两处现有的无鉴权调用迁过来（§4.1 `getFileLinkById`、§4.2 预测批）。其他接口是否开放服务通道，本任务完成后另开任务分析（§8）。
+**本任务范围**：只建服务通道机制，让两端都具备用密钥互相调用的能力。现有两处无鉴权调用的切换（`getFileLinkById` 改为校验密钥、去掉预测接口的鉴权豁免）不在本任务，已记入台账，等本迭代发布、各环境配好密钥后处理（§7）。其他接口是否开放服务通道，另开任务分析（§8）。
 
 ### 3.2 判定规则（两端一致）
 
@@ -77,7 +77,7 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 - **新增过滤器**，放在 `JwtAuthenticationFilter` 旁边，按 §3.2 判定：
   - 通过时设置系统身份，包括 Spring Security 的认证对象和 `SecurityUtils.setCurrentUserId("1")`，审计字段自然记为 `"1"`。
 - **配置**：Nacos `cio.internal-token`。改值需要重启，与现有 `@Value` 注入的配置一致。
-- **首批接口**：`getFileLinkById` 从 `@AnonymousAccess` 改为 `@InternalAccess`，访问范围从"任何人"收紧为"登录用户或服务"。
+- **首批接口（不在本任务，已记入台账）**：`getFileLinkById` 从 `@AnonymousAccess` 改为 `@InternalAccess`，访问范围从"任何人"收紧为"登录用户或服务"。
   - **不影响前端预览**（含微软 Office 在线预览）：前端用的是 `/storage/files/getFileLinkById`、`/storage/files/getPreviewLinkById`，以及列表数据里 Java 在进程内生成好的 S3 预签名链接，都不经过 `/inner/`。`/inner/getFileLinkById` 目前只有 Python 的 `query_file_link_internal` 一个调用方。
 
 ### 4.2 发出（Java → Python）
@@ -85,8 +85,9 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 - **预测批调 `/financial_forecast/predict`**：带上密钥头，读同一个配置项 `cio.internal-token`。
 - **ERL（`ErlPythonClient`）不在本任务**：照旧转发用户 token。Python 的 ERL 路由仍用 `get_current_user`，是否开放给服务通道，留给后续的接口分析任务。
 
-### 4.3 网关拒绝内部接口
+### 4.3 网关拒绝内部接口（后续任务，可选）
 
+- 不在本任务，已记入台账。它只是第二层防护：真正堵住匿名访问的是 §4.1 的改注解；登录用户本来就能通过不带 `/inner/` 的同功能接口取下载链接。它的价值在于符合规范，以及密钥泄露时多一层保险。
 - 网关配置（Nacos `cioaas-gateway.yml`）在现有两条路由之前加一条规则，拒绝 `/api/web/storage/files/inner/**` 和 `/web/storage/files/inner/**`。只改配置，不改代码。
 - 效果：内部接口从公网访问不到，符合 Java 规范「内部专用接口须在网关限制为内网可达」；密钥是第二道防线。
 - Python 直连 Java 业务服务（§5.3），不经网关，不受这条规则影响。
@@ -143,7 +144,7 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 0. **发版前确认连通**：在该环境的 Python 容器里执行 `curl -i http://java-business:5213/web/system/auth/check`，应返回 401。Python 新版本一上线，后台取文件就直连这个地址，连不通的话 知识库上传与聊天附件的入库、财务提取、ERL 附件摘要会失败。服务名不同的环境先配好 `LGPI_INNER_URL` 再发版。
 1. **两端发版，都不配密钥**：服务通道关闭（预测批仍靠豁免路径，`getFileLinkById` 仍是匿名）；Python 后台取文件改为集群内直连，其余调用不变。两端谁先谁后都可以。
 2. **配密钥并重启**：各环境的 Nacos（`cio.internal-token`）和 Python 环境变量（`INTERNAL_TOKEN`）配同一个随机密钥。
-3. **收尾**（Java 需要再发一次版）：
+3. **收尾（后续任务，已记入 Java 与 Python 台账）**：本任务到第 2 步为止。Java 需要再发一次版：
    - `getFileLinkById` 去掉 `@AnonymousAccess`、改为 `@InternalAccess`。**不能和第 1 步同一次发版**：密钥还没配时，Python 后台取文件会全部 401。
    - 网关加上拒绝 `/inner/**` 的规则（§4.3）。必须在该环境的 Python 新版本（已改为直连）上线之后，否则后台取文件会被网关挡住。
    - 各环境删掉 `AUTH_CHECK_EXEMPT_PATHS=/financial_forecast`。
@@ -154,6 +155,7 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 
 | # | 问题 | 结论 |
 |---|---|---|
+| Q4 | 现有两处无鉴权调用（`getFileLinkById`、预测接口的鉴权豁免）什么时候切换到服务通道？ | **不在本任务**（2026-11-26 定）。本任务只交付两端用密钥互相调用的能力；切换记入 Java 与 Python 的待优化项台账，等本迭代发布、各环境配好密钥后处理 |
 | Q3 | Python 调 Java 是否改走内网地址？Java 规范（`standards/coding.md` 安全一节）要求内部专用接口在网关限制为内网可达 | **只有服务通道调用改走内网**（目前是后台取文件）：经 `LGPI_INNER_URL` 直连业务服务（§5.3，不配时默认 `http://java-business:5213`），网关拒绝 `/inner/**`（§4.3）。带用户 token 的调用和 token 校验保持原路，行为不变（2026-11-26 定）。test 环境已实测 Python 容器能连通 `http://java-business:5213`（2026-11-25）；uat、prod 上线前各测一次 |
 | Q1 | 服务通道能用哪些接口（包括第一批接入哪个场景、ERL 是否接入）？ | **不在本任务范围**。本任务只建机制（默认不开放），并迁移 `getFileLinkById` 与预测批两处现有调用；其余接口是否开放，本任务完成后另开任务分析 |
 | Q2 | 两个方向共用一个密钥，还是每个方向各一个？ | **共用一个密钥** |
