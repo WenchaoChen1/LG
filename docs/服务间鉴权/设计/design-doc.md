@@ -112,10 +112,12 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 
 ### 5.3 调 Java 的地址改走集群内网
 
-- **新增环境变量 `LGPI_INNER_URL`**：Java 业务服务在集群内的地址，如 `http://java-business:5213`。配了它，Python 调 Java 的接口全部直连业务服务，路径前缀从 `/api/web/` 变为 `/web/`，不经网关、不出公网。
+- **新增环境变量 `LGPI_INNER_URL`**：Java 业务服务在集群内的地址，**不配时默认 `http://java-business:5213`**。Python 调 Java 的接口全部直连业务服务，路径前缀从 `/api/web/` 变为 `/web/`，不经网关、不出公网。
   - 范围：`lgpi_api` 的全部接口（17 个），以及每个请求的 token 校验。
   - 可行的原因：网关对 `/api/web/**` 只做"去掉 `/api` 前缀再转发"，不做鉴权；直连时 Java 收到的请求完全一样。
-- **没配时回退**：仍用 `LGPI_BASE_URL` + `/api/web/`（现状）。本地开发不用改，漏配的环境也不会出故障。
+- **默认值就是集群内地址，不回退到网关**：服务名是 `java-business` 的环境不用配。代价有两个：
+  - 发版即生效，没有开关。上线前必须先在该环境的 Python 容器里确认能连通（§7）；服务名不同的环境要显式配。
+  - 本地开发解析不了 `java-business`，本地 `.env` 要配成本机 Java 业务服务的地址（如 `http://127.0.0.1:5213`），`.env_example` 给出示例。
 - **`LGPI_BASE_URL` 保留**：它还用来拼给用户点击的页面链接（Fireflies 会议原始数据详情页），必须保持公网域名，不能改成内网地址。
 - **`AUTH_CHECK_PATH`**：现在存的是带 `/api/web/` 前缀的完整路径，改走内网后含义要跟着调整；开发时处理兼容，并写进上线清单。
 
@@ -137,13 +139,12 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 
 两端都只在本端配了密钥时才发送密钥头，所以**先发版、后配密钥**。这样任何一方开始发密钥头时，对方已经带着 Sentry 脱敏上线。没有硬期限。
 
-1. **两端发版，都不配密钥**：服务通道关闭，行为与现在完全一样（预测批仍靠豁免路径，`getFileLinkById` 仍是匿名）。两端谁先谁后都可以。
-2. **配环境变量并重启**：
-   - 各环境的 Nacos（`cio.internal-token`）和 Python 环境变量（`INTERNAL_TOKEN`）配同一个随机密钥。
-   - Python 另配 `LGPI_INNER_URL`。配之前先在该环境的 Python 容器里确认能连通 Java 业务服务（`curl -i <地址>/web/system/auth/check` 应返回 401）。
+0. **发版前确认连通**：在该环境的 Python 容器里执行 `curl -i http://java-business:5213/web/system/auth/check`，应返回 401。Python 新版本一上线就直连这个地址，连不通的话所有请求的 token 校验都会失败。服务名不同的环境先配好 `LGPI_INNER_URL` 再发版。
+1. **两端发版，都不配密钥**：服务通道关闭（预测批仍靠豁免路径，`getFileLinkById` 仍是匿名）；Python 调 Java 改为集群内直连。两端谁先谁后都可以。
+2. **配密钥并重启**：各环境的 Nacos（`cio.internal-token`）和 Python 环境变量（`INTERNAL_TOKEN`）配同一个随机密钥。
 3. **收尾**（Java 需要再发一次版）：
    - `getFileLinkById` 去掉 `@AnonymousAccess`、改为 `@InternalAccess`。**不能和第 1 步同一次发版**：密钥还没配时，Python 后台取文件会全部 401。
-   - 网关加上拒绝 `/inner/**` 的规则（§4.3）。必须在该环境的 Python 已配 `LGPI_INNER_URL` 之后，否则后台取文件会被网关挡住。
+   - 网关加上拒绝 `/inner/**` 的规则（§4.3）。必须在该环境的 Python 新版本（已改为直连）上线之后，否则后台取文件会被网关挡住。
    - 各环境删掉 `AUTH_CHECK_EXEMPT_PATHS=/financial_forecast`。
 
 本地开发时两边配同一个值即可。不配的话服务通道关闭，用户通道不受影响。
@@ -152,7 +153,7 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 
 | # | 问题 | 结论 |
 |---|---|---|
-| Q3 | Python 调 Java 是否改走内网地址？Java 规范（`standards/coding.md` 安全一节）要求内部专用接口在网关限制为内网可达 | **改走内网**：Python 调 Java 全部经 `LGPI_INNER_URL` 直连业务服务（§5.3），网关拒绝 `/inner/**`（§4.3）。test 环境已实测 Python 容器能连通 `http://java-business:5213`（2026-11-25）；uat、prod 上线前各测一次 |
+| Q3 | Python 调 Java 是否改走内网地址？Java 规范（`standards/coding.md` 安全一节）要求内部专用接口在网关限制为内网可达 | **改走内网**：Python 调 Java 全部经 `LGPI_INNER_URL` 直连业务服务（§5.3，不配时默认 `http://java-business:5213`），网关拒绝 `/inner/**`（§4.3）。test 环境已实测 Python 容器能连通 `http://java-business:5213`（2026-11-25）；uat、prod 上线前各测一次 |
 | Q1 | 服务通道能用哪些接口（包括第一批接入哪个场景、ERL 是否接入）？ | **不在本任务范围**。本任务只建机制（默认不开放），并迁移 `getFileLinkById` 与预测批两处现有调用；其余接口是否开放，本任务完成后另开任务分析 |
 | Q2 | 两个方向共用一个密钥，还是每个方向各一个？ | **共用一个密钥** |
 
