@@ -61,7 +61,7 @@
 
 15. **保留确定性路由，未启用 tool-calling loop**：`tool_schemas.py`/`dispatch_tool` 已同步全部新工具（loop 路径可用），但对话图仍走确定性单意图路由。**多数据域组合提问**（如"对比我的 Rule of 40 实际值、benchmark 分位、以及它的折算来源"）在 V1 只会命中单一意图节点。若要组合，需将 `tool_calling_loop` 挂入图（后续）。
 16. **公司身份强制由 state 注入**：`dispatch_tool` 的 `company_id`/`auth_token` 一律来自 state，不信任 LLM 传参（防越权）。新增工具已遵守。
-17. **`DEFAULT_BEARER_TOKEN` 硬编码**（`common/config/lgpi.py`，既有）：auth_token 为空时回退该 service token。chatbot 链路始终透传用户 token，不会用到；但该硬编码 token 本身是既有安全债，建议清理为纯环境变量。
+17. **`DEFAULT_BEARER_TOKEN` 硬编码**（`common/config/lgpi.py`，既有）：auth_token 为空时回退该 service token。chatbot 链路始终透传用户 token，不会用到；但该硬编码 token 本身是既有安全债，建议清理为纯环境变量。**已解决（sprint123）**：`DEFAULT_BEARER_TOKEN` 与 `LGPI_BEARER_TOKEN` 回退一并删除，无用户的后台调用改走服务通道，见 [服务间鉴权设计](../../服务间鉴权/设计/design-doc.md)。
 
 ## E. 测试与后续
 

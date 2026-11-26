@@ -130,7 +130,7 @@ Java REST: /financialStatements · /benchmark/company/{id}/data · /invite/{id} 
 - Java 数据接口（`/financialStatements`、`/benchmark/.../data`）**只验登录、不做逐用户 ACL**。
 - 生产 Java 网关会注入 `x-user-id` / `x-company-id` / `x-user-role` 头给 Python（RAG/LLM 页面已在用此链路）。
 - Java 把用户上下文写入 Redis：`auth:user:{userId}`（角色/机构/home 公司）、`auth:token:{hash}`（token 有效性）。
-- Python 现用**硬编码静态 service token** 调 Java（`LGPI_BEARER_TOKEN`，且指向 `admin-test.lgpi.io`）。
+- ~~Python 现用**硬编码静态 service token** 调 Java（`LGPI_BEARER_TOKEN`，且指向 `admin-test.lgpi.io`）。~~ sprint123 已删除这个回退：Python 不带用户 token 调 Java 时不带任何凭证；无用户的后台调用改走服务通道（`X-Internal-Token`），见 [服务间鉴权设计](../../服务间鉴权/设计/design-doc.md)。
 
 ### 4.1.1 已核实的 Java Redis 方案（实现细节）
 
