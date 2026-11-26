@@ -658,7 +658,8 @@ API-26、API-27 已删除（7 #Q44、#Q56），编号不复用。
 |---|---|---|
 | 每日拉取 | AWS EventBridge → `scheduler-queue` → Java `ScheduleProcessor` | `FixedScheduleTypeEnum` 加一项，分发到 Fireflies 拉取服务（与 API-03 同一链路）；入口先 `setCurrentUserId("1")`；定时与手动互斥靠 J1 `sync_started_at` 条件更新（第八章 #29） |
 | 新会议 | Java → SQS 新队列（如 `fireflies-meeting-queue`）→ Python `consumer/fireflies/` | 队列在 Java `InitSqsQueueEnum` 登记（启动时建队列与死信队列），Java 不监听；消息带租户、会议 id、触发方式与触发人；投递与补投见 J2（第八章 #30）；消息体见 3.6 |
-| 公司 / 公司端用户增改 | Java 保存入口发领域事件 → `@TransactionalEventListener(AFTER_COMMIT)` → SQS 新队列（如 `fireflies-company-change-queue`，同样在 `InitSqsQueueEnum` 登记）→ Python 自动路由 | 入口：`CompanyServiceImpl.create` / `update`（`addWithoutEmail`、`addCompanyAndSetStage` 都汇到这两处）、`CommonServiceImpl.createInvitedUserAndSendEmail`（覆盖 `POST /users/invite` 与 `POST /project/inviteuser`）、`UserServiceImpl.clientUser` / `update`。归档（`POST /invite/archiveCompany`）与停用（`PUT /invite/delete/{companyId}`）不发：两者只改归档标记、解除 Portfolio 关联，不改公司状态与公司端用户，不会产生新的匹配。Python 约定一条队列一种消息，故两条队列（第八章 #27）。消息只带公司 id、变更类型与操作人，不带租户，Python 按 `r_organization_company` 查公司挂的节点、再补上各级父节点（3.6，7 #Q52） |
+| 公司 / 公司端用户增改 | Java 保存入口发领域事件 → `@TransactionalEventListener(AFTER_COMMIT)` → SQS 新队列（如 `fireflies-company-change-queue`，同样在 `InitSqsQueueEnum` 登记）→ Python 自动路由 | 入口：`CompanyServiceImpl.create` / `update`（`addWithoutEmail`、`addCompanyAndSetStage` 都汇到这两处）、`CommonServiceImpl.createInvitedUserAndSendEmail`（覆盖 `POST /users/invite` 与 `POST /project/inviteuser`）、`UserServiceImpl.clientUser` / `update`。归档（`POST /invite/archiveCompany`）与停用（`PUT /invite/delete/{companyId}`）不发：两者只改归档标记、解除 Portfolio 关联，不改公司状态与公司端用户，不会产生新的匹配。拉会议与公司变更分两条队列（第八章 #27）；名册变更复用公司变更这条队列，Python 先看 `type` 再分发（7 #Q84）。消息只带公司 id、变更类型与操作人，不带租户，Python 按 `r_organization_company` 查公司挂的节点、再补上各级父节点（3.6，7 #Q52） |
+| Cheat Sheet 名册增改 | Java 保存入口发领域事件 → `@TransactionalEventListener(AFTER_COMMIT)` → SQS `fireflies-company-change-queue`（复用）→ Python 重跑相关 Pending 会议 | 入口：`FfCheatSheetServiceImpl` 的 create（新增人员每次都发）、update 与 confirmExpert（追加了新版本且与上一版比姓名、邮箱、机构、角色、有效期、专长标签任一有变化才发；只改 Area of expertise、只记复核不发）；保存回滚不发，发送失败只记日志、不影响保存。消息带租户、此人改前改后的姓名 / 邮箱 / 有效期、来源会议与操作人，Python 按 7 #Q84 ① 找会议重跑 |
 | 名册新建 | Python → Java API-06 | 只有 Assign new external party（API-25）经它新建，透传用户 token（第八章 #31）；会议页的名册编辑与专家确认由前端直调 API-07 / 08，Python 不写名册（7 #Q44） |
 | PGM / SA 判定 | Python → Java API-19 | 透传用户 token |
 | 跨端读表 | Java 读 P1、P2（本场邮箱）、P5；Python 读 J1~J6 与 7 张 LG 业务表 | 见 1.4；Python 直读 LG 业务表与 Python 规范「LG 业务数据经 Java 网关取」不一致，随数据权限一起定（A5） |
@@ -712,6 +713,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 |---|---|---|
 | `fireflies-meeting-queue` | `{type: "FIREFLIES_MEETING", version: 1, organizationId, meetingId, trigger: "DAILY" \| "SYNC_NOW", triggeredBy?}` | 定时拉取没有 `triggeredBy` |
 | `fireflies-company-change-queue` | `{type: "FIREFLIES_COMPANY_CHANGE", version: 1, companyId, changeType: "COMPANY" \| "CLIENT_USER", operatorId}` | **不带租户**，Python 按 `r_organization_company` 查公司挂的节点、再补上各级父节点作为公司所属租户（7 #Q52）；`operatorId` 必有，取不到当前用户时 Java 填 `"1"` |
+| `fireflies-company-change-queue` | `{type: "FIREFLIES_REGISTRY_CHANGE", version: 1, organizationId, operatorId, sourceMeetingId?, before?: {name, emails, validFrom, validTo?}, after: {name, emails, validFrom, validTo?}}` | 与公司变更共用队列，靠 `type` 区分；新增人员没有 `before`，从 Cheat Sheet 页改的没有 `sourceMeetingId`；日期 `yyyy-MM-dd`；`operatorId` 取不到当前用户时填 `"1"`（7 #Q84） |
 
 **Java 接口**
 
@@ -738,6 +740,7 @@ Python：`{success:false, code, message, data}`，HTTP 200；五位数，同 fin
 | 保存后重判说话人（7 #Q53 ⑤） | `identification_service` 把「姓名对邮箱前缀 + 上一行的条件」抽成可复用的纯函数（入参：本场参会人的邮箱与 `cheat_sheet_name`、未挂上的说话人；出参：要挂的说话人与参会人）。API-25 的两条保存路径与 API-28 在同一事务里、身份写完后调用，命中的说话人按 `bind_source = NAME_PREFIX` 挂上并刷新 `matched_name`；已挂上的不动 |
 | API-25 说话人关联（PG-02f，7 #Q53） | 不加参数：前端带 `speakerId` 与所选人的邮箱，走现有「按邮箱认人」路径（`registryMatchedName` 返回该人姓名），不新建、不改名册；表单改动由前端先经 API-07 保存 |
 | API-21 `pendingBackfillCount` | `number`：本场被推测者（有专家候选的参会人）中，P2 专长标签与提取快照（P1 `current_extraction_input`）里他的标签不同的人数，打开详情页时现算；大于 0 时 Confirm & Apply 激活并旁注「N 人的标签待补抽，应用后补抽」（7 #Q51 ⑥）；确认框保存时已补抽的不算，只剩名册在本页之外改的（7 #Q83） |
+| API-21 `registryChanged` | `boolean`：名册在会议之外改过、按会议当天生效的那一版刷新会改本场识别结果时为真，打开详情页时现算（按姓名、按邮箱各批量查一次名册）：挂了名册的人那一版的姓名 / 机构 / 角色 / 专长标签与参会人行不同（平台用户只比角色与标签，按域名识别的只比标签），或没挂名册的人按本场邮箱新对上了名册；当天没有生效版本的人不算。Passed 会议为真时 Start Extraction 激活、不加提示；API-22 提取前先按名册刷新这些人（7 #Q84 ②） |
 | API-21 `participants[].registryForm.versionId` | T2（会议日期当天生效的那条记录）的 id；已在册时有值，PG-02b 作 API-07 的 `{id}`、PG-02c 作 API-08 的 `baseVersionId`（7 #Q44） |
 | API-21 `badges` / `clickAction` | `badges`：`POSSIBLE_EXPERT` \| `AI_INFERRED`（不再有 `EXPERT`，7 #Q60）；`clickAction`：`EXPERT_CONFIRM` \| `ASSIGN` \| `EDIT` \| `NONE` |
 | API-21 `identifySubReasons` | 待识别子原因（设计 9.4.2），现算，会议不在待识别时为空数组；前端不展示、不读取；取值：`PARTICIPANT_UNIDENTIFIED`（有未识别的参会人）、`SPEAKER_UNMAPPED`（有未对上的说话人）、`TYPE_UNDETERMINED`（类型为 Unknown，含被改为 Unknown）、`COMPANY_MULTIPLE`（GS → 创始人关联了多家公司）、`COMPANY_UNDETERMINED`（GS → 创始人定不出公司，含公司方只来自 P8 而反推的公司与推断机构对不上、名册反推不出）、`FOUNDER_COMPANY_MISMATCH`（有 Founder 归属不到关联的公司；近似，不区分是否到场）、`IDENTIFICATION_FAILED`（P1 / P8 最终失败，只在之后还没提取过时出现）、`EXTRACTION_FAILED`（最近一次提取作废） |
@@ -1275,7 +1278,7 @@ PG-03                                    PG-04
 
 ## 7. 待确认问题
 
-Q1~Q36、Q41~Q60、Q62~Q83 已定，Q61 暂缓；Q37~Q40 是尚无结论的待核实事实或知会风险，见本节末「仍需核实」，有结论前按现在的实现。
+Q1~Q36、Q41~Q60、Q62~Q84 已定，Q61 暂缓；Q37~Q40 是尚无结论的待核实事实或知会风险，见本节末「仍需核实」，有结论前按现在的实现。
 
 | # | 问题 | 决定 | 影响范围 |
 |---|---|---|---|
@@ -1358,6 +1361,7 @@ Q1~Q36、Q41~Q60、Q62~Q83 已定，Q61 暂缓；Q37~Q40 是尚无结论的待�
 | Q81 | 人工 Start Extraction 后的勾选有三种口径（Pending 会议首次提取全部不勾；重新提取按去向沿用上一版、新出现的去向不勾；证词按发言人沿用），有的勾有的不勾，管理员看不懂；沿用得出的不勾又不触发待审核，会议直接 Passed，新加公司的内容却没上线、也没有提示 | 人工 Start Extraction 的勾选与首次自动提取统一：知识库、摘要、证词默认勾，Cross-Company 与发言人经 P8 识别的证词不勾，不再沿用上一版（取代 #Q50 ②）。点 Start Extraction 先整场撤下旧内容（原有）；提取后只要落了行，会议一律 `Pending`（待审核），整场先不投影，管理员看过矩阵点 `Confirm & Apply Routing` 才 `Passed`、勾选的整批投影；一行都没落的直接 `Passed`。证词补抽不在此列，照旧（#Q51）。不为这种 Pending 加提示（Pending 后的问号只针对跨公司，#Q78）。用户决定 2026-11-26 | 设计 1.10、9.4.2、9.6.4、9.9、9.9.5；提示词 6.11 步骤 1、7；python `fireflies/application/service/extraction_service.py`（`_initial_authorization`、`_pending_reasons`）、`fireflies/domain/repository/routing_row_repository.py` |
 | Q82 | 专家确认框上半的「Why AI suggests these tags」推测依据区块（按标签列出 AI 的主张、依据与时间点）设计稿没有 | 去掉：确认框只留登记字段，也不设 Registry entry 小节标题与说明文字（同日再定），建议标签照旧预填进 Expertise tags（留下即同意、删掉即驳回，#Q45）；管理员了解此人，以管理员维护的名册为准。P7 的主张与依据照旧落库留痕，API-21 照旧返回，前端不展示。用户决定 2026-11-26 | 4.6 PG-02c、5.6；设计 9.5.6、9.5.10；web `review/components/ExpertConfirmModal.tsx` |
 | Q83 | 被推测者确认完专家标签后，要等点 Confirm & Apply 才补抽证词，应用前看不到新证词，管理员要来回点 | 改为确认即补抽：专家确认框或 Edit external party 保存、关窗调名册同步（API-28）时，此人是被推测者且专长标签与提取快照不同、本场没有参会人改动（有改动要点 Start Extraction 整场重跑、不另补），名册刷新提交后再起一个短事务把快照里他的标签同步成新值、`testimony_backfill_status = RUNNING`、碰 P1（响应带这次的 `updatedAt`），响应后后台补抽证词（P5；补不补按 #Q35）；页面刷新后按补抽中轮询 API-21，补完矩阵即显示新证词；补抽期间 Confirm & Apply 与 Start Extraction 置灰（前端已有，服务端也拒绝）。补出的证词默认勾选，都等 Confirm & Apply 才上线（同日再定）：会议 Pending 时等应用转 Passed（#Q75）；已 Passed 的补出新证词即转回 Pending（待审核），他的旧证词当即下线；删光标签只撤他的证词、不转回。失败后 Retry（API-29）同此。应用时兜底的补抽（API-23）照旧直接上线，后续另改。他自己的补抽在跑时同步不再启动新的、快照不动；Assign new external party 改的、在 Cheat Sheet 页改的，仍由 Confirm & Apply 应用时补（#Q51 ③⑥ 留作兜底）。用户决定 2026-11-26 | 3.2 API-23 / API-28、3.6、API-21 `pendingBackfillCount`；设计 2.5、9.5.6、9.5.7、9.5.9、9.6.5、9.9.1、9.10；python `participant_service.py`（`sync_registry`、`_start_backfill_if_tags_changed`）、`participant_routes.py` |
+| Q84 | Cheat Sheet 改了人或加了人，已有会议都不受影响（设计 9.9.3 原定「Cheat Sheet 增改不触发、打开会议时也不重新匹配」）：待识别的会议要管理员逐场处理，已提取的会议拿着旧名册的识别结果；Passed 会议的识别结果没变，Start Extraction 也点不了 | ① **Pending 会议自动重跑**：Cheat Sheet 新增人员，或编辑后姓名、邮箱、机构、角色、有效期、专长标签任一有变化（新的一版与上一版比），Java 保存提交后发一条名册变更消息（带租户、此人改前改后的姓名 / 邮箱 / 有效期、来源会议）；Python 找出本租户与此人有关的 Pending 会议（待识别、待确认专家、待审核都算）：参会人邮箱对上他改前或改后的任一邮箱、参会人已挂在他名下，或没认出的参会人 / 没对上的说话人的姓名与他改前或改后的姓名一致（同识别 ⑥），且会议日期在他改前或改后的有效期内（已认出、没挂名册、标签是识别时按同名名册补上的参会人不算）；排除来源会议（详情页里改名册的那场由同步处理）与首轮未完、提取或补抽进行中的。消息重投不重复、不漏：重跑开始时间晚于消息发出时间的会议跳过（已按这次改动跑过），有因处理中被排除的会议时这条消息不删、等重投再跑；重跑中途进程被杀的那一场由清扫 F1 按首轮卡死收尾成待识别，交管理员（接受）。每场从头重跑，同首次处理：撤下在线内容，清掉识别与提取产物，重新识别再自动提取；手动定过的类型、公司以重跑结果为准，人工编辑与勾选不保留。② **Passed 会议不自动重跑、放开 Start Extraction**：打开详情页时按会议日期生效的名册与本场识别结果比（挂了名册的参会人的姓名、机构、角色、专长标签；按邮箱新对上名册的人），有变化即 Start Extraction 可点，页面不加提示；点击后先按名册刷新这些参会人、再整场重提（按 #Q81 提完 Pending，应用后上线）。用户决定 2026-11-26 | 设计 9.9.3；API-21、API-22；java Cheat Sheet 写入与消息；python 名册变更消费、相关会议匹配与重跑 |
 
 仍需核实（尚无结论，按现在的实现）：
 
