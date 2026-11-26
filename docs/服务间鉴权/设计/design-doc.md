@@ -143,13 +143,15 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 
 0. **发版前确认连通**：在该环境的 Python 容器里执行 `curl -i http://java-business:5213/web/system/auth/check`，应返回 401。Python 新版本一上线，后台取文件就直连这个地址，连不通的话 知识库上传与聊天附件的入库、财务提取、ERL 附件摘要会失败。服务名不同的环境先配好 `LGPI_INNER_URL` 再发版。
 1. **两端发版，都不配密钥**：服务通道关闭（预测批仍靠豁免路径，`getFileLinkById` 仍是匿名）；Python 后台取文件改为集群内直连，其余调用不变。两端谁先谁后都可以。
-2. **配密钥并重启**：各环境的 Nacos（`cio.internal-token`）和 Python 环境变量（`INTERNAL_TOKEN`）配同一个随机密钥。
+2. **配密钥并重启**：各环境的 Nacos（`cio.internal-token`；Nacos 登录不上的环境改配 Java 容器环境变量 `CIO_INTERNAL_TOKEN`）和 Python 环境变量（`INTERNAL_TOKEN`）配同一个随机密钥。配完要人工核对两边是同一个值：Python 容器里执行 `printf %s "$INTERNAL_TOKEN" | sha256sum`，对 Java 侧的值同样算一次，比对结果，不要把明文贴进聊天或工单。这一步之后线上还没有请求会真正校验密钥（预测接口有豁免，`getFileLinkById` 仍是匿名），配错了不会报错，要到第 3 步才暴露。
 3. **收尾（后续任务，已记入 Java 与 Python 台账）**：本任务到第 2 步为止。Java 需要再发一次版：
-   - `getFileLinkById` 去掉 `@AnonymousAccess`、改为 `@InternalAccess`。**不能和第 1 步同一次发版**：密钥还没配时，Python 后台取文件会全部 401。
+   - `getFileLinkById` 去掉 `@AnonymousAccess`、改为 `@InternalAccess`。**不能和第 1 步同一次发版**：密钥还没配时，Python 后台取文件会全部 401。Java 发版后在 Python 容器里核对：`curl -s -o /dev/null -w '%{http_code}\n' -H "X-Internal-Token: $INTERNAL_TOKEN" 'http://java-business:5213/web/storage/files/inner/getFileLinkById?fileId=<该环境任一文件 id>'` 应返回 200，去掉 `-H` 那段应返回 401。
    - 网关加上拒绝 `/inner/**` 的规则（§4.3）。必须在该环境的 Python 新版本（已改为直连）上线之后，否则后台取文件会被网关挡住。
-   - 各环境删掉 `AUTH_CHECK_EXEMPT_PATHS=/financial_forecast`。
+   - 各环境删掉 `AUTH_CHECK_EXEMPT_PATHS=/financial_forecast`（只改配置、重启 Python）。删之前验证不了密钥：豁免在时带不带密钥都放行。删完立刻在 Python 容器里核对：`curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8090/financial_forecast/predict -H 'Content-Type: application/json' -H "X-Internal-Token: $INTERNAL_TOKEN" -d '{}'` 应返回 422（过了鉴权，空请求体校验不通过），不带密钥头应返回 401。Java 侧的值是否一致靠第 2 步的 sha256 比对，并在下一次日批后确认：Java 日志里出现 `AI model HTTP error, status=401` 就是两边密钥不一致，先把豁免加回去再查。
 
 本地开发时两边配同一个值即可。不配的话服务通道关闭，用户通道不受影响。
+
+**本地联调（2026-11-26）**：两端 worktree 各起一套、配同一个密钥实测：预测批经 SQS 带密钥调 Python（已去掉豁免）返回 200；错密钥、不带凭证、密钥加无效用户 token、密钥访问名单外的接口都被拒；带用户 token 的页面请求两端都不受影响；后台取文件经 `LGPI_INNER_URL` 直连成功。临时把 `getFileLinkById` 改成 `@InternalAccess`（未提交）后：带对密钥 200，不带或带错 401，Python 不配密钥时取文件失败，印证了第 3 步的前提。密钥格式不合法时两端都拒绝启动；两端日志里都没有出现密钥。
 
 ## 8. 已定与待定事项（2026-11-25）
 
