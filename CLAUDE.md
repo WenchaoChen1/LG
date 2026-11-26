@@ -89,6 +89,8 @@ Java 与 Python 按业务域有三种协作模式：
 - **AI Chatbot — HTTP + SSE 流式**：前端调 Python `/api/ai/chat/*` 与 SSE `POST /api/ai/sse/stream`；Python 取 LG 业务数据**经 Java 网关回调 `/api/web/*`**（透传用户 token），不直连 Java 服务。细节见 `python/CIOaas-python/source/chatbot/CLAUDE.md`、`source/sse/CLAUDE.md` 与 `web/CIOaas-web/CLAUDE.md`；设计 `docs/AI-Chatbot/设计/design-doc.md`。
 - **Exit Readiness（ERL）— 内网直连同步 HTTP**：Java `erl/` 域是前端唯一出口并持编排状态（报告分享记录 + 维度任务状态机），Python `source/erl/` 只做每任务一次 LLM 生成并持 AI 内容、不做公司 ACL。Java **不经网关**直连 Python（Nacos `cio.erl.ai-base-url`；网关只有 `/api/web/**`、`/web/**` 两条路由；不用 SQS），且**必须转发调用者 Bearer token**（异步线程须在请求线程内先捕获）。设计 `docs/Exit Readiness/设计/design-doc.md`（其「经网关」与现状不符，以代码为准）；细节见 `python/CIOaas-python/source/erl/CLAUDE.md` 与 Java `ErlGapAnalysisServiceImpl` 注释。
 
+没有用户 token 的服务间调用（定时任务、后台作业）走**服务通道**：请求头 `X-Internal-Token` 带共享密钥（Java `cio.internal-token` 与 Python `INTERNAL_TOKEN` 同值，两个方向共用），通过后身份为系统用户 `"1"`；Python 只认允许名单 `SERVICE_CHANNEL_PATHS` 里的路径，Java 只认标了 `@InternalAccess` 的接口。目前发这个头的只有两处（接收端仍靠鉴权豁免 / 匿名接口放行，切换记在 Java、Python 台账）：Java 日批调 Python 预测接口；Python 后台取文件（`query_file_link_internal`，用于知识库 / 聊天附件入库、财务提取、ERL 附件摘要），它经 `LGPI_INNER_URL`（默认 `http://java-business:5213`）在集群内直连 Java 业务服务，是上面「经网关回调、不直连 Java」的唯一例外。设计见 `docs/服务间鉴权/设计/design-doc.md`。
+
 ## 归档目录
 
 `other/`（归档历史文档）与 `不要使用-Functional documentation/`（已废弃旧文档）仅供考古，勿作为需求 / 设计依据。
