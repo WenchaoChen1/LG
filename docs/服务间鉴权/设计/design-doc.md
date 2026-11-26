@@ -104,22 +104,23 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 
 ### 5.2 发出（Python → Java）
 
-- **`lgpi_api/_http.py`**：传了 `auth_token` 就发 Bearer；没传就发 `X-Internal-Token`。
+- **`lgpi_api/_http.py`**：凭证最多带一种。
+  - 传了 `auth_token`：发 Bearer。
+  - 没传、且调用点声明走服务通道：发 `X-Internal-Token`。
+  - 其余情况：不带任何凭证，Java 按未登录返回 401。
+- **服务通道由调用点明确声明**：目前只有后台取文件（`query_file_link_internal` / `download_file_via_java`）。密钥只随这类调用发往集群内地址（§5.3），不会被带到公网那条路上。
 - **删除写死的 token**：删掉 `DEFAULT_BEARER_TOKEN` 和 `LGPI_BEARER_TOKEN` 回退（早期开发遗留，生产不依赖）。
-- **效果**：漏传用户 token 的调用打到没标注的 Java 接口时会直接 401，不再悄悄以超管身份执行。
-- **自动走服务通道**：`query_file_link_internal` / `download_file_via_java` 本来就不传用户 token，改完自然走服务通道。
-- **同步改文档**：`lgpi_api/CLAUDE.md` 中「双 token 契约」的描述，回退目标从"静态 service token"改为"服务通道"。
+- **效果**：漏传用户 token 的调用会直接 401，不再悄悄以超管身份执行。
+- **同步改文档**：`lgpi_api/CLAUDE.md` 中「双 token 契约」的描述。
 
-### 5.3 调 Java 的地址改走集群内网
+### 5.3 服务通道调用走集群内网
 
-- **新增环境变量 `LGPI_INNER_URL`**：Java 业务服务在集群内的地址，**不配时默认 `http://java-business:5213`**。Python 调 Java 的接口全部直连业务服务，路径前缀从 `/api/web/` 变为 `/web/`，不经网关、不出公网。
-  - 范围：`lgpi_api` 的全部接口（17 个），以及每个请求的 token 校验。
-  - 可行的原因：网关对 `/api/web/**` 只做"去掉 `/api` 前缀再转发"，不做鉴权；直连时 Java 收到的请求完全一样。
-- **默认值就是集群内地址，不回退到网关**：服务名是 `java-business` 的环境不用配。代价有两个：
-  - 发版即生效，没有开关。上线前必须先在该环境的 Python 容器里确认能连通（§7）；服务名不同的环境要显式配。
+- **原则**：带用户 token 的调用保持原路（`LGPI_BASE_URL` + `/api/web/`，经公网域名和网关），行为完全不变。每个请求的 token 校验带的也是用户 token，同样不变，`AUTH_CHECK_PATH` 不动。只有服务通道调用改走集群内直连。
+- **新增环境变量 `LGPI_INNER_URL`**：Java 业务服务在集群内的地址，不配（或配成空）时默认 `http://java-business:5213`。服务通道调用直连它，路径前缀 `/web/`，不经网关、不出公网。目前只有后台取文件这一个调用。
+- **默认值就是集群内地址，不回退到网关**：服务名是 `java-business` 的环境不用配。
+  - 上线前先在该环境的 Python 容器里确认能连通（§7）。连不通的话，后台取文件（知识库上传与聊天附件的入库、财务提取、ERL 附件摘要）会失败，其中知识库上传和聊天里的文件问答对用户可见；其余页面请求不受影响。服务名不同的环境要显式配。
   - 本地开发解析不了 `java-business`，本地 `.env` 要配成本机 Java 业务服务的地址（如 `http://127.0.0.1:5213`），`.env_example` 给出示例。
-- **`LGPI_BASE_URL` 保留**：它还用来拼给用户点击的页面链接（Fireflies 会议原始数据详情页），必须保持公网域名，不能改成内网地址。
-- **`AUTH_CHECK_PATH`**：现在存的是带 `/api/web/` 前缀的完整路径，改走内网后含义要跟着调整；开发时处理兼容，并写进上线清单。
+- **`LGPI_BASE_URL` 不变**：继续用于带用户 token 的调用、token 校验，以及拼给用户点击的页面链接。
 
 ## 6. 安全约束
 
@@ -131,7 +132,7 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 - **Sentry**：两端的 Sentry 都会把请求头随错误事件和性能事务上报，这个头不在任何一方的默认脱敏名单里，必须自己脱敏。
   - Python：`main.py` 的 `_scrub_sensitive_headers` 加上这个头，并同时挂到错误事件和性能事务上。
   - Java：新增 `SentrySensitiveHeaderScrubber`，从两类事件里删掉 `X-Internal-Token`，顺带删掉此前一直没脱敏的 `Authorization`。
-- **传输**：两个方向都是集群内直连，不经网关、不出公网。Java → Python 用 `http://python:8090`；Python → Java 用 `LGPI_INNER_URL`（§5.3）。内部接口另在网关拒绝（§4.3）。
+- **传输**：带密钥的调用都是集群内直连，不经网关、不出公网。Java → Python 用 `http://python:8090`；Python → Java 的服务通道调用用 `LGPI_INNER_URL`（§5.3）。内部接口另在网关拒绝（§4.3）。带用户 token 的调用不带密钥，仍走原来的公网域名和网关。
 - **轮换**：两边同时改并重启。两边值不一致的那段时间里，服务通道调用会失败；目前没有用户的调用量很小。
 - **数据范围**：服务身份不带公司和组织，所以允许服务通道的接口必须要求调用方显式传公司参数，缺参就拒绝（对齐多租户需求 1.4「取不到上下文时拒绝执行而非放行」）。
 
@@ -139,8 +140,8 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 
 两端都只在本端配了密钥时才发送密钥头，所以**先发版、后配密钥**。这样任何一方开始发密钥头时，对方已经带着 Sentry 脱敏上线。没有硬期限。
 
-0. **发版前确认连通**：在该环境的 Python 容器里执行 `curl -i http://java-business:5213/web/system/auth/check`，应返回 401。Python 新版本一上线就直连这个地址，连不通的话所有请求的 token 校验都会失败。服务名不同的环境先配好 `LGPI_INNER_URL` 再发版。
-1. **两端发版，都不配密钥**：服务通道关闭（预测批仍靠豁免路径，`getFileLinkById` 仍是匿名）；Python 调 Java 改为集群内直连。两端谁先谁后都可以。
+0. **发版前确认连通**：在该环境的 Python 容器里执行 `curl -i http://java-business:5213/web/system/auth/check`，应返回 401。Python 新版本一上线，后台取文件就直连这个地址，连不通的话 知识库上传与聊天附件的入库、财务提取、ERL 附件摘要会失败。服务名不同的环境先配好 `LGPI_INNER_URL` 再发版。
+1. **两端发版，都不配密钥**：服务通道关闭（预测批仍靠豁免路径，`getFileLinkById` 仍是匿名）；Python 后台取文件改为集群内直连，其余调用不变。两端谁先谁后都可以。
 2. **配密钥并重启**：各环境的 Nacos（`cio.internal-token`）和 Python 环境变量（`INTERNAL_TOKEN`）配同一个随机密钥。
 3. **收尾**（Java 需要再发一次版）：
    - `getFileLinkById` 去掉 `@AnonymousAccess`、改为 `@InternalAccess`。**不能和第 1 步同一次发版**：密钥还没配时，Python 后台取文件会全部 401。
@@ -153,7 +154,7 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 
 | # | 问题 | 结论 |
 |---|---|---|
-| Q3 | Python 调 Java 是否改走内网地址？Java 规范（`standards/coding.md` 安全一节）要求内部专用接口在网关限制为内网可达 | **改走内网**：Python 调 Java 全部经 `LGPI_INNER_URL` 直连业务服务（§5.3，不配时默认 `http://java-business:5213`），网关拒绝 `/inner/**`（§4.3）。test 环境已实测 Python 容器能连通 `http://java-business:5213`（2026-11-25）；uat、prod 上线前各测一次 |
+| Q3 | Python 调 Java 是否改走内网地址？Java 规范（`standards/coding.md` 安全一节）要求内部专用接口在网关限制为内网可达 | **只有服务通道调用改走内网**（目前是后台取文件）：经 `LGPI_INNER_URL` 直连业务服务（§5.3，不配时默认 `http://java-business:5213`），网关拒绝 `/inner/**`（§4.3）。带用户 token 的调用和 token 校验保持原路，行为不变（2026-11-26 定）。test 环境已实测 Python 容器能连通 `http://java-business:5213`（2026-11-25）；uat、prod 上线前各测一次 |
 | Q1 | 服务通道能用哪些接口（包括第一批接入哪个场景、ERL 是否接入）？ | **不在本任务范围**。本任务只建机制（默认不开放），并迁移 `getFileLinkById` 与预测批两处现有调用；其余接口是否开放，本任务完成后另开任务分析 |
 | Q2 | 两个方向共用一个密钥，还是每个方向各一个？ | **共用一个密钥** |
 
@@ -166,3 +167,4 @@ Java 与 Python 之间的 HTTP 调用目前全靠**当前登录用户的 token**
 - **IP 白名单**：集群内调用方的地址不固定，按来源地址区分不出是谁在调。
 - **在公网入口（ALB）拒绝内部接口，Python 经网关的内网地址调用**：拦截规则要运维在每个环境的入口上维护，不在代码仓库里；也不是规范要求的"在网关限制"。
 - **直接把 `LGPI_BASE_URL` 改成内网地址**：它同时用来拼给用户点击的页面链接，改了链接就打不开。
+- **Python 调 Java 全部改走内网**（曾经做过一版）：会连带改变所有页面请求的行为——没有了公网入口的 30 秒上限，慢查询的超时与重试表现都变了，网关日志里也不再有这些调用，本地开发还要多配地址。这些都超出「让没有用户的调用有鉴权」这个目标。
